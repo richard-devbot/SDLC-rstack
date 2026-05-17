@@ -613,8 +613,8 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
 export default function (pi: ExtensionAPI) {
   pi.on("resources_discover", async () => {
     const projectRoot = findProjectRoot();
-    const skillPaths = [packageSkillsDir(), ...projectSkillDirs(projectRoot)].filter((path) => existsSync(path));
-    const promptPaths = [packagePromptsDir(), ...projectPromptDirs(projectRoot)].filter((path) => existsSync(path));
+    const skillPaths = projectSkillDirs(projectRoot).filter((path) => existsSync(path));
+    const promptPaths = projectPromptDirs(projectRoot).filter((path) => existsSync(path));
     return skillPaths.length || promptPaths.length ? { skillPaths, promptPaths } : undefined;
   });
 

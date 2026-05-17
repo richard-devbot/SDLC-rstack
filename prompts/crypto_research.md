@@ -1,6 +1,6 @@
 ---
 allowed-tools: Bash(date:*), Bash(mkdir:*), Task, Write
-argument-hint: [crypto_ticker_symbol]
+argument-hint: "[crypto_ticker_symbol]"
 description: Execute comprehensive cryptocurrency research using all crypto agents
 owner: RStack developed by Richardson Gunde
 ---

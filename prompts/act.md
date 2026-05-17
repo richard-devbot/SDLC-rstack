@@ -1,6 +1,6 @@
 ---
 allowed-tools: Read, Edit, Bash
-argument-hint: [workflow-name]
+argument-hint: "[workflow-name]"
 description: Execute GitHub Actions locally using act
 owner: RStack developed by Richardson Gunde
 ---

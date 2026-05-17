@@ -17,7 +17,7 @@ async function walk(dir, predicate = () => true) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (['.git', 'node_modules'].includes(entry.name)) continue;
+      if (['.git', 'node_modules', '.rstack'].includes(entry.name)) continue;
       out.push(...await walk(full, predicate));
     } else if (predicate(full)) out.push(full);
   }

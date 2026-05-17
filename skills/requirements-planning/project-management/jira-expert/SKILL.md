@@ -1,5 +1,5 @@
 ---
-name: "managing-jira-workflows"
+name: "project-management-jira-workflows"
 description: Atlassian Jira expert for creating and managing projects, planning, product discovery, JQL queries, workflows, custom fields, automation, reporting, and all Jira features. Use for Jira project setup, configuration, advanced search, dashboard creation, workflow design, and technical Jira operations.
 owner: RStack developed by Richardson Gunde
 ---

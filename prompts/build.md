@@ -1,6 +1,6 @@
 ---
 description: Implement the plan
-argument-hint: [path-to-plan]
+argument-hint: "[path-to-plan]"
 owner: RStack developed by Richardson Gunde
 ---
 
