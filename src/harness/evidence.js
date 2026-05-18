@@ -34,17 +34,21 @@ export async function appendEvidenceEvent(runDir, event) {
     throw new Error(`Invalid evidence event: ${missing}`);
   }
 
-  const eventPath = join(runDir, 'events.jsonl');
+  const eventPath = join(runDir, 'evidence.jsonl');
   await mkdir(dirname(eventPath), { recursive: true });
   await appendFile(eventPath, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`);
   return eventPath;
 }
 
 export async function readEvidenceEvents(runDir) {
-  const eventPath = join(runDir, 'events.jsonl');
+  const eventPath = join(runDir, 'evidence.jsonl');
   const raw = await readFile(eventPath, 'utf8').catch((error) => {
     if (error?.code === 'ENOENT') return '';
     throw error;
   });
-  return raw.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  return raw
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .filter((entry) => validateEvidenceEvent(entry).ok);
 }

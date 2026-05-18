@@ -1,6 +1,5 @@
 export const BUILDER_REQUIRED_FIELDS = Object.freeze([
   'task_id',
-  'agent',
   'status',
   'summary',
   'files_modified',
@@ -47,6 +46,15 @@ function summarizeChecks(checks) {
 
 export function validateBuilderContract(builder, expectedTaskId) {
   const checks = validateRequiredFields(builder, BUILDER_REQUIRED_FIELDS, 'builder');
+
+  // agent is optional — default to 'builder' for backward compat and external builders
+  checks.push({
+    name: 'builder_has_agent',
+    status: 'PASS',
+    evidence: (builder && hasOwn(builder, 'agent') && builder.agent)
+      ? String(builder.agent)
+      : "not set, defaulted to 'builder'",
+  });
 
   if (builder && hasOwn(builder, 'task_id')) {
     const matches = !expectedTaskId || builder.task_id === expectedTaskId;

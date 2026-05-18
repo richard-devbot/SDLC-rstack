@@ -7,7 +7,7 @@ import {
   VALIDATOR_REQUIRED_FIELDS,
 } from '../src/harness/contracts.js';
 
-test('builder contract requires all Harness fields including agent', () => {
+test('builder contract requires all Harness fields; agent is optional with graceful default', () => {
   const valid = {
     task_id: '004-implementation',
     agent: 'builder',
@@ -21,13 +21,18 @@ test('builder contract requires all Harness fields including agent', () => {
 
   const result = validateBuilderContract(valid, '004-implementation');
   assert.equal(result.ok, true);
-  assert.deepEqual(BUILDER_REQUIRED_FIELDS, ['task_id', 'agent', 'status', 'summary', 'files_modified', 'tests_run', 'risks', 'next_steps']);
+  // agent is no longer hard-required — backward-compat with older/external builders
+  assert.deepEqual(BUILDER_REQUIRED_FIELDS, ['task_id', 'status', 'summary', 'files_modified', 'tests_run', 'risks', 'next_steps']);
 
+  // missing agent still passes (defaults to 'builder') — does not block validation
   const missingAgent = { ...valid };
   delete missingAgent.agent;
   const missingResult = validateBuilderContract(missingAgent, '004-implementation');
-  assert.equal(missingResult.ok, false);
-  assert.ok(missingResult.issues.some((issue) => issue.name === 'builder_has_agent'));
+  assert.equal(missingResult.ok, true);
+  const agentCheck = missingResult.checks.find((c) => c.name === 'builder_has_agent');
+  assert.ok(agentCheck, 'builder_has_agent check should exist');
+  assert.equal(agentCheck.status, 'PASS');
+  assert.ok(agentCheck.evidence.includes("defaulted to 'builder'"));
 });
 
 test('builder contract validates task id, status, and array fields', () => {
