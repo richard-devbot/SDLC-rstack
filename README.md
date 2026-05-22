@@ -424,8 +424,6 @@ Generated run state:
 
 ```text
 .rstack/
-  memory/
-    learnings.jsonl
   registry/
     registry.json
     agents.json
@@ -441,6 +439,7 @@ Generated run state:
       approvals.json
       traceability.json
       events.jsonl
+      evidence.jsonl
       specs/
         product-brief.md
         requirements.json
@@ -456,6 +455,20 @@ Generated run state:
           builder.json
           validation.json
 ```
+
+Project memory is stored outside the run so future runs can learn from prior validator-approved work:
+
+```text
+${RSTACK_HOME:-~/.rstack}/projects/<project-slug>/memory/
+  episodes.jsonl          # agent/stage scoped SDLC task outcomes
+  facts.jsonl             # manually appended project learnings
+  retractions.jsonl       # memory removals or superseded lessons
+  retrieval-events.jsonl  # what memory was injected into prompts
+```
+
+The default memory backend is JSONL plus lexical retrieval. Configure it with `RSTACK_MEMORY_DIR` or `.rstack/memory-config.json`; future vector or SAGE backends should plug in through that config rather than hardcoded paths.
+
+Each builder must return compact `memory_summary` and per-stage `stage_summaries` in `builder.json`. `sdlc_validate` now fails PASS builders that omit meaningful summaries, test evidence, or required per-stage evidence. After validation, summaries are stored in episodic memory so later agents can retrieve decisions, evidence, and handoff hints without carrying full transcripts or raw logs.
 
 ---
 

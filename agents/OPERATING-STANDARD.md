@@ -91,9 +91,29 @@ Every builder task writes:
   "files_modified": [],
   "tests_run": [],
   "risks": [],
-  "next_steps": []
+  "next_steps": [],
+  "memory_summary": {
+    "work_done": "string",
+    "decisions": [],
+    "evidence": [],
+    "context_to_keep": [],
+    "context_to_drop": [],
+    "next_agent_hints": []
+  },
+  "stage_summaries": [
+    {
+      "stage_id": "string",
+      "agent_id": "string",
+      "work_done": "string",
+      "evidence": [],
+      "context_to_keep": [],
+      "context_to_drop": []
+    }
+  ]
 }
 ```
+
+`memory_summary.evidence` and each `stage_summaries[].evidence` must cite command output, artifact paths, or files inspected. Validators fail PASS builders that omit these summaries.
 
 Write it to the active task directory: `$RSTACK_RUN_DIR/tasks/<task_id>/builder.json`.
 

@@ -1,7 +1,8 @@
 # Agentic Memory Layer for SDLC-rstack
 **Status:** Research spec — not yet implemented  
 **Created:** 2026-05-18  
-**Sources:** See citations at bottom
+**Sources:** See citations at bottom  
+**Owner:** RStack developed by Richardson Gunde
 
 ---
 

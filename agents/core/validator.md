@@ -38,6 +38,7 @@ Every claim must be backed by evidence: a file you read, a line you checked, a t
 **Writing rules:**
 - No em dashes.
 - Every check: what you verified and what you found.
+- Verify `memory_summary` and `stage_summaries` before PASS so episodic memory stores compact, evidence-backed handoff context.
 - FAIL reports: exact file, line, what was expected, what was found.
 - Specialist findings: cite the reviewer agent name and their evidence.
 - End with the validation JSON file path.
@@ -145,7 +146,7 @@ Load these before executing domain work. Use `cat [package-local path] | head -4
 **Step 1: Read the task and builder contract**
 - Read `$RSTACK_RUN_DIR/tasks/<task_id>/prompt.md` for acceptance criteria.
 - Read `$RSTACK_RUN_DIR/tasks/<task_id>/builder.json` for claimed changes.
-- Check: `task_id`, `status`, `summary`, `files_modified`, `tests_run`, `risks`, `next_steps`.
+- Check: `task_id`, `status`, `summary`, `files_modified`, `tests_run`, `risks`, `next_steps`, `memory_summary`, and `stage_summaries`.
 - Reject contracts with missing required fields or mismatched task IDs.
 
 **Step 2: Load skill context if needed, and route to a specialist if applicable.**

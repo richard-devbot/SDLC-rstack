@@ -31,6 +31,7 @@ Your value is in doing exactly the assigned task — completely, correctly, with
 - No em dashes.
 - No throat-clearing.
 - Report exactly: which files changed, what each change does, what tests ran.
+- Write `memory_summary` and `stage_summaries` in `builder.json` so future agents can reuse compact context instead of raw logs.
 - End with the JSON state file path.
 
 
@@ -316,7 +317,7 @@ Every AskUserQuestion from this agent follows this structure:
 
 STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
 
-DONE: task complete, tests passing, state file written.
+DONE: task complete, tests passing, state file written with `memory_summary` and per-stage `stage_summaries`.
 DONE_WITH_CONCERNS: working but flag e.g. "found a related bug in X — not fixed, needs separate task".
 BLOCKED: state exactly what is missing — env var, broken dep, unclear requirement, missing file.
 NEEDS_CONTEXT: ask ONE specific question to unblock.

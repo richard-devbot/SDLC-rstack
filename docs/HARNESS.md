@@ -63,17 +63,75 @@ Validator contracts require:
 task_id, validator, status, checks, issues, retry_recommendation
 ```
 
-The Pi extension uses these shared checks in `sdlc_validate`.
+The Pi extension uses these shared checks in `sdlc_validate`. For PASS and DONE_WITH_CONCERNS builders, `sdlc_validate` also requires meaningful `summary`, non-empty `tests_run`, `memory_summary.work_done`, `memory_summary.evidence`, and one evidence-backed `stage_summaries` entry for each canonical stage target listed in the task prompt.
 
 ## Evidence ledger
 
-Task evidence events are JSONL records in `events.jsonl` with:
+Raw runtime events are appended to `events.jsonl`. Validator-grounded task evidence is appended to `evidence.jsonl` with:
 
 ```json
 {"task_id":"004-implementation","kind":"validation","status":"PASS","evidence":"tasks/004-implementation/validation.json"}
 ```
 
 `src/harness/evidence.js` rejects missing `task_id`, `kind`, `status`, or `evidence` fields.
+
+## Agent episodic memory
+
+Validator-approved tasks are written to an agent/stage scoped episodic memory store by `src/harness/memory.js`.
+
+Default storage is configurable and resolves to:
+
+```text
+${RSTACK_HOME:-~/.rstack}/projects/<project-slug>/memory/
+  episodes.jsonl
+  facts.jsonl
+  retractions.jsonl
+  retrieval-events.jsonl
+```
+
+Override storage without changing code by setting `RSTACK_MEMORY_DIR` or by adding `.rstack/memory-config.json`:
+
+```json
+{
+  "memory": {
+    "backend": "jsonl",
+    "retrieval": "lexical",
+    "topK": 3,
+    "maxInjectedChars": 1800,
+    "writePolicy": "validator-approved-only",
+    "embeddingProvider": "none"
+  }
+}
+```
+
+Memory is injected into builder prompts only as bounded historical context. It is explicitly non-authoritative and cannot override the current task, user approvals, tool safety, or validator gates.
+
+Every builder prompt asks agents to add compact summary fields to `builder.json`:
+
+```json
+{
+  "memory_summary": {
+    "work_done": "",
+    "decisions": [],
+    "evidence": [],
+    "context_to_keep": [],
+    "context_to_drop": [],
+    "next_agent_hints": []
+  },
+  "stage_summaries": [
+    {
+      "stage_id": "07-code",
+      "agent_id": "agent.07-code",
+      "work_done": "",
+      "evidence": [],
+      "context_to_keep": [],
+      "context_to_drop": []
+    }
+  ]
+}
+```
+
+This is the context-reduction path. Later agents receive durable decisions, evidence, and handoff hints instead of full transcripts or raw logs.
 
 ## Guardrails
 
@@ -101,13 +159,11 @@ npm test
 npm run validate
 ```
 
-Current known limitation:
+Also run lint for code-level checks:
 
 ```bash
 npm run lint
 ```
-
-is blocked until an ESLint v9 flat config file, `eslint.config.js`, is added.
 
 ## Safety notes
 
