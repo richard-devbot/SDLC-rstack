@@ -10,3 +10,5 @@ export { validateBuilderContract, validateValidatorContract } from './harness/co
 export { appendEvidenceEvent, validateEvidenceEvent } from './harness/evidence.js';
 export { appendEpisode, appendLearning, formatEpisodesForPrompt, projectMemoryDir, readEpisodes, recallEpisodes, searchLearnings } from './harness/memory.js';
 export { sendSlackNotification, formatSlackStageMessage } from './harness/notifications.js';
+export { updateRunMetrics } from './harness/run-state.js';
+export { startDashboardServer } from './harness/dashboard.js';
