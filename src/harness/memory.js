@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import crypto from 'node:crypto';
 
 export const DEFAULT_MEMORY_CONFIG = Object.freeze({
   backend: 'jsonl',
@@ -253,7 +254,31 @@ export function episodeFromValidation({ projectRoot, manifest, task, builder = {
   };
 }
 
+function getSigningSecret(projectSlug) {
+  return process.env.RSTACK_SIGNING_KEY || `rstack-bft-secret-${projectSlug}`;
+}
+
+export function calculateEpisodeSignature(episode) {
+  const secret = getSigningSecret(episode.project_slug || 'unknown');
+  const data = [
+    episode.episode_id || '',
+    episode.project_slug || '',
+    episode.run_id || '',
+    episode.task_id || '',
+    episode.outcome || '',
+    episode.validator_status || ''
+  ].join('|');
+  return crypto.createHmac('sha256', secret).update(data).digest('hex');
+}
+
+export function verifyEpisodeSignature(episode) {
+  if (!episode || !episode.signature) return false;
+  const expected = calculateEpisodeSignature(episode);
+  return episode.signature === expected;
+}
+
 export async function appendEpisode(memoryDir, episode) {
+  episode.signature = calculateEpisodeSignature(episode);
   const result = validateEpisode(episode);
   if (!result.ok) {
     const missing = result.issues.map((issue) => issue.name.replace('episode_has_', '')).join(', ');
@@ -281,7 +306,12 @@ async function retractedIds(memoryDir) {
 export async function readEpisodes(memoryDir) {
   const rows = await readJsonl(jsonlPath(memoryDir, 'episodes.jsonl'));
   const retracted = await retractedIds(memoryDir);
-  return rows.filter((row) => validateEpisode(row).ok && !row.retracted_at && !retracted.has(row.episode_id));
+  return rows.filter((row) => {
+    return validateEpisode(row).ok &&
+           !row.retracted_at &&
+           !retracted.has(row.episode_id) &&
+           verifyEpisodeSignature(row);
+  });
 }
 
 export async function recallEpisodes(memoryDir, options = {}) {

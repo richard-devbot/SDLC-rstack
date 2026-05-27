@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, cp, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CANONICAL_SDLC_STAGES, assertCanonicalStages, getCanonicalStage } from './stages.js';
@@ -64,5 +64,24 @@ export async function updateRunMetrics(runDir, metricsUpdate = {}) {
 
   await writeFile(path, JSON.stringify(merged, null, 2));
   return merged;
+}
+
+export async function createStageCheckpoint(runDir, stageId) {
+  const src = stageDir(runDir, stageId);
+  const dest = join(runDir, 'checkpoints', stageId);
+  if (!existsSync(src)) return false;
+  await mkdir(join(runDir, 'checkpoints'), { recursive: true });
+  await rm(dest, { recursive: true, force: true });
+  await cp(src, dest, { recursive: true, force: true });
+  return true;
+}
+
+export async function rollbackStage(runDir, stageId) {
+  const src = join(runDir, 'checkpoints', stageId);
+  const dest = stageDir(runDir, stageId);
+  if (!existsSync(src)) return false;
+  await rm(dest, { recursive: true, force: true });
+  await cp(src, dest, { recursive: true, force: true });
+  return true;
 }
 

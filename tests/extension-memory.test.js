@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import extension from '../extensions/rstack-sdlc.ts';
+import { projectSlug } from '../src/harness/memory.js';
 
 function createMockPi() {
   return {
@@ -19,13 +21,10 @@ function createMockPi() {
 }
 
 test('sdlc_validate writes validator-approved agent episode memory', async () => {
-  const projectRoot = resolve('./tmp-extension-memory-test');
-  const memoryRoot = resolve('./tmp-extension-memory-root');
+  const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-mem-'));
+  const memoryRoot = mkdtempSync(join(tmpdir(), 'rstack-mem-root-'));
   const previousProjectRoot = process.env.RSTACK_PROJECT_ROOT;
   const previousMemoryDir = process.env.RSTACK_MEMORY_DIR;
-  rmSync(projectRoot, { recursive: true, force: true });
-  rmSync(memoryRoot, { recursive: true, force: true });
-  mkdirSync(projectRoot, { recursive: true });
   process.env.RSTACK_PROJECT_ROOT = projectRoot;
   process.env.RSTACK_MEMORY_DIR = memoryRoot;
 
@@ -77,7 +76,7 @@ test('sdlc_validate writes validator-approved agent episode memory', async () =>
 
     await pi.tools.sdlc_validate.execute('validate', { run_id: runId, task_id: '001-product-clarification' });
 
-    const episodePath = join(memoryRoot, 'tmp-extension-memory-test', 'memory', 'episodes.jsonl');
+    const episodePath = join(memoryRoot, projectSlug(projectRoot), 'memory', 'episodes.jsonl');
     assert.ok(existsSync(episodePath), 'episodes.jsonl should be written under configured memory root');
     const episode = JSON.parse(readFileSync(episodePath, 'utf8').trim());
     assert.equal(episode.run_id, runId);
@@ -97,13 +96,10 @@ test('sdlc_validate writes validator-approved agent episode memory', async () =>
 });
 
 test('sdlc_validate fails PASS builders without memory summary evidence', async () => {
-  const projectRoot = resolve('./tmp-extension-memory-hardening-test');
-  const memoryRoot = resolve('./tmp-extension-memory-hardening-root');
+  const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-mem-hard-'));
+  const memoryRoot = mkdtempSync(join(tmpdir(), 'rstack-mem-hard-root-'));
   const previousProjectRoot = process.env.RSTACK_PROJECT_ROOT;
   const previousMemoryDir = process.env.RSTACK_MEMORY_DIR;
-  rmSync(projectRoot, { recursive: true, force: true });
-  rmSync(memoryRoot, { recursive: true, force: true });
-  mkdirSync(projectRoot, { recursive: true });
   process.env.RSTACK_PROJECT_ROOT = projectRoot;
   process.env.RSTACK_MEMORY_DIR = memoryRoot;
 
