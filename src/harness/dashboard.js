@@ -12,6 +12,25 @@ export function startDashboardServer(projectRoot, runId, port = 3005) {
   const runDir = join(projectRoot, '.rstack', 'runs', runId);
 
   const server = createServer(async (req, res) => {
+    if (req.url === '/api/memory-health') {
+      const memDir = join(projectRoot, '.rstack', 'memory');
+      const episodesPath = join(memDir, 'episodes.jsonl');
+      let episodeCount = 0;
+      let storeSizeKb = 0;
+      if (existsSync(episodesPath)) {
+        try {
+          const { stat } = await import('node:fs/promises');
+          const s = await stat(episodesPath);
+          storeSizeKb = Math.round(s.size / 1024);
+          const raw = await readFile(episodesPath, 'utf8');
+          episodeCount = raw.split('\n').filter(Boolean).length;
+        } catch {}
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ episode_count: episodeCount, store_size_kb: storeSizeKb }));
+      return;
+    }
+
     // API endpoint for metrics
     if (req.url === '/api/metrics') {
       const metricsPath = join(runDir, 'metrics.json');
@@ -272,6 +291,13 @@ export function startDashboardServer(projectRoot, runId, port = 3005) {
             </div>
           \`;
         });
+
+        try {
+          const memRes = await fetch('/api/memory-health');
+          const memData = await memRes.json();
+          document.getElementById('mem-count').innerText = memData.episode_count ?? '—';
+          document.getElementById('mem-size').innerText = (memData.store_size_kb ?? 0) + ' KB';
+        } catch {}
       } catch (err) {
         console.error('Failed to load live metrics', err);
       }
@@ -328,6 +354,14 @@ export function startDashboardServer(projectRoot, runId, port = 3005) {
           <li>🛡️ <strong>requireEvidenceForPass:</strong> true</li>
           <li>🙋 <strong>requireHumanApproval:</strong> true</li>
         </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Memory Health</div>
+        <div id="mem-health" style="font-size: 13px; color: var(--text-muted); display: flex; flex-direction: column; gap: 8px;">
+          <div>🧠 <strong>Episodes:</strong> <span id="mem-count">—</span></div>
+          <div>💾 <strong>Store size:</strong> <span id="mem-size">—</span></div>
+        </div>
       </div>
     </div>
   </div>
