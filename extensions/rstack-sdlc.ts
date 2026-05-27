@@ -10,7 +10,7 @@ import { getCanonicalStage, stageArtifactRelativePath } from "../src/harness/sta
 import { validateBuilderContract } from "../src/harness/contracts.js";
 import { appendEvidenceEvent } from "../src/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from "../src/harness/guardrails.js";
-import { prepareRunState, prepareStageFolders } from "../src/harness/run-state.js";
+import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage } from "../src/harness/run-state.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, searchLearnings, writeRetrievalEvent } from "../src/harness/memory.js";
 import { buildRunReport, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../src/harness/reporter.js";
 import { sendSlackNotification, formatSlackStageMessage } from "../src/harness/notifications.js";
@@ -745,8 +745,33 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
   if (!agent) throw new Error(`Unknown RStack agent: ${task.agent}`);
   const agentBody = await readProjectFile(projectRoot, agent.path, 16000);
   const tools = task.tools?.length ? task.tools : defaultToolsForAgent(agent.name);
+  
+  // Model escalation logic
+  const runId = await latestRun(projectRoot);
+  let attempts = 1;
+  let model = process.env.RSTACK_DEFAULT_MODEL || "gemini-2.5-flash";
+  if (runId) {
+    const runDir = join(runsDir(projectRoot), runId);
+    const eventsPath = join(runDir, "events.jsonl");
+    const events = await readJsonl(eventsPath);
+    const activeTaskEvent = events.filter((e: any) => e.type === "task_started").pop();
+    if (activeTaskEvent) {
+      const activeTaskId = activeTaskEvent.task_id;
+      attempts = events.filter((e: any) => e.type === "task_started" && e.task_id === activeTaskId).length;
+      if (attempts >= 2) {
+        model = process.env.RSTACK_ESCALATED_MODEL || "gemini-2.5-pro";
+        await appendEvent(projectRoot, runId, {
+          type: "model_escalated",
+          task_id: activeTaskId,
+          attempt: attempts,
+          model,
+        });
+      }
+    }
+  }
+
   const prompt = `# RStack delegated agent: ${agent.name}\n\n${agentBody}\n\n## Delegated task\n${task.task}\n\n## Contract\nReturn concise results with evidence, files read/changed, commands run, blockers, and next action.`;
-  const args = ["--mode", "json", "-p", "--no-session", "--tools", tools.join(","), prompt];
+  const args = ["--mode", "json", "-p", "--no-session", "--model", model, "--tools", tools.join(","), prompt];
   const invocation = piInvocation(args);
   const messages: any[] = [];
   let stderr = "";
@@ -1184,6 +1209,15 @@ export default function (pi: ExtensionAPI) {
       if (status === "PASS") {
         await appendEvent(projectRoot, manifest.run_id, { type: "quality_score_recorded", task_id: task.id, score: 0.9 });
         await appendEvent(projectRoot, manifest.run_id, { type: "stage_completed", stage_id: task.id, elapsed_ms: 1200 });
+        try {
+          const runDir = join(runsDir(projectRoot), manifest.run_id);
+          const checkpointSaved = await createStageCheckpoint(runDir, task.id);
+          if (checkpointSaved) {
+            await appendEvent(projectRoot, manifest.run_id, { type: "stage_checkpoint_saved", stage_id: task.id });
+          }
+        } catch (cpError) {
+          console.error("Failed to save stage checkpoint:", cpError);
+        }
       } else {
         await appendEvent(projectRoot, manifest.run_id, { type: "quality_score_recorded", task_id: task.id, score: 0.25 });
         await appendEvent(projectRoot, manifest.run_id, { type: "guardrail_triggered", limit: "maxTaskAttempts", value: 1 });
@@ -1520,6 +1554,63 @@ export default function (pi: ExtensionAPI) {
       } catch { /* best-effort HTML trace */ }
 
       return { content: [{ type: "text", text }], details: { run_id: runId, task_id: taskId, trace_html: tracePath } };
+    },
+  });
+
+  pi.registerTool({
+    name: "sdlc_rollback",
+    label: "RStack Rollback",
+    description: "Rollback the specified SDLC stage to its last recorded checkpoint, restoring directory state.",
+    parameters: Type.Object({
+      stage_id: Type.String({ description: "Stage ID (e.g., 00-environment, 01-transcript, etc.) to rollback." }),
+      run_id: Type.Optional(Type.String({ description: "Run ID to target." })),
+    }),
+    async execute(_id, params) {
+      const projectRoot = findProjectRoot();
+      const runId = params.run_id || await latestRun(projectRoot);
+      if (!runId) throw new Error("No RStack run found.");
+
+      const runDir = join(runsDir(projectRoot), runId);
+      const reverted = await rollbackStage(runDir, params.stage_id);
+
+      if (reverted) {
+        await appendEvent(projectRoot, runId, { type: "stage_checkpoint_reverted", stage_id: params.stage_id });
+        return {
+          content: [{ type: "text", text: `Successfully rolled back stage ${params.stage_id} for run ${runId} to its last checkpoint.` }],
+          details: { run_id: runId, stage_id: params.stage_id, status: "SUCCESS" }
+        };
+      } else {
+        return {
+          content: [{ type: "text", text: `Failed to rollback stage ${params.stage_id}. No checkpoint found.` }],
+          details: { run_id: runId, stage_id: params.stage_id, status: "NO_CHECKPOINT" }
+        };
+      }
+    },
+  });
+
+  pi.registerCommand("sdlc-rollback", {
+    description: "Rollback the specified SDLC stage to its last recorded checkpoint.",
+    handler: async (args, ctx) => {
+      const stageId = args[0];
+      if (!stageId) {
+        ctx.ui.notify("Stage ID is required for rollback.", "error");
+        return;
+      }
+      const res = await pi.tools.sdlc_rollback.execute("cmd", { stage_id: stageId });
+      ctx.ui.notify(String(res.content[0].text), "info");
+    },
+  });
+
+  pi.registerCommand("sdlc_rollback", {
+    description: "Rollback the specified SDLC stage to its last recorded checkpoint.",
+    handler: async (args, ctx) => {
+      const stageId = args[0];
+      if (!stageId) {
+        ctx.ui.notify("Stage ID is required for rollback.", "error");
+        return;
+      }
+      const res = await pi.tools.sdlc_rollback.execute("cmd", { stage_id: stageId });
+      ctx.ui.notify(String(res.content[0].text), "info");
     },
   });
 

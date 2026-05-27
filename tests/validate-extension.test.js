@@ -39,6 +39,7 @@ test('rstack Pi extension registers expected tools and commands with mock Pi API
     'sdlc_spec',
     'sdlc_start',
     'sdlc_status',
+    'sdlc_rollback',
     'sdlc_trace',
     'sdlc_validate',
   ].sort());
@@ -48,6 +49,8 @@ test('rstack Pi extension registers expected tools and commands with mock Pi API
   assert.ok(commands.some((command) => command.name === 'sdlc_dashboard'));
   assert.ok(commands.some((command) => command.name === 'sdlc-trace'));
   assert.ok(commands.some((command) => command.name === 'sdlc_trace'));
+  assert.ok(commands.some((command) => command.name === 'sdlc-rollback'));
+  assert.ok(commands.some((command) => command.name === 'sdlc_rollback'));
   for (const tool of tools) {
     assert.equal(typeof tool.execute, 'function', `${tool.name} execute should be a function`);
     assert.equal(tool.parameters.type, 'object', `${tool.name} parameters should be object schema`);
