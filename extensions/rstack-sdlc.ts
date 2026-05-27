@@ -12,6 +12,7 @@ import { appendEvidenceEvent } from "../src/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from "../src/harness/guardrails.js";
 import { prepareRunState, prepareStageFolders } from "../src/harness/run-state.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, searchLearnings, writeRetrievalEvent } from "../src/harness/memory.js";
+import { sendSlackNotification, formatSlackStageMessage } from "../src/harness/notifications.js";
 
 const RSTACK_VERSION = "0.3.0";
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
@@ -914,6 +915,15 @@ export default function (pi: ExtensionAPI) {
       await appendEvent(projectRoot, manifest.run_id, { type: "approval_gate", artifact: params.artifact, status: params.status });
       await addTrace(projectRoot, manifest.run_id, { type: "approval", ...record });
 
+      try {
+        const payload = formatSlackStageMessage(manifest.run_id, params.artifact, params.status === "APPROVED" ? "PASS" : "BLOCKED", {
+          message: `Human-in-the-loop sign-off recorded by ${record.approver}.${params.comments ? ` Comments: "${params.comments}"` : ""}`,
+        });
+        await sendSlackNotification(process.env.RSTACK_SLACK_WEBHOOK, payload);
+      } catch (err) {
+        console.error("Failed to send Slack approval notification:", err);
+      }
+
       return { content: [{ type: "text", text: `Approval ${params.status} for ${params.artifact}` }], details: record };
     }
   });
@@ -961,6 +971,14 @@ export default function (pi: ExtensionAPI) {
       await writeFile(approvalsPath(dir), JSON.stringify([], null, 2));
       await writeFile(join(dir, "context.md"), `# RStack Run Context\n\nGoal: ${params.goal}\n\nMode: ${manifest.mode}\n\n## Product-owner notes\n\n`);
       await appendEvent(projectRoot, id, { type: "run_started", goal: params.goal });
+      try {
+        const payload = formatSlackStageMessage(id, "00-environment", "START", {
+          message: `RStack Run started for goal: "${params.goal}" in ${manifest.mode} mode.`,
+        });
+        await sendSlackNotification(process.env.RSTACK_SLACK_WEBHOOK, payload);
+      } catch (err) {
+        console.error("Failed to send Slack start notification:", err);
+      }
       return { content: [{ type: "text", text: `Started RStack SDLC run ${id}\nRun directory: ${relative(projectRoot, dir)}\nNext: call sdlc_clarify for product-owner decisions, or sdlc_plan if the goal is already clear.` }], details: manifest };
     },
   });
@@ -1146,6 +1164,17 @@ export default function (pi: ExtensionAPI) {
         status: status === "PASS" ? "PASS" : "FAIL",
         evidence: `${task.output_dir}/validation.json`,
       });
+      try {
+        const payload = formatSlackStageMessage(manifest.run_id, task.id, status, {
+          message: status === "PASS"
+            ? `Task validated and advance targets committed. Summary: "${builderContract?.summary || "No summary recorded"}"`
+            : `Harness validation check failed for ${task.id}. Rerouting task to Builder Sandbox for corrections.`,
+          attempt: builderContract?.attempt || "1",
+        });
+        await sendSlackNotification(process.env.RSTACK_SLACK_WEBHOOK, payload);
+      } catch (err) {
+        console.error("Failed to send Slack validation notification:", err);
+      }
       try {
         const registry = await loadRegistry(projectRoot);
         const selected = registry.filter((item) => task.specialists?.includes(item.id));
