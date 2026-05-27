@@ -20,25 +20,27 @@ description: "Technical deep-dive into every layer of the RStack SDLC ecosystem 
 
 RStack SDLC is a **governed AI software-delivery harness**. It wraps AI coding agents in a deterministic reliability layer — enforcing lifecycle contracts, approval gates, evidence requirements, guardrails, and episodic memory — so that software is built the way a productive engineering team would build it, not the way a single chatbot would guess at it.
 
-The system has seven distinct layers:
+The system has nine distinct layers:
 
 | Layer | What it does |
 |---|---|
-| **Runtime Adapter** | Binds RStack to Pi via lifecycle hooks and registers 15 SDLC tools |
+| **Developer / Product Owner** | Provides requirements, approval decisions, and goal input via SDLC tools |
+| **CLI Interface** | `rstack-agents` CLI for managing agents, skills, plugins; chalk-based structured logger |
+| **Pi Extension** | Binds RStack to Pi via 6 lifecycle hooks and 13 registered SDLC tools |
+| **Harness Core** | Enforces contracts, validates evidence, manages run state and notifications (7 modules) |
 | **Pipeline Engine** | Routes work through 15 canonical SDLC stages, each producing a typed artifact |
-| **Harness Core** | Enforces contracts, validates evidence, manages run state |
-| **Governance** | Approval gates, guardrails, and human-in-the-loop controls |
-| **Security** | Protected actions, secret scanning, prompt injection detection |
-| **Episodic Memory** | Cross-run learning with lexical retrieval and validator-gated writes |
-| **Asset Registry** | 196 agents · 156 skills · 72 plugins · 36 prompts, fully indexed |
+| **Governance + Security + Memory** | Approval gates, guardrails, secret scanning, injection detection, episodic memory |
+| **Observability** | Live dashboard server (port 3005), run reporter, 19 tracked event types |
+| **Notifications & Handoff** | Slack/Discord/Teams webhooks; structured agent-to-agent context relay via `handoff.md` |
+| **Asset Registry & Run State** | 196 agents · 156 skills · 72 plugins; resumable run state with checkpoint/rollback |
 
 ---
 
 ## Full ecosystem diagram
 
-<Note>
-  **Excalidraw source** — the full editable diagram is at `docs/mintlify/assets/rstack-ecosystem-architecture.excalidraw`. Open it at [excalidraw.com](https://excalidraw.com) (File → Open) or in any Excalidraw-compatible editor. It covers all eight layers: Developer trigger → Pi Extension → Harness Core → 15-Stage Pipeline → Governance → Security → Episodic Memory → Asset Registry → Run State.
-</Note>
+<Frame>
+  <img src="/assets/rstack-ecosystem-architecture.svg" alt="RStack SDLC Full Ecosystem Architecture — 9 layers: Developer, CLI Interface, Pi Extension (13 tools), Harness Core (7 modules), 15-Stage Pipeline, Governance + Security + Episodic Memory, Observability, Notifications and Handoff, Asset Registry and Run State" />
+</Frame>
 
 ### Interactive Flow (Mermaid)
 

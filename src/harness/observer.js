@@ -20,10 +20,29 @@ import { readFile, readdir }  from 'node:fs/promises';
 import { join, resolve }      from 'node:path';
 import { spawn }              from 'node:child_process';
 
+// ── CLI argument parsing ──────────────────────────────────────────────────────
+// Supports: --port <n>  --project <path>  --run-id <id>  --no-browser
+
+function parseArgv(argv) {
+  const out = { port: null, project: null, runId: null, noBrowser: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if ((a === '--port')    && argv[i + 1]) { out.port    = Number(argv[++i]); }
+    if ((a === '--project') && argv[i + 1]) { out.project = argv[++i]; }
+    if ((a === '--run-id')  && argv[i + 1]) { out.runId   = argv[++i]; }
+    if (a === '--no-browser') out.noBrowser = true;
+  }
+  return out;
+}
+const CLI = parseArgv(process.argv.slice(2));
+
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const PORT         = Number(process.env.RSTACK_OBSERVER_PORT ?? 3007);
-const PROJECT_ROOT = resolve(process.env.RSTACK_PROJECT_ROOT ?? process.cwd());
+const PORT         = CLI.port    ?? Number(process.env.RSTACK_OBSERVER_PORT ?? 3007);
+const PROJECT_ROOT = CLI.project ? resolve(CLI.project)
+                                 : resolve(process.env.RSTACK_PROJECT_ROOT ?? process.cwd());
+const PINNED_RUN   = CLI.runId   ?? process.env.RSTACK_RUN_ID ?? null;
+const NO_BROWSER   = CLI.noBrowser || process.env.RSTACK_NO_BROWSER === '1';
 const POLL_MS      = 800; // fallback polling when fs.watch unavailable
 
 // ── Utility ──────────────────────────────────────────────────────────────────
@@ -825,9 +844,10 @@ server.listen(PORT, '127.0.0.1', async () => {
   console.log(`\n  RStack Observer — live SDLC observability`);
   console.log(`  Project: ${PROJECT_ROOT}`);
   console.log(`  Dashboard: ${url}\n`);
+  if (PINNED_RUN) console.log(`  Pinned run: ${PINNED_RUN}`);
 
   // Find active run and start tailing
-  const runId = await latestRunId(PROJECT_ROOT);
+  const runId = PINNED_RUN ?? await latestRunId(PROJECT_ROOT);
   if (runId) {
     currentRunId  = runId;
     currentRunDir = join(PROJECT_ROOT, '.rstack', 'runs', runId);
@@ -839,7 +859,7 @@ server.listen(PORT, '127.0.0.1', async () => {
     console.log(`  No active run yet — will detect automatically.`);
   }
 
-  openBrowser(url);
+  if (!NO_BROWSER) openBrowser(url);
 });
 
 server.on('error', (err) => {

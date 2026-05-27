@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 700" width="1400" height="700" font-family="Inter,-apple-system,Helvetica Neue,Arial,sans-serif">
+<defs>
+  <marker id="ar" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#94a3b8"/></marker>
+  <filter id="sh"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0000001a"/></filter>
+</defs>
+<rect width="1400" height="700" fill="#f1f5f9"/>
+<rect x="0" y="0" width="1400" height="78" fill="#0f172a"/>
+<text x="36" y="34" font-size="26" fill="white" font-weight="800">RStack SDLC</text>
+<text x="36" y="60" font-size="12" fill="#94a3b8">Governed AI Software-Delivery Harness  ·  Fully managed 15-stage pipeline  ·  Pi-native, governed by contracts, evidence &amp; episodic memory</text>
+<rect x="1040" y="20" width="106" height="26" rx="5" fill="#1e40af"/>
+<text x="1093" y="38" font-size="11" fill="white" text-anchor="middle" font-weight="600">Core v1.0.1</text>
+<rect x="1155" y="20" width="170" height="26" rx="5" fill="#6d28d9"/>
+<text x="1240" y="38" font-size="11" fill="white" text-anchor="middle" font-weight="600">Pi Extension v0.3.0</text>
+<rect x="1310" y="20" width="178" height="26" rx="5" fill="#0f766e"/>
+<text x="1399" y="38" font-size="11" fill="white" text-anchor="middle" font-weight="600">15 Stages · 13 Tools</text>
+<rect x="20" y="86" width="188" height="360" rx="10" fill="white" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="20" y="86" width="188" height="48" rx="10" fill="#0ea5e9"/>
+<rect x="20" y="116" width="188" height="18" fill="#0ea5e9"/>
+<text x="114" y="107" font-size="14" fill="white" text-anchor="middle" font-weight="700">Developer</text>
+<text x="114" y="127" font-size="9" fill="rgba(255,255,255,0.82)" text-anchor="middle">Product Owner · Input</text>
+<rect x="226" y="86" width="282" height="360" rx="10" fill="white" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="226" y="86" width="282" height="48" rx="10" fill="#7c3aed"/>
+<rect x="226" y="116" width="282" height="18" fill="#7c3aed"/>
+<text x="367" y="107" font-size="14" fill="white" text-anchor="middle" font-weight="700">Pi Extension</text>
+<text x="367" y="127" font-size="9" fill="rgba(255,255,255,0.82)" text-anchor="middle">extensions/rstack-sdlc.ts · v0.3.0</text>
+<rect x="526" y="86" width="228" height="360" rx="10" fill="white" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="526" y="86" width="228" height="48" rx="10" fill="#d97706"/>
+<rect x="526" y="116" width="228" height="18" fill="#d97706"/>
+<text x="640" y="107" font-size="14" fill="white" text-anchor="middle" font-weight="700">Harness Core</text>
+<text x="640" y="127" font-size="9" fill="rgba(255,255,255,0.82)" text-anchor="middle">src/harness/ · 7 modules</text>
+<rect x="772" y="86" width="244" height="360" rx="10" fill="white" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="772" y="86" width="244" height="48" rx="10" fill="#16a34a"/>
+<rect x="772" y="116" width="244" height="18" fill="#16a34a"/>
+<text x="894" y="107" font-size="14" fill="white" text-anchor="middle" font-weight="700">Pipeline Engine</text>
+<text x="894" y="127" font-size="9" fill="rgba(255,255,255,0.82)" text-anchor="middle">15 Canonical Stages</text>
+<rect x="1034" y="86" width="346" height="360" rx="10" fill="white" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="1034" y="86" width="346" height="48" rx="10" fill="#0891b2"/>
+<rect x="1034" y="116" width="346" height="18" fill="#0891b2"/>
+<text x="1207" y="107" font-size="14" fill="white" text-anchor="middle" font-weight="700">Observability &amp; Outputs</text>
+<text x="1207" y="127" font-size="9" fill="rgba(255,255,255,0.82)" text-anchor="middle">dashboard · reporter · notifications</text>
+<line x1="208" y1="266" x2="224" y2="266" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ar)"/>
+<line x1="508" y1="266" x2="524" y2="266" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ar)"/>
+<line x1="754" y1="266" x2="770" y2="266" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ar)"/>
+<line x1="1016" y1="266" x2="1032" y2="266" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#ar)"/>
+<rect x="30" y="142" width="168" height="62" rx="6" fill="#f0f9ff" stroke="#0369a125" stroke-width="1"/>
+<text x="114" y="169" font-size="11" fill="#0369a1" text-anchor="middle" font-weight="600">Requirements Brief</text>
+<text x="114" y="185" font-size="9" fill="#0369a1bb" text-anchor="middle">goals · constraints · context</text>
+<rect x="30" y="216" width="168" height="62" rx="6" fill="#f0f9ff" stroke="#0369a125" stroke-width="1"/>
+<text x="114" y="243" font-size="11" fill="#0369a1" text-anchor="middle" font-weight="600">Approval Decisions</text>
+<text x="114" y="259" font-size="9" fill="#0369a1bb" text-anchor="middle">gate reviews · interactive mode</text>
+<rect x="30" y="290" width="168" height="62" rx="6" fill="#f0f9ff" stroke="#0369a125" stroke-width="1"/>
+<text x="114" y="317" font-size="11" fill="#0369a1" text-anchor="middle" font-weight="600">Goal Input</text>
+<text x="114" y="333" font-size="9" fill="#0369a1bb" text-anchor="middle">sdlc_start · sdlc_clarify</text>
+<rect x="30" y="364" width="168" height="62" rx="6" fill="#eff6ff" stroke="#1d4ed825" stroke-width="1"/>
+<text x="114" y="391" font-size="11" fill="#1d4ed8" text-anchor="middle" font-weight="600">CLI Interface</text>
+<text x="114" y="407" font-size="9" fill="#1d4ed8bb" text-anchor="middle">rstack-agents list/add/validate</text>
+<text x="296" y="144" font-size="10" fill="#6d28d9" text-anchor="middle" font-weight="bold">6 Lifecycle Hooks</text>
+<rect x="234" y="154" width="135" height="38" rx="6" fill="#faf5ff" stroke="#6d28d925" stroke-width="1"/>
+<text x="301" y="173" font-size="11" fill="#6d28d9" text-anchor="middle" font-weight="600">resources_discover</text>
+<rect x="234" y="201" width="135" height="38" rx="6" fill="#faf5ff" stroke="#6d28d925" stroke-width="1"/>
+<text x="301" y="220" font-size="11" fill="#6d28d9" text-anchor="middle" font-weight="600">session_start</text>
+<rect x="234" y="248" width="135" height="38" rx="6" fill="#faf5ff" stroke="#6d28d925" stroke-width="1"/>
+<text x="301" y="267" font-size="11" fill="#6d28d9" text-anchor="middle" font-weight="600">before_agent_start</text>
+<rect x="234" y="295" width="135" height="38" rx="6" fill="#faf5ff" stroke="#6d28d925" stroke-width="1"/>
+<text x="301" y="314" font-size="11" fill="#6d28d9" text-anchor="middle" font-weight="600">tool_call</text>
+<rect x="234" y="342" width="135" height="38" rx="6" fill="#faf5ff" stroke="#6d28d925" stroke-width="1"/>
+<text x="301" y="361" font-size="11" fill="#6d28d9" text-anchor="middle" font-weight="600">tool_result</text>
+<rect x="234" y="389" width="135" height="38" rx="6" fill="#faf5ff" stroke="#6d28d925" stroke-width="1"/>
+<text x="301" y="408" font-size="11" fill="#6d28d9" text-anchor="middle" font-weight="600">session_shutdown</text>
+<line x1="367" y1="138" x2="367" y2="436" stroke="#ddd6fe" stroke-width="1" stroke-dasharray="4,3"/>
+<text x="437" y="144" font-size="10" fill="#6d28d9" text-anchor="middle" font-weight="bold">13 SDLC Tools</text>
+<rect x="371" y="154" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="402" y="168" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_orchestrate</text>
+<rect x="439" y="154" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="470" y="168" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_start</text>
+<rect x="371" y="179" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="402" y="193" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_clarify</text>
+<rect x="439" y="179" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="470" y="193" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_plan</text>
+<rect x="371" y="204" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="402" y="218" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_build_next</text>
+<rect x="439" y="204" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="470" y="218" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_validate</text>
+<rect x="371" y="229" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="402" y="243" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_agents</text>
+<rect x="439" y="229" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="470" y="243" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_delegate</text>
+<rect x="371" y="254" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="402" y="268" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_approve</text>
+<rect x="439" y="254" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="470" y="268" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_spec</text>
+<rect x="371" y="279" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="402" y="293" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_status</text>
+<rect x="439" y="279" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="470" y="293" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_memory</text>
+<rect x="371" y="304" width="62" height="20" rx="4" fill="#f5f3ff" stroke="#5b21b630" stroke-width="1"/>
+<text x="402" y="318" font-size="9" fill="#5b21b6" text-anchor="middle">sdlc_dashboard</text>
+<rect x="536" y="142" width="208" height="36" rx="6" fill="#fffbeb" stroke="#b4530925" stroke-width="1"/>
+<text x="640" y="156" font-size="11" fill="#b45309" text-anchor="middle" font-weight="600">contracts.js</text>
+<text x="640" y="172" font-size="9" fill="#b45309bb" text-anchor="middle">Builder &amp; Validator contracts</text>
+<rect x="536" y="186" width="208" height="36" rx="6" fill="#fffbeb" stroke="#b4530925" stroke-width="1"/>
+<text x="640" y="200" font-size="11" fill="#b45309" text-anchor="middle" font-weight="600">stages.js</text>
+<text x="640" y="216" font-size="9" fill="#b45309bb" text-anchor="middle">15 canonical stages locked</text>
+<rect x="536" y="230" width="208" height="36" rx="6" fill="#fffbeb" stroke="#b4530925" stroke-width="1"/>
+<text x="640" y="244" font-size="11" fill="#b45309" text-anchor="middle" font-weight="600">guardrails.js</text>
+<text x="640" y="260" font-size="9" fill="#b45309bb" text-anchor="middle">maxAttempts:2  maxTools:40</text>
+<rect x="536" y="274" width="208" height="36" rx="6" fill="#fffbeb" stroke="#b4530925" stroke-width="1"/>
+<text x="640" y="288" font-size="11" fill="#b45309" text-anchor="middle" font-weight="600">evidence.js</text>
+<text x="640" y="304" font-size="9" fill="#b45309bb" text-anchor="middle">Append-only events.jsonl</text>
+<rect x="536" y="318" width="208" height="36" rx="6" fill="#fffbeb" stroke="#b4530925" stroke-width="1"/>
+<text x="640" y="332" font-size="11" fill="#b45309" text-anchor="middle" font-weight="600">run-state.js</text>
+<text x="640" y="348" font-size="9" fill="#b45309bb" text-anchor="middle">checkpoint · rollback</text>
+<rect x="536" y="362" width="208" height="36" rx="6" fill="#fffbeb" stroke="#b4530925" stroke-width="1"/>
+<text x="640" y="376" font-size="11" fill="#b45309" text-anchor="middle" font-weight="600">memory.js</text>
+<text x="640" y="392" font-size="9" fill="#b45309bb" text-anchor="middle">recall · append · sanitise</text>
+<rect x="536" y="406" width="208" height="36" rx="6" fill="#fffbeb" stroke="#b4530925" stroke-width="1"/>
+<text x="640" y="420" font-size="11" fill="#b45309" text-anchor="middle" font-weight="600">notifications.js</text>
+<text x="640" y="436" font-size="9" fill="#b45309bb" text-anchor="middle">Slack · Discord · Teams</text>
+<rect x="782" y="142" width="224" height="65" rx="6" fill="#dcfce7" stroke="#16653425" stroke-width="1"/>
+<text x="894" y="170" font-size="11" fill="#166534" text-anchor="middle" font-weight="600">Discovery</text>
+<text x="894" y="186" font-size="9" fill="#166534bb" text-anchor="middle">Stages 00–03  ·  Env, Transcript, Requirements, Docs</text>
+<rect x="782" y="218" width="224" height="65" rx="6" fill="#bbf7d0" stroke="#15803d25" stroke-width="1"/>
+<text x="894" y="246" font-size="11" fill="#15803d" text-anchor="middle" font-weight="600">Design</text>
+<text x="894" y="262" font-size="9" fill="#15803dbb" text-anchor="middle">Stages 04–06  ·  Planning, Jira, Architecture</text>
+<rect x="782" y="294" width="224" height="65" rx="6" fill="#86efac" stroke="#14532d25" stroke-width="1"/>
+<text x="894" y="322" font-size="11" fill="#14532d" text-anchor="middle" font-weight="600">Build</text>
+<text x="894" y="338" font-size="9" fill="#14532dbb" text-anchor="middle">Stages 07–09  ·  Code, Testing, Deployment</text>
+<rect x="782" y="370" width="224" height="65" rx="6" fill="#4ade80" stroke="#14532d25" stroke-width="1"/>
+<text x="894" y="398" font-size="11" fill="#14532d" text-anchor="middle" font-weight="600">Review</text>
+<text x="894" y="414" font-size="9" fill="#14532dbb" text-anchor="middle">Stages 10–14  ·  Summary, Feedback, Security, Comply, Cost</text>
+<rect x="1044" y="142" width="326" height="48" rx="6" fill="#ecfeff" stroke="#0e749025" stroke-width="1"/>
+<text x="1207" y="162" font-size="11" fill="#0e7490" text-anchor="middle" font-weight="600">Dashboard Server</text>
+<text x="1207" y="178" font-size="9" fill="#0e7490bb" text-anchor="middle">startDashboardServer · port 3005 · /api/metrics</text>
+<rect x="1044" y="200" width="326" height="48" rx="6" fill="#ecfeff" stroke="#0e749025" stroke-width="1"/>
+<text x="1207" y="220" font-size="11" fill="#0e7490" text-anchor="middle" font-weight="600">Run Reporter</text>
+<text x="1207" y="236" font-size="9" fill="#0e7490bb" text-anchor="middle">buildRunReport · 19 event types · renderDashboardHtml</text>
+<rect x="1044" y="258" width="326" height="48" rx="6" fill="#f0fdf4" stroke="#065f4625" stroke-width="1"/>
+<text x="1207" y="278" font-size="11" fill="#065f46" text-anchor="middle" font-weight="600">Notifications</text>
+<text x="1207" y="294" font-size="9" fill="#065f46bb" text-anchor="middle">Slack · Discord · Teams webhooks · approval alerts</text>
+<rect x="1044" y="316" width="326" height="48" rx="6" fill="#f0fdf4" stroke="#065f4625" stroke-width="1"/>
+<text x="1207" y="336" font-size="11" fill="#065f46" text-anchor="middle" font-weight="600">Agent Handoff</text>
+<text x="1207" y="352" font-size="9" fill="#065f46bb" text-anchor="middle">handoff.md · next_agent_hints · stage_summaries</text>
+<rect x="1044" y="374" width="326" height="48" rx="6" fill="#eff6ff" stroke="#1e40af25" stroke-width="1"/>
+<text x="1207" y="394" font-size="11" fill="#1e40af" text-anchor="middle" font-weight="600">Asset Registry</text>
+<text x="1207" y="410" font-size="9" fill="#1e40afbb" text-anchor="middle">196 agents · 156 skills · 72 plugins · 36 prompts</text>
+<rect x="20" y="458" width="1360" height="66" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
+<text x="700" y="473" font-size="11" fill="#374151" text-anchor="middle" font-weight="700">Cross-Cutting Concerns  —  Active Across All Stages</text>
+<rect x="34" y="480" width="434" height="36" rx="6" fill="#dbeafe" stroke="#1e40af30" stroke-width="1"/>
+<text x="251" y="494" font-size="10" fill="#1e40af" text-anchor="middle" font-weight="700">Governance + Approval Gates</text>
+<text x="251" y="508" font-size="9" fill="#1e40afcc" text-anchor="middle">Protected Actions (20+) · 4-eye review · express mode bypass</text>
+<rect x="482" y="480" width="434" height="36" rx="6" fill="#fee2e2" stroke="#991b1b30" stroke-width="1"/>
+<text x="699" y="494" font-size="10" fill="#991b1b" text-anchor="middle" font-weight="700">Security Layer</text>
+<text x="699" y="508" font-size="9" fill="#991b1bcc" text-anchor="middle">Secret Scanner (10 patterns) · Prompt Injection Guard (15) · Path Guard</text>
+<rect x="930" y="480" width="434" height="36" rx="6" fill="#ede9fe" stroke="#5b21b630" stroke-width="1"/>
+<text x="1147" y="494" font-size="10" fill="#5b21b6" text-anchor="middle" font-weight="700">Episodic Memory</text>
+<text x="1147" y="508" font-size="9" fill="#5b21b6cc" text-anchor="middle">episodes.jsonl · recallEpisodes() · validator-gated writes · 4096-token cap</text>
+<rect x="0" y="532" width="1400" height="168" fill="#0f172a"/>
+<text x="700" y="556" font-size="13" fill="white" text-anchor="middle" font-weight="700">RStack SDLC Platform  ·  v1.0.1 / Pi Extension v0.3.0  ·  @earendil-works/pi-coding-agent  ·  npm install rstack-agents</text>
+<text x="700" y="577" font-size="11" fill="#94a3b8" text-anchor="middle">Asset Registry: 196 Agents  ·  156 Skills  ·  72 Plugins  ·  36 Prompts  ·  github.com/richard-devbot/SDLC-rstack</text>
+</svg>
