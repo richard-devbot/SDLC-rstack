@@ -88,7 +88,8 @@ export async function buildRunReport(runDir) {
       case 'tool_result':           trace.tool_results.push(ev); break;
       case 'guardrail_triggered':   trace.guardrail_events.push(ev); trace.guardrail_hit_count++; break;
       case 'memory_recalled':
-      case 'episode_memory_written': trace.memory_events.push(ev); break;
+      case 'episode_memory_written':
+      case 'episode_memory_write_failed': trace.memory_events.push(ev); break;
       case 'task_validated':        trace.status = ev.status ?? trace.status; break;
     }
   }
@@ -103,14 +104,14 @@ export async function buildRunReport(runDir) {
   const guardrailSummary = {};
   for (const ev of events) {
     if (ev.type !== 'guardrail_triggered') continue;
-    const k = ev.limit_name ?? 'unknown';
+    const k = ev.limit_name ?? ev.limit ?? 'unknown';
     guardrailSummary[k] = (guardrailSummary[k] ?? 0) + 1;
   }
 
   // Cost summary
   const costEvents = events.filter((ev) => ev.type === 'cost_recorded');
   const costSummary = {
-    total_usd: costEvents.reduce((s, ev) => s + (Number(ev.usd) || 0), 0),
+    total_usd: costEvents.reduce((s, ev) => s + (Number(ev.usd ?? ev.cost ?? 0) || 0), 0),
     total_tokens: costEvents.reduce((s, ev) => s + (Number(ev.tokens) || 0), 0),
     entries: costEvents,
   };
@@ -211,14 +212,16 @@ export function renderDashboardHtml(report) {
   const totalGuardrail = tasks.reduce((s, t) => s + t.guardrail_hit_count, 0);
 
   const taskRows = tasks.map((t) => {
-    const memRecall = t.memory_events.filter((e) => e.type === 'memory_recalled').length;
+    const memRecall = t.memory_events.filter((e) => e.type === 'memory_recalled').reduce((s, e) => s + (e.count ?? e.episode_count ?? 0), 0);
     const memWrite  = t.memory_events.filter((e) => e.type === 'episode_memory_written').length;
+    const memFail   = t.memory_events.filter((e) => e.type === 'episode_memory_write_failed').length;
+    const memStatus = `${memRecall}&nbsp;recalled&nbsp;/&nbsp;${memWrite}&nbsp;written${memFail > 0 ? `&nbsp;(<span class="warn">${memFail}&nbsp;failed</span>)` : ''}`;
     return `<tr>
       <td class="mono">${esc(t.task_id)}</td>
       <td>${pill(t.status)}</td>
       <td class="num">${t.tool_call_count}</td>
       <td class="num">${t.guardrail_hit_count > 0 ? `<span class="warn">${t.guardrail_hit_count}</span>` : '0'}</td>
-      <td class="num">${memRecall}&nbsp;recalled&nbsp;/&nbsp;${memWrite}&nbsp;written</td>
+      <td class="num">${memStatus}</td>
       <td class="num">${t.evidence.length}</td>
       <td>${t.validation ? pill(t.validation.status) : '<span class="pill pill-none">—</span>'}</td>
     </tr>`;
@@ -385,17 +388,25 @@ export function renderTraceHtml(trace, runId) {
   }).join('') || '<p class="dmp">No tool calls recorded.</p>';
 
   const grRows = trace.guardrail_events.map((ev) =>
-    `<tr><td class="mono">${esc(ev.limit_name ?? '?')}</td>
-     <td class="num">${esc(String(ev.current_value ?? '?'))}</td>
+    `<tr><td class="mono">${esc(ev.limit_name ?? ev.limit ?? '?')}</td>
+     <td class="num">${esc(String(ev.current_value ?? ev.value ?? '?'))}</td>
      <td class="num">${esc(String(ev.limit_value ?? '?'))}</td>
      <td class="ts">${esc(ev.ts ?? '')}</td></tr>`
   ).join('') || '<tr><td colspan="4" class="dim">No guardrails triggered.</td></tr>';
 
   const memRows = trace.memory_events.map((ev) => {
-    const detail = ev.type === 'memory_recalled'
-      ? `${ev.episode_count ?? '?'} episodes recalled`
-      : `episode written — id: ${esc(ev.episode_id ?? '?')}, trusted: ${esc(String(ev.trusted ?? '?'))}`;
-    return `<tr><td>${pill(ev.type === 'memory_recalled' ? 'IN_PROGRESS' : 'PASS')}</td><td>${detail}</td><td class="ts">${esc(ev.ts ?? '')}</td></tr>`;
+    let kind = 'PASS';
+    let detail = '';
+    if (ev.type === 'memory_recalled') {
+      kind = 'IN_PROGRESS';
+      detail = `${ev.episode_count ?? ev.count ?? '?'} episodes recalled`;
+    } else if (ev.type === 'episode_memory_write_failed') {
+      kind = 'FAIL';
+      detail = `episode write failed — error: ${esc(ev.error ?? 'unknown')}`;
+    } else {
+      detail = `episode written — id: ${esc(ev.episode_id ?? '?')}, trusted: ${esc(String(ev.trusted ?? '?'))}`;
+    }
+    return `<tr><td>${pill(kind)}</td><td>${detail}</td><td class="ts">${esc(ev.ts ?? '')}</td></tr>`;
   }).join('') || '<tr><td colspan="3" class="dim">No memory events.</td></tr>';
 
   const evRows = trace.evidence.map((ev) =>

@@ -13,11 +13,24 @@ import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from "../src/harness/gua
 import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage } from "../src/harness/run-state.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, searchLearnings, writeRetrievalEvent } from "../src/harness/memory.js";
 import { buildRunReport, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../src/harness/reporter.js";
-import { sendSlackNotification, formatSlackStageMessage } from "../src/harness/notifications.js";
+import { sendSlackNotification, formatSlackStageMessage, formatSlackTaskReportMessage } from "../src/harness/notifications.js";
 
 const RSTACK_VERSION = "0.3.0";
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = basename(EXTENSION_DIR) === "extensions" ? dirname(EXTENSION_DIR) : dirname(dirname(EXTENSION_DIR));
+
+function safeOpen(filePath: string): void {
+  if (process.env.CI || process.platform !== "darwin") {
+    return;
+  }
+  try {
+    const cp = spawn("open", [filePath], { stdio: "ignore", detached: true });
+    cp.on("error", () => {});
+    cp.unref();
+  } catch {
+    // Ignore spawn failures gracefully
+  }
+}
 
 type RegistryItem = {
   id: string;
@@ -1236,6 +1249,15 @@ export default function (pi: ExtensionAPI) {
           attempt: builderContract?.attempt || "1",
         });
         await sendSlackNotification(process.env.RSTACK_SLACK_WEBHOOK, payload);
+        
+        // Dispatch rich task execution report
+        const runDir = join(runsDir(projectRoot), manifest.run_id);
+        const report = await buildRunReport(runDir);
+        const trace = report.tasks[task.id];
+        if (trace) {
+          const reportPayload = formatSlackTaskReportMessage(manifest.run_id, task.id, trace);
+          await sendSlackNotification(process.env.RSTACK_SLACK_WEBHOOK, reportPayload);
+        }
       } catch (err) {
         console.error("Failed to send Slack validation notification:", err);
       }
@@ -1408,7 +1430,7 @@ export default function (pi: ExtensionAPI) {
       const dashboardPath = join(runDir, "dashboard.html");
       await writeFile(dashboardPath, html, "utf8");
 
-      spawn("open", [dashboardPath]);
+      safeOpen(dashboardPath);
 
       return {
         content: [{ type: "text", text: `Generated static HTML dashboard for run ${runId}.\nOpened: ${dashboardPath}` }],
@@ -1492,6 +1514,12 @@ export default function (pi: ExtensionAPI) {
         if (e.type === "memory_recalled") {
           lines.push(`  ├─ 🧠 Memory Recalled: Injected ${e.count} episodes`);
         }
+        if (e.type === "episode_memory_written") {
+          lines.push(`  ├─ 🧠 Memory Written: Episode ID: ${e.episode_id}`);
+        }
+        if (e.type === "episode_memory_write_failed") {
+          lines.push(`  ├─ ❌ Memory Write Failed: ${e.error}`);
+        }
         if (e.type === "tool_call") {
           const argsStr = JSON.stringify(e.input);
           const truncatedArgs = argsStr.length > 120 ? argsStr.slice(0, 117) + "..." : argsStr;
@@ -1549,7 +1577,7 @@ export default function (pi: ExtensionAPI) {
           const traceHtml = renderTraceHtml(taskTrace, runId);
           tracePath = join(traceRunDir, `trace-${taskId}.html`);
           await writeFile(tracePath, traceHtml, "utf8");
-          spawn("open", [tracePath]);
+          safeOpen(tracePath);
         }
       } catch { /* best-effort HTML trace */ }
 
