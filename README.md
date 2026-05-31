@@ -234,7 +234,7 @@ rstack-observer --port 3007 --project /path/to/project
 
 ### Business Hub — `:3008`
 
-Multi-run, team-facing dashboard. Auto-launches when a Pi session starts. Works with any runtime.
+Multi-run, team-facing dashboard. Auto-launches when a Pi session starts and opens your browser automatically. Works with any runtime.
 
 ```bash
 npm run business           # or: rstack-business
@@ -245,15 +245,28 @@ rstack-business --port 3008 --project /path/to/project
 
 | Tab | What it shows |
 |-----|--------------|
-| **Overview** | KPI cards: active runs, cost, pass/fail, pending approvals; guardrail health bars |
-| **Live Feed** | Plain-language activity log across all runs — no raw event names |
-| **Approvals** | Human-in-loop queue — one-click Approve / Reject for blocked actions |
+| **Overview** | KPI cards (active runs, cost, pass/fail, pending approvals), guardrail health bars, live activity feed |
+| **Live Feed** | Every event in plain language — tool call bursts, quality scores, approvals, stage completions, session lifecycle |
+| **Approvals** | Human-in-loop queue (inline `approval_gate` events + explicit requests) — one-click Approve / Reject |
 | **Alerts** | Cost threshold, failure rate, guardrail hit rate, stalled run detection |
-| **Run History** | All runs with cost, duration, pass/fail, active/done status |
+| **Run History** | All runs with sparkline activity chart, correct status (active / stalled / ended / done), click any row to drill in |
+| **Run Detail** | Per-run slide-out: SVG activity timeline (tool calls per minute), stage completions, quality scores (pass/total checks), minute-by-minute table |
 | **Traceability** | Requirements → architecture → code tasks → test evidence, per run |
 | **Team** | Framework breakdown (Pi / Operator / Claude Code) with pass rates and cost |
 
-**Auto-launch:** When Pi or Operator starts a session, the Business Hub launches in the background and prints its URL. Set `RSTACK_NO_BUSINESS_HUB=1` to disable.
+**Live tracking — what gets shown per minute:**
+
+Every 3 seconds the hub re-reads all `.rstack/runs/` directories across all registered projects. Each minute of agent activity shows:
+
+- Tool call count (rendered as a bar in the sparkline)
+- Stage completions (green bar / ✅ badge)
+- Guardrail hits (red bar / ⚠️ badge)
+- Approval gates reached
+- Quality scores (pass_checks / total_checks)
+
+**Auto-launch:** When Pi starts a session, the hub launches in the background and opens the browser automatically. If the hub is already running from a previous session, it just opens the tab. Crashes are logged to `~/.rstack/business-hub.log`. Set `RSTACK_NO_BUSINESS_HUB=1` to disable.
+
+**Multi-project:** The hub aggregates runs from all projects that have ever used RStack. Each Pi `session_start` registers the current project root in `~/.rstack/known-projects.json`. The hub reads this on every poll cycle — no restart needed when you switch projects.
 
 **Notifications** — configure any channel:
 

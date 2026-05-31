@@ -103,6 +103,45 @@ function broadcast(msg) {
   for (const s of clients) wsSend(s, msg);
 }
 
+// ── Per-minute activity timeline ──────────────────────────────────────────────
+
+function buildActivityTimeline(events) {
+  const minutes = {};
+  for (const ev of events) {
+    const min = ev.ts?.slice(0, 16);
+    if (!min) continue;
+    if (!minutes[min]) minutes[min] = { toolCalls: 0, stagesDone: [], tasksPassed: 0, tasksFailed: 0, guardrails: 0, approvals: 0, quality: [] };
+    const m = minutes[min];
+    if (ev.type === 'tool_call')               m.toolCalls++;
+    if (ev.type === 'stage_completed')          m.stagesDone.push(ev.stage_id ?? '');
+    if (ev.type === 'task_validated' && ev.status === 'PASS') m.tasksPassed++;
+    if (ev.type === 'task_validated' && ev.status === 'FAIL') m.tasksFailed++;
+    if (ev.type === 'guardrail_triggered')      m.guardrails++;
+    if (ev.type === 'approval_gate')            m.approvals++;
+    if (ev.type === 'quality_score_recorded')   m.quality.push({ task: ev.task_id, score: ev.score, pass: ev.pass_checks, total: ev.total_checks });
+  }
+  // Return sorted array for the chart
+  return Object.entries(minutes)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([minute, data]) => ({ minute, ...data }));
+}
+
+// ── Run status derivation ─────────────────────────────────────────────────────
+
+function deriveRunStatus(manifest, events) {
+  if (manifest?.completed_at) return 'done';
+  if (!events.length) return 'idle';
+  const last = events[events.length - 1];
+  if (last?.type === 'session_shutdown') {
+    // Stalled if shutdown was more than 30 min ago
+    const lastTs = last.ts ? new Date(last.ts).getTime() : 0;
+    return Date.now() - lastTs > 30 * 60 * 1000 ? 'stalled' : 'ended';
+  }
+  const lastTs = last?.ts ? new Date(last.ts).getTime() : 0;
+  if (lastTs && Date.now() - lastTs > 30 * 60 * 1000) return 'stalled';
+  return 'active';
+}
+
 // ── Multi-project, multi-run aggregation ──────────────────────────────────────
 
 async function getRunsForRoot(projectRoot) {
@@ -122,7 +161,14 @@ async function getRunsForRoot(projectRoot) {
       ? tasksRaw
       : Array.isArray(tasksRaw?.tasks) ? tasksRaw.tasks : [];
     const events = readJsonlSync(join(runDir, 'events.jsonl'));
-    return { runId, projectRoot, manifest, metrics, tasks, events };
+
+    // Per-minute activity timeline — used for sparkline + drill-down
+    const activityTimeline = buildActivityTimeline(events);
+
+    // Derive status from events when manifest lacks completed_at
+    const derivedStatus = deriveRunStatus(manifest, events);
+
+    return { runId, projectRoot, manifest, metrics, tasks, events, activityTimeline, derivedStatus };
   }));
 }
 
@@ -152,11 +198,10 @@ async function buildFullState(projectRoot) {
     getAllApprovals(projectRoot),
   ]);
 
-  const pending = pendingApprovals(allApprovals);
-  const approvalStats = approvalSummary(allApprovals);
+  // approvalStats computed later once mergedApprovals is built
 
   const totalCost = runs.reduce((s, r) => s + (r.metrics?.cumulative_cost_usd ?? 0), 0);
-  const activeRuns = runs.filter(r => !r.manifest?.completed_at && r.runId);
+  const activeRuns = runs.filter(r => r.derivedStatus === 'active');
   const todayRuns = runs.filter(r => {
     const d = r.manifest?.created_at;
     if (!d) return false;
@@ -164,10 +209,69 @@ async function buildFullState(projectRoot) {
     return d.startsWith(today);
   });
 
-  // Build business activity feed: stage completions + task validations + notable events
-  const activityFeed = [];
-  for (const run of runs.slice(0, 10)) {
+  // Merge approval_gate events from events.jsonl into the approvals list
+  const inlineApprovals = [];
+  for (const run of runs) {
     for (const ev of run.events) {
+      if (ev.type === 'approval_gate' || ev.type === 'approval_gate_blocked') {
+        inlineApprovals.push({
+          id: `${run.runId}-${ev.ts}`,
+          type: ev.type,
+          title: ev.type === 'approval_gate'
+            ? `Approval gate: ${ev.artifact ?? 'artifact'} — ${ev.status ?? 'APPROVED'}`
+            : `Approval required — missing: ${(ev.missing ?? []).join(', ') || 'artifact'}`,
+          detail: ev.type === 'approval_gate'
+            ? `Artifact "${ev.artifact}" was approved`
+            : `Task "${ev.task_id}" could not proceed`,
+          status: ev.type === 'approval_gate' ? 'approved' : 'pending',
+          runId: run.runId,
+          projectRoot: run.projectRoot,
+          ts: ev.ts,
+          source: 'inline',
+        });
+      }
+    }
+  }
+  // Merge: inline events first, then queue-based approvals (deduplicated by id)
+  const mergedApprovals = [...inlineApprovals];
+  for (const a of allApprovals) {
+    if (!mergedApprovals.some(x => x.id === a.id)) mergedApprovals.push(a);
+  }
+  mergedApprovals.sort((a, b) => (b.ts ?? '').localeCompare(a.ts ?? ''));
+
+  const pending = pendingApprovals(mergedApprovals);
+  const approvalStats = approvalSummary(mergedApprovals);
+
+  // Build business activity feed — skip raw tool_call/tool_result, surface everything else
+  // Also aggregate tool_call bursts per minute
+  const SKIP_IN_FEED = new Set(['tool_call', 'tool_result']);
+  const activityFeed = [];
+  for (const run of runs.slice(0, 15)) {
+    // Aggregate tool calls into per-minute burst entries
+    const toolBursts = {};
+    for (const ev of run.events) {
+      if (ev.type !== 'tool_call') continue;
+      const min = ev.ts?.slice(0, 16);
+      if (!min) continue;
+      toolBursts[min] = (toolBursts[min] ?? 0) + 1;
+    }
+    // Emit a burst entry for any minute with >= 3 tool calls
+    for (const [min, count] of Object.entries(toolBursts)) {
+      if (count >= 3) {
+        activityFeed.push({
+          ts: min + ':00.000Z',
+          summary: `${count} tool calls — agent working`,
+          type: 'tool_burst',
+          runId: run.runId,
+          projectRoot: run.projectRoot,
+          goal: run.manifest?.goal,
+          level: 'tool',
+        });
+      }
+    }
+
+    for (const ev of run.events) {
+      if (SKIP_IN_FEED.has(ev.type)) continue;
       const summary = plainLanguageSummary(ev);
       if (summary) {
         activityFeed.push({
@@ -180,6 +284,9 @@ async function buildFullState(projectRoot) {
           level: ev.type === 'task_validated' && ev.status === 'FAIL' ? 'fail'
                : ev.type === 'guardrail_triggered' ? 'warn'
                : ev.type === 'approval_gate_blocked' ? 'blocked'
+               : ev.type === 'approval_gate' ? 'pass'
+               : ev.type === 'quality_score_recorded' ? 'pass'
+               : ev.type === 'session_shutdown' ? 'dim'
                : 'info',
         });
       }
@@ -254,7 +361,7 @@ async function buildFullState(projectRoot) {
     totalCost,
     frameworks,
     feed,
-    approvals: allApprovals,
+    approvals: mergedApprovals,
     approvalStats,
     pendingApprovals: pending,
     alerts,
@@ -470,7 +577,8 @@ nav{flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border
 .feed-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:4px}
 .feed-dot.info{background:var(--info)}.feed-dot.warn{background:var(--warn)}
 .feed-dot.fail{background:var(--fail)}.feed-dot.blocked{background:var(--blocked)}
-.feed-dot.pass{background:var(--pass)}
+.feed-dot.pass{background:var(--pass)}.feed-dot.tool{background:var(--dim2)}
+.feed-dot.dim{background:var(--dim2);opacity:.5}
 .feed-summary{font-size:12.5px;color:var(--text);flex:1}
 .feed-run{font-size:10px;color:var(--dim);font-family:var(--m);margin-top:2px}
 .feed-ts{font-size:10px;color:var(--dim2);white-space:nowrap;flex-shrink:0}
@@ -486,6 +594,38 @@ nav{flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border
 .pill.blocked{background:var(--blocked-bg);color:var(--blocked);border:1px solid rgba(139,92,246,.25)}
 .pill.active{background:rgba(234,88,12,.15);color:var(--accent2);border:1px solid rgba(234,88,12,.3)}
 .pill.idle{background:var(--panel2);color:var(--dim);border:1px solid var(--border)}
+.pill.ended{background:var(--panel2);color:var(--dim);border:1px solid var(--border)}
+.pill.stalled{background:var(--warn-bg);color:var(--warn);border:1px solid rgba(245,158,11,.25)}
+
+/* ── Sparkline ── */
+.sparkline{display:block;overflow:visible}
+.spark-bar{fill:var(--info);opacity:.7;transition:opacity .15s}
+.spark-bar:hover{opacity:1}
+.spark-stage{fill:var(--pass)}
+.spark-guardrail{fill:var(--fail)}
+
+/* ── Run detail panel ── */
+#run-detail-panel{
+  position:fixed;right:0;top:52px;bottom:0;width:520px;background:var(--surface);
+  border-left:1px solid var(--border2);z-index:50;transform:translateX(100%);
+  transition:transform .25s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;overflow:hidden;
+}
+#run-detail-panel.open{transform:translateX(0)}
+.rdp-hdr{padding:14px 18px;border-bottom:1px solid var(--border2);display:flex;align-items:center;gap:10px;flex-shrink:0}
+.rdp-hdr h2{font-size:13px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rdp-close{background:none;border:none;color:var(--dim);font-size:20px;cursor:pointer;line-height:1;flex-shrink:0}
+.rdp-close:hover{color:var(--text)}
+.rdp-body{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:16px}
+.rdp-section{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);margin-bottom:8px}
+.rdp-timeline{width:100%;height:64px}
+.rdp-minute-row{display:flex;gap:4px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px}
+.rdp-minute-row:last-child{border-bottom:none}
+.rdp-min-time{font-family:var(--m);font-size:10px;color:var(--dim);width:50px;flex-shrink:0}
+.rdp-min-bar{height:16px;border-radius:3px;background:var(--info);min-width:2px;transition:width .3s}
+.rdp-min-count{font-family:var(--m);font-size:10px;color:var(--dim);margin-left:6px;white-space:nowrap}
+.rdp-quality-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
+.rdp-quality-row:last-child{border-bottom:none}
+.quality-bar{height:4px;border-radius:2px;background:var(--pass);margin-top:3px}
 
 /* ── Run list ── */
 .run-row{padding:10px 0;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:center;cursor:pointer;transition:background .15s}
@@ -666,6 +806,41 @@ nav{flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border
     <div class="card">
       <div class="card-hdr">Framework / Team Breakdown</div>
       <div class="card-body" id="team-table"></div>
+    </div>
+  </div>
+
+  <!-- RUN DETAIL SLIDE-OUT PANEL -->
+  <div id="run-detail-panel">
+    <div class="rdp-hdr">
+      <div style="flex:1">
+        <div style="font-size:10px;color:var(--dim);font-family:var(--m)" id="rdp-run-id">—</div>
+        <h2 id="rdp-goal">Run Detail</h2>
+      </div>
+      <button class="rdp-close" onclick="closeRunDetail()">&times;</button>
+    </div>
+    <div class="rdp-body">
+      <!-- KPIs -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px" id="rdp-kpis"></div>
+      <!-- Timeline -->
+      <div>
+        <div class="rdp-section">Activity timeline — tool calls per minute</div>
+        <svg class="rdp-timeline" id="rdp-timeline-svg"></svg>
+      </div>
+      <!-- Per-minute table -->
+      <div>
+        <div class="rdp-section">Minute-by-minute breakdown</div>
+        <div id="rdp-minutes"></div>
+      </div>
+      <!-- Quality scores -->
+      <div id="rdp-quality-section" style="display:none">
+        <div class="rdp-section">Quality scores</div>
+        <div id="rdp-quality"></div>
+      </div>
+      <!-- Stages -->
+      <div>
+        <div class="rdp-section">Stage completions</div>
+        <div id="rdp-stages"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -916,40 +1091,184 @@ function renderAlerts() {
 }
 
 // ── Run History ───────────────────────────────────────────────────────────────
+function statusPillHtml(r) {
+  const s = r.derivedStatus ?? (r.manifest?.completed_at ? 'done' : 'idle');
+  const map = { active:'active', done:'pass', ended:'ended', stalled:'stalled', idle:'idle' };
+  const cls = map[s] ?? 'idle';
+  return \`<span class="pill \${cls}">\${s.toUpperCase()}</span>\`;
+}
+
+function miniSparkline(timeline, width = 120, height = 24) {
+  if (!timeline?.length) return '';
+  const maxTc = Math.max(1, ...timeline.map(m => m.toolCalls));
+  const W = width, H = height, bw = Math.max(2, Math.floor(W / timeline.length) - 1);
+  const bars = timeline.map((m, i) => {
+    const bh = Math.max(2, Math.round((m.toolCalls / maxTc) * H));
+    const x  = i * (bw + 1);
+    const y  = H - bh;
+    const color = m.stagesDone.length ? 'var(--pass)' : m.guardrails ? 'var(--fail)' : 'var(--info)';
+    return \`<rect x="\${x}" y="\${y}" width="\${bw}" height="\${bh}" fill="\${color}" opacity=".7" rx="1"/>\`;
+  }).join('');
+  return \`<svg width="\${W}" height="\${H}" style="display:block">\${bars}</svg>\`;
+}
+
 function renderHistory() {
   const el = document.getElementById('history-list');
   const runs = STATE.runs ?? [];
   if (!runs.length) { el.innerHTML = '<div class="feed-empty">No runs recorded yet</div>'; return; }
   el.innerHTML = runs.map(r => {
-    const tasks = r.tasks ?? [];
-    const passed = tasks.filter(t => t.status === 'PASS').length;
-    const failed = tasks.filter(t => t.status === 'FAIL').length;
-    const cost = (r.metrics?.cumulative_cost_usd ?? 0).toFixed(4);
-    const status = r.manifest?.completed_at ? 'done'
-      : (STATE.activeRuns ?? []).includes(r.runId) ? 'active' : 'idle';
-    const statusPill = status === 'active' ? '<span class="pill active">ACTIVE</span>'
-      : status === 'done' ? '<span class="pill pass">DONE</span>'
-      : '<span class="pill idle">IDLE</span>';
-    const created = r.manifest?.created_at ? r.manifest.created_at.replace('T',' ').slice(0,16) : '—';
+    const tasks    = r.tasks ?? [];
+    const passed   = tasks.filter(t => t.status === 'PASS').length;
+    const failed   = tasks.filter(t => t.status === 'FAIL').length;
+    const cost     = (r.metrics?.cumulative_cost_usd ?? 0).toFixed(4);
+    const created  = r.manifest?.created_at ? r.manifest.created_at.replace('T',' ').slice(0,16) : '—';
     const projLabel = r.projectRoot ? r.projectRoot.replace(/.*\/([^/]+)$/, '$1') : '';
-    const fw = r.manifest?.framework ?? r.manifest?.mode ?? '';
-    return \`<div class="run-row">
-      <div class="run-id">\${esc(r.runId.slice(-14))}</div>
+    const fw        = r.manifest?.framework ?? r.manifest?.mode ?? '';
+    const totalTc   = (r.activityTimeline ?? []).reduce((s, m) => s + m.toolCalls, 0);
+    const spark     = miniSparkline(r.activityTimeline ?? []);
+    return \`<div class="run-row" onclick="openRunDetail('\${esc(r.runId)}')" style="cursor:pointer">
       <div style="flex:1">
-        <div class="run-goal">\${esc(r.manifest?.goal ?? '—')}</div>
-        <div style="font-size:10px;color:var(--dim);margin-top:2px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          \${statusPillHtml(r)}
+          <span class="run-goal">\${esc(r.manifest?.goal ?? '—')}</span>
+        </div>
+        <div style="font-size:10px;color:var(--dim)">
           \${created}
           \${projLabel ? ' · <span style="color:var(--info)">'+esc(projLabel)+'</span>' : ''}
           \${fw ? ' · '+esc(fw) : ''}
-          · \${tasks.length} tasks · \${passed} pass / \${failed} fail
+          · \${tasks.length} tasks · \${passed}✅ \${failed > 0 ? failed+'❌' : ''}
+          \${totalTc ? ' · '+totalTc+' tool calls' : ''}
         </div>
+        \${spark ? \`<div style="margin-top:6px">\${spark}</div>\` : ''}
       </div>
-      <div class="run-meta">
-        \${statusPill}
+      <div class="run-meta" style="align-items:flex-start;padding-top:2px">
         <span class="run-cost">$\${cost}</span>
+        <span style="font-size:10px;color:var(--dim);margin-top:2px">▸ detail</span>
       </div>
     </div>\`;
   }).join('');
+}
+
+// ── Run detail slide-out panel ────────────────────────────────────────────────
+function openRunDetail(runId) {
+  const r = (STATE.runs ?? []).find(x => x.runId === runId);
+  if (!r) return;
+
+  document.getElementById('rdp-run-id').textContent = runId.slice(0, 50);
+  document.getElementById('rdp-goal').textContent   = r.manifest?.goal ?? '—';
+
+  const tasks     = r.tasks ?? [];
+  const passed    = tasks.filter(t => t.status === 'PASS').length;
+  const failed    = tasks.filter(t => t.status === 'FAIL').length;
+  const totalTc   = (r.activityTimeline ?? []).reduce((s, m) => s + m.toolCalls, 0);
+  const minutes   = (r.activityTimeline ?? []).length;
+  const cost      = (r.metrics?.cumulative_cost_usd ?? 0).toFixed(4);
+
+  // KPIs
+  document.getElementById('rdp-kpis').innerHTML = [
+    ['Tool Calls', totalTc, 'var(--info)'],
+    ['Minutes Active', minutes, 'var(--accent2)'],
+    ['Tasks Passed', passed, 'var(--pass)'],
+    ['Tasks Failed', failed, failed > 0 ? 'var(--fail)' : 'var(--dim)'],
+  ].map(([l,v,c]) => \`<div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+    <div style="font-size:20px;font-weight:800;color:\${c};font-family:var(--m)">\${v}</div>
+    <div style="font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px">\${l}</div>
+  </div>\`).join('');
+
+  // Timeline SVG (larger version)
+  const tl = r.activityTimeline ?? [];
+  const svg = document.getElementById('rdp-timeline-svg');
+  if (tl.length) {
+    const W = 480, H = 56;
+    const maxTc = Math.max(1, ...tl.map(m => m.toolCalls));
+    const bw = Math.max(3, Math.floor(W / tl.length) - 1);
+    const bars = tl.map((m, i) => {
+      const bh   = Math.max(2, Math.round((m.toolCalls / maxTc) * H));
+      const x    = i * (bw + 1);
+      const y    = H - bh;
+      const color = m.stagesDone.length ? '#22c55e' : m.guardrails ? '#ef4444' : '#3b82f6';
+      const tip  = \`\${m.minute} · \${m.toolCalls} tool calls\${m.stagesDone.length ? ' · stage done: '+m.stagesDone.join(',') : ''}\`;
+      return \`<rect x="\${x}" y="\${y}" width="\${bw}" height="\${bh}" fill="\${color}" opacity=".8" rx="1"><title>\${esc(tip)}</title></rect>\`;
+    }).join('');
+    const legend = \`<text x="0" y="\${H+12}" font-size="9" fill="#6b7fa3">Blue = tool calls · Green = stage completed · Red = guardrail hit</text>\`;
+    svg.setAttribute('viewBox', \`0 0 \${W} \${H+16}\`);
+    svg.setAttribute('style', 'width:100%;height:72px');
+    svg.innerHTML = bars + legend;
+  } else {
+    svg.innerHTML = '<text x="0" y="20" font-size="11" fill="#6b7fa3">No activity data recorded</text>';
+  }
+
+  // Per-minute table
+  const minsEl = document.getElementById('rdp-minutes');
+  if (tl.length) {
+    const maxTc2 = Math.max(1, ...tl.map(m => m.toolCalls));
+    minsEl.innerHTML = tl.map(m => {
+      const pct = Math.round((m.toolCalls / maxTc2) * 100);
+      const tags = [];
+      if (m.tasksPassed)  tags.push(\`<span class="pill pass">\${m.tasksPassed} PASS</span>\`);
+      if (m.tasksFailed)  tags.push(\`<span class="pill fail">\${m.tasksFailed} FAIL</span>\`);
+      if (m.stagesDone.length) tags.push(\`<span class="pill info">stage: \${m.stagesDone[0]}</span>\`);
+      if (m.guardrails)  tags.push(\`<span class="pill warn">guardrail</span>\`);
+      if (m.approvals)   tags.push(\`<span class="pill pass">approved</span>\`);
+      return \`<div class="rdp-minute-row">
+        <span class="rdp-min-time">\${m.minute.slice(11)}</span>
+        <div class="rdp-min-bar" style="width:\${pct}%"></div>
+        <span class="rdp-min-count">\${m.toolCalls} calls</span>
+        \${tags.length ? '<span style="margin-left:8px;display:flex;gap:4px">'+tags.join('')+'</span>' : ''}
+      </div>\`;
+    }).join('');
+  } else {
+    minsEl.innerHTML = '<div style="color:var(--dim);font-size:12px">No minute data</div>';
+  }
+
+  // Quality scores
+  const allQuality = tl.flatMap(m => m.quality ?? []);
+  const qSection = document.getElementById('rdp-quality-section');
+  if (allQuality.length) {
+    qSection.style.display = '';
+    document.getElementById('rdp-quality').innerHTML = allQuality.map(q => {
+      const pct = q.total > 0 ? Math.round((q.pass / q.total) * 100) : 0;
+      return \`<div class="rdp-quality-row">
+        <div>
+          <div style="font-size:12px;font-weight:600">\${esc(q.task ?? '—')}</div>
+          <div class="quality-bar" style="width:\${pct}%"></div>
+        </div>
+        <span class="pill \${pct === 100 ? 'pass' : pct >= 80 ? 'info' : 'warn'}">\${pct}% · \${q.pass}/\${q.total}</span>
+      </div>\`;
+    }).join('');
+  } else {
+    qSection.style.display = 'none';
+  }
+
+  // Stages
+  const stages = tl.flatMap(m => m.stagesDone.map(s => ({ stage: s, minute: m.minute })));
+  document.getElementById('rdp-stages').innerHTML = stages.length
+    ? stages.map(s => \`<div style="padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between">
+        <span style="color:var(--text)">\${esc(stageLabel(s.stage))}</span>
+        <span style="font-family:var(--m);font-size:10px;color:var(--dim)">\${s.minute.slice(11)}</span>
+      </div>\`).join('')
+    : '<div style="color:var(--dim);font-size:12px">No stage completions recorded</div>';
+
+  document.getElementById('run-detail-panel').classList.add('open');
+}
+
+function closeRunDetail() {
+  document.getElementById('run-detail-panel').classList.remove('open');
+}
+
+function stageLabel(id) {
+  const MAP = {
+    '00-environment':'Environment','01-transcript':'Transcript','02-requirements':'Requirements',
+    '03-documentation':'Documentation','04-planning':'Planning','05-jira':'Jira Tickets',
+    '06-architecture':'Architecture','07-code':'Code','08-testing':'Testing',
+    '09-deployment':'Deployment','10-summary':'Summary','11-feedback-loop':'Feedback',
+    '12-security-threat-model':'Security','13-compliance-checker':'Compliance',
+    '14-cost-estimation':'Cost Estimate',
+    // Also handle Pi-style IDs like 001-product-clarification
+    '001-product-clarification':'Clarification','002-requirements':'Requirements',
+    '003-architecture':'Architecture','004-implementation':'Code','005-testing':'Testing',
+  };
+  return MAP[id] ?? id ?? 'Stage';
 }
 
 // ── Traceability ──────────────────────────────────────────────────────────────

@@ -106,17 +106,43 @@ export function evaluateAlerts(state, thresholds = DEFAULT_ALERT_THRESHOLDS) {
 
 export function plainLanguageSummary(event) {
   switch (event.type) {
-    case 'stage_completed':  return `Completed ${stageLabel(event.stage_id)} in ${fmtMs(event.elapsed_ms)}`;
-    case 'task_validated':   return event.status === 'PASS'
-      ? `Task passed — ${event.task_id ?? 'unknown'}`
-      : `Task failed — ${event.task_id ?? 'unknown'}`;
-    case 'run_started':      return `New run started`;
-    case 'plan_created':     return `Plan created with ${event.task_count ?? '?'} tasks`;
-    case 'cost_recorded':    return `Cost recorded: $${Number(event.usd ?? event.cost ?? 0).toFixed(4)}`;
-    case 'guardrail_triggered': return `Guardrail hit: ${event.limit_name ?? event.limit ?? '?'}`;
-    case 'memory_recalled':  return `Memory: ${event.count ?? 0} episodes recalled`;
-    case 'approval_gate_blocked': return `Approval required — ${event.reason ?? 'action blocked'}`;
-    case 'observer_new_run': return `New run detected: ${event.run_id?.slice(-12) ?? '?'}`;
+    case 'stage_completed':
+      return `Completed ${stageLabel(event.stage_id)} in ${fmtMs(event.elapsed_ms)}`;
+    case 'task_validated':
+      return event.status === 'PASS'
+        ? `✅ Task passed — ${event.task_id ?? 'unknown'}`
+        : `❌ Task failed — ${event.task_id ?? 'unknown'}`;
+    case 'quality_score_recorded': {
+      const pct = event.total_checks > 0
+        ? Math.round((event.pass_checks / event.total_checks) * 100) : 0;
+      return `Quality score ${pct}% — ${event.pass_checks ?? '?'}/${event.total_checks ?? '?'} checks passed (${event.task_id ?? ''})`;
+    }
+    case 'approval_gate':
+      return `Approval gate: ${event.artifact ?? 'artifact'} — ${event.status ?? 'APPROVED'}`;
+    case 'approval_gate_blocked':
+      return `Approval required — missing: ${(event.missing ?? []).join(', ') || (event.reason ?? 'action blocked')}`;
+    case 'clarification_answers_added':
+      return `${event.count ?? ''} clarification answer${event.count !== 1 ? 's' : ''} added`;
+    case 'task_started':
+      return `Started task — ${event.task_id ?? 'unknown'}`;
+    case 'builder_task_prepared':
+      return `Builder prepared for task — ${event.task_id ?? 'unknown'}`;
+    case 'run_started':
+      return `Run started${event.task_count ? ` — ${event.task_count} tasks planned` : ''}`;
+    case 'plan_created':
+      return `Plan created — ${event.task_count ?? '?'} tasks`;
+    case 'cost_recorded':
+      return `Cost recorded: $${Number(event.usd ?? event.cost ?? 0).toFixed(4)}`;
+    case 'guardrail_triggered':
+      return `Guardrail hit: ${event.limit_name ?? event.limit ?? '?'}`;
+    case 'memory_recalled':
+      return `Memory recalled — ${event.count ?? 0} episodes injected`;
+    case 'episode_memory_written':
+      return `Memory saved — episode written for ${event.task_id ?? 'run'}`;
+    case 'session_shutdown':
+      return `Session ended`;
+    case 'observer_new_run':
+      return `New run detected: ${event.run_id?.slice(-12) ?? '?'}`;
     default: return null;
   }
 }
