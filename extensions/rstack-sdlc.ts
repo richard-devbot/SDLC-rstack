@@ -14,9 +14,9 @@ import { validateBuilderContract } from "../src/harness/contracts.js";
 import { appendEvidenceEvent } from "../src/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from "../src/harness/guardrails.js";
 import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage } from "../src/harness/run-state.js";
-import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../src/harness/memory.js";
-import { buildRunReport, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../src/harness/reporter.js";
-import { sendSlackNotification, formatSlackStageMessage, formatSlackTaskReportMessage } from "../src/harness/notifications.js";
+import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../src/memory/index.js";
+import { buildRunReport, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../src/observers/reporter.js";
+import { sendSlackNotification, formatSlackStageMessage, formatSlackTaskReportMessage } from "../src/notifications/index.js";
 
 const RSTACK_VERSION = "0.3.0";
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));

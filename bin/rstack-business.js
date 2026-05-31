@@ -63,7 +63,7 @@ if (args.includes('--version') || args.includes('-v')) {
   process.exit(0);
 }
 
-const serverPath = path.resolve(__dirname, '../src/harness/business-observer.js');
+const serverPath = path.resolve(__dirname, '../src/dashboard/server.js');
 import(serverPath).catch((err) => {
   console.error(`[rstack-business] Failed to start: ${err.message}`);
   console.error(err);

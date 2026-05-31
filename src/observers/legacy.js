@@ -14,7 +14,7 @@ export function startDashboardServer(projectRoot, runId, port = 3005) {
   const server = createServer(async (req, res) => {
     if (req.url === '/api/memory-health') {
       try {
-        const { runMemoryDiagnostics } = await import('./memory-diagnostics.js');
+        const { runMemoryDiagnostics } = await import('../memory/diagnostics.js');
         const report = await runMemoryDiagnostics(projectRoot, runId);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify(report));

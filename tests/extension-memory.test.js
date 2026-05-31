@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import extension from '../extensions/rstack-sdlc.ts';
-import { projectSlug } from '../src/harness/memory.js';
+import { projectSlug } from '../src/memory/index.js';
 
 function createMockPi() {
   return {

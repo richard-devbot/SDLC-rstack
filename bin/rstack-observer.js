@@ -76,7 +76,7 @@ if (args.includes("--version") || args.includes("-v")) {
 }
 
 // Delegate to the actual server implementation
-const serverPath = path.resolve(__dirname, "../src/harness/observer.js");
+const serverPath = path.resolve(__dirname, "../src/observers/developer.js");
 
 // Use dynamic import so the server sees process.argv intact
 import(serverPath).catch((err) => {

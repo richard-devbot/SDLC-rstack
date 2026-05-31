@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStageCheckpoint, rollbackStage } from '../src/harness/run-state.js';
-import { calculateEpisodeSignature, verifyEpisodeSignature, appendEpisode, readEpisodes } from '../src/harness/memory.js';
+import { calculateEpisodeSignature, verifyEpisodeSignature, appendEpisode, readEpisodes } from '../src/memory/index.js';
 import extension from '../extensions/rstack-sdlc.ts';
 
 // Mock Pi API

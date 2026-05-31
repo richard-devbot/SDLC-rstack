@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generateRunReport } from '../src/harness/reporter.js';
+import { generateRunReport } from '../src/observers/reporter.js';
 import extension from '../extensions/rstack-sdlc.ts';
 
 // Mock Pi Extension API

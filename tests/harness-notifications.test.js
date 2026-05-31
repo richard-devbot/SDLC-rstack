@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatSlackStageMessage, sendSlackNotification } from '../src/harness/notifications.js';
+import { formatSlackStageMessage, sendSlackNotification } from '../src/notifications/index.js';
 
 // owner: RStack developed by Richardson Gunde
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runMemoryDiagnostics } from '../src/harness/memory-diagnostics.js';
+import { runMemoryDiagnostics } from '../src/memory/diagnostics.js';
 
 // owner: RStack developed by Richardson Gunde
 

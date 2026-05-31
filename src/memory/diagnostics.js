@@ -20,7 +20,7 @@ function daysSince(isoDate) {
   return Math.max(0, ms / 86400000);
 }
 
-import { readMemoryConfig, projectMemoryDir } from './memory.js';
+import { readMemoryConfig, projectMemoryDir } from './index.js';
 
 export async function runMemoryDiagnostics(projectRoot, _runId) {
   let memoryDir = projectRoot;

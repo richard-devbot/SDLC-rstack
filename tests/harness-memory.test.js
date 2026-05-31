@@ -14,7 +14,7 @@ import {
   sanitizeMemoryText,
   searchLearnings,
   validateEpisode,
-} from '../src/harness/memory.js';
+} from '../src/memory/index.js';
 
 function baseEpisode(overrides = {}) {
   return {
