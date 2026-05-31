@@ -7,7 +7,8 @@
   "bin": {
     "rstack-agents": "bin/rstack-agents.js",
     "rstack-observer": "bin/rstack-observer.js",
-    "rstack-operator-bridge": "bin/rstack-operator-bridge.ts"
+    "rstack-operator-bridge": "bin/rstack-operator-bridge.ts",
+    "rstack-business": "bin/rstack-business.js"
   },
   "scripts": {
     "test": "npx tsx --test tests/*.test.js",
@@ -16,6 +17,8 @@
     "prepublishOnly": "npm test && npm run validate",
     "observer": "node bin/rstack-observer.js",
     "observer:dev": "node --watch bin/rstack-observer.js",
+    "business": "node bin/rstack-business.js",
+    "business:dev": "node --watch bin/rstack-business.js",
     "build:observer": "node scripts/build-observer.js",
     "build:observer:win": "pkg bin/rstack-observer.js --target node18-win-x64 --output dist/rstack-observer-win.exe",
     "build:observer:mac": "pkg bin/rstack-observer.js --target node18-macos-x64 --output dist/rstack-observer-macos",
@@ -25,7 +28,10 @@
   "pkg": {
     "scripts": [
       "src/harness/observer.js",
-      "src/harness/reporter.js"
+      "src/harness/reporter.js",
+      "src/harness/business-observer.js",
+      "src/harness/approval-queue.js",
+      "src/harness/alert-engine.js"
     ],
     "assets": [],
     "targets": [

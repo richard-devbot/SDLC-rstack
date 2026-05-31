@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
+import { createConnection } from "node:net";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile, appendFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -30,6 +31,32 @@ function safeOpen(filePath: string): void {
   } catch {
     // Ignore spawn failures gracefully
   }
+}
+
+function tryAutoLaunchBusinessHub(projectRoot: string): void {
+  if (process.env.RSTACK_NO_BUSINESS_HUB === "1" || process.env.CI) return;
+  const port = Number(process.env.RSTACK_BUSINESS_PORT ?? 3008);
+  const sock = createConnection({ port, host: "127.0.0.1" });
+  sock.setTimeout(400);
+  sock.on("connect", () => {
+    sock.destroy();
+    process.stdout.write(`  \x1b[2mRStack Business Hub: http://localhost:${port}\x1b[0m\n`);
+  });
+  sock.on("error", () => {
+    sock.destroy();
+    const binPath = join(PACKAGE_ROOT, "bin", "rstack-business.js");
+    if (!existsSync(binPath)) return;
+    const child = spawn(process.execPath, [binPath, "--no-browser", "--project", projectRoot], {
+      stdio: "ignore",
+      detached: true,
+      env: { ...process.env, RSTACK_NO_BROWSER: "1", RSTACK_BUSINESS_PORT: String(port) },
+    });
+    child.unref();
+    setTimeout(() => {
+      process.stdout.write(`  \x1b[33mRStack Business Hub: http://localhost:${port}\x1b[0m\n`);
+    }, 800);
+  });
+  sock.on("timeout", () => sock.destroy());
 }
 
 type RegistryItem = {
@@ -878,6 +905,7 @@ export default function (pi: ExtensionAPI) {
     await mkdir(rstackDir(projectRoot), { recursive: true });
     await mkdir(memoryDir(projectRoot), { recursive: true });
     ctx.ui.setStatus("rstack", "RStack SDLC ready");
+    tryAutoLaunchBusinessHub(projectRoot);
   });
 
   pi.on("before_agent_start", async (event) => {
