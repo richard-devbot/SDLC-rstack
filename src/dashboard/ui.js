@@ -651,22 +651,44 @@ function renderCommand() {
       '</div></div>'
     ).join('') || '<div style="padding:8px;color:var(--text-3);font-size:12px">No projects found</div>';
 
-  // Active runs
+  // Active runs — fall back to most recent 3 runs when none are active
   const active = (S.runs ?? []).filter(r => (S.activeRuns ?? []).includes(r.runId));
-  document.getElementById('cmd-active').innerHTML = active.length
-    ? active.map(r => {
+  const recentRuns = active.length ? active : (S.runs ?? []).slice(0, 3);
+  const runsSectionLabel = active.length ? 'Active Runs' : 'Recent Runs';
+  // Update the card header dynamically
+  const activeEl = document.getElementById('cmd-active');
+  const activeCard = activeEl?.closest('.card');
+  if (activeCard) {
+    const hdr = activeCard.querySelector('.card-hdr');
+    if (hdr) hdr.childNodes[0].textContent = runsSectionLabel;
+  }
+  activeEl.innerHTML = recentRuns.length
+    ? recentRuns.map(r => {
         const tasks = r.tasks ?? [];
-        const done = tasks.filter(t => t.status === 'PASS' || t.status === 'FAIL').length;
-        const pct = tasks.length ? Math.round(done / tasks.length * 100) : 0;
-        return '<div style="padding:8px 0;border-bottom:1px solid var(--border)">' +
-          '<div style="font-size:12.5px;font-weight:600;margin-bottom:6px">' + esc((r.manifest?.goal ?? '—').slice(0,55)) + '</div>' +
-          '<div style="height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:4px">' +
-            '<div style="width:' + pct + '%;height:100%;background:var(--accent);border-radius:2px"></div>' +
+        const passed = tasks.filter(t => t.status === 'PASS').length;
+        const failed = tasks.filter(t => t.status === 'FAIL').length;
+        const total = tasks.length;
+        const pct   = total ? Math.round(passed / total * 100) : 0;
+        const tc    = (r.activityTimeline ?? []).reduce((n, m) => n + m.toolCalls, 0);
+        const proj  = (r.projectRoot ?? '').split('/').filter(Boolean).pop() ?? '—';
+        const statusCls = { active:'var(--accent)', done:'var(--success)', stalled:'var(--amber)', ended:'var(--text-3)' }[r.derivedStatus] ?? 'var(--text-3)';
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--border)">' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">' +
+            '<div style="width:6px;height:6px;border-radius:50%;background:' + statusCls + ';flex-shrink:0"></div>' +
+            '<span style="font-size:12.5px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc((r.manifest?.goal ?? '—').slice(0,55)) + '</span>' +
+            '<span style="font-family:var(--m);font-size:9.5px;color:var(--info)">' + esc(proj) + '</span>' +
           '</div>' +
-          '<div style="font-size:11px;color:var(--text-3)">' + done + '/' + tasks.length + ' tasks · ' + pct + '% · ' + esc(r.derivedStatus) + '</div>' +
-          '</div>';
+          (total ? '<div style="height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:4px">' +
+            '<div style="width:' + pct + '%;height:100%;background:' + (failed ? 'var(--accent)' : 'var(--success)') + ';border-radius:2px"></div>' +
+          '</div>' : '') +
+          '<div style="display:flex;gap:10px;font-size:11px;color:var(--text-3)">' +
+            '<span>' + passed + '/' + total + ' tasks</span>' +
+            (tc ? '<span>' + tc + ' calls</span>' : '') +
+            '<span>' + esc(r.derivedStatus) + '</span>' +
+          '</div>' +
+        '</div>';
       }).join('')
-    : '<div style="padding:8px;color:var(--text-3);font-size:12px;font-style:italic">No active runs</div>';
+    : '<div style="padding:8px;color:var(--text-3);font-size:12px;font-style:italic">No runs yet</div>';
 
   // Guardrails
   const tl = (S.runs ?? []).flatMap(r => r.activityTimeline ?? []);
@@ -755,68 +777,65 @@ function renderPipeline() {
 }
 
 // ── Agent Actions ─────────────────────────────────────────────────────────────
+// Uses S.agentWork — the pre-built list from server with full builder data
 function renderAgents() {
-  // Build agent action cards from actual task.builder data
-  const allAgentTasks = [];
-  for (const run of S.runs ?? []) {
-    for (const task of run.tasks ?? []) {
-      if (task.builder) {
-        allAgentTasks.push({ run, task });
-      }
-    }
-  }
-  allAgentTasks.sort((a, b) => (b.task.builder?.status === 'PASS' ? 1 : 0) - (a.task.builder?.status === 'PASS' ? 1 : 0));
+  const work = S.agentWork ?? [];
+  set('agents-count', work.length + ' items');
 
-  if (!allAgentTasks.length) {
+  if (!work.length) {
     document.getElementById('agent-list').innerHTML = empty('◈','No agent actions yet','builder.json contracts appear here once agents complete tasks');
     return;
   }
 
-  document.getElementById('agent-list').innerHTML = allAgentTasks.slice(0, 40).map(({run, task}) => {
-    const b = task.builder;
-    const v = task.validation;
-    const proj = (run.projectRoot ?? '').split('/').filter(Boolean).pop() ?? '—';
-    const evPct = v ? Math.round(v.pass_checks / Math.max(1, v.total_checks) * 100) : 0;
+  document.getElementById('agent-list').innerHTML = work.slice(0, 60).map(w => {
+    const hasSummary = !!(w.summary && w.summary.length > 5);
+    const evPct = w.totalChecks > 0 ? Math.round((w.passChecks / w.totalChecks) * 100) : 0;
+    const proj   = (w.projectRoot ?? '').split('/').filter(Boolean).pop() ?? '—';
+    const statusClass = { PASS:'pass', FAIL:'fail', IN_PROGRESS:'running', READY:'queued', PENDING:'queued' }[w.status] ?? 'idle';
 
-    const decisionsHtml = (b.decisions ?? []).length
-      ? '<div class="agent-sec-label">Decisions</div>' +
-        (b.decisions ?? []).map(d => '<div class="dp-item"><span class="dp-item-ic">◆</span><span>' + esc(d) + '</span></div>').join('')
+    const decisionsHtml = (w.decisions ?? []).length
+      ? '<div class="agent-sec-label">Key decisions</div>' +
+        w.decisions.map(d => '<div class="dp-item"><span class="dp-item-ic">◆</span><span>' + esc(d) + '</span></div>').join('')
       : '';
-    const risksHtml = (b.risks ?? []).length
+    const risksHtml = (w.risks ?? []).length
       ? '<div class="agent-sec-label" style="margin-top:8px">Risks</div>' +
-        (b.risks ?? []).map(r => '<div class="dp-item"><span class="dp-item-ic" style="color:var(--error)">▲</span><span>' + esc(r) + '</span></div>').join('')
+        w.risks.map(r => '<div class="dp-item"><span class="dp-item-ic" style="color:var(--error)">▲</span><span>' + esc(r) + '</span></div>').join('')
       : '';
-    const testsHtml = (b.tests_run ?? []).length
+    const testsHtml = (w.testsRun ?? []).length
       ? '<div class="agent-sec-label" style="margin-top:8px">Evidence (tests run)</div>' +
-        (b.tests_run ?? []).map(t => '<div class="dp-item"><span class="dp-item-ic" style="color:var(--success)">✓</span><span style="font-family:var(--m);font-size:10.5px">' + esc(t) + '</span></div>').join('')
+        w.testsRun.map(t => '<div class="dp-item"><span class="dp-item-ic" style="color:var(--success)">✓</span><span style="font-family:var(--m);font-size:10.5px">' + esc(t) + '</span></div>').join('')
       : '';
-    const filesHtml = (b.files_modified ?? []).length
+    const filesHtml = (w.filesModified ?? []).length
       ? '<div class="dp-io" style="margin-top:8px">' +
-        (b.files_modified ?? []).map(f => '<span class="dp-io-k">→</span><span class="dp-io-v">' + esc(f) + '</span>').join('') +
+        w.filesModified.map(f => '<span class="dp-io-k">→</span><span class="dp-io-v">' + esc(f) + '</span>').join('') +
         '</div>'
       : '';
+    const failedHtml = (w.failedChecks ?? []).length
+      ? '<span style="font-family:var(--m);font-size:10px;color:var(--error);margin-left:6px">' + w.failedChecks.length + ' failed: ' + w.failedChecks.slice(0,2).join(', ') + '</span>'
+      : '';
 
-    return '<div class="agent-card ' + (task.status ?? 'idle').toLowerCase() + '">' +
+    return '<div class="agent-card ' + statusClass + '">' +
       '<div class="agent-hdr">' +
         '<div style="flex:1">' +
-          '<div class="agent-persona">◆ ' + esc(b.status ?? 'builder') + ' · ' + esc(proj) + '</div>' +
-          '<div class="agent-title">' + esc(task.title ?? task.id) + '</div>' +
-          '<div class="agent-id">' + esc(task.id) + ' · ' + esc(run.runId.slice(-14)) + '</div>' +
+          '<div class="agent-persona">◆ ' + esc(w.agent || 'builder') + ' · ' + esc(proj) + '</div>' +
+          '<div class="agent-title">' + esc(w.title || w.taskId) + '</div>' +
+          '<div class="agent-id">' + esc(w.taskId) + ' · ' + esc(w.runId?.slice(-12) ?? '—') + '</div>' +
         '</div>' +
-        pill(task.status?.toLowerCase() ?? 'idle') +
+        pill(statusClass, w.status) +
       '</div>' +
-      '<div class="agent-summary">' + esc(b.summary ?? b.work_done ?? '—') + '</div>' +
-      (v ? '<div class="evidence-bar">' +
+      (hasSummary ? '<div class="agent-summary">' + esc(w.summary) + '</div>' : '<div class="agent-summary" style="color:var(--text-3);font-style:italic">Task pending — no builder contract yet</div>') +
+      (w.totalChecks > 0 ? '<div class="evidence-bar">' +
         '<div class="evidence-wrap"><div class="evidence-fill" style="width:' + evPct + '%"></div></div>' +
-        '<span style="font-family:var(--m);font-size:11px;color:var(--success);font-weight:600">' + v.pass_checks + '/' + v.total_checks + ' checks</span>' +
-        (v.failed_checks?.length ? '<span style="font-family:var(--m);font-size:10px;color:var(--error)">' + v.failed_checks.length + ' failed</span>' : '') +
+        '<span style="font-family:var(--m);font-size:11px;color:var(--success);font-weight:600">' + w.passChecks + '/' + w.totalChecks + ' checks</span>' +
+        failedHtml +
       '</div>' : '') +
       '<div class="agent-sections">' + decisionsHtml + risksHtml + testsHtml + '</div>' +
       filesHtml +
       '<div class="agent-chips">' +
-        chip('builder.json', 'accent') +
-        (v ? chip('validation.json', 'green') : '') +
-        (task.specialists?.slice(0,3).map(s => chip(s.replace('agent.',''), 'blue')).join('') ?? '') +
+        chip(w.agent || 'builder', 'accent') +
+        (w.totalChecks > 0 ? chip(evPct + '% quality', 'green') : '') +
+        (w.riskCount > 0 ? chip(w.riskCount + ' risks', 'red') : '') +
+        (w.specialists ?? []).slice(0, 2).map(s => chip(s.replace('agent.',''), 'blue')).join('') +
       '</div>' +
     '</div>';
   }).join('');
@@ -972,24 +991,55 @@ function closePanel() {
 // ── Traceability ──────────────────────────────────────────────────────────────
 function renderTraceability() {
   const traceMap = S.traceMap ?? [];
-  document.getElementById('trace-list').innerHTML = traceMap.length
-    ? traceMap.map(t => '<div class="card" style="margin-bottom:14px">' +
-        '<div class="card-hdr">' + esc(t.runId.slice(-20)) + '</div>' +
-        '<div class="card-body">' +
-          '<div style="font-size:14px;font-weight:700;margin-bottom:10px">' + esc(t.goal) + '</div>' +
-          '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">' +
-            [['Requirements',t.stages?.requirements],['Architecture',t.stages?.architecture],['Code',t.stages?.code],['Testing',t.stages?.testing]]
-              .map(([l,done]) => '<span style="display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:600;' +
-                (done ? 'background:var(--success-bg);color:var(--success);border:1px solid var(--success-border)' : 'background:var(--elevated);color:var(--text-3);border:1px solid var(--border)') + '">' +
-                (done ? '✓' : '○') + ' ' + l + '</span>').join('') +
-          '</div>' +
-          (t.requirements?.length ? '<div style="font-family:var(--m);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text-3);margin-bottom:6px">Requirements (' + t.requirements.length + ')</div>' +
-            t.requirements.slice(0,6).map(r => '<div style="padding:5px 10px;background:var(--elevated);border-radius:5px;font-size:12px;margin-bottom:3px;border-left:2px solid var(--info)">' +
-              '<div style="font-family:var(--m);font-size:9px;color:var(--text-3)">' + esc(r.id ?? r.req_id ?? '') + '</div>' +
-              esc((r.description ?? r.text ?? r.title ?? '').slice(0,100)) + '</div>').join('') : '') +
-        '</div></div>'
-      ).join('')
-    : empty('◉','No traceability data','Complete runs with stages 02 (requirements) and 06 (architecture) to see maps here');
+  if (!traceMap.length) {
+    document.getElementById('trace-list').innerHTML = empty('◉','No traceability data','Runs with requirements artifacts will appear here');
+    return;
+  }
+  document.getElementById('trace-list').innerHTML = traceMap.map(t => {
+    const reqs = t.requirements ?? [];
+    const passTasks = t.passTasks ?? [];
+    const stagesHtml = [
+      ['Requirements', t.stages?.requirements, reqs.length + ' reqs'],
+      ['Architecture', t.stages?.architecture, ''],
+      ['Code', t.stages?.code, ''],
+      ['Testing', t.stages?.testing, ''],
+    ].map(([l, done, sub]) => {
+      const s = done
+        ? 'background:var(--success-bg);color:var(--success);border:1px solid var(--success-border)'
+        : 'background:var(--elevated);color:var(--text-3);border:1px solid var(--border)';
+      return '<span style="display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;' + s + '">' +
+        (done ? '✓' : '○') + ' ' + l + (sub && done ? ' <span style=\\'font-size:9px;opacity:.7\\'>(' + sub + ')</span>' : '') + '</span>';
+    }).join('');
+
+    const reqsHtml = reqs.length
+      ? '<div style="font-family:var(--m);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text-3);margin-top:12px;margin-bottom:6px">Functional Requirements (' + reqs.length + ')</div>' +
+        reqs.slice(0, 8).map(r => '<div style="padding:6px 10px;background:var(--elevated);border-radius:6px;font-size:12px;margin-bottom:4px;border-left:2px solid var(--info)">' +
+          (r.id ? '<div style="font-family:var(--m);font-size:9px;color:var(--text-3);margin-bottom:2px">' + esc(r.id) + (r.area ? ' · ' + esc(r.area) : '') + (r.priority ? ' · ' + esc(r.priority) : '') + '</div>' : '') +
+          esc(r.description.slice(0, 120)) +
+        '</div>').join('')
+      : '';
+
+    const tasksHtml = passTasks.length
+      ? '<div style="font-family:var(--m);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text-3);margin-top:12px;margin-bottom:6px">Verified Tasks (' + passTasks.length + ') · Evidence: ' + (t.evidenceTotal ?? 0) + ' checks</div>' +
+        passTasks.slice(0, 6).map(task => '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px">' +
+          '<span class="pill pass"><span class="pill-dot"></span>PASS</span>' +
+          '<span style="flex:1">' + esc(task.title) + '</span>' +
+          (task.evidenceCount ? '<span style="font-family:var(--m);font-size:9.5px;color:var(--success)">' + task.evidenceCount + ' checks</span>' : '') +
+        '</div>').join('')
+      : '';
+
+    return '<div class="card" style="margin-bottom:14px">' +
+      '<div class="card-hdr">' +
+        '<span>' + esc(t.runId.slice(-20)) + '</span>' +
+        '<span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--text-3)">' + esc((t.goal ?? '').slice(0, 50)) + '</span>' +
+      '</div>' +
+      '<div class="card-body">' +
+        (t.brief ? '<div style="font-size:12px;color:var(--text-2);background:var(--elevated);border-radius:6px;padding:8px 10px;margin-bottom:10px">' + esc(t.brief.slice(0,200)) + '</div>' : '') +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' + stagesHtml + '</div>' +
+        reqsHtml +
+        tasksHtml +
+      '</div></div>';
+  }).join('');
 }
 
 // ── Team ──────────────────────────────────────────────────────────────────────

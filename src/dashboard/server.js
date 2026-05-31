@@ -130,9 +130,20 @@ function wsSend(socket, data) {
 function toClientState(state) {
   const runs = (state.runs ?? []).map(r => {
     // eslint-disable-next-line no-unused-vars
-    const { events, ...rest } = r;
+    const { events, evidence, ...rest } = r;
     return {
       ...rest,
+      evidenceCount: (r.evidence ?? []).length,
+      // Requirements from stage artifacts (the real agent-extracted list)
+      requirements: (r.requirements ?? []).slice(0, 15).map(req => ({
+        id:          req.id ?? req.req_id ?? '',
+        area:        req.area ?? req.category ?? '',
+        priority:    req.priority ?? 'must',
+        description: (req.description ?? req.text ?? req.title ?? '').slice(0, 200),
+        acceptance:  (req.acceptance ?? req.acceptance_criteria ?? []).slice(0, 2),
+      })),
+      brief:   r.brief ?? '',
+      hasPlan: r.hasPlan ?? false,
       // Keep rich task data — builder.json decisions/risks/evidence are the core value
       tasks: (r.tasks ?? []).map(t => ({
         id:               t.id,
@@ -173,17 +184,24 @@ function toClientState(state) {
     runs,
     // Cap arrays to keep WS payload under 500 KB
     feed:      (state.feed      ?? []).slice(0, 100),
-    agentWork: (state.agentWork ?? []).slice(0, 50).map(w => ({
+    agentWork: (state.agentWork ?? []).slice(0, 60).map(w => ({
       agent:         w.agent,
       taskId:        w.taskId,
+      title:         w.title,
       status:        w.status,
-      goal:          w.goal,
+      goal:          w.goal?.slice(0, 80),
       host:          w.host,
-      summary:       (w.summary || w.promptPreview || '').slice(0, 200),
-      decisions:     (w.decisions ?? []).slice(0, 3),
-      risks:         (w.risks ?? []).slice(0, 2),
-      evidenceCount: w.evidenceCount,
-      riskCount:     w.riskCount,
+      summary:       (w.summary || w.promptPreview || '').slice(0, 300),
+      decisions:     (w.decisions ?? []).slice(0, 4),
+      risks:         (w.risks ?? []).slice(0, 3),
+      testsRun:      (w.testsRun ?? []).slice(0, 5),
+      filesModified: (w.filesModified ?? []).slice(0, 5),
+      totalChecks:   w.totalChecks ?? 0,
+      passChecks:    w.passChecks ?? 0,
+      failedChecks:  (w.failedChecks ?? []).slice(0, 3),
+      evidenceCount: w.evidenceCount ?? 0,
+      riskCount:     w.riskCount ?? 0,
+      specialists:   (w.specialists ?? []).slice(0, 4),
       runId:         w.runId,
     })),
   };
@@ -246,16 +264,30 @@ async function getRunsForRoot(projectRoot) {
 
   return Promise.all(entries.map(async (runId) => {
     const runDir = join(runsDir, runId);
-    const [manifest, metrics, tasksRaw] = await Promise.all([
+    const stagesDir = join(runDir, 'artifacts', 'stages');
+
+    const [manifest, metrics, tasksRaw, contextText, planText, requirements] = await Promise.all([
       readJson(join(runDir, 'manifest.json'), {}),
       readJson(join(runDir, 'metrics.json'), {}),
       readJson(join(runDir, 'tasks.json'), null),
+      readFile(join(runDir, 'context.md'), 'utf8').catch(() => ''),
+      readFile(join(runDir, 'plan.md'), 'utf8').catch(() => ''),
+      // Requirements from stage artifacts (the real agent output)
+      readJson(join(stagesDir, '02-requirements', 'requirements.json'), null),
     ]);
+
     const rawTasks = Array.isArray(tasksRaw)
       ? tasksRaw
       : Array.isArray(tasksRaw?.tasks) ? tasksRaw.tasks : [];
     const tasks = await enrichTasks(projectRoot, runId, rawTasks);
     const events = readJsonlSync(join(runDir, 'events.jsonl'));
+    const evidence = readJsonlSync(join(runDir, 'evidence.jsonl'));
+
+    // Parse requirements from functional/non_functional arrays
+    const reqList = Array.isArray(requirements)
+      ? requirements
+      : Array.isArray(requirements?.functional) ? requirements.functional
+      : Array.isArray(requirements?.requirements) ? requirements.requirements : [];
 
     // Per-minute activity timeline — used for sparkline + drill-down
     const activityTimeline = buildActivityTimeline(events);
@@ -264,7 +296,17 @@ async function getRunsForRoot(projectRoot) {
     const derivedStatus = deriveRunStatus(manifest, events);
     const host = inferHost(manifest);
 
-    return { runId, projectRoot, manifest, metrics, tasks, events, activityTimeline, derivedStatus, host };
+    // Brief from context.md — extract goal section
+    const brief = contextText
+      ? contextText.split('\n').filter(l => l.trim() && !l.startsWith('#')).slice(0, 3).join(' ').slice(0, 300)
+      : '';
+
+    return {
+      runId, projectRoot, manifest, metrics, tasks, events, evidence,
+      activityTimeline, derivedStatus, host, brief,
+      requirements: reqList.slice(0, 20),
+      hasPlan: planText.length > 50,
+    };
   }));
 }
 
@@ -319,22 +361,35 @@ function buildStageMatrix(runs) {
 }
 
 function buildAgentWork(runs) {
-  return runs.flatMap((run) => (run.tasks ?? []).map((task) => ({
-    runId: run.runId,
-    goal: run.manifest?.goal ?? '',
-    host: run.host,
-    projectRoot: run.projectRoot,
-    taskId: task.id,
-    title: task.title ?? task.id,
-    status: task.status ?? 'READY',
-    agent: task.agent_name ?? 'rstack-agent',
-    summary: task.builder?.summary ?? task.description ?? '',
-    decisions: task.builder?.memory_summary?.decisions ?? [],
-    risks: task.builder?.risks ?? [],
-    nextSteps: task.builder?.next_steps ?? [],
-    validationChecks: task.validation?.checks ?? [],
-    promptPreview: task.prompt_preview ?? '',
-  }))).sort((a, b) => `${b.runId}:${b.taskId}`.localeCompare(`${a.runId}:${a.taskId}`)).slice(0, 160);
+  return runs.flatMap((run) => (run.tasks ?? []).map((task) => {
+    const checks = task.validation?.checks ?? [];
+    const passChecks = checks.filter(c => c.status === 'PASS').length;
+    return {
+      runId:         run.runId,
+      goal:          run.manifest?.goal ?? '',
+      host:          run.host,
+      projectRoot:   run.projectRoot,
+      taskId:        task.id,
+      title:         task.title ?? task.id,
+      status:        task.status ?? 'READY',
+      agent:         task.agent_name ?? 'rstack-agent',
+      summary:       task.builder?.summary ?? task.description ?? '',
+      decisions:     task.builder?.memory_summary?.decisions ?? [],
+      risks:         task.builder?.risks ?? [],
+      nextSteps:     task.builder?.next_steps ?? [],
+      testsRun:      task.builder?.tests_run ?? [],
+      filesModified: (task.builder?.files_modified ?? []).slice(0, 5).map(f =>
+        f.replace(/^.*\.rstack\/runs\/[^/]+\//, '')
+      ),
+      totalChecks:   checks.length,
+      passChecks,
+      failedChecks:  checks.filter(c => c.status !== 'PASS').map(c => c.name),
+      evidenceCount: passChecks,
+      riskCount:     (task.builder?.risks ?? []).length,
+      promptPreview: task.prompt_preview ?? '',
+      specialists:   (task.specialists ?? []).slice(0, 5),
+    };
+  })).sort((a, b) => `${b.runId}:${b.taskId}`.localeCompare(`${a.runId}:${a.taskId}`)).slice(0, 160);
 }
 
 async function buildFullState(projectRoot) {
@@ -453,43 +508,44 @@ async function buildFullState(projectRoot) {
     }
   }
 
-  // Traceability: map run requirements → artifacts
+  // Traceability: use requirements already loaded in getRunsForRoot, check stage dirs
   const traceMap = [];
-  for (const run of runs.slice(0, 5)) {
+  for (const run of runs.slice(0, 8)) {
     const stageArtifactsDir = join(run.projectRoot ?? projectRoot, '.rstack', 'runs', run.runId, 'artifacts', 'stages');
-    const reqFile = join(stageArtifactsDir, '02-requirements', 'requirements.json');
     const archDir  = join(stageArtifactsDir, '06-architecture');
     const codeFile = join(stageArtifactsDir, '07-code', 'implementation-report.json');
     const testFile = join(stageArtifactsDir, '08-testing', 'qa-report.json');
 
-    const [reqs, hasCode, hasTest] = await Promise.all([
-      readJson(reqFile, null),
+    // Use requirements already loaded from getRunsForRoot
+    const requirements = run.requirements ?? [];
+
+    const [hasCode, hasTest] = await Promise.all([
       readJson(codeFile, null).then(v => v !== null),
       readJson(testFile, null).then(v => v !== null),
     ]);
     const hasArch = existsSync(archDir) && (await readdir(archDir).then(f => f.length > 0).catch(() => false));
+    const passTasks = run.tasks.filter(t => t.status === 'PASS');
 
-    const requirements = Array.isArray(reqs)
-      ? reqs
-      : Array.isArray(reqs?.functional) ? reqs.functional
-      : Array.isArray(reqs?.requirements) ? reqs.requirements : [];
-
-    if (requirements.length > 0 || hasArch || hasCode) {
+    if (requirements.length > 0 || hasArch || hasCode || passTasks.length > 0) {
       traceMap.push({
-        runId: run.runId,
-        goal: run.manifest?.goal ?? '—',
+        runId:  run.runId,
+        goal:   run.manifest?.goal ?? '—',
+        brief:  run.brief ?? '',
         requirements: requirements.slice(0, 20),
         stages: {
           requirements: requirements.length > 0,
           architecture: hasArch,
-          code: hasCode,
-          testing: hasTest,
+          code:         hasCode,
+          testing:      hasTest,
         },
-        passTasks: run.tasks.filter(t => t.status === 'PASS').map(t => ({
-          id: t.id,
+        passTasks: passTasks.map(t => ({
+          id:    t.id,
           title: t.title ?? t.id,
           stageArtifacts: t.stage_artifacts ?? [],
+          evidenceCount:  (t.validation?.checks ?? []).filter(c => c.status === 'PASS').length,
         })),
+        evidenceTotal: run.tasks.reduce((n, t) =>
+          n + ((t.validation?.checks ?? []).filter(c => c.status === 'PASS').length), 0),
       });
     }
   }
