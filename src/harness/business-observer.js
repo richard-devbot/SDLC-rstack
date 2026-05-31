@@ -100,25 +100,69 @@ function wsHandshake(req, socket) {
 }
 
 function wsFrame(data) {
-  const payload = Buffer.from(JSON.stringify(data));
+  // JSON stringify once, then build the correct RFC-6455 frame
+  const payload = Buffer.from(typeof data === 'string' ? data : JSON.stringify(data));
   const len = payload.length;
-  const frame = len < 126
-    ? Buffer.alloc(2 + len)
-    : Buffer.alloc(4 + len);
-  frame[0] = 0x81;
+  let header;
   if (len < 126) {
-    frame[1] = len;
-    payload.copy(frame, 2);
+    header = Buffer.alloc(2);
+    header[0] = 0x81; header[1] = len;
+  } else if (len < 65536) {
+    header = Buffer.alloc(4);
+    header[0] = 0x81; header[1] = 126;
+    header.writeUInt16BE(len, 2);
   } else {
-    frame[1] = 126;
-    frame.writeUInt16BE(len, 2);
-    payload.copy(frame, 4);
+    // Extended 64-bit length — required for payloads > 65535 bytes
+    header = Buffer.alloc(10);
+    header[0] = 0x81; header[1] = 127;
+    header.writeBigUInt64BE(BigInt(len), 2);
   }
-  return frame;
+  return Buffer.concat([header, payload]);
 }
 
 function wsSend(socket, data) {
   try { socket.write(wsFrame(data)); } catch { /* closed */ }
+}
+
+// Strip raw event arrays before sending over WebSocket — they're 2+ MB and
+// the client only needs the pre-computed feed/timeline/agentWork fields.
+function toClientState(state) {
+  const runs = (state.runs ?? []).map(r => {
+    // eslint-disable-next-line no-unused-vars
+    const { events, ...rest } = r;
+    return rest;
+  });
+  return {
+    ...state,
+    runs,
+    // Slim tasks — drop large JSON blobs, keep only display fields
+    runs: runs.map(r => ({
+      ...r,
+      tasks: (r.tasks ?? []).map(t => ({
+        id:             t.id,
+        title:          t.title,
+        status:         t.status,
+        stage_artifacts:t.stage_artifacts,
+        agent_name:     t.agent_name,
+        risk_count:     t.risk_count,
+        evidence_count: t.evidence_count,
+        prompt_preview: t.prompt_preview?.slice(0, 120) ?? '',
+      })),
+    })),
+    // Cap arrays to keep WS payload well under 400 KB
+    feed:      (state.feed      ?? []).slice(0, 100),
+    agentWork: (state.agentWork ?? []).slice(0, 50).map(w => ({
+      agent:         w.agent,
+      taskId:        w.taskId,
+      status:        w.status,
+      goal:          w.goal,
+      host:          w.host,
+      summary:       (w.summary || w.promptPreview || '').slice(0, 160),
+      evidenceCount: w.evidenceCount,
+      riskCount:     w.riskCount,
+      runId:         w.runId,
+    })),
+  };
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -464,7 +508,7 @@ function startPolling() {
   pollInterval = setInterval(async () => {
     try {
       const state = await buildFullState(PROJECT_ROOT);
-      broadcast(state);
+      broadcast(toClientState(state));
     } catch (err) {
       // Log but never crash — the next tick will retry
       process.stderr.write(`[rstack-business] poll error: ${err?.message}\n`);
@@ -513,7 +557,7 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ ok }));
       if (ok) {
         const state = await buildFullState(PROJECT_ROOT);
-        broadcast(state);
+        broadcast(toClientState(state));
       }
     });
     return;
@@ -529,7 +573,7 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ ok }));
       if (ok) {
         const state = await buildFullState(PROJECT_ROOT);
-        broadcast(state);
+        broadcast(toClientState(state));
       }
     });
     return;
@@ -548,7 +592,7 @@ server.on('upgrade', async (req, socket) => {
   socket.on('close', () => clients.delete(socket));
 
   const state = await buildFullState(PROJECT_ROOT);
-  wsSend(socket, state);
+  wsSend(socket, toClientState(state));
   startPolling();
 });
 
