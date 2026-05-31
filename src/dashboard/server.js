@@ -131,26 +131,47 @@ function toClientState(state) {
   const runs = (state.runs ?? []).map(r => {
     // eslint-disable-next-line no-unused-vars
     const { events, ...rest } = r;
-    return rest;
+    return {
+      ...rest,
+      // Keep rich task data — builder.json decisions/risks/evidence are the core value
+      tasks: (r.tasks ?? []).map(t => ({
+        id:               t.id,
+        title:            t.title,
+        status:           t.status,
+        description:      t.description?.slice(0, 300) ?? '',
+        stage_artifacts:  t.stage_artifacts,
+        agent_name:       t.agent_name,
+        risk_count:       t.risk_count,
+        evidence_count:   t.evidence_count,
+        specialists:      (t.specialists ?? []).slice(0, 6),
+        // Builder contract — what the agent actually did
+        builder: t.builder ? {
+          summary:       t.builder.summary?.slice(0, 400) ?? '',
+          status:        t.builder.status,
+          decisions:     (t.builder.memory_summary?.decisions ?? []).slice(0, 4),
+          risks:         (t.builder.risks ?? []).slice(0, 3),
+          next_steps:    (t.builder.next_steps ?? []).slice(0, 3),
+          tests_run:     (t.builder.tests_run ?? []).slice(0, 5),
+          files_modified:(t.builder.files_modified ?? []).slice(0, 5).map(f =>
+            f.replace(/^.*\.rstack\/runs\/[^/]+\//, '')
+          ),
+          work_done:     t.builder.memory_summary?.work_done?.slice(0, 200) ?? '',
+        } : null,
+        // Validation — pass/fail counts + any failures
+        validation: t.validation ? {
+          status:       t.validation.status,
+          total_checks: (t.validation.checks ?? []).length,
+          pass_checks:  (t.validation.checks ?? []).filter(c => c.status === 'PASS').length,
+          failed_checks:(t.validation.checks ?? []).filter(c => c.status !== 'PASS').map(c => c.name),
+          issues:       (t.validation.issues ?? []).slice(0, 3),
+        } : null,
+      })),
+    };
   });
   return {
     ...state,
     runs,
-    // Slim tasks — drop large JSON blobs, keep only display fields
-    runs: runs.map(r => ({
-      ...r,
-      tasks: (r.tasks ?? []).map(t => ({
-        id:             t.id,
-        title:          t.title,
-        status:         t.status,
-        stage_artifacts:t.stage_artifacts,
-        agent_name:     t.agent_name,
-        risk_count:     t.risk_count,
-        evidence_count: t.evidence_count,
-        prompt_preview: t.prompt_preview?.slice(0, 120) ?? '',
-      })),
-    })),
-    // Cap arrays to keep WS payload well under 400 KB
+    // Cap arrays to keep WS payload under 500 KB
     feed:      (state.feed      ?? []).slice(0, 100),
     agentWork: (state.agentWork ?? []).slice(0, 50).map(w => ({
       agent:         w.agent,
@@ -158,7 +179,9 @@ function toClientState(state) {
       status:        w.status,
       goal:          w.goal,
       host:          w.host,
-      summary:       (w.summary || w.promptPreview || '').slice(0, 160),
+      summary:       (w.summary || w.promptPreview || '').slice(0, 200),
+      decisions:     (w.decisions ?? []).slice(0, 3),
+      risks:         (w.risks ?? []).slice(0, 2),
       evidenceCount: w.evidenceCount,
       riskCount:     w.riskCount,
       runId:         w.runId,
