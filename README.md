@@ -2,535 +2,430 @@
 
 <!-- owner: RStack developed by Richardson Gunde -->
 
-**RStack SDLC** is a framework-independent, governed AI software-delivery harness developed by **Richardson Gunde**.
+**RStack SDLC** is a governed AI software-delivery harness developed by **Richardson Gunde**.
 
-It gives AI coding agents a repeatable SDLC instead of ad-hoc prompting:
+Give any AI coding agent a repeatable, auditable SDLC — with human-in-loop approval gates, live observability, and memory across runs:
 
-```text
+```
 clarify → plan → spec → approve → build → validate → release-readiness → learn
 ```
 
-RStack ships with a native **Pi adapter today**, but the framework itself is portable. The core assets are Markdown/JSON-compatible and can be used from Claude Code, Codex CLI, Gemini CLI, Qwen Code, MCP-capable clients, or any custom agent harness.
-
 ---
 
-## What RStack includes
+## One-line install
 
-| Layer | Purpose |
-| --- | --- |
-| `agents/core/` | Orchestrator, builder, and validator team contracts. |
-| `agents/sdlc/` | Full lifecycle pipeline agents from environment discovery to release readiness. |
-| `agents/specialists/` | Backend, frontend, devops, QA, security, data, product, docs, and other specialists. |
-| `skills/` | Reusable workflow instructions. |
-| `prompts/` | Prompt templates and command-style workflows. |
-| `plugins/` | Domain packs with manifests, agents, skills, and commands. |
-| `extensions/rstack-sdlc.ts` | Native Pi runtime adapter. |
-| `extensions/rstack_sdlc.py` + `bin/rstack-operator-bridge.ts` | Native Operator (Python) adapter — reuses the Pi adapter via a Node bridge. |
-| `src/harness/` | Canonical 15-stage metadata, run-folder preparation, contracts, evidence, and guardrails. |
-| `.rstack/runs/` | Generated run state, specs, approvals, traceability, tasks, and validation evidence. |
+| Runtime | Install |
+|---------|---------|
+| **Pi** *(native, full hooks)* | `pi install npm:rstack-agents` |
+| **Operator** *(native, via Node bridge)* | `pip install operator-use && npm install -g rstack-agents` |
+| **Claude Code** *(asset mode)* | `npx rstack-agents@latest init` |
+| **Any other agent** *(asset mode)* | `git clone https://github.com/richard-devbot/SDLC-rstack.git ~/rstack` |
 
-Current package assets:
+Then open the live Business Hub in your browser:
 
-```text
-196 agents
-156 skills
-36 prompts
-72 plugins
-```
-
----
-
-## Why RStack is not Pi-only
-
-Pi is the first native runtime because it gives RStack the hooks needed for a real governed harness:
-
-| RStack need | Pi support |
-| --- | --- |
-| Custom SDLC tools | `pi.registerTool()` |
-| Slash commands | `pi.registerCommand()` |
-| Lifecycle hooks | `pi.on(...)` |
-| Safety gates | `tool_call` hook |
-| Tool evidence logging | `tool_result` hook |
-| Skill/prompt discovery | `resources_discover` hook |
-| Installable package | `pi install` |
-| Isolated worker delegation | `pi --mode json` subprocesses |
-
-But the reusable RStack knowledge lives in portable files:
-
-```text
-agents/
-skills/
-prompts/
-plugins/
-docs/public/
-```
-
-So the correct framing is:
-
-> RStack SDLC is a portable AI-SDLC framework with a first-class Pi adapter today.
-
----
-
-## Harness guarantees
-
-RStack includes a package-local Harness layer in `src/harness/`. The Harness makes the SDLC runtime machine-checkable:
-
-- Preserves the canonical 15-stage pipeline from `00-environment` through `14-cost-estimation`.
-- Prepares clean `artifacts/stages/<stage-id>/` folders for every run.
-- Validates builder and validator contracts before a task can pass.
-- Records task evidence events in `events.jsonl` with `task_id`, `kind`, `status`, and `evidence`.
-- Carries guardrail defaults for attempts, message/tool limits, evidence, contracts, and destructive-action approval.
-
-See [`docs/HARNESS.md`](docs/HARNESS.md) for the full runtime contract.
-
----
-
-## Enterprise Observability & Traceability Hub
-
-RStack features a high-fidelity, glassmorphic **Observability Hub & Real-time Traceability Explorer** designed for enterprise environments. It provides full visual reporting, specialist tracking, and webhook execution metrics for managers, developers, and compliance officers alike.
-
-### 📊 Real-Time HTML Observability Dashboard (`sdlc_dashboard`)
-Generate static HTML dashboards compiling raw runtime telemetry, sandbox events, and validation logs, launched instantly in your macOS system browser:
 ```bash
-# Generate the glassmorphic hub and open in browser:
-pi run sdlc_dashboard
+npx rstack-agents@latest business   # or: npm run business
+# → http://localhost:3008
 ```
-* **Specialist Agent Tracking**: Tracks exactly which packaged or project-local specialist agent (e.g., `agent.00-environment`) was assigned to execute the sandbox task.
-* **Sandbox Attempts & Modified Files**: Interactively inspect the attempt iteration numbers and expand lists of modified source file paths for every builder task.
-* **Memory Ledger Auditing KPI**: Displays a distinct, real-time cryptographic memory status (`🟢 SECURED` / `⚠️ COMPROMISED`) directly in the KPI header, auditing symmetric `HMAC-SHA256` signatures against historical record tampering.
-
-### 🔍 Interactive Traceability Explorer Tree
-Navigate to the **Traceability Explorer** tab in the dashboard card:
-* Maps high-level product requirements (from `specs/requirements.json`) directly to system architecture elements.
-* Tracks execution validation tasks, modified source code files, and final validation evidence.
-* Provides a chronological Pipeline Trace Ledger mapping active code paths, checkpoints, and PASS checks checklists.
-
-### 📂 Chronological CLI Event Tracing (`sdlc_trace`)
-Deep-dive into a single validation task with a LangSmith-style hierarchical event trace tree printed inside your console:
-```bash
-# Print tool calls, recall limits, cost logs, guardrail hits, and validations:
-pi run sdlc_trace --task_id "001-product-clarification"
-```
-
-### 🚀 Governed Multi-Channel Webhook Notifications
-Establish real-time team visibility across Slack, Microsoft Teams, and Discord. Simply configure the environment variable:
-```bash
-export RSTACK_SLACK_WEBHOOK="<webhook-url>"
-```
-RStack's zero-config auto-routing dynamically translates execution reports to match your channel's standard layouts:
-* **Slack**: Standard Block-kit payloads with metadata fields.
-* **Discord**: Converts notifications into high-fidelity embeds withhex-color status bars and footers.
-* **Microsoft Teams**: Converts validation checks checklists and attempt metrics into clean Office MessageCard structures.
 
 ---
 
-## Installation
+## Runtimes at a glance
 
-<details open>
-<summary><strong>Install in Pi, full native adapter</strong></summary>
+RStack has a **native Pi adapter** and a **native Operator adapter** today. Every other runtime runs in asset mode — the same Markdown/JSON knowledge base, read as context by the agent.
 
-From npm after publishing:
+| Feature | Pi | Operator | Claude Code | Codex / Gemini / Qwen |
+|---------|:--:|:--------:|:-----------:|:---------------------:|
+| `sdlc_*` tools registered natively | ✅ | ✅ | — | — |
+| `tool_call` safety gates | ✅ | ✅ | — | — |
+| Lifecycle hooks (`session_start`, etc.) | ✅ | ✅ | — | — |
+| Human-in-loop approval blocking | ✅ | ✅ | — | — |
+| Business Hub auto-launch on start | ✅ | — | — | — |
+| SDLC agents / skills / plugins (Markdown) | ✅ | ✅ | ✅ | ✅ |
+| Governance contracts (builder/validator) | ✅ | ✅ | ✅ | ✅ |
+| Live observability dashboard | ✅ | ✅ | ✅ | ✅ |
+
+> **Pi tight-coupling note:** The runtime hooks (`tool_call` blocking, `approval_gate_blocked`, auto-launch) are Pi-specific today. If you run on Claude Code or another agent, you get the full 196-agent knowledge base and governance contracts but not the automatic safety gates — those require a native adapter. An MCP adapter is on the roadmap.
+
+---
+
+## Quick start — Pi (native, recommended)
+
+**1. Install**
 
 ```bash
 pi install npm:rstack-agents
 ```
 
-From this local checkout:
+From a local checkout:
 
 ```bash
-cd /Users/richardsongunde/projects/SDLC-rstack
 pi install .
 ```
 
-One-off local test without installing:
+**2. Ask Pi to start a governed run**
 
-```bash
-pi -e /Users/richardsongunde/projects/SDLC-rstack/extensions/rstack-sdlc.ts
+```
+Use RStack to build a production-ready <your feature> with auth, tests, docs, and release readiness.
 ```
 
-Then ask Pi:
+Or call tools directly:
 
-```text
-Use RStack to plan, build, validate, test, document, and prepare this feature for release: <your goal>
 ```
-
-</details>
-
-<details>
-<summary><strong>Install in Operator, full native adapter</strong></summary>
-
-[Operator](https://github.com/richard-devbot/operator) is a Python AI-agent harness. RStack ships
-a native Operator adapter (`extensions/rstack_sdlc.py`) that exposes the same `sdlc_*` tools. It
-reuses the existing TypeScript adapter/harness through a thin Node bridge
-(`bin/rstack-operator-bridge.ts`) — no logic is reimplemented — so behavior matches Pi.
-
-**Prerequisites:** Node.js (with `npx`) on PATH.
-
-```python
-from operator_use.package.installer import install_package
-from operator_use.settings.paths import get_packages_dir
-
-# From this local checkout (or "git:github.com/richard-devbot/SDLC-rstack"):
-install_package("/path/to/SDLC-rstack", get_packages_dir())
-```
-
-Install the Node dependencies the bridge needs (once, in the package directory):
-
-```bash
-cd ~/.operator/packages/git/github.com/richard-devbot/SDLC-rstack   # or your local checkout
-npm install
-```
-
-Register the package and reload:
-
-```python
-from operator_use.settings.manager import settings_manager
-settings_manager.set_packages(["/path/to/SDLC-rstack"])   # or the git: source
-```
-
-The 15 `sdlc_*` tools then load automatically. Optional configuration via the extension's
-`settings` block in `~/.operator/settings.json` (or the matching `RSTACK_*` env vars):
-
-```json
-{
-  "extension_list": [
-    { "name": "rstack_sdlc", "enabled": true, "settings": {
-      "worker_command": "pi", "default_model": "gemini-2.5-flash",
-      "slack_webhook": "https://hooks.slack.com/...", "allow_destructive": "0"
-    } }
-  ]
-}
-```
-
-> **Note:** `sdlc_delegate` spawns Pi-style sub-workers. Under Operator it needs `pi` on PATH, or
-> set `worker_command` to a Pi-compatible CLI. All other tools are fully self-contained.
-
-</details>
-
-<details>
-<summary><strong>Install universally, asset-only mode</strong></summary>
-
-Use this when your framework can read files but does not have a native RStack adapter yet.
-
-```bash
-git clone https://github.com/richard-devbot/SDLC-rstack.git ~/rstack-agents
-export RSTACK_HOME=~/rstack-agents
-```
-
-Or use this local checkout:
-
-```bash
-export RSTACK_HOME=/Users/richardsongunde/projects/SDLC-rstack
-```
-
-Universal bootstrap prompt:
-
-```text
-Use RStack SDLC from $RSTACK_HOME.
-Read agents/core/orchestrator.md first.
-Use agents/core/builder.md for implementation tasks.
-Use agents/core/validator.md for read-only verification.
-Use agents/sdlc/ for lifecycle routing.
-Use skills/ and plugins/ only when relevant.
-Write run state under .rstack/runs/<run_id>/.
-Require specs, approvals, traceability, builder.json, validation.json, and command evidence.
-Never claim DONE without evidence.
-```
-
-</details>
-
-<details>
-<summary><strong>Install in Claude Code, asset adapter</strong></summary>
-
-Claude Code can use project/user subagents and slash commands. RStack can run there today as portable agent assets.
-
-From your target project:
-
-```bash
-export RSTACK_HOME=/Users/richardsongunde/projects/SDLC-rstack
-mkdir -p .claude/agents/rstack .claude/commands/rstack .rstack/vendor/rstack
-cp -R "$RSTACK_HOME/agents" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/skills" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/plugins" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/prompts" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/agents"/* .claude/agents/rstack/
-cp "$RSTACK_HOME/prompts"/*.md .claude/commands/rstack/ 2>/dev/null || true
-```
-
-Add to `CLAUDE.md`:
-
-```markdown
-# RStack SDLC
-
-Use RStack SDLC from `.rstack/vendor/rstack`.
-Start with `.rstack/vendor/rstack/agents/core/orchestrator.md`.
-Use `.rstack/vendor/rstack/agents/core/builder.md` for implementation tasks.
-Use `.rstack/vendor/rstack/agents/core/validator.md` for read-only verification.
-Write all run state under `.rstack/runs/<run_id>/`.
-Require specs, approvals, traceability, `builder.json`, and `validation.json`.
-Never claim DONE without evidence.
-```
-
-This gives Claude Code the RStack operating model. It does not yet provide Pi-native hooks like `tool_call` gating unless a Claude Code adapter is added later.
-
-</details>
-
-<details>
-<summary><strong>Install in Codex CLI, AGENTS.md adapter</strong></summary>
-
-From your target project:
-
-```bash
-export RSTACK_HOME=/Users/richardsongunde/projects/SDLC-rstack
-mkdir -p .rstack/vendor/rstack
-cp -R "$RSTACK_HOME/agents" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/skills" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/plugins" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/prompts" .rstack/vendor/rstack/
-cat > AGENTS.md <<'EOF'
-# RStack SDLC
-
-Use RStack SDLC from `.rstack/vendor/rstack`.
-Read `.rstack/vendor/rstack/agents/core/orchestrator.md` first.
-For implementation, follow `.rstack/vendor/rstack/agents/core/builder.md`.
-For verification, follow `.rstack/vendor/rstack/agents/core/validator.md`.
-Use SDLC pipeline agents from `.rstack/vendor/rstack/agents/sdlc/`.
-Use skills from `.rstack/vendor/rstack/skills/` and plugin packs from `.rstack/vendor/rstack/plugins/`.
-Write run state under `.rstack/runs/<run_id>/`.
-Require specs, approval gates, traceability, builder contracts, validation contracts, and command evidence.
-EOF
-```
-
-Then run Codex CLI from that project.
-
-</details>
-
-<details>
-<summary><strong>Install in Gemini CLI, GEMINI.md adapter</strong></summary>
-
-From your target project:
-
-```bash
-export RSTACK_HOME=/Users/richardsongunde/projects/SDLC-rstack
-mkdir -p .rstack/vendor/rstack
-cp -R "$RSTACK_HOME/agents" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/skills" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/plugins" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/prompts" .rstack/vendor/rstack/
-cat > GEMINI.md <<'EOF'
-# RStack SDLC
-
-Use RStack SDLC from `.rstack/vendor/rstack`.
-Start with `.rstack/vendor/rstack/agents/core/orchestrator.md`.
-Use the SDLC pipeline in `.rstack/vendor/rstack/agents/sdlc/`.
-Use plugin packs from `.rstack/vendor/rstack/plugins/` only when relevant to the task domain.
-Maintain `.rstack/runs/<run_id>/` with specs, approvals, traceability, tasks, builder.json, and validation.json.
-Do not perform destructive actions without explicit human approval.
-Do not claim DONE without command evidence.
-EOF
-```
-
-Then run Gemini CLI from that project.
-
-</details>
-
-<details>
-<summary><strong>Install in Qwen Code, AGENTS.md adapter</strong></summary>
-
-From your target project:
-
-```bash
-export RSTACK_HOME=/Users/richardsongunde/projects/SDLC-rstack
-mkdir -p .rstack/vendor/rstack
-cp -R "$RSTACK_HOME/agents" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/skills" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/plugins" .rstack/vendor/rstack/
-cp -R "$RSTACK_HOME/prompts" .rstack/vendor/rstack/
-cat > AGENTS.md <<'EOF'
-# RStack SDLC
-
-Use RStack SDLC from `.rstack/vendor/rstack`.
-Act as the RStack orchestrator first, not as a direct coder.
-Read `.rstack/vendor/rstack/agents/core/orchestrator.md`, then route to builder and validator contracts.
-Use `.rstack/vendor/rstack/agents/sdlc/` for lifecycle stages.
-Use `.rstack/vendor/rstack/plugins/` as domain packs.
-Write `.rstack/runs/<run_id>/` state and preserve traceability.
-Require human approval gates before implementation and release decisions.
-EOF
-```
-
-Then run Qwen Code from that project.
-
-</details>
-
-<details>
-<summary><strong>Install in Claude Desktop or Perplexity Desktop</strong></summary>
-
-RStack does not yet ship a native Desktop/MCP adapter.
-
-Today:
-
-1. Use RStack docs and portable assets as manual context.
-2. Use the native Pi adapter for the full governed runtime.
-3. Use a future MCP adapter when available.
-
-Planned MCP tool surface:
-
-```text
-sdlc_start
-sdlc_clarify
-sdlc_plan
-sdlc_spec
-sdlc_approve
-sdlc_agents
-sdlc_build_next
-sdlc_validate
-sdlc_status
-sdlc_memory
-```
-
-</details>
-
----
-
-## Native Pi quickstart
-
-```text
-sdlc_orchestrate
-sdlc_start
-sdlc_clarify
-sdlc_plan
-sdlc_spec
-sdlc_approve
-sdlc_build_next
-sdlc_validate
-sdlc_status
-sdlc_memory
-```
-
-Example:
-
-```text
-Use RStack to build a production-ready todo app with auth, tests, docs, and release readiness.
-```
-
-Recommended first calls:
-
-```text
-sdlc_orchestrate(goal="Build a production-ready todo app with auth, tests, docs, and release readiness")
-sdlc_start(goal="Build a production-ready todo app with auth, tests, docs, and release readiness")
+sdlc_start(goal="Build a checkout flow with Stripe, tests, and release readiness")
 sdlc_clarify()
 sdlc_plan()
 ```
 
-Approve gates before build execution:
+**3. Approve gates before build executes**
 
-```text
+```
 sdlc_approve(artifact="plan.md", status="APPROVED")
 sdlc_approve(artifact="requirements.json", status="APPROVED")
 sdlc_approve(artifact="architecture.md", status="APPROVED")
 ```
 
-Then continue:
+**4. Run the pipeline**
 
-```text
+```
 sdlc_build_next()
 sdlc_validate()
 sdlc_status()
 ```
 
+The Business Hub opens automatically at **http://localhost:3008** when Pi starts.
+
 ---
 
-## Native Pi tool reference
+## Quick start — Operator (native, Python)
+
+**Prerequisites:** Node.js 18+ on PATH, `npm install -g rstack-agents`.
+
+**1. Install from npm**
+
+```python
+from operator_use.package.installer import install_package
+install_package("npm:rstack-agents", get_packages_dir())
+```
+
+Or from a local checkout:
+
+```python
+install_package("/path/to/SDLC-rstack", get_packages_dir())
+```
+
+**2. Install Node dependencies (once)**
+
+```bash
+cd ~/.operator/packages/git/github.com/richard-devbot/SDLC-rstack
+npm install
+```
+
+**3. Configure (optional)**
+
+Add to `~/.operator/settings.json`:
+
+```json
+{
+  "extension_list": [
+    { "name": "rstack_sdlc", "enabled": true, "settings": {
+      "worker_command": "pi",
+      "slack_webhook": "https://hooks.slack.com/...",
+      "allow_destructive": "0"
+    }}
+  ]
+}
+```
+
+The 15 `sdlc_*` tools load automatically via the Node bridge. All TypeScript harness logic is reused — no duplication.
+
+> **Note:** `sdlc_delegate` spawns Pi-style sub-workers. Set `worker_command` to a Pi-compatible CLI, or `pi` must be on PATH.
+
+---
+
+## Quick start — Claude Code (asset mode)
+
+**1. Clone into your project**
+
+```bash
+git clone https://github.com/richard-devbot/SDLC-rstack.git .rstack/vendor/rstack
+```
+
+Or with npm (after `npm install -g rstack-agents`, then):
+
+```bash
+npx rstack-agents@latest init
+```
+
+**2. Add to `CLAUDE.md`**
+
+```markdown
+## RStack SDLC
+
+Use RStack SDLC from `.rstack/vendor/rstack`.
+Start with `.rstack/vendor/rstack/agents/core/orchestrator.md`.
+Use `.rstack/vendor/rstack/agents/core/builder.md` for implementation.
+Use `.rstack/vendor/rstack/agents/core/validator.md` for verification.
+Write all run state under `.rstack/runs/<run_id>/`.
+Require builder.json, validation.json, and traceability.json.
+Never claim DONE without evidence.
+```
+
+**3. Ask Claude**
+
+```
+Use RStack to plan, build, validate, and document: <your goal>
+```
+
+**What you get in asset mode:** Full 196-agent knowledge base, governance contracts, 15-stage pipeline, traceability. What you don't get: automatic `tool_call` gating and approval blocking (those need a native adapter).
+
+**4. Start the Business Hub separately**
+
+```bash
+npx rstack-agents@latest business --project .
+# → http://localhost:3008
+```
+
+---
+
+## Quick start — Codex, Gemini, Qwen (asset mode)
+
+```bash
+# Clone RStack assets into your project
+git clone https://github.com/richard-devbot/SDLC-rstack.git .rstack/vendor/rstack
+
+# Pick your config file name
+cp .rstack/vendor/rstack/docs/public/AGENTS.md.tmpl AGENTS.md   # Codex / Qwen
+# or
+cp .rstack/vendor/rstack/docs/public/GEMINI.md.tmpl GEMINI.md   # Gemini CLI
+```
+
+Or bootstrap manually:
+
+```bash
+cat >> AGENTS.md <<'EOF'
+# RStack SDLC
+
+Use RStack SDLC from `.rstack/vendor/rstack`.
+Read `agents/core/orchestrator.md` first.
+Use `agents/core/builder.md` for implementation tasks.
+Use `agents/core/validator.md` for read-only verification.
+Use `agents/sdlc/` for lifecycle stages.
+Write run state under `.rstack/runs/<run_id>/`.
+Require specs, approvals, traceability, builder.json, and validation.json.
+Never claim DONE without evidence.
+EOF
+```
+
+---
+
+## Live Observability
+
+RStack ships two observability servers. Both are zero-dependency — no external services required.
+
+### Developer Observer — `:3007`
+
+Single-run Kanban board with live WebSocket event stream. Opens automatically during a Pi run.
+
+```bash
+npm run observer           # or: rstack-observer
+rstack-observer --port 3007 --project /path/to/project
+```
+
+### Business Hub — `:3008`
+
+Multi-run, team-facing dashboard. Auto-launches when a Pi session starts. Works with any runtime.
+
+```bash
+npm run business           # or: rstack-business
+rstack-business --port 3008 --project /path/to/project
+```
+
+**Dashboard tabs:**
+
+| Tab | What it shows |
+|-----|--------------|
+| **Overview** | KPI cards: active runs, cost, pass/fail, pending approvals; guardrail health bars |
+| **Live Feed** | Plain-language activity log across all runs — no raw event names |
+| **Approvals** | Human-in-loop queue — one-click Approve / Reject for blocked actions |
+| **Alerts** | Cost threshold, failure rate, guardrail hit rate, stalled run detection |
+| **Run History** | All runs with cost, duration, pass/fail, active/done status |
+| **Traceability** | Requirements → architecture → code tasks → test evidence, per run |
+| **Team** | Framework breakdown (Pi / Operator / Claude Code) with pass rates and cost |
+
+**Auto-launch:** When Pi or Operator starts a session, the Business Hub launches in the background and prints its URL. Set `RSTACK_NO_BUSINESS_HUB=1` to disable.
+
+**Notifications** — configure any channel:
+
+```bash
+export RSTACK_SLACK_WEBHOOK="https://hooks.slack.com/services/..."
+export RSTACK_DISCORD_WEBHOOK="https://discord.com/api/webhooks/..."
+export RSTACK_TEAMS_WEBHOOK="https://outlook.office.com/webhook/..."
+```
+
+**Alert thresholds (defaults):**
+
+| Threshold | Default |
+|-----------|---------|
+| Cost per run | $0.50 |
+| Daily total cost | $5.00 |
+| Guardrail hit rate | 20% of tasks |
+| Task failure rate | 30% of tasks |
+| Stalled run (no events) | 30 min |
+| Pending approvals | ≥ 1 |
+
+---
+
+## What RStack includes
+
+```
+196 agents   ·   156 skills   ·   36 prompts   ·   72 plugins
+```
+
+| Layer | Purpose |
+|-------|---------|
+| `agents/core/` | Orchestrator, builder, validator team contracts |
+| `agents/sdlc/` | 15-stage pipeline: environment → cost estimation |
+| `agents/specialists/` | Backend, frontend, devops, QA, security, data, product, docs |
+| `skills/` | Reusable workflow instructions |
+| `prompts/` | Prompt templates and slash commands |
+| `plugins/` | Domain packs (manifests, agents, skills, commands) |
+| `extensions/rstack-sdlc.ts` | Pi native adapter |
+| `extensions/rstack_sdlc.py` + `bin/rstack-operator-bridge.ts` | Operator native adapter (Python → Node bridge) |
+| `src/harness/observer.js` | Developer Kanban server (`:3007`) |
+| `src/harness/business-observer.js` | Business Hub server (`:3008`) |
+| `src/harness/approval-queue.js` | Human-in-loop persistence (`.rstack/approvals.jsonl`) |
+| `src/harness/alert-engine.js` | Threshold alerts + plain-language summaries |
+| `src/harness/memory.js` | Episodic memory, decay scoring, entity retrieval fusion |
+| `src/harness/guardrails.js` | Attempt / tool call / cost limits |
+| `src/harness/contracts.js` | Builder + validator contract validation |
+
+---
+
+## Tool reference (Pi + Operator)
 
 | Tool | Purpose |
-| --- | --- |
-| `sdlc_orchestrate` | Load RStack orchestrator, builder, and validator operating instructions for a goal. |
-| `sdlc_start` | Create `.rstack/runs/<run_id>/` state for a new SDLC run. |
-| `sdlc_clarify` | Ask or capture product-owner answers before planning. |
-| `sdlc_plan` | Create lifecycle tasks, draft specs, registry files, routing metadata, and traceability. |
-| `sdlc_spec` | Read or update governed spec artifacts under `.rstack/runs/<run_id>/specs/`. |
-| `sdlc_approve` | Record human approval/rejection gates for plans, requirements, architecture, release readiness, or destructive actions. |
-| `sdlc_agents` | List available packaged/project-local agents, skills, and plugins by kind/domain. |
-| `sdlc_delegate` | Spawn isolated Pi worker agents for single or bounded parallel tasks. Validators default to read-only tools. |
-| `sdlc_build_next` | Prepare the next gated builder task packet with core, SDLC, specialist, skill, and plugin context. |
-| `sdlc_validate` | Validate builder output and write `validation.json`. |
-| `sdlc_status` | Show run status, task progress, missing approvals, registry counts, and next recommended action. |
-| `sdlc_memory` | Search or append project learnings for future runs. |
+|------|---------|
+| `sdlc_orchestrate` | Load orchestrator / builder / validator operating instructions |
+| `sdlc_start` | Create `.rstack/runs/<run_id>/` state for a new run |
+| `sdlc_clarify` | Capture product-owner answers before planning |
+| `sdlc_plan` | Create lifecycle tasks, draft specs, routing metadata, traceability |
+| `sdlc_spec` | Read or update spec artifacts (requirements, architecture, etc.) |
+| `sdlc_approve` | Record human approval/rejection gates |
+| `sdlc_agents` | List available agents, skills, and plugins by domain |
+| `sdlc_delegate` | Spawn isolated worker agents for parallel tasks |
+| `sdlc_build_next` | Prepare the next gated builder task packet |
+| `sdlc_validate` | Validate builder output, write `validation.json` |
+| `sdlc_status` | Show run status, tasks, approvals, next action |
+| `sdlc_memory` | Search or append project learnings |
 
-Native Pi slash commands:
+**Pi slash commands:**
 
-```text
-/sdlc
-/sdlc-agents
+```
+/sdlc          Start a governed SDLC run
+/sdlc-agents   Browse available agents, skills, and plugins
 ```
 
 ---
 
 ## CLI reference
 
-The package CLI is framework-neutral and useful for inspection:
-
 ```bash
+# List assets
 rstack-agents list agents
 rstack-agents list skills
 rstack-agents list plugins
+
+# Validate all agent/skill/plugin manifests
 rstack-agents validate
-rstack-agents add plugin <name>
+
+# Add a domain plugin
+rstack-agents add plugin backend-development
+
+# Start the developer observer
+rstack-observer [--port 3007] [--project <path>] [--run-id <id>] [--no-browser]
+
+# Start the business hub
+rstack-business [--port 3008] [--project <path>] [--no-browser]
 ```
 
-Local development equivalent:
+---
 
-```bash
-node bin/rstack-agents.js list agents
-node bin/rstack-agents.js list skills
-node bin/rstack-agents.js list plugins
-node bin/rstack-agents.js validate
-node bin/rstack-agents.js add plugin backend-development
+## 15-stage SDLC pipeline
+
+```
+00-environment        Scan tools, versions, project structure
+01-transcript         Parse meeting notes → structured requirements
+02-requirements       Extract functional + non-functional requirements
+03-documentation      Generate BRD, FRD, SOW
+04-planning           Sprint plan, timeline, team composition
+05-jira               Epic → Story → Task hierarchy
+06-architecture       HLD, API contracts, DB schema
+07-code               Production-ready code scaffolding
+08-testing            Test plan, cases, API tests, security checklist
+09-deployment         Dockerfiles, CI/CD pipelines, IaC
+10-summary            Executive dashboard, artifact inventory
+11-feedback-loop      Cross-pipeline consistency review
+12-security-threat-model  STRIDE + OWASP Top 10
+13-compliance-checker HIPAA / GDPR / PCI-DSS / SOC 2 gap analysis
+14-cost-estimation    Cloud cost forecast (AWS / Azure / GCP)
 ```
 
 ---
 
 ## Governance model
 
-RStack enforces this operating model:
+RStack enforces this sequence:
 
-```text
+```
 clarify → plan → spec → approve → build → validate → release-readiness → memory
 ```
 
-Required controls:
+Controls:
 
-- No implementation before plan approval in interactive mode.
-- No implementation after requirements/architecture gates without approval.
-- Destructive actions require explicit approval.
-- Validators default to read-only tools.
-- Every task has acceptance criteria.
-- Every builder writes `builder.json`.
-- Every validator writes `validation.json`.
-- Traceability is written to `traceability.json`.
-- No DONE without evidence.
+- No build before plan approval in interactive mode
+- Destructive actions require explicit `sdlc_approve(artifact="destructive-action")`
+- Validators default to read-only tools
+- Every task requires acceptance criteria, `builder.json`, and `validation.json`
+- Traceability written to `traceability.json`
+- No DONE without command evidence
 
-Generated run state:
+**Protected actions** (blocked unless approved):
 
-```text
+```
+rm -rf          git push --force    npm publish
+terraform apply/destroy             kubectl apply/delete
+helm install/upgrade/uninstall      DROP TABLE / DELETE FROM
+```
+
+**Protected write paths** (blocked unless approved):
+
+```
+.env  .env.*  id_rsa  id_ed25519  credentials.*  secrets.*  .npmrc  .pypirc
+```
+
+To unblock:
+
+```bash
+sdlc_approve(artifact="destructive-action", status="APPROVED")
+# or
+RSTACK_ALLOW_DESTRUCTIVE=1
+```
+
+---
+
+## Generated run state
+
+```
 .rstack/
-  registry/
-    registry.json
-    agents.json
-    skills.json
-    plugins.json
-    routing.json
   runs/
     <run_id>/
-      manifest.json
-      context.md
-      plan.md
-      tasks.json
-      approvals.json
-      traceability.json
-      events.jsonl
-      evidence.jsonl
+      manifest.json         goal, framework, created_at, status
+      events.jsonl          live event stream (tool calls, validations, cost)
+      metrics.json          cost, tool calls, guardrail hits per stage
+      tasks.json            task list with status
+      approvals.jsonl       human-in-loop approval queue
+      traceability.json     requirements → tasks → files → evidence
       specs/
         product-brief.md
         requirements.json
@@ -540,6 +435,13 @@ Generated run state:
         security-review.md
         handoff.md
         release-readiness.json
+      artifacts/
+        stages/
+          02-requirements/
+          06-architecture/
+          07-code/
+          08-testing/
+          ...
       tasks/
         <task_id>/
           prompt.md
@@ -547,250 +449,85 @@ Generated run state:
           validation.json
 ```
 
-Project memory is stored outside the run so future runs can learn from prior validator-approved work:
+Project memory (persists across runs):
 
-```text
-${RSTACK_HOME:-~/.rstack}/projects/<project-slug>/memory/
-  episodes.jsonl          # agent/stage scoped SDLC task outcomes
-  facts.jsonl             # manually appended project learnings
-  retractions.jsonl       # memory removals or superseded lessons
-  retrieval-events.jsonl  # what memory was injected into prompts
 ```
-
-The default memory backend is JSONL plus lexical retrieval. Configure it with `RSTACK_MEMORY_DIR` or `.rstack/memory-config.json`; future vector or SAGE backends should plug in through that config rather than hardcoded paths.
-
-Each builder must return compact `memory_summary` and per-stage `stage_summaries` in `builder.json`. `sdlc_validate` now fails PASS builders that omit meaningful summaries, test evidence, or required per-stage evidence. After validation, summaries are stored in episodic memory so later agents can retrieve decisions, evidence, and handoff hints without carrying full transcripts or raw logs.
-
----
-
-## Team model
-
-```text
-Orchestrator / team lead
-├── SDLC pipeline agents
-│   ├── environment
-│   ├── transcript
-│   ├── requirements
-│   ├── documentation
-│   ├── planning
-│   ├── jira
-│   ├── architecture
-│   ├── code
-│   ├── testing
-│   ├── deployment
-│   ├── summary
-│   ├── feedback loop
-│   ├── security threat model
-│   ├── compliance checker
-│   └── cost estimation
-├── Builder team
-│   ├── backend specialists
-│   ├── frontend specialists
-│   ├── devops specialists
-│   ├── data specialists
-│   └── docs specialists
-└── Validator team
-    ├── QA specialists
-    ├── security specialists
-    ├── architecture reviewers
-    ├── code reviewers
-    └── performance/accessibility reviewers
+.rstack/memory/
+  episodes.jsonl          stage-scoped task outcomes
+  facts.jsonl             manually appended learnings
+  retractions.jsonl       superseded lessons
+  retrieval-events.jsonl  what memory was injected into prompts
 ```
 
 ---
 
-## Pipeline routing
+## Environment variables
 
-The native Pi adapter maps lifecycle tasks to packaged SDLC agents:
-
-```text
-001-product-clarification -> 00-environment, 01-transcript
-002-requirements          -> 02-requirements, 04-planning, 05-jira
-003-architecture          -> 06-architecture, 12-security-threat-model, 14-cost-estimation
-004-implementation        -> 07-code
-005-testing               -> 08-testing
-006-security-review       -> 12-security-threat-model, 13-compliance-checker
-007-documentation         -> 03-documentation, 10-summary
-008-release-readiness     -> 09-deployment, 10-summary, 11-feedback-loop
-```
-
-Each generated task includes:
-
-```json
-{
-  "pipeline_agents": ["agent.02-requirements", "agent.04-planning"],
-  "specialists": ["agent.02-requirements", "plugin.backend-development"]
-}
-```
-
-Other adapters should preserve this routing contract.
-
----
-
-## Plugin routing
-
-Plugin packs under `plugins/` are domain bundles. Each pack can include:
-
-```text
-plugin.json
-agents/*.md
-skills/**/SKILL.md
-commands/*.md
-```
-
-RStack uses them this way:
-
-1. Build a registry of agents, skills, prompts, and plugins.
-2. Select plugin IDs matching task domain, for example `plugin.backend-development`.
-3. Include the selected plugin manifest plus bounded previews/lists of nested plugin assets in the task packet.
-4. Let builders read only the nested plugin agent/skill needed for the task.
-5. Let validators treat plugin output as guidance while still enforcing RStack contracts and evidence rules.
-
----
-
-## Protected actions
-
-RStack blocks these during governed native runs unless approved:
-
-```text
-rm -rf
-git push
-npm publish
-terraform apply/destroy
-kubectl apply/delete
-helm install/upgrade/uninstall
-DROP TABLE
-DELETE FROM
-```
-
-RStack also protects secret-like write paths:
-
-```text
-.env
-.env.*
-id_rsa
-id_ed25519
-credentials.*
-secrets.*
-.npmrc
-.pypirc
-```
-
-To allow a destructive action:
-
-```text
-sdlc_approve(artifact="destructive-action", status="APPROVED")
-```
-
-or set:
-
-```bash
-RSTACK_ALLOW_DESTRUCTIVE=1
-```
-
----
-
-## Project-local overrides
-
-Package assets are the default source of truth. Target projects can add local overrides:
-
-```text
-.rstack/agents/
-.rstack/skills/
-.rstack/prompts/
-.rstack/plugins/
-.pi/rstack/agents/
-.pi/rstack/skills/
-.pi/rstack/prompts/
-.pi/rstack/plugins/
-```
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RSTACK_BUSINESS_PORT` | `3008` | Business Hub port |
+| `RSTACK_OBSERVER_PORT` | `3007` | Developer observer port |
+| `RSTACK_PROJECT_ROOT` | `cwd` | Project root for both servers |
+| `RSTACK_NO_BUSINESS_HUB` | `0` | Set to `1` to disable auto-launch |
+| `RSTACK_NO_BROWSER` | `0` | Set to `1` to suppress browser open |
+| `RSTACK_ALLOW_DESTRUCTIVE` | `0` | Set to `1` to skip destructive gates |
+| `RSTACK_SLACK_WEBHOOK` | — | Slack notification endpoint |
+| `RSTACK_DISCORD_WEBHOOK` | — | Discord notification endpoint |
+| `RSTACK_TEAMS_WEBHOOK` | — | Microsoft Teams notification endpoint |
+| `RSTACK_MEMORY_DIR` | `~/.rstack/projects/` | Memory store location |
 
 ---
 
 ## Development
 
 ```bash
-cd /Users/richardsongunde/projects/SDLC-rstack
+git clone https://github.com/richard-devbot/SDLC-rstack.git
+cd SDLC-rstack
 npm install
-npm test
-npm run validate
-npm audit --audit-level=high
-npm pack --dry-run
+npm test           # 62 tests
+npm run validate   # 196 agents
+npm run business   # start Business Hub at :3008
+npm run observer   # start Developer Observer at :3007
 ```
 
 Type-check the Pi adapter:
 
 ```bash
-npx -y -p typescript tsc --noEmit --allowImportingTsExtensions --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck extensions/rstack-sdlc.ts
+npx tsc --noEmit --allowImportingTsExtensions --module NodeNext \
+  --moduleResolution NodeNext --target ES2022 --skipLibCheck \
+  extensions/rstack-sdlc.ts
 ```
 
 ---
 
-## Publish
+## Project-local overrides
 
-```bash
-npm test
-npm run validate
-npm audit --audit-level=high
-npm pack --dry-run
-npm login
-npm publish --access public
 ```
-
-The package is configured to include:
-
-```text
-extensions/
-agents/
-skills/
-prompts/
-plugins/
-bin/
-src/
-docs/public/
-README.md
-```
-
-And exclude private runtime/workspace folders such as:
-
-```text
-.claude/
-.agents/
-.codex/
-node_modules/
-logs/
-outputs/
+.rstack/agents/       local agent overrides
+.rstack/skills/       local skill overrides
+.pi/rstack/agents/    Pi-specific agent overrides
+.pi/rstack/skills/    Pi-specific skill overrides
 ```
 
 ---
 
 ## Adapter roadmap
 
-Shipped: native **Pi** adapter and native **Operator** adapter (Python, via Node bridge).
+| Status | Adapter |
+|--------|---------|
+| ✅ Shipped | Pi — native TypeScript adapter, full hooks |
+| ✅ Shipped | Operator — native Python adapter via Node bridge |
+| 🔜 Next | MCP — expose `sdlc_*` tools to any MCP client |
+| 🔜 Next | Claude Code — native adapter with `tool_call` hooks |
+| 📋 Planned | SDK — Node/Python library for custom harnesses |
+| 📋 Planned | Codex / Gemini / Qwen — generated config packs |
 
-Recommended next adapters:
-
-```text
-1. adapters/mcp          expose RStack tools to MCP clients
-2. adapters/claude-code  export agents/commands/skills into Claude Code layout
-3. adapters/codex        generate AGENTS.md + task runner
-4. adapters/gemini       generate GEMINI.md + command pack
-5. adapters/qwen         generate AGENTS.md + command pack
-6. adapters/sdk          Node/Python library for custom harnesses
-```
-
----
-
-## More docs
-
-```text
-docs/public/pi-extension.md
-docs/public/productivity-roadmap.md
-docs/public/product-overview.md
-```
+The Business Hub (`rstack-business`) works with all runtimes today — it reads `.rstack/runs/` directly and requires no adapter.
 
 ---
 
 ## License
 
-MIT
+MIT — developed by Richardson Gunde.
+
+Repository: [github.com/richard-devbot/SDLC-rstack](https://github.com/richard-devbot/SDLC-rstack)
