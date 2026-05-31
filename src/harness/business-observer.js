@@ -188,16 +188,16 @@ async function buildFullState(projectRoot) {
   for (const run of runs.slice(0, 5)) {
     const stageArtifactsDir = join(projectRoot, '.rstack', 'runs', run.runId, 'artifacts', 'stages');
     const reqFile = join(stageArtifactsDir, '02-requirements', 'requirements.json');
-    const archFile = join(stageArtifactsDir, '06-architecture', 'architecture.md');
+    const archDir  = join(stageArtifactsDir, '06-architecture');
     const codeFile = join(stageArtifactsDir, '07-code', 'implementation-report.json');
     const testFile = join(stageArtifactsDir, '08-testing', 'qa-report.json');
 
-    const [reqs, hasArch, hasCode, hasTest] = await Promise.all([
+    const [reqs, hasCode, hasTest] = await Promise.all([
       readJson(reqFile, null),
-      readJson(archFile, null).then(v => v !== null),
       readJson(codeFile, null).then(v => v !== null),
       readJson(testFile, null).then(v => v !== null),
     ]);
+    const hasArch = existsSync(archDir) && (await readdir(archDir).then(f => f.length > 0).catch(() => false));
 
     const requirements = Array.isArray(reqs)
       ? reqs
