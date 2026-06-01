@@ -16,30 +16,10 @@
     "lint": "eslint src/ bin/ tests/",
     "prepublishOnly": "npm run lint && npm test && npm run validate",
     "observer": "node bin/rstack-observer.js",
-    "observer:dev": "node --watch bin/rstack-observer.js",
+    "observer:dev": "node --watch bin/rstack-business.js",
     "business": "node bin/rstack-business.js",
     "business:dev": "node --watch bin/rstack-business.js",
-    "build:observer": "node scripts/build-observer.js",
-    "build:observer:win": "pkg bin/rstack-observer.js --target node18-win-x64 --output dist/rstack-observer-win.exe",
-    "build:observer:mac": "pkg bin/rstack-observer.js --target node18-macos-x64 --output dist/rstack-observer-macos",
-    "build:observer:linux": "pkg bin/rstack-observer.js --target node18-linux-x64 --output dist/rstack-observer-linux",
-    "build:all": "npm run build:observer"
-  },
-  "pkg": {
-    "scripts": [
-      "src/harness/observer.js",
-      "src/harness/reporter.js",
-      "src/harness/business-observer.js",
-      "src/harness/approval-queue.js",
-      "src/harness/alert-engine.js"
-    ],
-    "assets": [],
-    "targets": [
-      "node18-win-x64",
-      "node18-macos-x64",
-      "node18-linux-x64"
-    ],
-    "outputPath": "dist"
+    "build:all": "npm run validate"
   },
   "keywords": [
     "pi-package",

@@ -12,6 +12,7 @@ logs/
 .claude/agents/logs/
 .codex/
 .agents/
+.superpowers/
 
 # secrets and local env
 .env

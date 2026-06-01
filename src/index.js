@@ -8,7 +8,7 @@
  *   src/alerts/         — threshold evaluation, plain-language summaries
  *   src/tracker/        — project registry, approval queue
  *   src/hooks/          — auto-launch helpers
- *   src/observers/      — developer observer, reporter, legacy dashboard
+ *   src/observers/      — reporter and legacy static dashboard helpers
  *   src/dashboard/      — Business Hub server and redesigned UI
  *   src/commands/       — CLI commands (list, validate)
  *   src/utils/          — shared utilities

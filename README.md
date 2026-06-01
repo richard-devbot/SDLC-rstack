@@ -34,7 +34,7 @@ npx rstack-agents@latest validate && npm test
 | Use latest without installing | `npx rstack-agents@latest validate` |
 | Start Command Center | `rstack-business --project . --port 3008` |
 | Start Command Center with npx | `npx rstack-agents@latest business --project . --port 3008` |
-| Start developer observer | `rstack-observer --project . --port 3007` |
+| Start dashboard compatibility alias | `rstack-observer --project .` |
 | List agents | `rstack-agents list agents` |
 | List skills | `rstack-agents list skills` |
 | Validate packaged agents | `rstack-agents validate` |
@@ -353,9 +353,9 @@ Restart Operator after upgrade so the Python extension reloads the Node bridge.
 
 ---
 
-## Dashboards
+## Dashboard
 
-RStack ships two local zero-dependency dashboards. They read `.rstack/runs/` directly and do not require a cloud service.
+RStack ships one local zero-dependency dashboard. It reads `.rstack/runs/` and the global `.rstack` project registry directly and does not require a cloud service.
 
 <details open>
 <summary><strong>RStack Command Center, primary dashboard, port 3008</strong></summary>
@@ -393,45 +393,14 @@ RSTACK_BUSINESS_PORT=3010 rstack-business --project .
 RSTACK_NO_BUSINESS_HUB=1 pi
 ```
 
-</details>
-
-<details>
-<summary><strong>Developer Observer, debug dashboard, port 3007</strong></summary>
-
-Use this when debugging a single run or watching the lower-level event stream.
-
-```bash
-rstack-observer --project . --port 3007
-```
-
-With npx:
-
-```bash
-npx rstack-agents@latest observer --project . --port 3007
-```
-
-Local development:
-
-```bash
-npm run observer
-npm run observer:dev
-```
-
-Open:
-
-```text
-http://localhost:3007
-```
-
-</details>
+`rstack-observer` is kept as a compatibility alias and now opens the same Business Hub. New scripts should use `rstack-business`.
 
 ### Dashboard environment variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `RSTACK_BUSINESS_PORT` | `3008` | Command Center port |
-| `RSTACK_OBSERVER_PORT` | `3007` | Developer observer port |
-| `RSTACK_PROJECT_ROOT` | `cwd` | Project root for both servers |
+| `RSTACK_PROJECT_ROOT` | `cwd` | Project root for the dashboard |
 | `RSTACK_NO_BUSINESS_HUB` | `0` | Set to `1` to disable Pi auto-launch |
 | `RSTACK_NO_BROWSER` | `0` | Set to `1` to suppress browser open |
 
@@ -472,8 +441,7 @@ Asset mode means the host agent reads RStack's Markdown/JSON operating assets an
 | `extensions/rstack-sdlc.ts` | Pi native adapter |
 | `extensions/rstack_sdlc.py` | Operator native adapter |
 | `bin/rstack-operator-bridge.ts` | Operator Python to Node bridge |
-| `src/harness/business-observer.js` | RStack Command Center server on `:3008` |
-| `src/harness/observer.js` | Developer observer server on `:3007` |
+| `src/dashboard/` | Unified RStack Business Hub server and UI on `:3008` |
 | `src/harness/approval-queue.js` | Human-in-loop persistence |
 | `src/harness/alert-engine.js` | Threshold alerts and summaries |
 | `src/harness/memory.js` | Episodic memory and retrieval |
@@ -519,8 +487,8 @@ rstack-agents list skills
 rstack-agents list plugins
 rstack-agents validate
 rstack-agents add plugin backend-development
-rstack-observer [--port 3007] [--project <path>] [--run-id <id>] [--no-browser]
 rstack-business [--port 3008] [--project <path>] [--no-browser]
+rstack-observer [--project <path>] [--no-browser] # compatibility alias for rstack-business
 ```
 
 Package scripts from a checkout:
