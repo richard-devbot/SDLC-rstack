@@ -102,6 +102,7 @@ function pageBody(id) {
             <div class="studio-narration mono" id="studio-narration">Waiting for the studio to wake up…</div>
           </div>
           <div class="studio-hud" id="studio-hud"></div>
+          <a class="tb-chip" href="/studio3d" target="_blank" rel="noopener" title="three.js live workspace">Enter the 3D Studio →</a>
         </div>
       </div>
       <div class="studio-grid" id="studio-grid"></div>

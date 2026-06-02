@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { dashboardHtml } from './ui.js';
+import { studio3dHtml } from './ui/studio3d.js';
 import { buildFullState, resolveDashboardApproval, toClientState } from './state/index.js';
 
 // owner: RStack developed by Richardson Gunde
@@ -184,6 +185,12 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === '/api/reject' && req.method === 'POST') {
     await handleApproval(req, res, 'rejected');
+    return;
+  }
+
+  if (url.pathname === '/studio3d') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(studio3dHtml(PORT));
     return;
   }
 
