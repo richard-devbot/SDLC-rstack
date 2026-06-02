@@ -1,10 +1,13 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
+import { existsSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { dashboardHtml } from './ui.js';
 import { studio3dHtml } from './ui/studio3d.js';
 import { buildFullState, resolveDashboardApproval, toClientState } from './state/index.js';
+import { sourceRoots } from './state/roots.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -135,11 +138,50 @@ async function handleApproval(req, res, decision) {
     } catch (err) {
       process.stderr.write(`[rstack-business] approval error: ${err?.message}\n`);
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
+        const statusCode = Number(err?.statusCode) || 500;
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: String(err?.message) }));
       }
     }
   });
+}
+
+// Read one run artifact, strictly sandboxed: the run is located via the known
+// project roots, the resolved path must stay inside that run directory, and
+// only size-capped text artifacts are served.
+const ARTIFACT_MAX_BYTES = 512 * 1024;
+const ARTIFACT_EXTENSIONS = new Set(['.md', '.json', '.jsonl', '.txt', '.yml', '.yaml']);
+
+async function handleArtifact(url, res) {
+  const sendJson = (status, body) => {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+  try {
+    const runId = url.searchParams.get('run') ?? '';
+    const relPath = url.searchParams.get('path') ?? '';
+    if (!runId || !relPath) return sendJson(400, { error: 'run and path are required' });
+    if (runId.includes('/') || runId.includes('..')) return sendJson(400, { error: 'invalid run id' });
+
+    const roots = await sourceRoots(PROJECT_ROOT, {});
+    const runDir = roots
+      .map((root) => join(root, '.rstack', 'runs', runId))
+      .find((dir) => existsSync(dir));
+    if (!runDir) return sendJson(404, { error: 'run not found' });
+
+    const target = resolve(runDir, relPath);
+    if (target !== runDir && !target.startsWith(runDir + sep)) return sendJson(403, { error: 'path escapes the run directory' });
+    const extension = target.slice(target.lastIndexOf('.')).toLowerCase();
+    if (!ARTIFACT_EXTENSIONS.has(extension)) return sendJson(415, { error: 'only text artifacts are served' });
+    const info = await stat(target).catch(() => null);
+    if (!info?.isFile()) return sendJson(404, { error: 'artifact not found' });
+    if (info.size > ARTIFACT_MAX_BYTES) return sendJson(413, { error: `artifact exceeds ${ARTIFACT_MAX_BYTES} bytes` });
+
+    const content = await readFile(target, 'utf8');
+    sendJson(200, { run: runId, path: relPath, size: info.size, content });
+  } catch (err) {
+    sendJson(500, { error: String(err?.message) });
+  }
 }
 
 const server = createServer(async (req, res) => {
@@ -191,6 +233,11 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/studio3d') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(studio3dHtml(PORT));
+    return;
+  }
+
+  if (url.pathname === '/api/artifact' && req.method === 'GET') {
+    await handleArtifact(url, res);
     return;
   }
 

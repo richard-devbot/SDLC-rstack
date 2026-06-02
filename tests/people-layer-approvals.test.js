@@ -77,6 +77,7 @@ test('people layer + policy enforcement E2E', async (t) => {
     // on the first task — the gate must block.
     mkdirSync(join(projectRoot, '.rstack'), { recursive: true });
     writeFileSync(join(projectRoot, '.rstack', 'policy.json'), JSON.stringify({
+      managers: ['Lead Lena'],
       required_approvals: { '001-product-clarification': ['release-readiness.json'] },
     }));
 
@@ -87,6 +88,11 @@ test('people layer + policy enforcement E2E', async (t) => {
     const events = readFileSync(join(runDir, 'events.jsonl'), 'utf8')
       .split('\n').filter(Boolean).map((line) => JSON.parse(line));
     assert.ok(events.some((event) => event.type === 'approval_gate_blocked'), 'blocked event recorded');
+
+    await assert.rejects(
+      () => mockPi.tools.sdlc_approve.execute('7a', { run_id: runId, artifact: 'release-readiness.json', status: 'APPROVED', approver: 'Intern Ivy' }),
+      /not allowed by manager policy/,
+    );
 
     // Approve per policy → gate opens, task starts with real agent attribution.
     await mockPi.tools.sdlc_approve.execute('7', { run_id: runId, artifact: 'release-readiness.json', status: 'APPROVED', approver: 'Lead Lena' });

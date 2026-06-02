@@ -15,6 +15,7 @@ import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from "../../core/harness/guardrails.js";
 import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage, updateRunMetrics } from "../../core/harness/run-state.js";
 import { resolveUserIdentity } from "../../core/harness/identity.js";
+import { appendApproval as appendApprovalRequest, approvalQueueId, assertManagerAllowed, resolveQueuedApprovalForArtifact } from "../../core/tracker/approvals.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../../memory/index.js";
 import { buildRunReport, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../../observability/collectors/reporter.js";
 import { notifyAll, hasConfiguredChannels, formatSlackStageMessage, formatSlackTaskReportMessage } from "../../notifications/index.js";
@@ -1135,11 +1136,14 @@ export default function (pi: ExtensionAPI) {
         } catch {}
       }
 
+      const approver = params.approver || resolveUserIdentity(projectRoot).name;
+      await assertManagerAllowed(projectRoot, approver);
+
       const record: ApprovalRecord = {
         id: `app-${timestamp().replace(/[:.]/g, "-")}`,
         artifact: params.artifact,
         status: params.status,
-        approver: params.approver || resolveUserIdentity(projectRoot).name,
+        approver,
         timestamp: timestamp(),
         comments: params.comments
       };
@@ -1148,6 +1152,12 @@ export default function (pi: ExtensionAPI) {
       await writeFile(path, JSON.stringify(approvals, null, 2));
       await appendEvent(projectRoot, manifest.run_id, { type: "approval_gate", artifact: params.artifact, status: params.status });
       await addTrace(projectRoot, manifest.run_id, { type: "approval", ...record });
+      await resolveQueuedApprovalForArtifact(projectRoot, {
+        runId: manifest.run_id,
+        artifact: params.artifact,
+        decision: params.status === "APPROVED" ? "approved" : "rejected",
+        resolvedBy: record.approver,
+      });
 
       try {
         const payload = formatSlackStageMessage(manifest.run_id, params.artifact, params.status === "APPROVED" ? "PASS" : "BLOCKED", {
@@ -1336,6 +1346,21 @@ export default function (pi: ExtensionAPI) {
       const missing = missingApprovals(await readApprovals(runDir), requiredApprovals);
       if (missing.length) {
         await appendEvent(projectRoot, manifest.run_id, { type: "approval_gate_blocked", task_id: task.id, missing });
+        const requestedBy = manifest.started_by?.name ?? resolveUserIdentity(projectRoot).name;
+        for (const artifact of missing) {
+          await appendApprovalRequest(projectRoot, {
+            id: approvalQueueId({ runId: manifest.run_id, taskId: task.id, artifact }),
+            title: `Approve ${artifact}`,
+            detail: `Task ${task.id} is blocked until ${artifact} is approved`,
+            status: "pending",
+            runId: manifest.run_id,
+            taskId: task.id,
+            artifact,
+            requestedBy,
+            projectRoot,
+            source: "approval_gate_blocked",
+          });
+        }
         // Page the manager the moment a gate blocks — silence here meant
         // blocked work waited until someone happened to open the dashboard.
         try {

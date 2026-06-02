@@ -24,8 +24,9 @@ export async function autoLaunchBusinessHub(projectRoot, opts = {}) {
   const port = Number(process.env.RSTACK_BUSINESS_PORT ?? 3008);
   const already = await isPortOpen(port);
   if (already) {
-    // Already running — just print the URL so the user can click
+    // Already running — pop the browser so the session starts with the hub visible.
     console.log(`  \x1b[2mRStack Business Hub: http://localhost:${port}\x1b[0m`);
+    if (!opts.noBrowser && process.env.RSTACK_NO_BROWSER !== '1') openBrowser(`http://localhost:${port}`);
     return;
   }
 
@@ -45,11 +46,13 @@ export async function autoLaunchBusinessHub(projectRoot, opts = {}) {
   const url = `http://localhost:${port}`;
   console.log(`  \x1b[33mRStack Business Hub launched: ${url}\x1b[0m`);
 
-  if (!opts.noBrowser && process.env.RSTACK_NO_BROWSER !== '1') {
-    const cmd = process.platform === 'win32' ? 'start'
-      : process.platform === 'darwin' ? 'open' : 'xdg-open';
-    try {
-      spawn(cmd, [url], { stdio: 'ignore', detached: true, shell: process.platform === 'win32' }).unref();
-    } catch { /* best-effort */ }
-  }
+  if (!opts.noBrowser && process.env.RSTACK_NO_BROWSER !== '1') openBrowser(url);
+}
+
+function openBrowser(url) {
+  const cmd = process.platform === 'win32' ? 'start'
+    : process.platform === 'darwin' ? 'open' : 'xdg-open';
+  try {
+    spawn(cmd, [url], { stdio: 'ignore', detached: true, shell: process.platform === 'win32' }).unref();
+  } catch { /* best-effort */ }
 }

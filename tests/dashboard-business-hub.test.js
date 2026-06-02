@@ -4,14 +4,14 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildFullState } from '../src/observability/dashboard/state/index.js';
+import { buildFullState, resolveDashboardApproval } from '../src/observability/dashboard/state/index.js';
 import { dashboardHtml } from '../src/observability/dashboard/ui.js';
 
 async function writeJson(filePath, value) {
   await writeFile(filePath, JSON.stringify(value, null, 2));
 }
 
-test('Business Hub keeps historical blocked gates out of actionable pending approvals', async () => {
+test('Business Hub turns blocked gates into actionable pending approvals', async () => {
   const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-business-state-'));
   try {
     const runId = '2026-05-31T10-00-00-demo';
@@ -78,9 +78,10 @@ test('Business Hub keeps historical blocked gates out of actionable pending appr
 
     const state = await buildFullState(projectRoot, { includeRegistry: false });
 
-    assert.deepEqual(state.pendingApprovals.map((a) => a.id), ['queue-1']);
-    assert.equal(state.approvalStats.pending, 1);
-    assert.equal(state.approvalStats.total, 2);
+    assert.ok(state.pendingApprovals.some((a) => a.id === 'queue-1'));
+    assert.ok(state.pendingApprovals.some((a) => a.artifact === 'deploy-approval.md'));
+    assert.equal(state.approvalStats.pending, 2);
+    assert.equal(state.approvalStats.total, 3);
     assert.ok(
       state.feed.some((event) => event.type === 'approval_gate_blocked'),
       'blocked gate history should remain visible in the live feed',
@@ -89,6 +90,46 @@ test('Business Hub keeps historical blocked gates out of actionable pending appr
       state.blockedGates.some((event) => event.taskId === '09-deployment'),
       'blocked gates should move to guardrail/history data',
     );
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test('Business Hub approval resolution writes the run-level approval artifact', async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-business-approve-'));
+  try {
+    const runId = '2026-05-31T11-00-00-demo';
+    const runDir = join(projectRoot, '.rstack', 'runs', runId);
+    await mkdir(runDir, { recursive: true });
+
+    await writeJson(join(runDir, 'manifest.json'), {
+      run_id: runId,
+      goal: 'Approval source of truth',
+      created_at: '2026-05-31T11:00:00.000Z',
+      framework: 'pi',
+    });
+    await writeJson(join(runDir, 'tasks.json'), { tasks: [] });
+    await writeFile(join(runDir, 'events.jsonl'), JSON.stringify({
+      ts: '2026-05-31T11:01:00.000Z',
+      type: 'approval_gate_blocked',
+      task_id: '004-implementation',
+      missing: ['architecture.md'],
+    }) + '\n');
+
+    const state = await buildFullState(projectRoot, { includeRegistry: false });
+    const approval = state.pendingApprovals.find((item) => item.artifact === 'architecture.md');
+    assert.ok(approval, 'blocked gate becomes a pending dashboard approval');
+
+    const ok = await resolveDashboardApproval(projectRoot, approval.id, 'approved', 'Manager Maya', { includeRegistry: false });
+    assert.equal(ok, true);
+
+    const runApprovals = JSON.parse(await readFile(join(runDir, 'approvals.json'), 'utf8'));
+    assert.equal(runApprovals.at(-1).artifact, 'architecture.md');
+    assert.equal(runApprovals.at(-1).status, 'APPROVED');
+    assert.equal(runApprovals.at(-1).approver, 'Manager Maya');
+
+    const after = await buildFullState(projectRoot, { includeRegistry: false });
+    assert.ok(!after.pendingApprovals.some((item) => item.id === approval.id), 'resolved approval leaves the pending queue');
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });
   }

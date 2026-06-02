@@ -46,6 +46,48 @@ _CONFIG_ENV = {
 }
 
 
+def _launch_business_hub() -> None:
+    """Bring the Business Hub live when an Operator session loads this extension.
+
+    Same contract as the Pi adapter: health-check :3008, spawn detached if
+    down, open the browser. Best-effort — never blocks or fails the session.
+    Opt out with RSTACK_NO_BUSINESS_HUB=1.
+    """
+    if os.environ.get("RSTACK_NO_BUSINESS_HUB") == "1" or os.environ.get("CI"):
+        return
+    import subprocess
+    import urllib.request
+    import webbrowser
+
+    port = int(os.environ.get("RSTACK_BUSINESS_PORT", "3008"))
+    url = f"http://localhost:{port}"
+    alive = False
+    try:
+        with urllib.request.urlopen(f"{url}/health", timeout=0.7) as response:
+            alive = json.loads(response.read().decode("utf8")).get("ok") is True
+    except Exception:
+        alive = False
+
+    try:
+        if not alive:
+            node = shutil.which("node")
+            hub_bin = PKG_ROOT / "bin" / "rstack-business.js"
+            if not node or not hub_bin.exists():
+                return
+            subprocess.Popen(
+                [node, str(hub_bin), "--no-browser", "--project", os.getcwd()],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                env={**os.environ, "RSTACK_NO_BROWSER": "1", "RSTACK_BUSINESS_PORT": str(port)},
+            )
+        webbrowser.open(url)
+    except Exception:
+        pass  # the dashboard is a companion, never a blocker
+
+
+_launch_business_hub()
+
+
 # ── Parameter models (mirror the typebox schemas in rstack-sdlc.ts) ────────────
 
 class OrchestrateParams(BaseModel):

@@ -5,6 +5,24 @@
 All notable changes to RStack are documented here. Entries are user-focused:
 what you can now do that you couldn't before.
 
+## [1.7.0] - 2026-06-02
+
+### Added
+- **Read what your agents actually produced.** Open any run and browse its
+  real deliverables — requirements, architecture, QA report, security review,
+  release readiness, the plan itself — right in the dashboard, grouped by
+  stage, with the evidence records beside them. No more digging through
+  `.rstack/` folders by hand.
+- **The dashboard now comes to you in every framework.** It already popped up
+  on Pi session start; now Operator sessions launch it too, Claude Code
+  projects get a SessionStart hook from `init`, and any custom harness can
+  call one command: `npx rstack-agents hub`.
+
+### Changed
+- **README rewritten** — 7× shorter, user-first, and honest: includes a
+  "what gets recorded (and what doesn't)" section that states plainly that
+  LLM token usage/cost is not captured until host-side instrumentation lands.
+
 ## [1.6.0] - 2026-06-02
 
 ### Added

@@ -15,6 +15,8 @@ import { listAgents, listSkills, listPlugins, addPlugin } from '../src/commands/
 import { validateCommand } from '../src/commands/validate.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
 import { notifyAll, resolveChannels, formatSlackStageMessage } from '../src/notifications/index.js';
+import { autoLaunchBusinessHub } from '../src/hooks/auto-launch.js';
+import { registerProject } from '../src/core/tracker/registry.js';
 import { log } from '../src/utils/logger.js';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -107,6 +109,22 @@ program
       console.log(chalk.bold('\nNext steps:'));
       for (const step of report.nextSteps) console.log(`  ${step}`);
       console.log('');
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('hub')
+  .description('Ensure the Business Hub is running on :3008 and open it — the universal session-start hook for any framework')
+  .option('-p, --project <path>', 'project root to register (defaults to current directory)')
+  .option('--no-browser', 'do not open the browser')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      await registerProject(projectRoot);
+      await autoLaunchBusinessHub(projectRoot, { noBrowser: opts.browser === false });
     } catch (err) {
       log.error(err.message);
       process.exit(1);

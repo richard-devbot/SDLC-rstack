@@ -87,10 +87,23 @@ export async function initFramework(projectRoot, framework, { packageRoot } = {}
   if (fw === 'claude-code') {
     const docPath = join(root, '.claude', 'rstack-sdlc.md');
     await writeIfMissing(docPath, CLAUDE_CODE_DOC, '.claude/rstack-sdlc.md', report);
+    // Auto-launch the Business Hub on every Claude Code session. We only
+    // create settings.json when it doesn't exist — never rewrite the user's.
+    const settingsPath = join(root, '.claude', 'settings.json');
+    const hookSettings = JSON.stringify({
+      hooks: {
+        SessionStart: [{ hooks: [{ type: 'command', command: 'npx -y rstack-agents hub' }] }],
+      },
+    }, null, 2) + '\n';
+    const wroteSettings = await writeIfMissing(settingsPath, hookSettings, '.claude/settings.json (SessionStart → Business Hub auto-launch)', report);
+    if (!wroteSettings) {
+      await writeIfMissing(join(root, '.claude', 'rstack-hub-hook.json'), hookSettings, '.claude/rstack-hub-hook.json (merge into your settings.json hooks)', report);
+      report.nextSteps.push('Your .claude/settings.json already exists — merge the SessionStart hook from .claude/rstack-hub-hook.json so the dashboard pops up each session.');
+    }
     report.nextSteps.push(
       'Install the Claude Code plugin: /plugin install sdlc-automation (or add the marketplace repo)',
       'Run /sdlc-start in Claude Code to drive the full pipeline',
-      'Open the dashboard: npx rstack-business',
+      'The Business Hub auto-opens each session (SessionStart hook) — or run: npx rstack-agents hub',
     );
   }
 
@@ -123,7 +136,7 @@ export async function initFramework(projectRoot, framework, { packageRoot } = {}
       'RStack state lives in .rstack/ — any agent framework that writes the run contract can plug in.',
       'Adapter contract: read docs/integrations/custom.md in the rstack-agents package.',
       'Reuse the Node bridge for tool calls: npx tsx node_modules/rstack-agents/bin/rstack-operator-bridge.ts <tool> \'<json>\'',
-      'Open the dashboard: npx rstack-business',
+      'Auto-launch the dashboard from your harness session hook: npx rstack-agents hub',
     );
   }
 
