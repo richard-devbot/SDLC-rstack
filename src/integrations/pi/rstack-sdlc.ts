@@ -14,6 +14,7 @@ import { validateBuilderContract } from "../../core/harness/contracts.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from "../../core/harness/guardrails.js";
 import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage, updateRunMetrics } from "../../core/harness/run-state.js";
+import { resolveUserIdentity } from "../../core/harness/identity.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../../memory/index.js";
 import { buildRunReport, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../../observability/collectors/reporter.js";
 import { notifyAll, hasConfiguredChannels, formatSlackStageMessage, formatSlackTaskReportMessage } from "../../notifications/index.js";
@@ -164,6 +165,7 @@ type RunManifest = {
   project_root: string;
   rstack_version: string;
   traceability_path?: string;
+  started_by?: { name: string; email: string | null };
 };
 
 type ApprovalRecord = {
@@ -662,6 +664,33 @@ function requiredApprovalsForTask(taskId: string): string[] {
   return ["plan.md"];
 }
 
+type RunPolicy = {
+  required_approvals?: Record<string, string[]>;
+  enforce_in_express?: boolean;
+};
+
+// .rstack/policy.json — the team's approval policy. required_approvals entries
+// (exact task id → artifacts) are enforced in EVERY mode, so "no dev change
+// ships without manager approval" survives express runs. enforce_in_express
+// additionally applies the default interactive gates to express mode.
+async function readRunPolicy(projectRoot: string): Promise<RunPolicy> {
+  const path = join(projectRoot, ".rstack", "policy.json");
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function effectiveRequiredApprovals(projectRoot: string, manifest: RunManifest, taskId: string): Promise<string[]> {
+  const policy = await readRunPolicy(projectRoot);
+  const defaults = manifest.mode === "express" && !policy.enforce_in_express ? [] : requiredApprovalsForTask(taskId);
+  const policyRequired = policy.required_approvals?.[taskId] ?? [];
+  return [...new Set([...defaults, ...policyRequired])];
+}
+
 function missingApprovals(approvals: ApprovalRecord[], required: string[]): string[] {
   const approved = approvedArtifacts(approvals);
   return required.filter((artifact) => !approved.has(artifact));
@@ -1091,7 +1120,7 @@ export default function (pi: ExtensionAPI) {
       artifact: Type.String({ description: "The artifact or stage ID being approved (e.g. 'architecture.md' or '002-requirements')." }),
       status: StringEnum(["APPROVED", "REJECTED"] as const),
       comments: Type.Optional(Type.String()),
-      approver: Type.Optional(Type.String({ default: "human-user" }))
+      approver: Type.Optional(Type.String({ description: "Who approved. Defaults to the resolved user identity (RSTACK_USER or git config), not a generic placeholder." }))
     }),
     async execute(_id, params) {
       const projectRoot = findProjectRoot();
@@ -1110,7 +1139,7 @@ export default function (pi: ExtensionAPI) {
         id: `app-${timestamp().replace(/[:.]/g, "-")}`,
         artifact: params.artifact,
         status: params.status,
-        approver: params.approver || "human-user",
+        approver: params.approver || resolveUserIdentity(projectRoot).name,
         timestamp: timestamp(),
         comments: params.comments
       };
@@ -1161,6 +1190,7 @@ export default function (pi: ExtensionAPI) {
       const dir = join(runsDir(projectRoot), id);
       await prepareRunState(dir);
       await mkdir(memoryDir(projectRoot), { recursive: true });
+      const startedBy = resolveUserIdentity(projectRoot);
       const manifest: RunManifest = {
         run_id: id,
         created_at: timestamp(),
@@ -1170,12 +1200,13 @@ export default function (pi: ExtensionAPI) {
         status: "STARTED",
         project_root: projectRoot,
         rstack_version: RSTACK_VERSION,
+        started_by: startedBy,
       };
       await writeManifest(manifest);
       await mkdir(specsDir(dir), { recursive: true });
       await writeFile(approvalsPath(dir), JSON.stringify([], null, 2));
       await writeFile(join(dir, "context.md"), `# RStack Run Context\n\nGoal: ${params.goal}\n\nMode: ${manifest.mode}\n\n## Product-owner notes\n\n`);
-      await appendEvent(projectRoot, id, { type: "run_started", goal: params.goal });
+      await appendEvent(projectRoot, id, { type: "run_started", goal: params.goal, started_by: startedBy.name });
       try {
         const payload = formatSlackStageMessage(id, "00-environment", "START", {
           message: `RStack Run started for goal: "${params.goal}" in ${manifest.mode} mode.`,
@@ -1211,7 +1242,15 @@ export default function (pi: ExtensionAPI) {
         await appendFile(join(runDir, "context.md"), `\n## Clarification answers (${timestamp()})\n${params.answers.map((answer) => `- ${answer}`).join("\n")}\n`);
         manifest.status = "CLARIFYING";
         await writeManifest(manifest);
-        await appendEvent(projectRoot, manifest.run_id, { type: "clarification_answers_added", count: params.answers.length });
+        // Human guidance is first-class data: record who answered and what they
+        // said, not just a count — the dashboard surfaces this per person.
+        const answeredBy = resolveUserIdentity(projectRoot);
+        await appendEvent(projectRoot, manifest.run_id, {
+          type: "clarification_answers_added",
+          count: params.answers.length,
+          answered_by: answeredBy.name,
+          answers: params.answers.map((answer) => String(answer).slice(0, 500)),
+        });
         return { content: [{ type: "text", text: `Added ${params.answers.length} clarification answer(s) to ${relative(projectRoot, join(runDir, "context.md"))}. Next: call sdlc_plan.` }], details: { manifest, answers: params.answers, questions: [] } };
       }
       manifest.status = "CLARIFYING";
@@ -1293,10 +1332,20 @@ export default function (pi: ExtensionAPI) {
       const task = taskState.tasks.find((t: any) => t.status === "PENDING" || t.status === "READY") || taskState.tasks.find((t: any) => t.status === "FAIL");
       if (!task) return { content: [{ type: "text", text: `No pending task for ${manifest.run_id}. Run sdlc_status or sdlc_validate for final checks.` }], details: taskState };
       const runDir = join(runsDir(projectRoot), manifest.run_id);
-      const requiredApprovals = manifest.mode === "express" ? [] : requiredApprovalsForTask(task.id);
+      const requiredApprovals = await effectiveRequiredApprovals(projectRoot, manifest, task.id);
       const missing = missingApprovals(await readApprovals(runDir), requiredApprovals);
       if (missing.length) {
         await appendEvent(projectRoot, manifest.run_id, { type: "approval_gate_blocked", task_id: task.id, missing });
+        // Page the manager the moment a gate blocks — silence here meant
+        // blocked work waited until someone happened to open the dashboard.
+        try {
+          const payload = formatSlackStageMessage(manifest.run_id, task.id, "APPROVAL_PENDING", {
+            message: `Approval gate blocked ${task.id}. Missing approval(s): ${missing.join(", ")}. Approve from the Business Hub or via sdlc_approve.`,
+          });
+          await notifyAll(payload, { projectRoot });
+        } catch (err) {
+          console.error("Failed to send approval-gate notification:", err);
+        }
         return {
           content: [{ type: "text", text: `Approval gate blocked ${task.id}. Missing approval(s): ${missing.join(", ")}\nUse sdlc_approve after human review, or start/run in express mode for lightweight tasks.` }],
           details: { run_id: manifest.run_id, task, missing_approvals: missing, required_approvals: requiredApprovals }
@@ -1304,8 +1353,13 @@ export default function (pi: ExtensionAPI) {
       }
       task.status = "IN_PROGRESS";
       task._started_at = Date.now();
+      // Real attribution: stamp the routed pipeline agent so builder.json and
+      // the dashboard show who actually executed, not a generic "builder".
+      if (!task.agent && Array.isArray(task.pipeline_agents) && task.pipeline_agents.length) {
+        task.agent = task.pipeline_agents[0];
+      }
       await writeFile(tasksPath, JSON.stringify(taskState, null, 2));
-      await appendEvent(projectRoot, manifest.run_id, { type: "task_started", task_id: task.id, ts: new Date().toISOString() });
+      await appendEvent(projectRoot, manifest.run_id, { type: "task_started", task_id: task.id, agent: task.agent ?? null, ts: new Date().toISOString() });
       const selected = registry.filter((item) => task.specialists?.includes(item.id));
       const prompt = await builderPrompt(projectRoot, task, selected, manifest.run_id);
       await writeFile(join(projectRoot, task.output_dir, "prompt.md"), prompt);
@@ -1599,7 +1653,7 @@ export default function (pi: ExtensionAPI) {
       const next = tasks.find((t: any) => ["PENDING", "READY", "FAIL", "IN_PROGRESS"].includes(t.status));
       const runDir = join(runsDir(projectRoot), manifest.run_id);
       const approvals = await readApprovals(runDir);
-      const nextMissingApprovals = next && next.status !== "IN_PROGRESS" && manifest.mode !== "express" ? missingApprovals(approvals, requiredApprovalsForTask(next.id)) : [];
+      const nextMissingApprovals = next && next.status !== "IN_PROGRESS" ? missingApprovals(approvals, await effectiveRequiredApprovals(projectRoot, manifest, next.id)) : [];
       const releaseMissingApprovals = manifest.mode !== "express" ? missingApprovals(approvals, ["plan.md", "requirements.json", "architecture.md", "release-readiness.json"]) : [];
       if (tasks.length > 0 && !next && tasks.every((t: any) => t.status === "PASS") && releaseMissingApprovals.length === 0) {
         manifest.status = "DONE";
