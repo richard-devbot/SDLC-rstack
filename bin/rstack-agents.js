@@ -14,6 +14,7 @@ import chalk from 'chalk';
 import { listAgents, listSkills, listPlugins, addPlugin } from '../src/commands/list.js';
 import { validateCommand } from '../src/commands/validate.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
+import { notifyAll, resolveChannels, formatSlackStageMessage } from '../src/notifications/index.js';
 import { log } from '../src/utils/logger.js';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -106,6 +107,44 @@ program
       console.log(chalk.bold('\nNext steps:'));
       for (const step of report.nextSteps) console.log(`  ${step}`);
       console.log('');
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('notify')
+  .description('Inspect configured notification channels; --test sends a test message to all of them')
+  .option('-t, --test', 'send a test notification to every configured channel')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .action(async (opts) => {
+    try {
+      const projectRoot = opts.project ?? process.cwd();
+      const channels = resolveChannels({ projectRoot });
+      const names = Object.keys(channels);
+      if (names.length === 0) {
+        console.log(chalk.yellow('[rstack] No notification channels configured.'));
+        console.log('Configure via environment (RSTACK_SLACK_WEBHOOK, RSTACK_TEAMS_WEBHOOK, RSTACK_DISCORD_WEBHOOK,');
+        console.log('RSTACK_TELEGRAM_BOT_TOKEN + RSTACK_TELEGRAM_CHAT_ID, RSTACK_WHATSAPP_TOKEN + RSTACK_WHATSAPP_PHONE_ID + RSTACK_WHATSAPP_TO)');
+        console.log('or via .rstack/notifications.json — see docs/integrations/webhooks.md');
+        process.exit(1);
+      }
+      console.log(chalk.bold(`[rstack] Configured channels: ${names.join(', ')}`));
+      if (!opts.test) {
+        console.log(chalk.dim('Run with --test to send a test message to every channel.'));
+        return;
+      }
+      const payload = formatSlackStageMessage('notify-test', '00-environment', 'START', {
+        message: 'RStack webhook test — if you can read this, the channel works.',
+      });
+      const results = await notifyAll(payload, { projectRoot });
+      let failed = 0;
+      for (const result of results) {
+        if (result.ok) console.log(chalk.green(`  ✓ ${result.channel}`));
+        else { failed++; console.log(chalk.red(`  ✗ ${result.channel} — ${result.detail}`)); }
+      }
+      process.exit(failed ? 1 : 0);
     } catch (err) {
       log.error(err.message);
       process.exit(1);
