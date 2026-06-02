@@ -5,6 +5,7 @@ export const pages = [
   ['studio', '12', 'Studio', 'Observe'],
   ['workflow', '01', 'Workflow Map', 'Observe'],
   ['projects', '02', 'Projects & Runs', 'Observe'],
+  ['run-report', '13', 'Run Report', 'Observe'],
   ['run-analytics', '10', 'Run Analytics', 'Observe'],
   ['agent-work', '03', 'Agent Work', 'Observe'],
   ['live-feed', '04', 'Live Feed', 'Observe'],
@@ -141,6 +142,18 @@ function pageBody(id) {
       </div>
     `,
     projects: '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Known Projects</span><span class="panel-note" id="projects-count"></span></div><div class="panel-body"><div class="grid-3" id="projects-grid"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Run Sessions</span><span class="panel-note" id="runs-count"></span></div><div class="table-wrap"><table><thead><tr><th>Status</th><th>Run</th><th>Project</th><th>Tasks</th><th>Duration</th><th>Cost</th></tr></thead><tbody id="runs-table"></tbody></table></div></div></div>',
+    'run-report': `
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">Run Report</span>
+          <select class="run-select" id="report-run-select" onchange="loadRunReport(this.value)"></select>
+        </div>
+        <div class="panel-body">
+          <div class="report-kpis" id="report-kpis"></div>
+          <div class="report-grid" id="report-grid"></div>
+        </div>
+      </div>
+    `,
     'run-analytics': `
       <div class="panel">
         <div class="panel-head">
