@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { evaluateAlerts } from '../../alerts/engine.js';
 import { sourceRoots } from './roots.js';
 import { getAllRuns } from './runs.js';
-import { getAllApprovals, buildBlockedGates, summarizeApprovals, resolveApprovalAcrossRoots } from './approvals.js';
+import { getAllApprovals, buildBlockedGates, approvalRequestsFromBlockedGates, summarizeApprovals, resolveApprovalAcrossRoots } from './approvals.js';
 import { buildActivityFeed } from './feed.js';
 import { buildStageMatrix } from './stage-matrix.js';
 import { buildAgentGroups, buildAgentWork } from './agent-work.js';
@@ -30,8 +30,9 @@ export async function buildFullState(projectRoot, options = {}) {
   const today = new Date().toISOString().slice(0, 10);
   const todayRuns = runs.filter((run) => run.manifest?.created_at?.startsWith(today));
 
-  const approvals = summarizeApprovals(queueApprovals);
   const blockedGates = buildBlockedGates(runs);
+  const actionableGateApprovals = approvalRequestsFromBlockedGates(blockedGates, queueApprovals);
+  const approvals = summarizeApprovals([...queueApprovals, ...actionableGateApprovals]);
   const feed = buildActivityFeed(runs);
   const frameworks = buildFrameworks(runs);
   const stageMatrix = buildStageMatrix(runs);

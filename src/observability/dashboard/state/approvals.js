@@ -1,11 +1,17 @@
-import { readApprovals, pendingApprovals, approvalSummary, resolveApproval } from '../../../core/tracker/approvals.js';
+import {
+  readApprovals,
+  pendingApprovals,
+  approvalSummary,
+  resolveApproval,
+  approvalQueueId,
+} from '../../../core/tracker/approvals.js';
 
 // owner: RStack developed by Richardson Gunde
 
 export async function getAllApprovals(roots) {
   const perRoot = await Promise.all((roots ?? []).map(async (root) => {
     const approvals = await readApprovals(root);
-    return approvals.map((approval) => ({ ...approval, projectRoot: approval.projectRoot ?? root, source: 'queue' }));
+    return approvals.map((approval) => ({ ...approval, projectRoot: approval.projectRoot ?? root, source: approval.source ?? 'queue' }));
   }));
   return perRoot.flat().sort((a, b) => (b.ts ?? '').localeCompare(a.ts ?? ''));
 }
@@ -26,6 +32,34 @@ export function buildBlockedGates(runs) {
       source: 'events',
     })))
     .sort((a, b) => (b.ts ?? '').localeCompare(a.ts ?? ''));
+}
+
+export function approvalRequestsFromBlockedGates(blockedGates, queueApprovals = []) {
+  const existing = new Set((queueApprovals ?? []).map((approval) => approval.id));
+  const requests = [];
+
+  for (const gate of blockedGates ?? []) {
+    const missing = gate.missing?.length ? gate.missing : ['manager-approval'];
+    for (const artifact of missing) {
+      const id = approvalQueueId({ runId: gate.runId, taskId: gate.taskId, artifact });
+      if (existing.has(id)) continue;
+      existing.add(id);
+      requests.push({
+        id,
+        title: `Approve ${artifact}`,
+        detail: gate.detail,
+        status: 'pending',
+        runId: gate.runId,
+        taskId: gate.taskId,
+        artifact,
+        projectRoot: gate.projectRoot,
+        source: 'blocked_gate',
+        ts: gate.ts,
+      });
+    }
+  }
+
+  return requests;
 }
 
 export function summarizeApprovals(queueApprovals) {

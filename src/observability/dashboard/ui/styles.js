@@ -1100,4 +1100,21 @@ tr.clickable:hover td { background: #f8fbff; }
 
 @media (max-width: 1100px) { .studio-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 700px) { .studio-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .studio-hud { display: none; } }
+
+/* ── Artifact & evidence browser (run drawer) ─────────────────────────────── */
+.artifact-group { margin-bottom: 10px; }
+.artifact-stage { font-size: 10px; color: var(--faint); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 4px; }
+.artifact-link {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  width: 100%; text-align: left; font: inherit; font-size: 12px;
+  padding: 7px 10px; margin-bottom: 4px; cursor: pointer;
+  background: var(--soft); border: 1px solid var(--line); border-radius: 6px; color: var(--text);
+}
+.artifact-link:hover { border-color: var(--line-strong); background: #fff; }
+.artifact-content {
+  margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow: auto;
+}
+.evidence-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.evidence-row:last-child { border-bottom: none; }
 `;

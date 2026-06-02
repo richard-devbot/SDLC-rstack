@@ -1195,6 +1195,12 @@ function openDrawer(runId) {
       '<div class="kpi amber"><div class="kpi-v">' + (totals.quality_avg !== null && totals.quality_avg !== undefined ? Math.round(totals.quality_avg * 100) + '%' : '-') + '</div><div class="kpi-l">Quality</div></div>' +
       '<div class="kpi amber"><div class="kpi-v">$' + Number(cost).toFixed(4) + '</div><div class="kpi-l">Cost</div></div>' +
     '</div>' +
+    '<div class="panel"><div class="panel-head"><span class="panel-title">Deliverables</span><span class="panel-note">' + (run.artifactIndex || []).length + ' artifacts</span></div><div class="panel-body">' +
+      artifactListHtml(run) +
+    '</div></div>' +
+    '<div class="panel"><div class="panel-head"><span class="panel-title">Evidence</span><span class="panel-note">' + (run.evidenceCount || 0) + ' records</span></div><div class="panel-body">' +
+      evidenceListHtml(run) +
+    '</div></div>' +
     '<div class="panel"><div class="panel-head"><span class="panel-title">Task Timeline</span></div><div class="panel-body"><div class="gantt">' +
       ganttHtml(run.timeline || []) +
     '</div></div></div>' +
@@ -1205,6 +1211,52 @@ function openDrawer(runId) {
     '</div></div>');
   document.getElementById('drawer-overlay').classList.add('open');
   document.getElementById('drawer-panel').classList.add('open');
+}
+
+function artifactListHtml(run) {
+  var items = run.artifactIndex || [];
+  if (!items.length) return emptyHtml('No artifacts yet', 'Stage deliverables (requirements, architecture, QA reports…) appear here.');
+  var byStage = {};
+  items.forEach(function(item) { (byStage[item.stage] = byStage[item.stage] || []).push(item); });
+  return Object.keys(byStage).sort().map(function(stage) {
+    return '<div class="artifact-group"><div class="artifact-stage mono">' + esc(stage) + '</div>' +
+      byStage[stage].map(function(item) {
+        var name = item.path.split('/').pop();
+        return '<button class="artifact-link" data-runid="' + esc(run.runId) + '" data-path="' + esc(item.path) + '" onclick="viewArtifact(this)">' +
+          '<span class="mono">' + esc(name) + '</span><span class="faint mono">' + Math.ceil((item.size || 0) / 1024) + ' KB</span></button>';
+      }).join('') + '</div>';
+  }).join('');
+}
+
+function evidenceListHtml(run) {
+  var entries = run.evidenceRecent || [];
+  if (!entries.length) return emptyHtml('No evidence yet', 'Validation evidence records appear here.');
+  return entries.map(function(entry) {
+    return '<div class="evidence-row">' + pill(entry.status === 'PASS' ? 'pass' : 'fail', entry.status) +
+      '<span class="mono">' + esc(entry.task_id || '') + '</span>' +
+      '<span class="muted">' + esc(entry.kind || '') + '</span>' +
+      '<span class="faint mono">' + (entry.ts ? fmtTime(entry.ts) : '') + '</span></div>';
+  }).join('');
+}
+
+function viewArtifact(btn) {
+  var runId = btn.getAttribute('data-runid');
+  var path = btn.getAttribute('data-path');
+  fetch('/api/artifact?run=' + encodeURIComponent(runId) + '&path=' + encodeURIComponent(path))
+    .then(function(response) { return response.json(); })
+    .then(function(data) {
+      if (data.error) { showErr('artifact: ' + data.error); return; }
+      var body = document.getElementById('drawer-body');
+      var back = document.createElement('button');
+      back.className = 'tb-chip';
+      back.textContent = '← Back to run';
+      back.addEventListener('click', function() { openDrawer(runId); });
+      body.innerHTML =
+        '<div class="panel" style="margin-top:12px"><div class="panel-head"><span class="panel-title mono">' + esc(data.path) + '</span><span class="panel-note">' + Math.ceil(data.size / 1024) + ' KB</span></div>' +
+        '<div class="panel-body"><pre class="artifact-content">' + esc(data.content) + '</pre></div></div>';
+      body.insertBefore(back, body.firstChild);
+    })
+    .catch(function(err) { showErr('artifact: ' + err.message); });
 }
 
 function closeDrawer() {
@@ -1221,11 +1273,23 @@ function rejectFromButton(btn) {
 }
 
 function resolveApproval(id, action) {
+  var resolvedBy = localStorage.getItem('rstack-approver-name') || '';
+  if (!resolvedBy && typeof window.prompt === 'function') {
+    resolvedBy = window.prompt('Manager name for this approval decision') || '';
+    if (resolvedBy) localStorage.setItem('rstack-approver-name', resolvedBy);
+  }
   fetch('/api/' + action, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: id })
-  }).then(function() { return fetchState(); }).catch(function(err) { showErr('approval: ' + err.message); });
+    body: JSON.stringify({ id: id, resolvedBy: resolvedBy || 'dashboard' })
+  }).then(function(response) {
+    if (!response.ok) {
+      return response.json().then(function(body) {
+        throw new Error(body.error || ('HTTP ' + response.status));
+      });
+    }
+    return fetchState();
+  }).catch(function(err) { showErr('approval: ' + err.message); });
 }
 
 function fetchState() {

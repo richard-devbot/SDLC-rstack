@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CANONICAL_SDLC_STAGES } from '../../../core/harness/stages.js';
 import { deriveRunTimeline, deriveRunTotals, deriveStageElapsed } from '../../metrics/derive.js';
@@ -92,6 +92,35 @@ export async function enrichTasks(projectRoot, runId, tasks) {
   }));
 }
 
+// Index the run's real deliverables so the UI can offer them for reading:
+// artifacts/ (top level + per stage), specs/, plan.md, context.md.
+async function indexArtifacts(runDir) {
+  const index = [];
+  const push = async (relPath, stage) => {
+    try {
+      const info = await stat(join(runDir, relPath));
+      if (info.isFile()) index.push({ path: relPath, stage, size: info.size });
+    } catch { /* missing — skip */ }
+  };
+  for (const name of ['plan.md', 'context.md']) await push(name, 'run');
+  const artifactsDir = join(runDir, 'artifacts');
+  try {
+    for (const entry of await readdir(artifactsDir, { withFileTypes: true })) {
+      if (entry.isFile()) await push(join('artifacts', entry.name), 'run');
+      if (entry.isDirectory() && entry.name === 'stages') {
+        for (const stage of await readdir(join(artifactsDir, 'stages'))) {
+          try {
+            for (const file of await readdir(join(artifactsDir, 'stages', stage))) {
+              await push(join('artifacts', 'stages', stage, file), stage);
+            }
+          } catch { /* not a dir */ }
+        }
+      }
+    }
+  } catch { /* no artifacts dir */ }
+  return index.sort((a, b) => a.stage.localeCompare(b.stage) || a.path.localeCompare(b.path));
+}
+
 export async function getRunsForRoot(projectRoot) {
   const runsDir = join(projectRoot, '.rstack', 'runs');
   if (!existsSync(runsDir)) return [];
@@ -137,6 +166,7 @@ export async function getRunsForRoot(projectRoot) {
       events,
       evidence,
       approvals: Array.isArray(runApprovals) ? runApprovals : [],
+      artifactIndex: await indexArtifacts(runDir),
       activityTimeline: buildActivityTimeline(events),
       timeline: deriveRunTimeline(events, rawTasks),
       totals: deriveRunTotals(events),

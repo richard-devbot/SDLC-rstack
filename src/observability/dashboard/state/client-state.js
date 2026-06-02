@@ -7,6 +7,10 @@ export function toClientState(state) {
     return {
       ...rest,
       evidenceCount: (evidence ?? []).length,
+      evidenceRecent: (evidence ?? []).slice(-30).reverse().map((entry) => ({
+        ts: entry.ts, task_id: entry.task_id, kind: entry.kind, status: entry.status, evidence: entry.evidence,
+      })),
+      artifactIndex: (run.artifactIndex ?? []).slice(0, 80),
       timeline: (run.timeline ?? []).slice(0, 120),
       totals: run.totals ?? null,
       stageElapsed: run.stageElapsed ?? {},
