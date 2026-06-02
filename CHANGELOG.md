@@ -5,6 +5,27 @@
 All notable changes to RStack are documented here. Entries are user-focused:
 what you can now do that you couldn't before.
 
+## [1.4.0] - 2026-06-02
+
+### Added
+- **The dashboard now knows your team.** Every run records who started it,
+  every approval records the real approver (from git identity or
+  `RSTACK_USER`), and every clarification records who guided the agents and
+  what they said. Older runs show as "unattributed" — nothing breaks.
+- **Team & Presence page.** See who is live and working right now (pulsing
+  presence, current task and agent), a people directory (runs started,
+  approvals given, guidance contributed), and a manager rollup per project —
+  run counts, average duration, pass rate, pending approval gates.
+- **Approval gates you can't miss.** The moment work blocks on an approval,
+  every configured channel (Slack, Teams, Discord, Telegram, WhatsApp) is
+  paged, and the dashboard pops a browser notification.
+- **Enforceable approval policy.** `.rstack/policy.json` makes selected stages
+  require sign-off in *every* mode — express runs can no longer ship without
+  the manager's approval.
+- **Switch context anywhere.** A project → run switcher in the top bar scopes
+  every page to the run you care about, remembers your choice, and supports
+  shareable `#run=…` links for Slack.
+
 ## [1.3.0] - 2026-06-02
 
 ### Added
