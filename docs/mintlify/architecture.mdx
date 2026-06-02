@@ -30,7 +30,7 @@ The system has nine distinct layers:
 | **Harness Core** | Enforces contracts, validates evidence, manages run state and notifications (7 modules) |
 | **Pipeline Engine** | Routes work through 15 canonical SDLC stages, each producing a typed artifact |
 | **Governance + Security + Memory** | Approval gates, guardrails, secret scanning, injection detection, episodic memory |
-| **Observability** | Live dashboard server (port 3005), run reporter, 19 tracked event types |
+| **Observability** | Live dashboard server (port 3008), run reporter, 19 tracked event types |
 | **Notifications & Handoff** | Slack/Discord/Teams webhooks; structured agent-to-agent context relay via `handoff.md` |
 | **Asset Registry & Run State** | 196 agents · 156 skills · 72 plugins; resumable run state with checkpoint/rollback |
 
@@ -563,7 +563,7 @@ RStack ships a built-in enterprise observability stack. Three components work to
 
 ### `sdlc_dashboard` — Live HTML dashboard
 
-Generates `dashboard.html` under the run directory and starts a local HTTP server (default port `3005`):
+Generates `dashboard.html` under the run directory and starts a local HTTP server (default port `3008`):
 
 ```text
 sdlc_dashboard()

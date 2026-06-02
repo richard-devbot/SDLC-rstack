@@ -1,33 +1,73 @@
 ---
 title: "CLI Reference"
-description: "rstack-agents command-line interface — framework-neutral inspection and management."
+description: "rstack-agents and the dashboard binaries — framework-neutral."
 ---
 
 ## Overview
 
-The `rstack-agents` CLI is framework-neutral and works in any environment. Use it to inspect assets, validate the registry, and manage plugins — without needing Pi or any other runtime.
-
-## Installation
-
-The CLI is included in the npm package:
+The `rstack-agents` CLI is framework-neutral and works in any environment. Use
+it to set up a project, launch the dashboard, test notifications, inspect
+assets, and validate the registry — without needing Pi or any other runtime.
 
 ```bash
-npm install -g rstack-agents
-# or use it from a local checkout:
+npm install rstack-agents          # in your project
+# or run any command via npx without installing:
+npx rstack-agents <command>
+# from a local checkout:
 node bin/rstack-agents.js <command>
 ```
 
 ## Commands
 
+### `init`
+
+Set up RStack in the current project. Idempotent — never overwrites your files.
+
+```bash
+rstack-agents init                       # auto-detect the framework
+rstack-agents init --framework pi        # pi | claude-code | operator | custom
+rstack-agents init --project ./apps/web  # target a different directory
+```
+
+Creates `.rstack/`, registers the project with the Business Hub, writes
+framework-specific glue, and prints next steps.
+
+---
+
+### `hub`
+
+Ensure the Business Hub is running on :3008 and open it — the universal
+session-start entry point for any framework.
+
+```bash
+rstack-agents hub
+rstack-agents hub --no-browser           # start/register without opening a tab
+rstack-agents hub --project ./apps/web
+```
+
+---
+
+### `notify`
+
+Inspect configured notification channels, or test them.
+
+```bash
+rstack-agents notify                     # list configured channels
+rstack-agents notify --test              # send a test message to every channel
+```
+
+See [Notifications & Webhooks](/reference/webhooks).
+
+---
+
 ### `list`
 
-List available assets by type.
+List packaged assets by type.
 
 ```bash
 rstack-agents list agents
 rstack-agents list skills
 rstack-agents list plugins
-rstack-agents list prompts
 ```
 
 **Example output:**
@@ -41,29 +81,31 @@ $ rstack-agents list agents
     builder             → Implementation agent with write permissions
     validator           → Read-only review agent
 
-  sdlc/
+  sdlc/   (15 stages, 00–14)
     00-environment      → Detect tools, produce environment_report.json
     01-transcript       → Parse raw input into transcript.json
     02-requirements     → Extract requirements with acceptance criteria
-    03-documentation    → Generate BRD, FRD, SOW documents
-    04-planning         → Sprint plan, milestones, team composition
-    05-jira             → Create Jira tickets from requirements
-    06-architecture     → System design, API contracts, DB schema
-    07-code             → Generate production code scaffolding
-    08-testing          → Test plans, unit tests, security tests
-    09-deployment       → Dockerfile, CI/CD, deploy scripts
-    10-summary          → Executive summary, handoff docs
-    11-feedback-loop    → Retrospective, traceability audit
-    12-security-threat-model → STRIDE threat model
-    13-compliance-checker    → GDPR/HIPAA/SOC2/PCI-DSS gap analysis
+    …
     14-cost-estimation  → Cloud cost forecast
+```
+
+---
+
+### `add plugin`
+
+Copy a packaged domain plugin into your project.
+
+```bash
+rstack-agents add plugin backend-development
+rstack-agents add plugin cloud-infrastructure
 ```
 
 ---
 
 ### `validate`
 
-Validate the full asset registry — checks frontmatter, duplicate names, broken references, and package integrity.
+Validate the packaged agent definitions — frontmatter, duplicate names, broken
+references, manifest integrity.
 
 ```bash
 rstack-agents validate
@@ -72,66 +114,23 @@ rstack-agents validate
 **Example output:**
 ```
 $ rstack-agents validate
-
-Validating agents...    196/196 ✓
-Validating skills...    156/156 ✓
-Validating plugins...    72/72  ✓
-Validating prompts...    36/36  ✓
-
-Checking for duplicate names...  ✓
-Checking agent references...     ✓
-Checking plugin manifests...     ✓
-
-✓ Validation passed — 460 assets, 0 errors
+[rstack] All 196 agents passed validation.
 ```
 
----
+The catalog ships **196 agents, 156 skills, 72 plugins, 36 prompts**.
 
-### `add plugin`
+## The dashboard binaries
 
-Add a domain plugin pack to your project.
-
-```bash
-rstack-agents add plugin backend-development
-rstack-agents add plugin frontend-design
-rstack-agents add plugin cloud-infrastructure
-```
-
----
-
-### `info`
-
-Show detailed information about a specific agent, skill, or plugin.
-
-```bash
-rstack-agents info agent orchestrator
-rstack-agents info skill security-owasp
-rstack-agents info plugin backend-development
-```
-
----
-
-## Local development equivalent
-
-If you have a local checkout and don't want to install globally:
-
-```bash
-# List agents
-node bin/rstack-agents.js list agents
-
-# Validate registry
-node bin/rstack-agents.js validate
-
-# Add a plugin
-node bin/rstack-agents.js add plugin backend-development
-```
+| Binary | Purpose |
+|---|---|
+| `rstack-business` | Run the Business Hub server directly: `rstack-business --port 3008 --project .` |
+| `rstack-observer` | Compatibility alias that opens the same Business Hub |
+| `rstack-operator-bridge` | Node bridge the Operator (Python) adapter shells out to per tool call |
 
 ## npm scripts
 
-The package also exposes these scripts:
-
 ```bash
-npm test          # Run test suite
-npm run validate  # Run rstack-agents validate
+npm test          # run the test suite
+npm run validate  # rstack-agents validate
 npm run lint      # ESLint src/, bin/, tests/
 ```

@@ -23,9 +23,18 @@
           {
             "group": "Getting Started",
             "pages": [
+              "getting-started/install-your-framework",
               "getting-started/installation",
               "getting-started/your-first-run",
               "getting-started/governance-model"
+            ]
+          },
+          {
+            "group": "Business Hub",
+            "pages": [
+              "reference/business-hub",
+              "reference/approvals",
+              "reference/webhooks"
             ]
           },
           {
@@ -73,6 +82,7 @@
             "pages": [
               "reference/cli",
               "reference/pi-tools",
+              "reference/observability",
               "reference/configuration",
               "reference/protected-actions"
             ]

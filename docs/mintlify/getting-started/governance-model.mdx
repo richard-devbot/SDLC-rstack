@@ -39,7 +39,15 @@ sdlc_approve(artifact="release-readiness.json", status="APPROVED")
 sdlc_approve(artifact="destructive-action", status="APPROVED")
 ```
 
-Approvals are written to `.rstack/runs/<run_id>/approvals.json` and referenced in traceability.
+Approvals are written to `.rstack/runs/<run_id>/approvals.json` and referenced in traceability. The recorded approver is the resolved identity (git config or `RSTACK_USER`), not a placeholder.
+
+### Enforce policy & manager roles
+
+For team use you can require specific approvals in **every** mode (including
+express) and restrict who may approve, via `.rstack/policy.json` plus the
+`RSTACK_APPROVAL_TOKEN` / `RSTACK_MANAGER_USERS` settings. The moment a gate
+blocks, every configured notification channel is paged. See
+[Approvals & Policy](/reference/approvals) for the full model.
 
 ## Protected actions
 

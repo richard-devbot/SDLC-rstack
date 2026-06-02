@@ -1,0 +1,88 @@
+---
+title: "Business Hub"
+description: "The live multi-project observability dashboard on :3008."
+---
+
+The **Business Hub** is RStack's company dashboard. It aggregates every run
+across every project on the machine and shows them live — no database, no
+telemetry leaves your machine; everything is derived from the `.rstack/` files.
+
+## Launch it
+
+The hub opens automatically when a session starts (Pi, the Claude Code
+SessionStart hook, and Operator all launch it). Bring it up manually from any
+framework:
+
+```bash
+npx rstack-agents hub          # health-check :3008, start if down, open browser
+```
+
+Or run the server directly:
+
+```bash
+rstack-business --port 3008 --project .
+```
+
+<Info>
+  Default port is **3008** (override with `RSTACK_BUSINESS_PORT`). Disable
+  auto-launch with `RSTACK_NO_BUSINESS_HUB=1`. The legacy `rstack-observer`
+  command is a compatibility alias that opens the same hub.
+</Info>
+
+## Pages
+
+<CardGroup cols={2}>
+  <Card title="Studio & Studio 3D" icon="robot">
+    A live agent workspace — every stage as a workstation, status as a glowing
+    state. The 3D scene (`/studio3d`) lets you click any agent to see what it
+    worked on, what it shipped, and why it's waiting.
+  </Card>
+  <Card title="Run Analytics" icon="chart-gantt">
+    Wall-clock Gantt per run, average stage durations, and run-over-run trends.
+  </Card>
+  <Card title="Team & Presence" icon="users">
+    Who is live now, a people directory (runs / approvals / guidance per
+    person), and a manager rollup per project.
+  </Card>
+  <Card title="Projects & Runs" icon="folder-tree">
+    Every session. Open a run to read its actual deliverables and evidence.
+  </Card>
+  <Card title="Approvals & Alerts" icon="shield-check">
+    Approve or reject gates from the browser; popups when new gates block.
+  </Card>
+  <Card title="Workflow & Traceability" icon="diagram-project">
+    The 15-stage map with live states and requirement → stage → task → evidence
+    chains.
+  </Card>
+</CardGroup>
+
+## Read what the agents produced
+
+Open any run and the drawer lists its **deliverables** — `requirements.json`,
+`architecture.md`, the QA report, security review, release readiness, the plan —
+grouped by stage. Click one to read it in the dashboard. The **Evidence**
+section lists the validation records beside them.
+
+The artifact API is strictly sandboxed: the run is located via the known
+project roots, the resolved path must stay inside the run directory, only
+text artifacts are served, and there's a 512&nbsp;KB cap.
+
+## Switch scope & share links
+
+A project → run switcher in the top bar scopes every page to the run you care
+about and remembers your choice. Links are shareable: `#run=<runId>` deep-links
+straight to a run (handy in Slack).
+
+## Multi-project aggregation
+
+The hub reads a global registry (`~/.rstack/known-projects.json`) that every
+`rstack-agents init` and `hub` call updates, so one dashboard shows runs from
+all your projects. Many people can point the same hub (or the same Slack bot)
+at it.
+
+<Note>
+  **Honest limitation:** LLM token usage and real cost are not captured — the
+  host framework executes the model calls, so the harness never sees usage.
+  Cost shows `$0` unless a builder reports it in its contract. Host-side usage
+  instrumentation is on the roadmap.
+</Note>

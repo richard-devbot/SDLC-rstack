@@ -1,0 +1,178 @@
+---
+title: "Install your framework"
+description: "Set up your AI coding framework first, then add RStack to it."
+---
+
+RStack is a plugin, not a standalone app — it runs inside an AI coding
+framework. This page gets you from nothing to a framework with RStack installed,
+whichever tool you use. Every path ends the same way:
+
+```bash
+cd your-project
+npm install rstack-agents
+npx rstack-agents init        # auto-detects your framework
+```
+
+<Info>
+  **Prerequisite for all frameworks:** Node.js 18 or newer (`node --version`).
+  RStack and its dashboard run on Node.
+</Info>
+
+## How well does each framework integrate?
+
+| Framework | Integration | What you get |
+|---|---|---|
+| **Pi** | 🟢 Native adapter | All 15 `sdlc_*` tools, lifecycle hooks, gating, auto-launch dashboard |
+| **Claude Code** | 🟢 First-class | `init` writes a usage guide + a SessionStart hook; plugin commands |
+| **Operator** | 🟢 First-class | Python adapter bridges to the same harness; auto-launch dashboard |
+| **Codex CLI** | 🟡 Asset-based | RStack agents/skills as context via `AGENTS.md`; no native tool gating |
+| **Gemini CLI** | 🟡 Asset-based | RStack agents/skills as context via `GEMINI.md`; no native tool gating |
+| **Any other harness** | 🟡 Universal | The `.rstack/` state contract + a Node bridge any tool can call |
+
+🟢 = full governed harness. 🟡 = RStack guides the agent via shared context;
+the dashboard, state, and CLI still work, but tool-level gating depends on the host.
+
+---
+
+## Pi
+
+Pi is RStack's native home — the deepest integration.
+
+<Steps>
+  <Step title="Install Pi">
+    Follow the Pi install guide for your platform, then confirm:
+    ```bash
+    pi --version
+    ```
+  </Step>
+  <Step title="Add RStack to your project">
+    ```bash
+    cd your-project
+    npm install rstack-agents
+    npx rstack-agents init --framework pi
+    ```
+    Pi auto-loads the RStack extension from the package — no manual wiring.
+  </Step>
+  <Step title="Start a run in your next Pi session">
+    ```text
+    sdlc_start(goal="...")
+    ```
+  </Step>
+</Steps>
+
+Details: [Pi adapter](/adapters/pi).
+
+---
+
+## Claude Code
+
+<Steps>
+  <Step title="Install Claude Code">
+    Install the Claude Code CLI or IDE extension, then confirm with `claude --version`.
+  </Step>
+  <Step title="Add RStack + init">
+    ```bash
+    cd your-project
+    npm install rstack-agents
+    npx rstack-agents init --framework claude-code
+    ```
+    This writes `.claude/rstack-sdlc.md` (a usage guide) and a **SessionStart
+    hook** so the Business Hub opens every session. If you already have a
+    `.claude/settings.json`, RStack leaves a mergeable snippet instead of
+    overwriting it.
+  </Step>
+  <Step title="Install the plugin (optional, adds slash commands)">
+    ```text
+    /plugin install sdlc-automation
+    ```
+    Then drive the pipeline with `/sdlc-start`, `/sdlc-status`, `/sdlc-resume`.
+  </Step>
+</Steps>
+
+Details: [Claude Code adapter](/adapters/claude-code).
+
+---
+
+## Operator
+
+<Steps>
+  <Step title="Install Operator + Node">
+    Operator is a Python harness. RStack's Operator adapter shells out to a
+    Node bridge, so you need `node` and `npx` on `PATH`.
+  </Step>
+  <Step title="Add RStack + init">
+    ```bash
+    cd your-project
+    npm install rstack-agents
+    npx rstack-agents init --framework operator
+    ```
+    `init` writes `rstack-operator.example.json`.
+  </Step>
+  <Step title="Wire the adapter into Operator settings">
+    Merge the `extensions.list` entry from `rstack-operator.example.json` into
+    your Operator `settings.json`. The Business Hub auto-launches when the
+    extension loads.
+  </Step>
+</Steps>
+
+Details: [Operator adapter](/adapters/universal).
+
+---
+
+## Codex CLI
+
+Codex integrates through shared context files (no native tool binding yet).
+
+<Steps>
+  <Step title="Install the Codex CLI">
+    Install per its docs and confirm it runs in your project.
+  </Step>
+  <Step title="Add RStack and bring in the assets">
+    ```bash
+    cd your-project
+    npm install rstack-agents
+    npx rstack-agents init --framework custom
+    ```
+    Then point Codex at the RStack agents via `AGENTS.md`. See the
+    [Codex adapter](/adapters/codex) for the exact `AGENTS.md` block.
+  </Step>
+  <Step title="Use the dashboard + CLI">
+    The Business Hub (`npx rstack-agents hub`) and `.rstack/` state work the
+    same as any framework.
+  </Step>
+</Steps>
+
+---
+
+## Gemini CLI
+
+Same asset-based pattern as Codex, via `GEMINI.md`.
+
+<Steps>
+  <Step title="Install the Gemini CLI">
+    Install per its docs.
+  </Step>
+  <Step title="Add RStack + init (custom)">
+    ```bash
+    cd your-project
+    npm install rstack-agents
+    npx rstack-agents init --framework custom
+    ```
+    Add the RStack instructions to `GEMINI.md` — see the
+    [Gemini adapter](/adapters/gemini).
+  </Step>
+</Steps>
+
+---
+
+## Any other framework
+
+If your harness can read a project directory, it can use RStack. Install with
+`--framework custom`, then either feed it the RStack agent context or have it
+call the Node bridge per tool. Full contract:
+[Universal / custom adapter](/adapters/universal).
+
+<Tip>
+  Whatever framework you chose, your next stop is the same:
+  [Your first run](/getting-started/your-first-run).
+</Tip>

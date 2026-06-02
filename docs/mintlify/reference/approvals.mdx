@@ -1,0 +1,78 @@
+---
+title: "Approvals & Policy"
+description: "Human-in-the-loop gates, manager allow-lists, and the approval token."
+---
+
+No change ships without sign-off. RStack gates planning, requirements, and
+architecture by default, and lets you enforce stricter, role-based policy.
+
+## How approvals work
+
+When a task reaches a gate, the run blocks and records an `approval_gate_blocked`
+event. A human resolves it:
+
+```text
+sdlc_approve(artifact="architecture.md", status="APPROVED")
+```
+
+The approver is recorded as the resolved identity (git config or `RSTACK_USER`)
+— not a generic placeholder. Resolving from the Business Hub is also possible
+(see [the token](#dashboard-approval-token) below).
+
+## Enforce policy — `.rstack/policy.json`
+
+Make selected stages require approval **in every mode**, including express runs:
+
+```json
+{
+  "required_approvals": {
+    "008-release-readiness": ["release-readiness.json"]
+  },
+  "enforce_in_express": true,
+  "managers": ["maya@acme.com", "lena@acme.com"]
+}
+```
+
+- **`required_approvals`** — task id → artifacts that must be approved before
+  that task can run. Enforced in interactive **and** express mode.
+- **`enforce_in_express`** — also apply the default interactive gates to
+  express runs.
+- **`managers`** — only these people may resolve approvals (see below).
+
+## Manager allow-list
+
+When a manager list is configured (via `policy.json` `managers[]` or the
+`RSTACK_MANAGER_USERS` env var, comma-separated), only those identities can
+resolve a gate. Anyone else is rejected. With no list configured, any
+identified user may approve.
+
+```bash
+export RSTACK_MANAGER_USERS="maya@acme.com,lena@acme.com"
+```
+
+## Dashboard approval token
+
+Approving from the browser requires a signed token so a manager's identity
+can't be spoofed from an unauthenticated request:
+
+```bash
+export RSTACK_APPROVAL_TOKEN="a-long-random-secret"
+```
+
+- With the token set, the dashboard sends it as a header; approvals also
+  require a same-origin request and `Content-Type: application/json`.
+- **Without the token set, browser approvals are disabled** (the secure
+  default) — approve via `sdlc_approve` instead.
+- Every dashboard approval records audit-proof actor evidence, not just a name.
+
+<Note>
+  The CLI path (`sdlc_approve`) always enforces the manager allow-list. The
+  token specifically protects the **dashboard** endpoint from spoofed requests.
+</Note>
+
+## Everyone gets paged when a gate blocks
+
+A blocked gate fires a notification to every configured channel
+([webhooks](/reference/webhooks)) and pops a browser notification in the hub —
+so the manager doesn't have to be watching the dashboard to know work is
+waiting.

@@ -3,12 +3,32 @@ title: "Installation"
 description: "All supported installation methods for RStack SDLC."
 ---
 
-RStack can be installed in any AI coding environment. Choose the method that matches your runtime.
+RStack can be installed in any AI coding environment.
 
 ## Requirements
 
 - Node.js >= 18.0.0
 - npm >= 9.0.0
+
+## Recommended: one command for any framework
+
+```bash
+cd your-project
+npm install rstack-agents
+npx rstack-agents init        # auto-detects pi | claude-code | operator | custom
+```
+
+`init` sets up `.rstack/`, registers the project with the Business Hub, writes
+the framework-specific glue, and prints next steps — idempotent and
+non-destructive. New to your AI framework itself? See
+[Install your framework](/getting-started/install-your-framework) for the
+per-tool setup, then run the command above.
+
+<Tip>
+  The sections below are the **manual / asset-based** paths. You only need them
+  for frameworks without a native adapter (Codex, Gemini, universal) or if you
+  prefer wiring assets yourself.
+</Tip>
 
 ## Pi — Native adapter (full-featured)
 
@@ -130,8 +150,8 @@ rstack-agents validate
 
 Expected output:
 ```
-196 agents found
-156 skills found
-72 plugins found
-✓ Validation passed
+$ rstack-agents validate
+[rstack] All 196 agents passed validation.
 ```
+
+The catalog ships **196 agents, 156 skills, 72 plugins, 36 prompts**.

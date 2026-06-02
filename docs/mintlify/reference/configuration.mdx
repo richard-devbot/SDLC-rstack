@@ -13,6 +13,39 @@ description: "Environment variables, project overrides, and registry configurati
 | `RSTACK_LOG_LEVEL` | `info` | Log verbosity: `debug`, `info`, `warn`, `error` |
 | `RSTACK_MODEL_OPUS` | `claude-opus-4-5` | Model to use for Opus-tier agents (architecture, code, security) |
 | `RSTACK_MODEL_SONNET` | `claude-sonnet-4-5` | Model to use for Sonnet-tier agents |
+| `RSTACK_DEFAULT_MODEL` | — | Model for delegated builder agents |
+| `RSTACK_ESCALATED_MODEL` | — | Model used when a task reaches attempt ≥ 2 |
+
+### Identity & people
+
+| Variable | Default | Description |
+|---|---|---|
+| `RSTACK_USER` | git `user.name` | Who started the run / resolved an approval |
+| `RSTACK_USER_EMAIL` | git `user.email` | Email recorded alongside the identity |
+
+### Business Hub
+
+| Variable | Default | Description |
+|---|---|---|
+| `RSTACK_BUSINESS_PORT` | `3008` | Dashboard port |
+| `RSTACK_NO_BUSINESS_HUB` | — | Set to `1` to disable dashboard auto-launch |
+| `RSTACK_NO_BROWSER` | — | Set to `1` to never open a browser tab |
+
+### Approvals (see [Approvals & Policy](/reference/approvals))
+
+| Variable | Default | Description |
+|---|---|---|
+| `RSTACK_APPROVAL_TOKEN` | — | Required to approve from the dashboard (prevents spoofing) |
+| `RSTACK_MANAGER_USERS` | — | Comma-separated manager allow-list (also settable in `policy.json`) |
+
+### Notifications (see [Webhooks](/reference/webhooks))
+
+| Variable | Description |
+|---|---|
+| `RSTACK_SLACK_WEBHOOK` | Slack incoming webhook (Teams/Discord URLs auto-routed) |
+| `RSTACK_TEAMS_WEBHOOK` / `RSTACK_DISCORD_WEBHOOK` | Teams / Discord webhooks |
+| `RSTACK_TELEGRAM_BOT_TOKEN` + `RSTACK_TELEGRAM_CHAT_ID` | Telegram bot |
+| `RSTACK_WHATSAPP_TOKEN` + `RSTACK_WHATSAPP_PHONE_ID` + `RSTACK_WHATSAPP_TO` | WhatsApp Cloud API |
 
 ---
 

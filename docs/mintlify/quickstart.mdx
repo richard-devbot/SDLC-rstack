@@ -1,117 +1,93 @@
 ---
 title: "Quickstart"
-description: "Get RStack SDLC running in under 5 minutes."
+description: "From zero to a governed AI run in under 5 minutes."
 ---
 
-## Install in Pi (recommended)
-
-Pi is the native runtime for RStack and gives you the full governed harness with lifecycle hooks.
+RStack plugs into the AI coding framework you already use. The fastest path is
+the same for everyone:
 
 <Steps>
-  <Step title="Install from npm">
+  <Step title="Install RStack in your project">
     ```bash
-    pi install npm:rstack-agents
-    ```
-    Or from a local checkout:
-    ```bash
-    pi install /path/to/SDLC-rstack
+    cd your-project
+    npm install rstack-agents
     ```
   </Step>
-  <Step title="Ask Pi to orchestrate a goal">
-    ```text
-    Use RStack to build a production-ready todo app with auth, tests, docs, and release readiness.
+  <Step title="Set it up for your framework">
+    ```bash
+    npx rstack-agents init
+    ```
+    `init` auto-detects your framework (Pi, Claude Code, Operator, or custom),
+    creates the `.rstack/` state directory, registers the project with the
+    Business Hub, writes any framework-specific glue, and prints your next
+    steps. Running it twice is safe — it never overwrites your files.
+
+    Force a specific framework with `--framework`:
+    ```bash
+    npx rstack-agents init --framework pi          # pi | claude-code | operator | custom
     ```
   </Step>
-  <Step title="Follow the lifecycle">
-    RStack guides you through each phase:
+  <Step title="Start a governed run from your agent session">
     ```text
-    sdlc_orchestrate(goal="Build a production-ready todo app...")
-    sdlc_start(goal="Build a production-ready todo app...")
+    sdlc_start(goal="Build a checkout flow with Stripe, tests, and release readiness")
     sdlc_clarify()
     sdlc_plan()
     ```
   </Step>
-  <Step title="Approve gates before build">
+  <Step title="Approve the gates, then build">
     ```text
     sdlc_approve(artifact="plan.md", status="APPROVED")
     sdlc_approve(artifact="requirements.json", status="APPROVED")
     sdlc_approve(artifact="architecture.md", status="APPROVED")
-    ```
-  </Step>
-  <Step title="Build and validate">
-    ```text
     sdlc_build_next()
     sdlc_validate()
-    sdlc_status()
     ```
+  </Step>
+  <Step title="Watch it live in the Business Hub">
+    The dashboard opens automatically when your session starts. Bring it up
+    any time from any framework:
+    ```bash
+    npx rstack-agents hub
+    ```
+    Open [http://localhost:3008](http://localhost:3008) — runs, the Studio
+    live agent view, approvals, and traceability.
   </Step>
 </Steps>
 
-## Try without installing
+<Note>
+  New to your AI framework too? Start with
+  [Install your framework](/getting-started/install-your-framework) — it covers
+  installing Pi, Claude Code, Codex CLI, Gemini CLI, and Operator first, then
+  adding RStack.
+</Note>
 
-Run RStack once without a permanent install:
-
-```bash
-pi -e /path/to/SDLC-rstack/extensions/rstack-sdlc.ts
-```
-
-## Install in Claude Code
-
-<Steps>
-  <Step title="Set RSTACK_HOME">
-    ```bash
-    export RSTACK_HOME=/path/to/SDLC-rstack
-    ```
-  </Step>
-  <Step title="Copy assets into your project">
-    ```bash
-    mkdir -p .claude/agents/rstack .claude/commands/rstack .rstack/vendor/rstack
-    cp -R "$RSTACK_HOME/agents" .rstack/vendor/rstack/
-    cp -R "$RSTACK_HOME/skills" .rstack/vendor/rstack/
-    cp -R "$RSTACK_HOME/plugins" .rstack/vendor/rstack/
-    cp -R "$RSTACK_HOME/prompts" .rstack/vendor/rstack/
-    cp -R "$RSTACK_HOME/agents"/* .claude/agents/rstack/
-    ```
-  </Step>
-  <Step title="Add RStack instructions to CLAUDE.md">
-    ```markdown
-    # RStack SDLC
-    Use RStack SDLC from `.rstack/vendor/rstack`.
-    Start with `.rstack/vendor/rstack/agents/core/orchestrator.md`.
-    Write all run state under `.rstack/runs/<run_id>/`.
-    Require specs, approvals, traceability, builder.json, and validation.json.
-    Never claim DONE without evidence.
-    ```
-  </Step>
-</Steps>
-
-<Tip>
-  See the [Adapters](/adapters/pi) section for installation guides for Codex CLI, Gemini CLI, Qwen Code, and universal asset-only mode.
-</Tip>
-
-## What happens after install
-
-RStack creates a `.rstack/` directory in your project with:
+## What `init` created
 
 ```text
-.rstack/
-  memory/
-    learnings.jsonl        # Accumulated cross-run learnings
-  registry/
-    registry.json          # Full asset manifest
-    agents.json
-    skills.json
-    plugins.json
-    routing.json           # Pipeline routing map
-  runs/
-    <run_id>/
-      manifest.json
-      plan.md
-      tasks.json
-      approvals.json
-      traceability.json
-      specs/               # Generated spec artifacts
-      tasks/               # Per-task builder + validator contracts
+your-project/
+├── .rstack/
+│   ├── runs/                 # every governed run lands here
+│   ├── registry/             # agent / skill / plugin catalog
+│   └── policy.json           # (optional) approval policy you control
+└── .claude/rstack-sdlc.md    # (claude-code only) usage guide + session hook
 ```
 
-Every run is inspectable, resumable, and auditable.
+Every run is inspectable, resumable, and auditable. See
+[Your first run](/getting-started/your-first-run) for the full walkthrough.
+
+## Pick your path
+
+<CardGroup cols={2}>
+  <Card title="Install your framework" icon="plug" href="/getting-started/install-your-framework">
+    Pi, Claude Code, Codex, Gemini CLI, Operator — step by step.
+  </Card>
+  <Card title="Your first run" icon="play" href="/getting-started/your-first-run">
+    Clarify → plan → approve → build → validate, explained.
+  </Card>
+  <Card title="The Business Hub" icon="chart-line" href="/reference/business-hub">
+    The live dashboard, Studio 3D, and team views.
+  </Card>
+  <Card title="Notifications" icon="bell" href="/reference/webhooks">
+    Slack, Teams, Discord, Telegram, WhatsApp.
+  </Card>
+</CardGroup>
