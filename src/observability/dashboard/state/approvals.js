@@ -71,9 +71,9 @@ export function summarizeApprovals(queueApprovals) {
   };
 }
 
-export async function resolveApprovalAcrossRoots(roots, id, decision, resolvedBy) {
+export async function resolveApprovalAcrossRoots(roots, id, decision, resolvedBy, options = {}) {
   for (const root of roots ?? []) {
-    const ok = await resolveApproval(root, id, decision, resolvedBy);
+    const ok = await resolveApproval(root, id, decision, resolvedBy, options);
     if (ok) return true;
   }
   return false;

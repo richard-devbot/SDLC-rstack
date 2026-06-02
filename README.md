@@ -67,6 +67,10 @@ Switch project/run scope from the top bar; share `#run=<id>` links in Slack.
 - The moment a gate blocks, **every configured channel is paged** and the
   dashboard pops a notification
 - Every approval records the real approver (git identity or `RSTACK_USER`)
+- Approving from the dashboard requires a signed token (`RSTACK_APPROVAL_TOKEN`)
+  so a manager's identity can't be spoofed from the browser; `sdlc_approve`
+  enforces the `policy.json` manager allow-list. Without the token set,
+  browser approvals are disabled (secure default) — approve via `sdlc_approve`.
 
 ## Notifications — Slack, Teams, Discord, Telegram, WhatsApp
 
@@ -112,6 +116,8 @@ instrumentation is on the roadmap.
 | `RSTACK_USER` / `RSTACK_USER_EMAIL` | Identity for runs/approvals (defaults to git config) |
 | `RSTACK_BUSINESS_PORT` | Dashboard port (default 3008) |
 | `RSTACK_NO_BUSINESS_HUB=1` | Disable dashboard auto-launch |
+| `RSTACK_APPROVAL_TOKEN` | Required to approve from the dashboard (prevents identity spoofing) |
+| `RSTACK_MANAGER_USERS` | Comma-separated manager allow-list (also in `policy.json`) |
 | `RSTACK_SLACK_WEBHOOK` etc. | Notification channels — see webhooks guide |
 | `RSTACK_DEFAULT_MODEL` / `RSTACK_ESCALATED_MODEL` | Models for delegated builders (escalation at attempt ≥ 2) |
 

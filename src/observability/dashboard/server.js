@@ -114,34 +114,66 @@ async function broadcastSnapshot() {
   broadcast(toClientState(state));
 }
 
+// A signed approval is required whenever RSTACK_APPROVAL_TOKEN is set: the
+// dashboard cannot mint manager identity from an unauthenticated request body.
+// Without the env token, approving from the browser is blocked entirely (the
+// secure default for a multi-user company hub) — set the token to enable it.
+function approvalAuthError(req) {
+  const expected = process.env.RSTACK_APPROVAL_TOKEN;
+  if (!expected) {
+    return { code: 403, msg: 'dashboard approvals are disabled — set RSTACK_APPROVAL_TOKEN to enable signed approvals, or approve via sdlc_approve' };
+  }
+  // CSRF: a cross-site form POST cannot set custom headers and would carry a
+  // foreign Origin. Require the token header and a localhost (or absent) origin.
+  const origin = req.headers.origin;
+  if (origin && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    return { code: 403, msg: 'cross-origin approval rejected' };
+  }
+  const token = req.headers['x-rstack-approval-token'];
+  if (!token || token !== expected) {
+    return { code: 401, msg: 'missing or invalid approval token' };
+  }
+  return null;
+}
+
 async function handleApproval(req, res, decision) {
-  let body = '';
-  req.on('error', () => {
+  const fail = (code, msg) => {
     if (!res.headersSent) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: 'request stream error' }));
+      res.writeHead(code, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: msg }));
     }
+  };
+  const contentType = String(req.headers['content-type'] ?? '');
+  if (!contentType.includes('application/json')) {
+    return fail(415, 'Content-Type must be application/json');
+  }
+  const authErr = approvalAuthError(req);
+  if (authErr) return fail(authErr.code, authErr.msg);
+
+  let body = '';
+  let tooLarge = false;
+  req.on('error', () => fail(400, 'request stream error'));
+  req.on('data', (chunk) => {
+    body += chunk;
+    if (body.length > 64 * 1024) { tooLarge = true; req.destroy(); }
   });
-  req.on('data', (chunk) => { body += chunk; });
   req.on('end', async () => {
+    if (tooLarge) return fail(413, 'request body too large');
     try {
-      const { id, resolvedBy } = safeJson(body) ?? {};
-      if (!id) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, error: 'missing approval id' }));
-        return;
-      }
-      const ok = await resolveDashboardApproval(PROJECT_ROOT, id, decision, resolvedBy ?? 'dashboard');
+      const parsed = safeJson(body) ?? {};
+      const { id, resolvedBy } = parsed;
+      if (!id) return fail(400, 'missing approval id');
+      if (!resolvedBy || typeof resolvedBy !== 'string') return fail(400, 'resolvedBy (approver identity) is required');
+      // Actor evidence: token-verified, not just a body string.
+      const ok = await resolveDashboardApproval(PROJECT_ROOT, id, decision, resolvedBy, {
+        actor: { name: resolvedBy, via: 'dashboard', tokenVerified: true, ts: new Date().toISOString() },
+      });
       res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok }));
       if (ok) await broadcastSnapshot();
     } catch (err) {
       process.stderr.write(`[rstack-business] approval error: ${err?.message}\n`);
-      if (!res.headersSent) {
-        const statusCode = Number(err?.statusCode) || 500;
-        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, error: String(err?.message) }));
-      }
+      fail(Number(err?.statusCode) || 500, String(err?.message));
     }
   });
 }

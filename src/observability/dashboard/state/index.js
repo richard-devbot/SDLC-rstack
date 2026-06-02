@@ -91,7 +91,7 @@ export async function buildFullState(projectRoot, options = {}) {
 
 export async function resolveDashboardApproval(projectRoot, id, decision, resolvedBy, options = {}) {
   const roots = await sourceRoots(projectRoot, options);
-  return resolveApprovalAcrossRoots(roots, id, decision, resolvedBy);
+  return resolveApprovalAcrossRoots(roots, id, decision, resolvedBy, { actor: options.actor });
 }
 
 function buildFrameworks(runs) {

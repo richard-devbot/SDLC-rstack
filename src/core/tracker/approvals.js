@@ -1,17 +1,40 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 // owner: RStack developed by Richardson Gunde
 
 const QUEUE_FILE = '.rstack/approvals.jsonl';
 
-function queuePath(projectRoot) {
-  return join(projectRoot, QUEUE_FILE);
+// Run ids are timestamp-slug strings — never path separators or traversal.
+// A crafted approval id could otherwise encode a runId like "../../etc" and
+// drive a write outside .rstack/runs (issue #54). Validate before any FS use.
+const SAFE_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
+
+export function isSafeRunId(runId) {
+  return typeof runId === 'string' && SAFE_RUN_ID.test(runId) && !runId.includes('..');
 }
 
-function runApprovalsPath(projectRoot, runId) {
-  return join(projectRoot, '.rstack', 'runs', runId, 'approvals.json');
+function safeArtifact(artifact) {
+  // Artifacts are file/stage names, not paths.
+  return typeof artifact === 'string' && artifact.length > 0 && artifact.length < 256
+    && !artifact.includes('/') && !artifact.includes('\\') && !artifact.includes('..');
+}
+
+// Resolve a run's approvals.json and assert it stays inside .rstack/runs/<runId>.
+// Returns null if the runId is unsafe, escapes the sandbox, or the run has no
+// manifest.json (i.e. it isn't a real run).
+function safeRunApprovalsPath(projectRoot, runId) {
+  if (!isSafeRunId(runId)) return null;
+  const runsRoot = resolve(projectRoot, '.rstack', 'runs');
+  const runDir = resolve(runsRoot, runId);
+  if (runDir !== join(runsRoot, runId) || !(runDir === runsRoot || runDir.startsWith(runsRoot + sep))) return null;
+  if (!existsSync(join(runDir, 'manifest.json'))) return null;
+  return join(runDir, 'approvals.json');
+}
+
+function queuePath(projectRoot) {
+  return join(projectRoot, QUEUE_FILE);
 }
 
 function policyPath(projectRoot) {
@@ -34,7 +57,11 @@ export function parseApprovalQueueId(id) {
   if (typeof id !== 'string' || !id.startsWith('gate:')) return null;
   const [, runId, taskId, artifact] = id.split(':');
   if (!runId || !artifact) return null;
-  return { runId: decodePart(runId), taskId: decodePart(taskId), artifact: decodePart(artifact) };
+  const decoded = { runId: decodePart(runId), taskId: decodePart(taskId), artifact: decodePart(artifact) };
+  // Reject ids whose decoded parts could traverse the filesystem.
+  if (!isSafeRunId(decoded.runId) || !safeArtifact(decoded.artifact)) return null;
+  if (decoded.taskId && (decoded.taskId.includes('/') || decoded.taskId.includes('..'))) return null;
+  return decoded;
 }
 
 async function readJson(path, fallback) {
@@ -111,8 +138,9 @@ export async function readApprovals(projectRoot) {
 
 export async function appendRunApproval(projectRoot, runId, record) {
   if (!runId || !record?.artifact) return null;
-  const path = runApprovalsPath(projectRoot, runId);
-  await mkdir(join(projectRoot, '.rstack', 'runs', runId), { recursive: true });
+  // Hard sandbox: unsafe/escaping runId, or a run with no manifest, writes nothing.
+  const path = safeRunApprovalsPath(projectRoot, runId);
+  if (!path) return null;
   const approvals = await readJson(path, []);
   const all = Array.isArray(approvals) ? approvals : [];
   const next = {
@@ -134,7 +162,10 @@ export async function resolveApproval(projectRoot, id, decision, resolvedBy, opt
   const idx = all.findIndex(a => a.id === id);
   const parsed = idx === -1 ? parseApprovalQueueId(id) : null;
   if (idx === -1 && !parsed) return false;
-  if (idx === -1 && parsed && !existsSync(join(projectRoot, '.rstack', 'runs', parsed.runId))) return false;
+  // parseApprovalQueueId already rejected unsafe runIds; require a real run.
+  if (idx === -1 && parsed && !safeRunApprovalsPath(projectRoot, parsed.runId)) return false;
+  // A queued entry could predate validation — re-check before trusting its runId.
+  if (idx !== -1 && all[idx].runId && !isSafeRunId(all[idx].runId)) return false;
 
   const base = idx === -1 ? {
     id,
@@ -152,7 +183,9 @@ export async function resolveApproval(projectRoot, id, decision, resolvedBy, opt
   const queueStatus = decision === 'approved' ? 'approved' : 'rejected';
   const runStatus = decision === 'approved' ? 'APPROVED' : 'REJECTED';
   const resolvedAt = new Date().toISOString();
-  const next = { ...base, status: queueStatus, resolvedBy: approver, resolvedAt, updatedAt: resolvedAt };
+  // Audit-proof actor evidence, not just a name string.
+  const actor = options.actor ? { ...options.actor } : { name: approver, via: 'api', tokenVerified: false, ts: resolvedAt };
+  const next = { ...base, status: queueStatus, resolvedBy: approver, actor, resolvedAt, updatedAt: resolvedAt };
 
   if (idx === -1) all.push(next);
   else all[idx] = next;

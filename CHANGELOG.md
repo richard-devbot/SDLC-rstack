@@ -5,6 +5,20 @@
 All notable changes to RStack are documented here. Entries are user-focused:
 what you can now do that you couldn't before.
 
+## [1.7.1] - 2026-06-02
+
+### Security
+- **Approval gates can no longer be spoofed or abused** (closes a pre-release
+  audit). Approving from the dashboard now requires a signed token
+  (`RSTACK_APPROVAL_TOKEN`) and a same-origin request, and records audit-proof
+  actor evidence — a script can't submit an arbitrary manager name anymore.
+  Without the token configured, browser approvals are disabled by default;
+  `sdlc_approve` continues to enforce the manager allow-list.
+- **Approval ids can no longer escape the run directory.** Run ids, task ids,
+  and artifact names in approval ids are strictly validated and every write is
+  asserted to stay inside `.rstack/runs/<run>` with a real manifest — closing a
+  path-traversal write.
+
 ## [1.7.0] - 2026-06-02
 
 ### Added

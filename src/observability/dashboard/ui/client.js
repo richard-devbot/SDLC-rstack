@@ -1278,9 +1278,16 @@ function resolveApproval(id, action) {
     resolvedBy = window.prompt('Manager name for this approval decision') || '';
     if (resolvedBy) localStorage.setItem('rstack-approver-name', resolvedBy);
   }
+  // Approvals require the signed token (RSTACK_APPROVAL_TOKEN) so identity
+  // can't be spoofed from a bare request. Stored locally after first entry.
+  var token = localStorage.getItem('rstack-approval-token') || '';
+  if (!token && typeof window.prompt === 'function') {
+    token = window.prompt('Approval token (RSTACK_APPROVAL_TOKEN set on the hub)') || '';
+    if (token) localStorage.setItem('rstack-approval-token', token);
+  }
   fetch('/api/' + action, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-rstack-approval-token': token },
     body: JSON.stringify({ id: id, resolvedBy: resolvedBy || 'dashboard' })
   }).then(function(response) {
     if (!response.ok) {
