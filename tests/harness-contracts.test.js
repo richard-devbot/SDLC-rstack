@@ -5,7 +5,7 @@ import {
   validateValidatorContract,
   BUILDER_REQUIRED_FIELDS,
   VALIDATOR_REQUIRED_FIELDS,
-} from '../src/harness/contracts.js';
+} from '../src/core/harness/contracts.js';
 
 test('builder contract requires all Harness fields; agent is optional with graceful default', () => {
   const valid = {

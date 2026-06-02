@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createStageCheckpoint, rollbackStage } from '../src/harness/run-state.js';
+import { createStageCheckpoint, rollbackStage } from '../src/core/harness/run-state.js';
 import { calculateEpisodeSignature, verifyEpisodeSignature, appendEpisode, readEpisodes } from '../src/memory/index.js';
 import extension from '../extensions/rstack-sdlc.ts';
 

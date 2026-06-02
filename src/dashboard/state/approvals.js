@@ -1,4 +1,4 @@
-import { readApprovals, pendingApprovals, approvalSummary, resolveApproval } from '../../tracker/approvals.js';
+import { readApprovals, pendingApprovals, approvalSummary, resolveApproval } from '../../core/tracker/approvals.js';
 
 // owner: RStack developed by Richardson Gunde
 

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CANONICAL_SDLC_STAGES, assertCanonicalStages, stageArtifactRelativePath } from '../src/harness/stages.js';
-import { prepareStageFolders, stageArtifactPath } from '../src/harness/run-state.js';
+import { CANONICAL_SDLC_STAGES, assertCanonicalStages, stageArtifactRelativePath } from '../src/core/harness/stages.js';
+import { prepareStageFolders, stageArtifactPath } from '../src/core/harness/run-state.js';
 
 const EXPECTED_STAGE_IDS = [
   '00-environment',

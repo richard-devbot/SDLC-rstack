@@ -9,11 +9,11 @@ import { mkdir, readFile, readdir, writeFile, appendFile } from "node:fs/promise
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { getCanonicalStage, stageArtifactRelativePath } from "../src/harness/stages.js";
-import { validateBuilderContract } from "../src/harness/contracts.js";
-import { appendEvidenceEvent } from "../src/harness/evidence.js";
-import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from "../src/harness/guardrails.js";
-import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage } from "../src/harness/run-state.js";
+import { getCanonicalStage, stageArtifactRelativePath } from "../src/core/harness/stages.js";
+import { validateBuilderContract } from "../src/core/harness/contracts.js";
+import { appendEvidenceEvent } from "../src/core/harness/evidence.js";
+import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from "../src/core/harness/guardrails.js";
+import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage } from "../src/core/harness/run-state.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../src/memory/index.js";
 import { buildRunReport, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../src/observers/reporter.js";
 import { sendSlackNotification, formatSlackStageMessage, formatSlackTaskReportMessage } from "../src/notifications/index.js";

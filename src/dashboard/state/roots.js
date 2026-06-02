@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { knownProjectRoots } from '../../tracker/registry.js';
+import { knownProjectRoots } from '../../core/tracker/registry.js';
 
 // owner: RStack developed by Richardson Gunde
 

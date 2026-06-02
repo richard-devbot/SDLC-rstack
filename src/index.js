@@ -1,12 +1,12 @@
 /**
  * Programmatic entry point for rstack-agents.
  *
- * Folder structure:
- *   src/harness/        — core SDLC runtime (stages, contracts, evidence, guardrails, run-state)
+ * Folder structure (SDLC layers):
+ *   src/core/harness/   — core SDLC runtime (stages, contracts, evidence, guardrails, run-state)
+ *   src/core/tracker/   — project registry, approval queue
  *   src/memory/         — episodic memory and diagnostics
  *   src/notifications/  — Slack / Discord / Teams webhooks
  *   src/alerts/         — threshold evaluation, plain-language summaries
- *   src/tracker/        — project registry, approval queue
  *   src/hooks/          — auto-launch helpers
  *   src/observers/      — reporter and legacy static dashboard helpers
  *   src/dashboard/      — Business Hub server and redesigned UI
@@ -15,11 +15,11 @@
  */
 
 // ── Core runtime ──────────────────────────────────────────────────────────────
-export { CANONICAL_SDLC_STAGES, assertCanonicalStages } from './harness/stages.js';
-export { validateBuilderContract, validateValidatorContract } from './harness/contracts.js';
-export { appendEvidenceEvent, validateEvidenceEvent } from './harness/evidence.js';
-export { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from './harness/guardrails.js';
-export { updateRunMetrics, createStageCheckpoint, rollbackStage, prepareRunState } from './harness/run-state.js';
+export { CANONICAL_SDLC_STAGES, assertCanonicalStages } from './core/harness/stages.js';
+export { validateBuilderContract, validateValidatorContract } from './core/harness/contracts.js';
+export { appendEvidenceEvent, validateEvidenceEvent } from './core/harness/evidence.js';
+export { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from './core/harness/guardrails.js';
+export { updateRunMetrics, createStageCheckpoint, rollbackStage, prepareRunState } from './core/harness/run-state.js';
 
 // ── Memory ────────────────────────────────────────────────────────────────────
 export { appendEpisode, appendLearning, formatEpisodesForPrompt, projectMemoryDir, readEpisodes, recallEpisodes, searchLearnings } from './memory/index.js';
@@ -32,8 +32,8 @@ export { sendSlackNotification, formatSlackStageMessage, formatSlackTaskReportMe
 export { evaluateAlerts, plainLanguageSummary, DEFAULT_ALERT_THRESHOLDS } from './alerts/engine.js';
 
 // ── Tracker ───────────────────────────────────────────────────────────────────
-export { registerProject, readRegistry, knownProjectRoots } from './tracker/registry.js';
-export { readApprovals, appendApproval, resolveApproval, pendingApprovals, approvalSummary } from './tracker/approvals.js';
+export { registerProject, readRegistry, knownProjectRoots } from './core/tracker/registry.js';
+export { readApprovals, appendApproval, resolveApproval, pendingApprovals, approvalSummary } from './core/tracker/approvals.js';
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 export { autoLaunchBusinessHub } from './hooks/auto-launch.js';

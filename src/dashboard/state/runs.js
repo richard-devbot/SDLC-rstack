@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { CANONICAL_SDLC_STAGES } from '../../harness/stages.js';
+import { CANONICAL_SDLC_STAGES } from '../../core/harness/stages.js';
 import { readJson, readJsonlSync } from './files.js';
 
 // owner: RStack developed by Richardson Gunde

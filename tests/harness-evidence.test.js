@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendEvidenceEvent, readEvidenceEvents, validateEvidenceEvent } from '../src/harness/evidence.js';
+import { appendEvidenceEvent, readEvidenceEvents, validateEvidenceEvent } from '../src/core/harness/evidence.js';
 
 test('evidence events require task_id, kind, status, and evidence', () => {
   const valid = validateEvidenceEvent({

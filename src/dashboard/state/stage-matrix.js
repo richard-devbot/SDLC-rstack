@@ -1,4 +1,4 @@
-import { CANONICAL_SDLC_STAGES } from '../../harness/stages.js';
+import { CANONICAL_SDLC_STAGES } from '../../core/harness/stages.js';
 
 // owner: RStack developed by Richardson Gunde
 
