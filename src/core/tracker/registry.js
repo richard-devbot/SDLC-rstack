@@ -9,26 +9,32 @@ import { homedir } from 'node:os';
 // Stored at ~/.rstack/known-projects.json so the Business Hub can aggregate
 // runs from all projects, not just the one it was started from.
 
-const REGISTRY_DIR  = join(homedir(), '.rstack');
-const REGISTRY_FILE = join(REGISTRY_DIR, 'known-projects.json');
+// RSTACK_REGISTRY_DIR override keeps tests/CI hermetic. Resolved lazily so a
+// test can set the env var after import.
+function registryDir() {
+  return process.env.RSTACK_REGISTRY_DIR || join(homedir(), '.rstack');
+}
+function registryFile() {
+  return join(registryDir(), 'known-projects.json');
+}
 const MAX_PROJECTS  = 50;
 
 export async function registerProject(projectRoot) {
   const abs = resolve(projectRoot);
-  await mkdir(REGISTRY_DIR, { recursive: true });
+  await mkdir(registryDir(), { recursive: true });
 
   let list = await readRegistry();
   if (!list.includes(abs)) {
     list = [abs, ...list.filter(p => p !== abs)].slice(0, MAX_PROJECTS);
-    await writeFile(REGISTRY_FILE, JSON.stringify(list, null, 2));
+    await writeFile(registryFile(), JSON.stringify(list, null, 2));
   }
   return abs;
 }
 
 export async function readRegistry() {
-  if (!existsSync(REGISTRY_FILE)) return [];
+  if (!existsSync(registryFile())) return [];
   try {
-    const raw = JSON.parse(await readFile(REGISTRY_FILE, 'utf8'));
+    const raw = JSON.parse(await readFile(registryFile(), 'utf8'));
     return Array.isArray(raw) ? raw.filter(p => typeof p === 'string') : [];
   } catch { return []; }
 }
