@@ -16,6 +16,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { registerProject } from '../core/tracker/registry.js';
+import { budgetPolicyForProfile, profileConfig } from '../core/profiles.js';
 
 export const FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'custom']);
 
@@ -63,15 +64,28 @@ const ENV_HINTS = [
   'RSTACK_ESCALATED_MODEL — model used when a task needs attempt >= 2',
 ];
 
-export async function initFramework(projectRoot, framework, { packageRoot } = {}) {
+export async function initFramework(projectRoot, framework, { packageRoot, profile = 'business-flex' } = {}) {
   const root = resolve(projectRoot);
   const fw = framework ?? await detectFramework(root);
   if (!FRAMEWORKS.includes(fw)) {
     throw new Error(`Unknown framework "${fw}". Expected one of: ${FRAMEWORKS.join(', ')}`);
   }
 
-  const report = { framework: fw, projectRoot: root, created: [], skipped: [], nextSteps: [] };
+  const activeProfile = profileConfig(profile);
+  const report = { framework: fw, profile: activeProfile.profile, projectRoot: root, created: [], skipped: [], nextSteps: [] };
   await ensureStateDir(root, report);
+  await writeIfMissing(
+    join(root, '.rstack', 'rstack.config.json'),
+    JSON.stringify(activeProfile, null, 2) + '\n',
+    `.rstack/rstack.config.json (${activeProfile.profile} profile)`,
+    report,
+  );
+  await writeIfMissing(
+    join(root, '.rstack', 'budget.json'),
+    JSON.stringify(budgetPolicyForProfile(activeProfile.profile), null, 2) + '\n',
+    `.rstack/budget.json (${activeProfile.profile} budget policy)`,
+    report,
+  );
   await registerProject(root);
   report.created.push('project registered for Business Hub multi-project observation');
 
@@ -140,7 +154,13 @@ export async function initFramework(projectRoot, framework, { packageRoot } = {}
     );
   }
 
-  report.nextSteps.push('Optional environment configuration:', ...ENV_HINTS.map((hint) => `  ${hint}`));
+  report.nextSteps.push(
+    `Active RStack profile: ${activeProfile.profile} (${activeProfile.name})`,
+    'Adjust the profile any time in .rstack/rstack.config.json to enable only the business teams, plugins, and dashboard pages this project needs.',
+    'Adjust budget controls in .rstack/budget.json before high-cost agent runs.',
+    'Optional environment configuration:',
+    ...ENV_HINTS.map((hint) => `  ${hint}`),
+  );
   return report;
 }
 

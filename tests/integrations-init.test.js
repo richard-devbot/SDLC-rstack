@@ -63,6 +63,14 @@ test('init framework detection and setup', async (t) => {
     const first = await initFramework(root, 'claude-code');
     assert.equal(first.framework, 'claude-code');
     assert.ok(existsSync(join(root, '.rstack', 'runs')), '.rstack/runs created');
+    assert.ok(existsSync(join(root, '.rstack', 'rstack.config.json')), 'business profile config created');
+    assert.ok(existsSync(join(root, '.rstack', 'budget.json')), 'budget policy created');
+    const profile = JSON.parse(readFileSync(join(root, '.rstack', 'rstack.config.json'), 'utf8'));
+    const budget = JSON.parse(readFileSync(join(root, '.rstack', 'budget.json'), 'utf8'));
+    assert.equal(profile.profile, 'business-flex');
+    assert.ok(profile.enabled_domains.includes('backend'));
+    assert.equal(budget.currency, 'USD');
+    assert.ok(budget.run_budget_usd > 0);
     assert.ok(existsSync(join(root, '.claude', 'rstack-sdlc.md')), 'usage doc created');
     assert.ok(first.created.some((item) => item.includes('.rstack/')));
     assert.ok(first.nextSteps.length > 0);
@@ -74,6 +82,8 @@ test('init framework detection and setup', async (t) => {
     const doc = readFileSync(join(root, '.claude', 'rstack-sdlc.md'), 'utf8');
     const second = await initFramework(root, 'claude-code');
     assert.ok(second.skipped.some((item) => item.includes('.rstack/')));
+    assert.ok(second.skipped.some((item) => item.includes('rstack.config.json')));
+    assert.ok(second.skipped.some((item) => item.includes('budget.json')));
     assert.ok(second.skipped.some((item) => item.includes('rstack-sdlc.md')));
     assert.equal(readFileSync(join(root, '.claude', 'rstack-sdlc.md'), 'utf8'), doc, 'existing file untouched');
     rmSync(root, { recursive: true, force: true });

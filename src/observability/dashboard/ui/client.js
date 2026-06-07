@@ -134,6 +134,7 @@ var WORKFLOW_STAGE_META = {
 
 var PAGE_LABELS = {
   command: 'Command Center',
+  'business-flex': 'Business Flex',
   workflow: 'Workflow Map',
   projects: 'Projects & Runs',
   'agent-work': 'Agent Work',
@@ -147,6 +148,7 @@ var PAGE_LABELS = {
 
 var PAGE_SUBS = {
   command: 'Operational overview across every known .rstack project, run, agent action, approval and alert.',
+  'business-flex': 'Profiles, budget guardrails, selected teams, and routing proof for business-team SDLC flexibility.',
   workflow: 'The canonical SDLC flow, grouped by stage with pass, fail, active and ready counts from real run tasks.',
   projects: 'All registered project roots and their run sessions, costs, task status and activity timeline.',
   'run-analytics': 'Wall-clock run timelines, per-stage durations and run-over-run delivery trends derived from events.jsonl.',
@@ -185,6 +187,7 @@ function applyState(state) {
   var scoped = applyScope(state);
   try { renderFrame(state); } catch (err) { showErr('frame: ' + err.message); }
   try { renderCommand(scoped); } catch (err) { showErr('command: ' + err.message); }
+  try { renderBusinessFlex(scoped); } catch (err) { showErr('business flex: ' + err.message); }
   try { renderStudio(scoped); } catch (err) { showErr('studio: ' + err.message); }
   try { renderWorkflow(scoped); } catch (err) { showErr('workflow: ' + err.message); }
   try { renderProjects(scoped); } catch (err) { showErr('projects: ' + err.message); }
@@ -258,6 +261,7 @@ function applyScope(s) {
   copy.feed = (s.feed || []).filter(function(item) { return !item.runId || runIds[item.runId]; });
   copy.agentWork = (s.agentWork || []).filter(function(work) { return !work.runId || runIds[work.runId]; });
   copy.agentGroups = (s.agentGroups || []).filter(function(group) { return !group.runId || runIds[group.runId]; });
+  copy.businessFlex = null;
   copy.presence = (s.presence || []).filter(function(item) { return runIds[item.runId]; });
   copy.trends = s.trends ? {
     stages: s.trends.stages || {},
@@ -418,6 +422,77 @@ function renderCommand(s) {
   var feed = (s.feed || []).slice(0, 12);
   setText('command-feed-count', feed.length + ' events');
   setHTML('command-feed', feed.length ? feed.map(feedRowHtml).join('') : emptyHtml('No activity yet', 'Events appear as runs execute.'));
+}
+
+function renderBusinessFlex(s) {
+  var model = businessFlexModel(s);
+  var profiles = model.profiles;
+  var routing = model.routingSignals;
+  var budget = model.budget;
+  var domainCount = profiles.reduce(function(set, profile) {
+    (profile.enabledDomains || []).forEach(function(domain) { set[domain] = true; });
+    return set;
+  }, {});
+  var domainTotal = Object.keys(domainCount).length;
+  setText('business-flex-title', profiles.length ? profiles.length + ' active profile pack' + (profiles.length === 1 ? '' : 's') + ' powering business-team delivery' : 'No RStack profile data loaded yet');
+  setText('business-flex-subcopy', 'Profiles decide which teams, agents, plugins, budget guardrails, and dashboard pages are active for this project.');
+  setText('business-flex-status-chip', routing.length ? 'Routing visible' : profiles.length ? 'Profile ready' : 'Waiting for run');
+  setClass('business-flex-status-chip', 'command-status ' + (routing.length ? 'active' : profiles.length ? 'ok' : 'warn'));
+  setText('business-flex-profiles', profiles.length);
+  setText('business-flex-profiles-s', profiles.map(function(p) { return p.profile; }).join(', ') || 'run rstack-agents init --profile business-flex');
+  setText('business-flex-domains', domainTotal);
+  setText('business-flex-domains-s', 'across selected business teams');
+  setText('business-flex-budget', '$' + Number(budget.runBudgetTotal || 0).toFixed(2));
+  setText('business-flex-budget-s', '$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + ' estimated task envelopes');
+  setText('business-flex-routing', routing.length);
+  setText('business-flex-routing-s', (budget.tasksWithBudget || 0) + ' tasks include budget metadata');
+  setText('business-flex-profile-count', profiles.length + ' profiles');
+  setHTML('business-flex-profiles-list', profiles.map(businessProfileHtml).join('') || emptyHtml('No profile packs yet', 'Run rstack-agents init --profile business-flex, then start and plan a run.'));
+  setText('business-flex-budget-count', (budget.tasksWithBudget || 0) + ' task envelopes');
+  setHTML('business-flex-budget-list', businessBudgetHtml(model));
+  setText('business-flex-routing-count', routing.length + ' routed tasks');
+  setHTML('business-flex-routing-list', routing.slice(0, 24).map(businessRoutingHtml).join('') || emptyHtml('No routing proof yet', 'Task routing appears after sdlc_plan writes tasks.json.'));
+}
+
+function businessFlexModel(s) {
+  if (s.businessFlex && ((s.businessFlex.profiles || []).length || (s.businessFlex.routingSignals || []).length)) return s.businessFlex;
+  var profiles = {};
+  var routingSignals = [];
+  var budget = { runBudgetTotal: 0, estimatedTaskBudget: 0, tasksWithBudget: 0 };
+  (s.runs || []).forEach(function(run) {
+    var profile = run.profile || {};
+    var id = profile.profile || (run.manifest && run.manifest.profile) || 'unprofiled';
+    if (!profiles[id]) profiles[id] = { profile: id, name: profile.name || id, workflow: run.workflow || profile.workflow || '', runs: 0, enabledDomains: [], enabledAgents: [], enabledPlugins: [], dashboardPages: [] };
+    profiles[id].runs += 1;
+    ['enabledDomains', 'enabledAgents', 'enabledPlugins', 'dashboardPages'].forEach(function(key) {
+      var sourceKey = key.replace(/[A-Z]/g, function(c) { return '_' + c.toLowerCase(); });
+      (profile[sourceKey] || profile[key] || []).forEach(function(value) {
+        if (profiles[id][key].indexOf(value) === -1) profiles[id][key].push(value);
+      });
+    });
+    budget.runBudgetTotal += Number((run.budgetPolicy && run.budgetPolicy.run_budget_usd) || 0);
+    (run.tasks || []).forEach(function(task) {
+      if (task.budget_envelope) {
+        budget.tasksWithBudget += 1;
+        budget.estimatedTaskBudget += Number(task.budget_envelope.estimated_ai_cost_usd || 0);
+      }
+      if (task.routing) routingSignals.push({ runId: run.runId, projectRoot: run.projectRoot, taskId: task.id, title: task.title, profile: task.profile || id, selectedBy: task.routing.selected_by, explanation: task.routing.explanation || [], specialists: task.specialists || [], budget: task.budget_envelope || null });
+    });
+  });
+  return { profiles: Object.keys(profiles).map(function(k) { return profiles[k]; }), budget: budget, routingSignals: routingSignals };
+}
+
+function businessProfileHtml(profile) {
+  return '<div class="project-card"><div class="agent-head"><div><div class="strong">' + esc(profile.name || profile.profile) + '</div><div class="muted mono">' + esc(profile.profile) + ' / ' + esc(profile.workflow || '') + ' / ' + esc(profile.runs || 0) + ' runs</div></div>' + pill('active', 'profile') + '</div><div class="chips">' + (profile.enabledDomains || []).slice(0, 8).map(chip).join('') + '</div><div class="muted">Agents: ' + esc((profile.enabledAgents || []).slice(0, 5).join(', ') || '-') + '</div><div class="muted">Plugins: ' + esc((profile.enabledPlugins || []).slice(0, 5).join(', ') || '-') + '</div></div>';
+}
+
+function businessBudgetHtml(model) {
+  var budget = model.budget || {};
+  return '<div class="metric-row">' + pill('warn', '$' + Number(budget.runBudgetTotal || 0).toFixed(2) + ' run budget') + pill('pass', '$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + ' task estimate') + pill('info', (budget.tasksWithBudget || 0) + ' budgeted tasks') + '</div><div class="muted" style="margin-top:12px">Budget policy is loaded from .rstack/budget.json and copied into plan/task metadata before delegated work starts.</div>';
+}
+
+function businessRoutingHtml(item) {
+  return '<div class="agent-item"><div class="agent-head"><div><div class="strong">' + esc(item.title || item.taskId) + '</div><div class="muted mono">' + esc(item.profile || '') + ' / ' + esc(item.taskId || '') + ' / ' + esc(shortName(item.projectRoot)) + '</div></div>' + pill('active', item.selectedBy || 'routed') + '</div><div class="chips">' + (item.explanation || []).slice(0, 6).map(chip).join('') + '</div><div class="muted">Specialists: ' + esc((item.specialists || []).slice(0, 6).join(', ') || '-') + '</div>' + (item.budget ? '<div class="muted">Budget envelope: ' + esc(item.budget.currency || 'USD') + ' ' + esc(item.budget.estimated_ai_cost_usd || 0) + '</div>' : '') + '</div>';
 }
 
 function commandSummaryTitle(s, attentionItems, counts) {

@@ -2,6 +2,7 @@
 
 export const pages = [
   ['command', '00', 'Command Center', 'Observe'],
+  ['business-flex', '15', 'Business Flex', 'Observe'],
   ['studio', '12', 'Studio', 'Observe'],
   ['workflow', '01', 'Workflow Map', 'Observe'],
   ['projects', '02', 'Projects & Runs', 'Observe'],
@@ -93,6 +94,27 @@ function pageBody(id) {
         <div class="panel-head"><span class="panel-title">Recent Live Activity</span><span class="panel-note" id="command-feed-count"></span></div>
         <div class="panel-body"><div class="feed-list command-feed-list" id="command-feed"></div></div>
       </div>
+    `,
+    'business-flex': `
+      <div class="command-brief">
+        <div>
+          <div class="command-kicker">Business-team flexibility</div>
+          <h2 id="business-flex-title">Loading profiles, budget, and routing...</h2>
+          <p id="business-flex-subcopy">This page reads real .rstack profile, budget, task routing, and run metadata.</p>
+        </div>
+        <div class="command-status" id="business-flex-status-chip">Loading</div>
+      </div>
+      <div class="kpi-grid command-kpi-grid">
+        <div class="kpi blue"><div class="kpi-v" id="business-flex-profiles">-</div><div class="kpi-l">Active Profiles</div><div class="kpi-s" id="business-flex-profiles-s"></div></div>
+        <div class="kpi green"><div class="kpi-v" id="business-flex-domains">-</div><div class="kpi-l">Enabled Domains</div><div class="kpi-s" id="business-flex-domains-s"></div></div>
+        <div class="kpi amber"><div class="kpi-v" id="business-flex-budget">-</div><div class="kpi-l">Run Budget</div><div class="kpi-s" id="business-flex-budget-s"></div></div>
+        <div class="kpi blue"><div class="kpi-v" id="business-flex-routing">-</div><div class="kpi-l">Routed Tasks</div><div class="kpi-s" id="business-flex-routing-s"></div></div>
+      </div>
+      <div class="grid-2">
+        <div class="panel"><div class="panel-head"><span class="panel-title">Profile Packs</span><span class="panel-note" id="business-flex-profile-count"></span></div><div class="panel-body"><div class="stack-list" id="business-flex-profiles-list"></div></div></div>
+        <div class="panel"><div class="panel-head"><span class="panel-title">Budget Guardrails</span><span class="panel-note" id="business-flex-budget-count"></span></div><div class="panel-body" id="business-flex-budget-list"></div></div>
+      </div>
+      <div class="panel"><div class="panel-head"><span class="panel-title">Agent Routing Proof</span><span class="panel-note" id="business-flex-routing-count"></span></div><div class="panel-body"><div class="stack-list" id="business-flex-routing-list"></div></div></div>
     `,
     studio: `
       <div class="studio-orchestrator panel">

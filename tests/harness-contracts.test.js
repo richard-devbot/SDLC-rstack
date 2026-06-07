@@ -53,6 +53,27 @@ test('builder contract validates task id, status, and array fields', () => {
   assert.ok(result.issues.some((issue) => issue.name === 'builder_files_modified_is_array'));
 });
 
+test('builder contract accepts optional Contract v2 execution telemetry', () => {
+  const result = validateBuilderContract({
+    task_id: '004-implementation',
+    agent: 'builder',
+    status: 'PASS',
+    summary: 'Implemented with telemetry.',
+    files_modified: ['src/app.js'],
+    tests_run: ['npm test'],
+    risks: [],
+    next_steps: [],
+    execution: { tools_used: ['read_file', 'patch'], events: [{ type: 'tool_call' }] },
+    cost: { currency: 'USD', estimated_usd: 1.5, actual_usd: 1.25 },
+    context: { profile: 'business-flex', injected_sources: ['requirements'] },
+    routing: { selected_by: 'profile-domain-stage-affinity', explanation: ['profile:business-flex'] },
+  }, '004-implementation');
+
+  assert.equal(result.ok, true);
+  assert.ok(result.checks.some((check) => check.name === 'builder_v2_execution_tools_used_is_array'));
+  assert.ok(result.checks.some((check) => check.name === 'builder_v2_cost_values_are_numeric'));
+});
+
 test('validator contract requires all Harness fields', () => {
   const valid = {
     task_id: '004-implementation',

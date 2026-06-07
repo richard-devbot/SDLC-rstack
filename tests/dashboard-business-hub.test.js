@@ -26,7 +26,17 @@ test('Business Hub turns blocked gates into actionable pending approvals', async
     });
     await writeJson(join(runDir, 'metrics.json'), { cumulative_cost_usd: 0.25 });
     await writeJson(join(runDir, 'tasks.json'), {
-      tasks: [{ id: '02-requirements', title: 'Requirements', status: 'PASS' }],
+      profile: 'business-flex',
+      workflow: 'production-business-sdlc',
+      budget_policy: { currency: 'USD', run_budget_usd: 10 },
+      tasks: [{
+        id: '02-requirements',
+        title: 'Requirements',
+        status: 'PASS',
+        profile: 'business-flex',
+        routing: { selected_by: 'profile-domain-stage-affinity', explanation: ['profile:business-flex'] },
+        budget_envelope: { currency: 'USD', estimated_ai_cost_usd: 1 },
+      }],
     });
     await writeJson(join(runDir, 'tasks', '02-requirements', 'builder.json'), {
       agent: 'agent.requirements',
@@ -90,6 +100,9 @@ test('Business Hub turns blocked gates into actionable pending approvals', async
       state.blockedGates.some((event) => event.taskId === '09-deployment'),
       'blocked gates should move to guardrail/history data',
     );
+    assert.equal(state.businessFlex.profiles[0].profile, 'business-flex');
+    assert.equal(state.businessFlex.budget.runBudgetTotal, 10);
+    assert.ok(state.businessFlex.routingSignals.some((signal) => signal.taskId === '02-requirements'));
   } finally {
     rmSync(projectRoot, { recursive: true, force: true });
   }
@@ -147,6 +160,7 @@ test('Business Hub exposes the planned production observability screens', () => 
   const html = dashboardHtml(3008);
   const expectedPages = [
     'command',
+    'business-flex',
     'workflow',
     'projects',
     'agent-work',
@@ -162,6 +176,26 @@ test('Business Hub exposes the planned production observability screens', () => 
     assert.match(html, new RegExp(`data-page="${page}"`));
     assert.match(html, new RegExp(`id="page-${page}"`));
   }
+});
+
+test('Business Flex page exposes profile, budget, and routing sections', () => {
+  const html = dashboardHtml(3008);
+  const expectedSections = [
+    'business-flex-title',
+    'business-flex-profiles',
+    'business-flex-domains',
+    'business-flex-budget',
+    'business-flex-routing',
+    'business-flex-profiles-list',
+    'business-flex-budget-list',
+    'business-flex-routing-list',
+  ];
+
+  for (const section of expectedSections) {
+    assert.match(html, new RegExp(`id="${section}"`));
+  }
+  assert.match(html, /function renderBusinessFlex\(s\)/);
+  assert.match(html, /function businessRoutingHtml\(item\)/);
 });
 
 test('Command Center exposes manager sections for real .rstack data', () => {

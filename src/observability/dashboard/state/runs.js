@@ -132,7 +132,7 @@ export async function getRunsForRoot(projectRoot) {
     const runDir = join(runsDir, runId);
     const stagesDir = join(runDir, 'artifacts', 'stages');
 
-    const [manifest, metrics, tasksRaw, contextText, planText, requirements, runApprovals] = await Promise.all([
+    const [manifest, metrics, tasksRaw, contextText, planText, requirements, runApprovals, projectProfile, budgetPolicy] = await Promise.all([
       readJson(join(runDir, 'manifest.json'), {}),
       readJson(join(runDir, 'metrics.json'), {}),
       readJson(join(runDir, 'tasks.json'), null),
@@ -140,6 +140,8 @@ export async function getRunsForRoot(projectRoot) {
       readFile(join(runDir, 'plan.md'), 'utf8').catch(() => ''),
       readJson(join(stagesDir, '02-requirements', 'requirements.json'), null),
       readJson(join(runDir, 'approvals.json'), []),
+      readJson(join(projectRoot, '.rstack', 'rstack.config.json'), null),
+      readJson(join(projectRoot, '.rstack', 'budget.json'), null),
     ]);
 
     const rawTasks = Array.isArray(tasksRaw)
@@ -162,6 +164,9 @@ export async function getRunsForRoot(projectRoot) {
       runId,
       projectRoot,
       manifest,
+      profile: projectProfile || (manifest?.profile ? { profile: manifest.profile, workflow: manifest.workflow } : (tasksRaw?.profile ? { profile: tasksRaw.profile, workflow: tasksRaw.workflow } : null)),
+      workflow: manifest?.workflow || projectProfile?.workflow || tasksRaw?.workflow || null,
+      budgetPolicy: tasksRaw?.budget_policy || budgetPolicy || null,
       metrics,
       tasks,
       events,

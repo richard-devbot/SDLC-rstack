@@ -94,6 +94,7 @@ program
   .command('init')
   .description('Set up RStack SDLC in the current project for a host framework')
   .option('-f, --framework <framework>', `host framework: ${FRAMEWORKS.join(' | ')} (auto-detected if omitted)`)
+  .option('--profile <profile>', 'business workflow profile: business-flex | enterprise-webapp | lean-mvp', 'business-flex')
   .option('-p, --project <path>', 'project root (defaults to current directory)')
   .action(async (opts) => {
     try {
@@ -102,8 +103,9 @@ program
       if (!opts.framework) {
         console.log(chalk.dim(`[rstack] No --framework given — detected: ${framework}`));
       }
-      const report = await initFramework(projectRoot, framework, { packageRoot: resolve(__dirname, '..') });
+      const report = await initFramework(projectRoot, framework, { packageRoot: resolve(__dirname, '..'), profile: opts.profile });
       console.log(chalk.bold(`\n[rstack] init complete — framework: ${report.framework}`));
+      console.log(chalk.dim(`[rstack] active profile: ${report.profile}`));
       for (const item of report.created) console.log(chalk.green(`  + ${item}`));
       for (const item of report.skipped) console.log(chalk.dim(`  = ${item}`));
       console.log(chalk.bold('\nNext steps:'));
