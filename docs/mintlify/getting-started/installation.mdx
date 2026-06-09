@@ -15,12 +15,13 @@ RStack can be installed in any AI coding environment.
 ```bash
 cd your-project
 npm install rstack-agents
-npx rstack-agents init        # auto-detects pi | claude-code | operator | custom
+npx rstack-agents init --profile business-flex        # auto-detects pi | claude-code | operator | custom
 ```
 
-`init` sets up `.rstack/`, registers the project with the Business Hub, writes
-the framework-specific glue, and prints next steps — idempotent and
-non-destructive. New to your AI framework itself? See
+`init` sets up `.rstack/`, writes the active business profile and budget policy,
+registers the project with the Business Hub, writes the framework-specific glue,
+and prints next steps — idempotent and non-destructive. New to your AI framework
+itself? See
 [Install your framework](/getting-started/install-your-framework) for the
 per-tool setup, then run the command above.
 
@@ -29,6 +30,18 @@ per-tool setup, then run the command above.
   for frameworks without a native adapter (Codex, Gemini, universal) or if you
   prefer wiring assets yourself.
 </Tip>
+
+## Business profiles
+
+Choose the active project shape during init:
+
+```bash
+npx rstack-agents init --profile business-flex
+npx rstack-agents init --profile lean-mvp
+npx rstack-agents init --profile enterprise-webapp
+```
+
+Profiles write `.rstack/rstack.config.json` and `.rstack/budget.json`. They guide enabled domains, plugin priority, dashboard pages, routing explanations, and budget envelopes. See [Business Flex Profiles](/getting-started/business-flex-profiles).
 
 ## Pi — Native adapter (full-featured)
 

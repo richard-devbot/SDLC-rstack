@@ -13,18 +13,21 @@ the same for everyone:
     npm install rstack-agents
     ```
   </Step>
-  <Step title="Set it up for your framework">
+  <Step title="Set it up for your framework and business profile">
     ```bash
-    npx rstack-agents init
+    npx rstack-agents init --profile business-flex
     ```
     `init` auto-detects your framework (Pi, Claude Code, Operator, or custom),
-    creates the `.rstack/` state directory, registers the project with the
-    Business Hub, writes any framework-specific glue, and prints your next
-    steps. Running it twice is safe — it never overwrites your files.
+    creates the `.rstack/` state directory, writes `.rstack/rstack.config.json`
+    and `.rstack/budget.json`, registers the project with the Business Hub,
+    writes framework-specific glue, and prints your next steps. Running it twice
+    is safe — it never overwrites your files.
 
-    Force a specific framework with `--framework`:
+    Force a specific framework or profile:
     ```bash
-    npx rstack-agents init --framework pi          # pi | claude-code | operator | custom
+    npx rstack-agents init --framework pi --profile business-flex
+    npx rstack-agents init --profile lean-mvp
+    npx rstack-agents init --profile enterprise-webapp
     ```
   </Step>
   <Step title="Start a governed run from your agent session">
@@ -67,8 +70,10 @@ the same for everyone:
 your-project/
 ├── .rstack/
 │   ├── runs/                 # every governed run lands here
-│   ├── registry/             # agent / skill / plugin catalog
-│   └── policy.json           # (optional) approval policy you control
+│   ├── rstack.config.json     # active profile, enabled domains/plugins, pages
+│   ├── budget.json            # run budget, thresholds, stage budget envelopes
+│   ├── registry/              # agent / skill / plugin catalog
+│   └── policy.json            # (optional) approval policy you control
 └── .claude/rstack-sdlc.md    # (claude-code only) usage guide + session hook
 ```
 
@@ -85,7 +90,13 @@ Every run is inspectable, resumable, and auditable. See
     Clarify → plan → approve → build → validate, explained.
   </Card>
   <Card title="The Business Hub" icon="chart-line" href="/reference/business-hub">
-    The live dashboard, Studio 3D, and team views.
+    The live dashboard, Studio 3D, Business Flex, and team views.
+  </Card>
+  <Card title="Business Flex profiles" icon="sliders" href="/getting-started/business-flex-profiles">
+    Select only the teams, plugins, budget guardrails, and dashboard pages a request needs.
+  </Card>
+  <Card title="Builder & validator sandbox" icon="shield-halved" href="/getting-started/builder-validator-sandbox">
+    Scoped builder packets, read-only validator packets, and Contract v2 telemetry.
   </Card>
   <Card title="Notifications" icon="bell" href="/reference/webhooks">
     Slack, Teams, Discord, Telegram, WhatsApp.

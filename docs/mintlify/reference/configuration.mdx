@@ -16,6 +16,23 @@ description: "Environment variables, project overrides, and registry configurati
 | `RSTACK_DEFAULT_MODEL` | — | Model for delegated builder agents |
 | `RSTACK_ESCALATED_MODEL` | — | Model used when a task reaches attempt ≥ 2 |
 
+### Business Flex profile files
+
+These are project files, not environment variables:
+
+| File | Description |
+|---|---|
+| `.rstack/rstack.config.json` | Active profile, workflow, enabled domains, enabled agents/plugins, dashboard pages |
+| `.rstack/budget.json` | Currency, run/daily/monthly budget, warning/block thresholds, approval threshold, stage budgets |
+
+Create them with:
+
+```bash
+npx rstack-agents init --profile business-flex
+```
+
+See [Business Flex Profiles](/getting-started/business-flex-profiles) for profile examples.
+
 ### Identity & people
 
 | Variable | Default | Description |
@@ -66,6 +83,8 @@ your-project/
       skills.json
       plugins.json
       routing.json
+    rstack.config.json          ← Active Business Flex profile
+    budget.json                 ← Budget policy and stage budgets
     runs/
       <run_id>/               ← One directory per run
         manifest.json

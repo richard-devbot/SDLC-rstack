@@ -85,6 +85,37 @@ export function validateBuilderContract(builder, expectedTaskId) {
     }
   }
 
+  for (const field of ['execution', 'cost', 'context', 'routing']) {
+    if (builder && hasOwn(builder, field)) {
+      const isObject = builder[field] && typeof builder[field] === 'object' && !Array.isArray(builder[field]);
+      checks.push({
+        name: `builder_v2_${field}_is_object`,
+        status: isObject ? 'PASS' : 'FAIL',
+        evidence: isObject ? 'structured telemetry present' : 'not an object',
+      });
+    }
+  }
+
+  if (builder?.execution?.tools_used) {
+    const isArray = Array.isArray(builder.execution.tools_used);
+    checks.push({
+      name: 'builder_v2_execution_tools_used_is_array',
+      status: isArray ? 'PASS' : 'FAIL',
+      evidence: isArray ? `${builder.execution.tools_used.length} tool(s)` : 'not an array',
+    });
+  }
+
+  if (builder?.cost?.estimated_usd != null || builder?.cost?.actual_usd != null) {
+    const numeric = ['estimated_usd', 'actual_usd']
+      .filter((field) => builder.cost[field] != null)
+      .every((field) => Number.isFinite(Number(builder.cost[field])));
+    checks.push({
+      name: 'builder_v2_cost_values_are_numeric',
+      status: numeric ? 'PASS' : 'FAIL',
+      evidence: numeric ? 'numeric cost telemetry' : 'non-numeric cost telemetry',
+    });
+  }
+
   if (builder && ['BLOCKED', 'FAIL'].includes(builder.status)) {
     checks.push({
       name: 'builder_reported_not_pass',

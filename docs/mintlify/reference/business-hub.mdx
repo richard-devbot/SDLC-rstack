@@ -37,6 +37,10 @@ rstack-business --port 3008 --project .
     state. The 3D scene (`/studio3d`) lets you click any agent to see what it
     worked on, what it shipped, and why it's waiting.
   </Card>
+  <Card title="Business Flex" icon="sliders">
+    Active profile packs, enabled domains, budget guardrails, routed tasks,
+    selected specialists, and routing proof from real `.rstack` task metadata.
+  </Card>
   <Card title="Run Analytics" icon="chart-gantt">
     Wall-clock Gantt per run, average stage durations, and run-over-run trends.
   </Card>
@@ -81,8 +85,9 @@ all your projects. Many people can point the same hub (or the same Slack bot)
 at it.
 
 <Note>
-  **Honest limitation:** LLM token usage and real cost are not captured — the
-  host framework executes the model calls, so the harness never sees usage.
-  Cost shows `$0` unless a builder reports it in its contract. Host-side usage
-  instrumentation is on the roadmap.
+  **Cost status:** RStack now creates profile-level budget policies and
+  task-level budget envelopes before delegated work starts. Real token/model
+  usage is still host-dependent: if the host framework does not report usage,
+  `actual_usd` remains builder-reported or zero. See
+  [AI SDLC Trends & Loopholes](/reference/loopholes-roadmap).
 </Note>

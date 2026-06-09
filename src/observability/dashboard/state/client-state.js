@@ -6,6 +6,9 @@ export function toClientState(state) {
     const { events, evidence, ...rest } = run;
     return {
       ...rest,
+      workflow: run.workflow,
+      budgetPolicy: run.budgetPolicy,
+      profile: run.profile,
       evidenceCount: (evidence ?? []).length,
       evidenceRecent: (evidence ?? []).slice(-30).reverse().map((entry) => ({
         ts: entry.ts, task_id: entry.task_id, kind: entry.kind, status: entry.status, evidence: entry.evidence,
@@ -38,6 +41,8 @@ export function toClientState(state) {
         description: task.description?.slice(0, 300) ?? '',
         stageId: task.stageId ?? task.stage_id ?? null,
         stage_artifacts: task.stage_artifacts,
+        routing: task.routing,
+        budget_envelope: task.budget_envelope,
         agent_name: task.agent_name,
         risk_count: task.risk_count,
         evidence_count: task.evidence_count,
@@ -101,5 +106,6 @@ export function toClientState(state) {
       : { stages: {}, runs: [] },
     people: (state.people ?? []).slice(0, 60),
     presence: (state.presence ?? []).slice(0, 40),
+    businessFlex: state.businessFlex ?? { profiles: [], budget: {}, routingSignals: [] },
   };
 }

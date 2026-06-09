@@ -7,7 +7,7 @@
  * scripts, and muscle memory land on the single supported dashboard.
  */
 
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,7 +23,7 @@ for (let i = 0; i < process.argv.length; i++) {
 
 process.stderr.write('[rstack] rstack-observer now opens the unified Business Hub. Use rstack-business for new scripts.\n');
 
-import(serverPath).catch((err) => {
+import(pathToFileURL(serverPath).href).catch((err) => {
   console.error(`[rstack-observer] Failed to start unified dashboard: ${err.message}`);
   console.error(err);
   process.exit(1);

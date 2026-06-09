@@ -1,0 +1,135 @@
+---
+title: "Business Flex Profiles"
+description: "Install only the RStack teams, plugins, policies, and dashboard views a business team needs."
+---
+
+RStack is an npm package that can sit on top of Pi, Claude Code, Operator, Codex-style CLIs, Gemini-style CLIs, or a custom harness. **Business Flex profiles** make that package feel tailored instead of dumping the whole catalog on every project.
+
+A profile answers four questions before agents run:
+
+1. Which business workflow is this project using?
+2. Which agent domains are enabled?
+3. Which plugins and specialists should be considered first?
+4. What budget guardrails should planning use?
+
+## Quick setup
+
+```bash
+cd your-project
+npm install rstack-agents
+npx rstack-agents init --profile business-flex
+```
+
+`init` writes these project-local files without overwriting existing files:
+
+```text
+.rstack/
+  rstack.config.json   # profile, enabled domains, enabled agents/plugins, dashboard pages
+  budget.json          # run/daily/monthly budget, warning/block thresholds, stage budgets
+  runs/                # generated SDLC run state
+```
+
+<Info>
+  The default profile is `business-flex`, so `npx rstack-agents init` is enough for most business teams.
+</Info>
+
+## Built-in profiles
+
+| Profile | Best for | What it enables |
+|---|---|---|
+| `business-flex` | Client-facing SDLC with product, engineering, QA, security, compliance, docs, and delivery visibility | Product, docs, backend, frontend, QA, security, devops, SDLC domains; Business Flex dashboard page; governed budget policy |
+| `enterprise-webapp` | Enterprise web application delivery | Backend/frontend/QA/security/devops/docs with stronger governance and larger budget defaults |
+| `lean-mvp` | MVPs and prototypes | Product, full-stack, QA, docs with smaller default budgets and fewer selected teams |
+
+Examples:
+
+```bash
+npx rstack-agents init --profile enterprise-webapp
+npx rstack-agents init --profile lean-mvp
+```
+
+## What the profile changes in real runs
+
+When `sdlc_start` and `sdlc_plan` run, RStack reads `.rstack/rstack.config.json` and `.rstack/budget.json`.
+
+The run then records:
+
+- `manifest.profile`
+- `manifest.workflow`
+- budget policy events
+- task-level `profile`
+- task-level `workflow`
+- task-level `routing.explanation`
+- task-level `budget_envelope`
+
+A planned task includes routing proof like this:
+
+```json
+{
+  "profile": "business-flex",
+  "workflow": "production-business-sdlc",
+  "routing": {
+    "selected_by": "profile-domain-stage-affinity",
+    "explanation": [
+      "profile:business-flex",
+      "workflow:production-business-sdlc",
+      "stage-domains:product,docs",
+      "enabled-domains:product,docs,backend,frontend,qa,security,devops,sdlc",
+      "pipeline-agents:2",
+      "routed-specialists:5"
+    ]
+  },
+  "budget_envelope": {
+    "currency": "USD",
+    "estimated_ai_cost_usd": 1,
+    "approval_required_above_usd": 25
+  }
+}
+```
+
+## Edit the profile safely
+
+You can narrow the active teams any time:
+
+```json
+{
+  "profile": "business-flex",
+  "enabled_domains": ["product", "backend", "qa", "security"],
+  "enabled_plugins": [
+    "business-analytics",
+    "backend-development",
+    "unit-testing",
+    "security-scanning"
+  ],
+  "dashboard_pages": ["command", "business-flex", "workflow", "agent-work", "approvals"]
+}
+```
+
+Then validate the catalog:
+
+```bash
+npx rstack-agents validate
+```
+
+## Business Hub visibility
+
+Open the Business Hub:
+
+```bash
+npx rstack-agents hub
+```
+
+The **Business Flex** page shows real `.rstack` data:
+
+- active profile packs
+- enabled domains
+- run budget totals
+- task budget envelopes
+- agent routing proof
+- selected specialists
+
+Nothing is fake/demo state. If a panel is empty, the run has not written that profile/routing/budget data yet.
+
+## Current limitation
+
+Profiles currently shape planning, routing metadata, budget policy, and dashboard visibility. They do **not yet physically prune npm package contents** during installation; the package still ships the complete catalog so offline/project-local routing works. The next product step is a registry/pack installer that can copy only selected packs into `.rstack/` for stricter enterprise footprints.

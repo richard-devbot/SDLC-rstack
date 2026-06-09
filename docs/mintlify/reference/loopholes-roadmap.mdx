@@ -1,0 +1,62 @@
+---
+title: "AI SDLC Trends & Loopholes"
+description: "What RStack adopts from current agentic SDLC practice, what remains intentionally limited, and what to build next."
+---
+
+This page is the product gap list for the business-flex version of RStack. It is based on the current codebase and recent AI-agent platform direction: multi-agent workflows, tool mediation, typed handoffs, traceability, evaluation, budget controls, and context protocols.
+
+## Patterns worth adopting
+
+| Trend | Why it matters | RStack implementation today |
+|---|---|---|
+| Multi-agent orchestration | Modern AI coding work is shifting from one chatbot to routed specialist teams. | Orchestrator → builder → validator roles; 15 SDLC stages; specialists selected through registry/routing. |
+| Typed handoffs | Agents need structured output so later agents and dashboards do not guess. | `builder.json`, `validation.json`, task metadata, stage artifacts, evidence JSONL. |
+| Tool governance | Enterprise users need to know what tools are available and who can mutate state. | Builder and validator tool sets are separated; approvals block destructive/release work. |
+| Observability and traces | Managers need live proof, not summaries. | Business Hub, Studio 3D, event stream, traceability, metrics, run reports. |
+| Context protocols | MCP/A2A-style ecosystems make external tools and context sources first-class. | RStack is not a full MCP/A2A server yet, but its `.rstack` filesystem contract is adapter-friendly. |
+| Budget-first requirements | Business teams want scope/cost decisions before a large agent team runs. | `.rstack/budget.json`, budget policy events, task-level budget envelopes. |
+| Evaluation loops | Agent output needs validation, regression checks, and retry decisions. | Read-only validators, validation contracts, retry recommendations, memory from validated episodes. |
+
+## Open-source learning notes
+
+RStack can learn from open-source agent frameworks without copying code blindly:
+
+- **OpenAI Agents SDK** emphasizes multi-agent workflows, tracing, handoffs, and model-provider flexibility.
+- **Model Context Protocol** emphasizes standardized context/tool interfaces and schema-first interoperability.
+- **Google ADK** emphasizes code-first agents, evaluation, deployment, and control.
+- **AI SDLC reference architectures** emphasize governance, tool orchestration, observability, human gates, and enterprise policy.
+
+<Note>
+  Use those projects as design references. Do not paste their code or prompts into RStack unless the license is compatible and attribution is preserved.
+</Note>
+
+## Current loopholes in the application
+
+| Gap | Impact | Current mitigation | Next implementation slice |
+|---|---|---|---|
+| Profiles do not physically prune npm contents | End users still download the complete catalog even if only one profile is active. | Profiles narrow domains, plugins, routing metadata, budget, and dashboard visibility. | Add a pack installer/registry that copies only selected packs into `.rstack/` and optionally disables package fallback. |
+| Actual token/cost capture depends on host framework | Budget envelopes are estimated unless the worker reports actual usage. | Contract v2 accepts `cost.actual_usd`; dashboard separates estimated and recorded values. | Add provider adapters for Pi/OpenAI/Anthropic/Gemini usage callbacks or host-side usage JSON ingestion. |
+| Validator read-only behavior depends on host tool enforcement | A host framework that ignores tool policy can let validators mutate state. | RStack prompts and default tool choices restrict validators. | Add validator sandbox runner that refuses write/edit/bash-mutating tools and records denied actions. |
+| Open-source agent import is not automated | Copying random GitHub agents can break contracts or licensing. | `rstack-agents validate` checks local definitions. | Add `rstack-agents import agent --license-check --contract-check` for safe adaptation. |
+| Dashboard cannot show missing data that agents never wrote | Empty Business Flex/Studio panels can look like product bugs. | Dashboard reads only real `.rstack` files. | Add diagnostics that explicitly say which contract/event is missing per panel. |
+| MCP/A2A compatibility is conceptual, not native | External tool ecosystems cannot call RStack as a formal protocol server yet. | Universal adapter and filesystem state contract. | Add MCP server exposing `sdlc_start`, `sdlc_plan`, `sdlc_status`, artifact read APIs, and approval APIs. |
+| Package version remains `1.8.0` on this branch | Users may not see this as a new business-flex release. | PR title and docs describe the slice. | Decide release number (`1.9.0` or `2.0.0`) and update changelog/package once accepted. |
+
+## Recommended next sprint
+
+1. **Pack installer** — `rstack-agents packs install backend-development unit-testing security-scanning`.
+2. **Usage ingestion** — allow host frameworks to write `.rstack/runs/<run-id>/usage.jsonl`.
+3. **Validator sandbox runner** — enforce read-only validator tools at the RStack bridge layer.
+4. **Dashboard diagnostics** — show missing contract/event reasons per Business Flex panel.
+5. **Safe OSS import** — license-aware agent/plugin adaptation workflow.
+6. **MCP adapter** — expose core SDLC tools through a standard context/tool protocol.
+
+## Decision rule for business users
+
+If the user says **"upgrade this application"**, do not enable the entire catalog. Start with:
+
+- `business-flex` for production/business work
+- `lean-mvp` for prototypes
+- `enterprise-webapp` for compliance-heavy web apps
+
+Then narrow `.rstack/rstack.config.json` to the smallest domains required by the request.

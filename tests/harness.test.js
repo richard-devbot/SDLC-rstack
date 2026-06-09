@@ -69,11 +69,18 @@ test('SDLC-rstack E2E Harness Simulation', async (t) => {
     assert.ok(existsSync(join(specsDir, 'architecture.md')), 'Architecture spec should exist');
     assert.equal(JSON.parse(readFileSync(join(specsDir, 'requirements.json'), 'utf8')).status, 'DRAFT');
 
-    const tasks = JSON.parse(readFileSync(join(projectRoot, '.rstack', 'runs', runId, 'tasks.json'), 'utf8')).tasks;
+    const tasksFile = JSON.parse(readFileSync(join(projectRoot, '.rstack', 'runs', runId, 'tasks.json'), 'utf8'));
+    assert.equal(tasksFile.profile, 'business-flex');
+    assert.equal(tasksFile.workflow, 'production-business-sdlc');
+    assert.ok(tasksFile.budget_policy.run_budget_usd > 0);
+    const tasks = tasksFile.tasks;
     const requirementsTask = tasks.find(t => t.id === '002-requirements');
     assert.ok(requirementsTask.pipeline_agents.includes('agent.02-requirements'), 'Requirements stage should route to sdlc/02-requirements');
     assert.ok(requirementsTask.pipeline_agents.includes('agent.04-planning'), 'Requirements stage should route to sdlc/04-planning');
     assert.ok(requirementsTask.stage_artifacts.some(a => a.stage_id === '02-requirements' && a.artifact_path.endsWith('/artifacts/stages/02-requirements/requirements.json')), 'Requirements task should expose canonical stage artifact path');
+    assert.equal(requirementsTask.profile, 'business-flex');
+    assert.ok(requirementsTask.routing.explanation.some(item => item.includes('profile:business-flex')));
+    assert.ok(requirementsTask.budget_envelope.estimated_ai_cost_usd > 0);
 
     const architectureTask = tasks.find(t => t.id === '003-architecture');
     assert.ok(architectureTask.stage_artifacts.some(a => a.stage_id === '06-architecture'), 'Architecture task should route canonical architecture stage output');

@@ -24,12 +24,13 @@ node bin/rstack-agents.js <command>
 Set up RStack in the current project. Idempotent — never overwrites your files.
 
 ```bash
-rstack-agents init                       # auto-detect the framework
+rstack-agents init                       # auto-detect the framework, default profile business-flex
 rstack-agents init --framework pi        # pi | claude-code | operator | custom
+rstack-agents init --profile lean-mvp    # business-flex | lean-mvp | enterprise-webapp
 rstack-agents init --project ./apps/web  # target a different directory
 ```
 
-Creates `.rstack/`, registers the project with the Business Hub, writes
+Creates `.rstack/`, `.rstack/rstack.config.json`, `.rstack/budget.json`, registers the project with the Business Hub, writes
 framework-specific glue, and prints next steps.
 
 ---

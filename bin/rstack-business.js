@@ -14,7 +14,7 @@
  */
 
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -64,7 +64,7 @@ if (args.includes('--version') || args.includes('-v')) {
 }
 
 const serverPath = path.resolve(__dirname, '../src/observability/dashboard/server.js');
-import(serverPath).catch((err) => {
+import(pathToFileURL(serverPath).href).catch((err) => {
   console.error(`[rstack-business] Failed to start: ${err.message}`);
   console.error(err);
   process.exit(1);
