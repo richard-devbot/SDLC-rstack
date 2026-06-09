@@ -53,6 +53,186 @@ test('builder contract validates task id, status, and array fields', () => {
   assert.ok(result.issues.some((issue) => issue.name === 'builder_files_modified_is_array'));
 });
 
+test('builder contract accepts optional Contract v2 execution telemetry', () => {
+  const result = validateBuilderContract({
+    task_id: '004-implementation',
+    agent: 'builder',
+    status: 'PASS',
+    summary: 'Implemented with telemetry.',
+    files_modified: ['src/app.js'],
+    tests_run: ['npm test'],
+    risks: [],
+    next_steps: [],
+    execution: { tools_used: ['read_file', 'patch'], events: [{ type: 'tool_call' }] },
+    cost: { currency: 'USD', estimated_usd: 1.5, actual_usd: 1.25 },
+    context: { profile: 'business-flex', injected_sources: ['requirements'] },
+    routing: { selected_by: 'profile-domain-stage-affinity', explanation: ['profile:business-flex'] },
+  }, '004-implementation');
+
+  assert.equal(result.ok, true);
+  assert.ok(result.checks.some((check) => check.name === 'builder_v2_execution_tools_used_is_array'));
+  assert.ok(result.checks.some((check) => check.name === 'builder_v2_cost_values_are_numeric'));
+});
+
+test('builder contract v2 fields fail when present as non-objects', () => {
+  // execution, cost, context, routing must be plain objects when present
+  const base = {
+    task_id: '004-implementation',
+    agent: 'builder',
+    status: 'PASS',
+    summary: 'Contract v2 non-object edge case.',
+    files_modified: [],
+    tests_run: [],
+    risks: [],
+    next_steps: [],
+  };
+
+  for (const field of ['execution', 'cost', 'context', 'routing']) {
+    // array value — should fail is_object check
+    const withArray = { ...base, [field]: ['not', 'an', 'object'] };
+    const arrayResult = validateBuilderContract(withArray, '004-implementation');
+    const arrayCheck = arrayResult.checks.find((c) => c.name === `builder_v2_${field}_is_object`);
+    assert.ok(arrayCheck, `check builder_v2_${field}_is_object should exist for array value`);
+    assert.equal(arrayCheck.status, 'FAIL', `${field} as array should fail is_object`);
+
+    // string value — should fail is_object check
+    const withString = { ...base, [field]: 'just-a-string' };
+    const stringResult = validateBuilderContract(withString, '004-implementation');
+    const stringCheck = stringResult.checks.find((c) => c.name === `builder_v2_${field}_is_object`);
+    assert.ok(stringCheck, `check builder_v2_${field}_is_object should exist for string value`);
+    assert.equal(stringCheck.status, 'FAIL', `${field} as string should fail is_object`);
+
+    // null value — should fail is_object check
+    const withNull = { ...base, [field]: null };
+    const nullResult = validateBuilderContract(withNull, '004-implementation');
+    const nullCheck = nullResult.checks.find((c) => c.name === `builder_v2_${field}_is_object`);
+    assert.ok(nullCheck, `check builder_v2_${field}_is_object should exist for null value`);
+    assert.equal(nullCheck.status, 'FAIL', `${field} as null should fail is_object`);
+
+    // valid object — should pass
+    const withObject = { ...base, [field]: { key: 'value' } };
+    const objectResult = validateBuilderContract(withObject, '004-implementation');
+    const objectCheck = objectResult.checks.find((c) => c.name === `builder_v2_${field}_is_object`);
+    assert.ok(objectCheck, `check builder_v2_${field}_is_object should exist for object value`);
+    assert.equal(objectCheck.status, 'PASS', `${field} as object should pass`);
+  }
+});
+
+test('builder contract v2 execution.tools_used fails when not an array', () => {
+  const base = {
+    task_id: '004-implementation',
+    agent: 'builder',
+    status: 'PASS',
+    summary: 'Testing tools_used types.',
+    files_modified: [],
+    tests_run: [],
+    risks: [],
+    next_steps: [],
+  };
+
+  // string — should fail
+  const withString = { ...base, execution: { tools_used: 'read_file,edit' } };
+  const stringResult = validateBuilderContract(withString, '004-implementation');
+  const stringCheck = stringResult.checks.find((c) => c.name === 'builder_v2_execution_tools_used_is_array');
+  assert.ok(stringCheck, 'builder_v2_execution_tools_used_is_array check should exist');
+  assert.equal(stringCheck.status, 'FAIL');
+
+  // object — should fail
+  const withObj = { ...base, execution: { tools_used: { read: true } } };
+  const objResult = validateBuilderContract(withObj, '004-implementation');
+  assert.equal(objResult.checks.find((c) => c.name === 'builder_v2_execution_tools_used_is_array').status, 'FAIL');
+
+  // valid array — should pass with correct evidence
+  const withArray = { ...base, execution: { tools_used: ['read_file', 'patch', 'bash'] } };
+  const arrayResult = validateBuilderContract(withArray, '004-implementation');
+  const arrayCheck = arrayResult.checks.find((c) => c.name === 'builder_v2_execution_tools_used_is_array');
+  assert.equal(arrayCheck.status, 'PASS');
+  assert.ok(arrayCheck.evidence.includes('3 tool(s)'));
+
+  // empty array — still a valid array
+  const withEmpty = { ...base, execution: { tools_used: [] } };
+  const emptyResult = validateBuilderContract(withEmpty, '004-implementation');
+  assert.equal(emptyResult.checks.find((c) => c.name === 'builder_v2_execution_tools_used_is_array').status, 'PASS');
+});
+
+test('builder contract v2 cost values fail when non-numeric', () => {
+  const base = {
+    task_id: '004-implementation',
+    agent: 'builder',
+    status: 'PASS',
+    summary: 'Testing cost numeric validation.',
+    files_modified: [],
+    tests_run: [],
+    risks: [],
+    next_steps: [],
+  };
+
+  // string values — should fail
+  const withStringCost = { ...base, cost: { estimated_usd: 'high', actual_usd: 'unknown' } };
+  const stringResult = validateBuilderContract(withStringCost, '004-implementation');
+  const stringCheck = stringResult.checks.find((c) => c.name === 'builder_v2_cost_values_are_numeric');
+  assert.ok(stringCheck, 'builder_v2_cost_values_are_numeric check should exist');
+  assert.equal(stringCheck.status, 'FAIL');
+
+  // only estimated_usd present and numeric — should pass
+  const withOnlyEstimated = { ...base, cost: { currency: 'USD', estimated_usd: 1.5 } };
+  const estimatedResult = validateBuilderContract(withOnlyEstimated, '004-implementation');
+  const estimatedCheck = estimatedResult.checks.find((c) => c.name === 'builder_v2_cost_values_are_numeric');
+  assert.ok(estimatedCheck);
+  assert.equal(estimatedCheck.status, 'PASS');
+
+  // only actual_usd present and numeric — should pass
+  const withOnlyActual = { ...base, cost: { currency: 'USD', actual_usd: 0.75 } };
+  const actualResult = validateBuilderContract(withOnlyActual, '004-implementation');
+  assert.equal(actualResult.checks.find((c) => c.name === 'builder_v2_cost_values_are_numeric').status, 'PASS');
+
+  // both present and numeric — should pass
+  const withBoth = { ...base, cost: { currency: 'USD', estimated_usd: 2.0, actual_usd: 1.8 } };
+  const bothResult = validateBuilderContract(withBoth, '004-implementation');
+  assert.equal(bothResult.checks.find((c) => c.name === 'builder_v2_cost_values_are_numeric').status, 'PASS');
+  assert.equal(bothResult.ok, true);
+
+  // estimated_usd is a non-numeric string but actual_usd is null (not present) — only estimated checked
+  const withBadEstimated = { ...base, cost: { estimated_usd: 'NaN-ish' } };
+  const badEstimatedResult = validateBuilderContract(withBadEstimated, '004-implementation');
+  assert.equal(badEstimatedResult.checks.find((c) => c.name === 'builder_v2_cost_values_are_numeric').status, 'FAIL');
+});
+
+test('builder contract v2 cost check is skipped when both cost values are absent', () => {
+  const contract = {
+    task_id: '004-implementation',
+    agent: 'builder',
+    status: 'PASS',
+    summary: 'No cost info.',
+    files_modified: [],
+    tests_run: [],
+    risks: [],
+    next_steps: [],
+    cost: { currency: 'USD' }, // no estimated_usd or actual_usd
+  };
+  const result = validateBuilderContract(contract, '004-implementation');
+  assert.ok(result.ok);
+  // cost check should NOT be generated when both values are absent
+  assert.ok(!result.checks.some((c) => c.name === 'builder_v2_cost_values_are_numeric'));
+});
+
+test('builder contract v2 checks are absent when v2 fields are not present', () => {
+  const minimalContract = {
+    task_id: '004-implementation',
+    agent: 'builder',
+    status: 'PASS',
+    summary: 'Minimal contract with no v2 telemetry.',
+    files_modified: [],
+    tests_run: [],
+    risks: [],
+    next_steps: [],
+  };
+  const result = validateBuilderContract(minimalContract, '004-implementation');
+  assert.equal(result.ok, true);
+  const v2CheckNames = result.checks.filter((c) => c.name.startsWith('builder_v2_'));
+  assert.equal(v2CheckNames.length, 0, 'no v2 checks should be generated for minimal contracts');
+});
+
 test('validator contract requires all Harness fields', () => {
   const valid = {
     task_id: '004-implementation',
