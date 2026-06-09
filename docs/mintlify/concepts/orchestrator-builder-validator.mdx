@@ -48,14 +48,37 @@ read, bash, edit, write, grep, find, ls
 **Output contract — `builder.json`:**
 ```json
 {
-  "task_id": "task_001",
-  "status": "COMPLETE",
-  "files_changed": ["src/auth.js", "tests/auth.test.js"],
-  "acceptance_criteria_met": true,
-  "commands_run": ["npm test"],
-  "notes": ""
+  "task_id": "004-implementation",
+  "agent": "builder",
+  "status": "PASS",
+  "summary": "Implemented harness foundation.",
+  "files_modified": ["src/harness/stages.js"],
+  "tests_run": ["npm test"],
+  "risks": [],
+  "next_steps": [],
+  "execution": {
+    "tools_used": ["read", "edit", "bash"],
+    "artifacts_written": ["src/harness/stages.js"]
+  },
+  "cost": {
+    "currency": "USD",
+    "estimated_usd": 1.5,
+    "actual_usd": 1.2
+  },
+  "context": {
+    "profile": "business-flex",
+    "workflow": "production-business-sdlc"
+  },
+  "routing": {
+    "selected_by": "profile-domain-stage-affinity",
+    "explanation": ["profile:business-flex"]
+  }
 }
 ```
+
+The first eight fields are required. `execution`, `cost`, `context`, and
+`routing` are optional Contract v2 telemetry fields used by the Business Hub.
+
 
 **Key rules:**
 - Never edits files outside the task scope
@@ -85,22 +108,19 @@ read, grep, find, ls
 **Output contract — `validation.json`:**
 ```json
 {
-  "task_id": "task_001",
-  "verdict": "PASS",
-  "checks": {
-    "acceptance_criteria": true,
-    "tests_pass": true,
-    "no_regressions": true,
-    "security_concerns": false
-  },
+  "task_id": "004-implementation",
+  "validator": "rstack-validator",
+  "status": "PASS",
+  "checks": [
+    { "name": "acceptance_criteria", "status": "PASS", "evidence": "verified" }
+  ],
   "issues": [],
-  "notes": ""
+  "retry_recommendation": "none"
 }
 ```
 
-**Possible verdicts:**
+**Possible statuses:**
 - `PASS` — Task is complete and correct
-- `PASS_WITH_NOTES` — Complete but minor issues noted
 - `FAIL` — Task must be reworked; issues listed
 
 **File:** `agents/core/validator.md`

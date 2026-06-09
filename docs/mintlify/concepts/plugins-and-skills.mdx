@@ -100,7 +100,22 @@ rstack-agents add plugin backend-development
 rstack-agents list plugins
 ```
 
-### Writing a custom plugin
+### Profile-scoped plugins
+
+Business Flex profiles narrow which domains and plugin packs are considered during planning. For example, an API upgrade can keep only product/backend/QA/security/docs enabled instead of routing through the whole catalog:
+
+```json
+{
+  "enabled_domains": ["product", "backend", "qa", "security", "docs"],
+  "enabled_plugins": ["backend-development", "unit-testing", "security-scanning"]
+}
+```
+
+See [Business Flex Profiles](/getting-started/business-flex-profiles) and [Builder & Validator Sandbox](/getting-started/builder-validator-sandbox).
+
+---
+
+## Writing a custom plugin
 
 Create the plugin structure in `.rstack/plugins/`:
 

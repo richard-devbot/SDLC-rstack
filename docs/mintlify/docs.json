@@ -26,7 +26,9 @@
               "getting-started/install-your-framework",
               "getting-started/installation",
               "getting-started/your-first-run",
-              "getting-started/governance-model"
+              "getting-started/governance-model",
+              "getting-started/business-flex-profiles",
+              "getting-started/builder-validator-sandbox"
             ]
           },
           {
@@ -34,7 +36,8 @@
             "pages": [
               "reference/business-hub",
               "reference/approvals",
-              "reference/webhooks"
+              "reference/webhooks",
+              "reference/loopholes-roadmap"
             ]
           },
           {
@@ -84,7 +87,8 @@
               "reference/pi-tools",
               "reference/observability",
               "reference/configuration",
-              "reference/protected-actions"
+              "reference/protected-actions",
+              "reference/loopholes-roadmap"
             ]
           }
         ]

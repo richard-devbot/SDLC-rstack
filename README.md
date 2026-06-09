@@ -2,153 +2,236 @@
 
 <!-- owner: RStack developed by Richardson Gunde -->
 
-**A governed SDLC for AI coding agents — in any framework.**
-RStack gives agent teams a repeatable, auditable 15-stage pipeline with human
-approval gates, builder/validator contracts, evidence, episodic memory, and a
-live company dashboard. Developed by **Richardson Gunde**.
+**A governed AI-SDLC operating layer for any coding framework.**
+RStack sits on top of Pi, Claude Code, Operator, Codex-style CLIs, Gemini-style CLIs, or a custom harness and gives agent teams a repeatable lifecycle with approvals, builder/validator contracts, evidence, memory, budget envelopes, and a live Business Hub.
 
 ```text
 clarify → plan → spec → approve → build → validate → release-readiness → learn
 ```
 
-## Install — 2 minutes, any framework
+## Install — one npm package, any framework
 
 ```bash
 cd your-project
 npm install rstack-agents
-npx rstack-agents init        # auto-detects: pi | claude-code | operator | custom
+npx rstack-agents init --profile business-flex
 ```
 
-| Your framework | What init does | Guide |
-|---|---|---|
-| **Pi** | Nothing else needed — Pi auto-loads the native extension; `sdlc_*` tools appear in the next session | [docs/integrations/pi.md](docs/integrations/pi.md) |
-| **Claude Code** | Writes a usage guide + a SessionStart hook so the dashboard pops up every session; install `/plugin install sdlc-automation` | [docs/integrations/claude-code.md](docs/integrations/claude-code.md) |
-| **Operator** | Writes a settings template for the Python adapter (bridges to the same harness) | [docs/integrations/operator.md](docs/integrations/operator.md) |
-| **Anything else** | The `.rstack/` state contract + a Node bridge any harness can shell out to | [docs/integrations/custom.md](docs/integrations/custom.md) |
+`init` auto-detects `pi | claude-code | operator | custom`, creates `.rstack/`, registers the project with the Business Hub, writes framework glue, and never overwrites existing files.
 
-Start a governed run from your agent session:
+Use a smaller or larger business profile when needed:
+
+```bash
+npx rstack-agents init --profile lean-mvp
+npx rstack-agents init --profile enterprise-webapp
+```
+
+| Profile | Best for | Result |
+|---|---|---|
+| `business-flex` | Most business/product teams | Product, backend, frontend, QA, security, devops, docs, budget policy, Business Flex dashboard |
+| `lean-mvp` | Fast prototypes | Smaller full-stack team and lower budget defaults |
+| `enterprise-webapp` | Heavier governance | Enterprise web app team with security/compliance/devops emphasis |
+
+## Start your first governed run
+
+From the host AI framework session:
 
 ```text
-sdlc_start(goal="Build a checkout flow with Stripe, tests, and release readiness")
+sdlc_start(goal="Upgrade this app, add required tests, improve docs, and run a security review")
+sdlc_clarify()
+sdlc_plan()
 ```
 
-## The Business Hub — live observability on :3008
+Approve gates, then build and validate:
 
-The dashboard **launches automatically when a session starts** (Pi, Claude
-Code hook, Operator) — or bring it up from any harness:
+```text
+sdlc_approve(artifact="plan.md", status="APPROVED")
+sdlc_approve(artifact="requirements.json", status="APPROVED")
+sdlc_approve(artifact="architecture.md", status="APPROVED")
+sdlc_build_next()
+sdlc_validate()
+```
+
+## What `init` creates
+
+```text
+your-project/
+├── .rstack/
+│   ├── rstack.config.json   # active profile, enabled domains/plugins, dashboard pages
+│   ├── budget.json          # run/daily/monthly budget, warnings, approval thresholds
+│   ├── runs/                # every governed run lands here
+│   ├── registry/            # agents, skills, plugins, routing metadata
+│   └── policy.json          # optional approval policy you control
+└── framework glue           # e.g. .claude/rstack-sdlc.md or Operator template
+```
+
+Every run records its manifest, plan, tasks, approvals, evidence, events, stage artifacts, builder contracts, validator contracts, and metrics under `.rstack/runs/<run-id>/`.
+
+## Business Flex: install only the teams you need
+
+RStack ships a large catalog, but business users should not have to use all of it. Profiles narrow the active teams before planning:
+
+```json
+{
+  "profile": "business-flex",
+  "enabled_domains": ["product", "backend", "qa", "security", "docs"],
+  "enabled_plugins": [
+    "business-analytics",
+    "backend-development",
+    "unit-testing",
+    "security-scanning",
+    "documentation-generation"
+  ],
+  "dashboard_pages": ["command", "business-flex", "workflow", "agent-work", "live-feed", "approvals"]
+}
+```
+
+When `sdlc_plan` runs, each task gets:
+
+- active `profile` and `workflow`
+- selected domains and specialists
+- `routing.explanation` showing why the agent/team was selected
+- `budget_envelope` for requirements-stage business control
+
+<details>
+<summary>Current package limitation</summary>
+
+Profiles guide routing, budget, dashboard visibility, and project-local configuration. The npm package still ships the full catalog so offline/project-local routing works. The next product step is a pack installer that physically copies only selected packs into `.rstack/` for stricter enterprise footprints.
+
+</details>
+
+## Builder and validator sandbox model
+
+RStack uses scoped task packets instead of giving every worker the whole project and whole catalog.
+
+| Role | Tools | Must write | Rule |
+|---|---|---|---|
+| Orchestrator | planning/status tools | `plan.md`, `tasks.json`, specs | Routes work; does not directly implement |
+| Builder | read, bash, edit, write, grep, find, ls | `builder.json` | Changes only task-scoped files; runs checks before claiming done |
+| Validator | read, grep, find, ls | `validation.json` | Read-only review; no mutation |
+
+Builder contract:
+
+```json
+{
+  "task_id": "003-architecture",
+  "agent": "builder",
+  "status": "PASS|FAIL|BLOCKED|DONE_WITH_CONCERNS",
+  "summary": "",
+  "files_modified": [],
+  "tests_run": [],
+  "risks": [],
+  "next_steps": []
+}
+```
+
+Contract v2 can also capture backend visibility:
+
+```json
+{
+  "execution": { "tools_used": [], "events": [], "artifacts_written": [] },
+  "cost": { "currency": "USD", "estimated_usd": 1.5, "actual_usd": 1.2 },
+  "context": { "profile": "business-flex", "workflow": "production-business-sdlc" },
+  "routing": { "selected_by": "profile-domain-stage-affinity", "explanation": [] }
+}
+```
+
+Validator contract:
+
+```json
+{
+  "task_id": "003-architecture",
+  "validator": "rstack-validator",
+  "status": "PASS|FAIL",
+  "checks": [],
+  "issues": [],
+  "retry_recommendation": "none|retry_builder|ask_user|block"
+}
+```
+
+## Business Hub — live observability on :3008
 
 ```bash
 npx rstack-agents hub
 ```
 
-What it shows, across **every project on the machine**:
+The dashboard derives everything from real `.rstack` files — no fake demo state and no telemetry leaving your machine.
 
 | Page | What you get |
 |---|---|
-| **Studio / Studio 3D** | Jarvis-style live agent workspace — who's working right now, status as glow; the 3D scene (`/studio3d`) lets you click any agent: *what they worked on, what they shipped, why they're waiting* |
-| **Run Analytics** | Wall-clock Gantt per run, stage duration averages, run-over-run trends |
-| **Team & Presence** | Who is live now, people directory (runs / approvals / guidance per person), manager rollup per project |
-| **Projects & Runs** | Every session; open a run to **read its actual deliverables** — requirements, architecture, QA report, security review — plus evidence records |
-| **Approvals / Alerts** | Approve or reject gates from the browser; popups when new gates block |
-| **Workflow / Traceability** | 15-stage map with live states; requirement → stage → task → evidence chains |
-
-Switch project/run scope from the top bar; share `#run=<id>` links in Slack.
-
-## Approvals — no change ships without sign-off
-
-- Interactive runs gate planning, requirements, and architecture by default
-- `.rstack/policy.json` makes chosen stages require approval **in every mode**
-  (express included):
-
-```json
-{ "required_approvals": { "008-release-readiness": ["release-readiness.json"] } }
-```
-
-- The moment a gate blocks, **every configured channel is paged** and the
-  dashboard pops a notification
-- Every approval records the real approver (git identity or `RSTACK_USER`)
-- Approving from the dashboard requires a signed token (`RSTACK_APPROVAL_TOKEN`)
-  so a manager's identity can't be spoofed from the browser; `sdlc_approve`
-  enforces the `policy.json` manager allow-list. Without the token set,
-  browser approvals are disabled (secure default) — approve via `sdlc_approve`.
-
-## Notifications — Slack, Teams, Discord, Telegram, WhatsApp
-
-One event fans out to every channel you configure (env vars or
-`.rstack/notifications.json`). Verify in seconds:
-
-```bash
-npx rstack-agents notify --test
-```
-
-Full setup: [docs/integrations/webhooks.md](docs/integrations/webhooks.md).
-
-## What gets recorded (and what doesn't)
-
-Every run stores its full audit trail under `.rstack/runs/<run-id>/`:
-manifest (incl. **who started it**), tasks with builder/validator contracts,
-an append-only event stream, evidence records, stage artifacts, approvals,
-human guidance (who answered what), stage timings, and checkpoints for
-`sdlc_rollback`. The dashboard derives everything from these files — no
-database, no telemetry leaves your machine.
-
-**Honest limitation:** LLM token usage and real cost are not captured —
-the host framework executes the model calls, so the harness never sees usage.
-Cost shows $0 unless a builder reports it in its contract. Host-side usage
-instrumentation is on the roadmap.
+| **Command Center** | Portfolio status, attention signals, stage health, live activity |
+| **Business Flex** | Active profiles, enabled domains, budget guardrails, routing proof |
+| **Studio / Studio 3D** | Agent workspace with live stage status and clickable agent panels |
+| **Projects & Runs** | Every run and its actual deliverables |
+| **Run Analytics** | Stage timing, Gantt, trend rows |
+| **Agent Work** | Builder/validator contracts and evidence |
+| **Approvals / Alerts** | Human gates, guardrails, spend/stall signals |
+| **Traceability** | Requirement → stage → task → evidence chains |
 
 ## CLI reference
 
 | Command | Purpose |
 |---|---|
-| `rstack-agents init [-f framework]` | Set up RStack in a project (idempotent) |
-| `rstack-agents hub` | Ensure the dashboard is running and open it |
-| `rstack-agents notify [--test]` | Inspect / test notification channels |
-| `rstack-agents list agents\|skills\|plugins` | Browse the packaged catalog (196 agents) |
+| `rstack-agents init --profile business-flex` | Set up project profile, budget policy, framework glue, and Business Hub registry |
+| `rstack-agents hub` | Start/open the dashboard |
+| `rstack-agents list agents\|skills\|plugins` | Browse packaged catalog |
 | `rstack-agents add plugin <name>` | Copy a packaged plugin into the project |
-| `rstack-agents validate` | Validate packaged agent definitions |
-| `rstack-business [--port N] [--project path]` | Run the dashboard directly |
+| `rstack-agents notify --test` | Test Slack/Teams/Discord/Telegram/WhatsApp notifications |
+| `rstack-agents validate` | Validate packaged and local agent definitions |
+| `rstack-business --port 3008 --project .` | Run the dashboard directly |
 
-### Environment
+## Framework support
 
-| Variable | Purpose |
-|---|---|
-| `RSTACK_USER` / `RSTACK_USER_EMAIL` | Identity for runs/approvals (defaults to git config) |
-| `RSTACK_BUSINESS_PORT` | Dashboard port (default 3008) |
-| `RSTACK_NO_BUSINESS_HUB=1` | Disable dashboard auto-launch |
-| `RSTACK_APPROVAL_TOKEN` | Required to approve from the dashboard (prevents identity spoofing) |
-| `RSTACK_MANAGER_USERS` | Comma-separated manager allow-list (also in `policy.json`) |
-| `RSTACK_SLACK_WEBHOOK` etc. | Notification channels — see webhooks guide |
-| `RSTACK_DEFAULT_MODEL` / `RSTACK_ESCALATED_MODEL` | Models for delegated builders (escalation at attempt ≥ 2) |
+| Framework | Status | Notes |
+|---|---|---|
+| Pi | Native adapter | Full `sdlc_*` tool surface through `extensions/rstack-sdlc.ts` |
+| Claude Code | Asset/session bootstrap | `init` writes Claude usage guide/session hook assets |
+| Operator | Bridge adapter | Python adapter shells out to the same Node harness |
+| Codex/Gemini/custom | Universal mode | Use `.rstack` state contract, prompts, agents, and CLI bridge |
 
-## Architecture
+## Known loopholes / roadmap
 
+- **Actual token/cost capture:** host frameworks execute model calls, so real usage needs host-side reporting or provider adapters.
+- **Physical pack pruning:** profiles narrow routing today; a future pack installer should reduce project-local agent/plugin footprint.
+- **Validator enforcement:** validator tool policy is encoded in RStack packets, but strict enforcement depends on the host sandbox.
+- **Open-source adaptation:** learn from OSS agent frameworks, but preserve licenses and validate contracts before importing anything.
+- **MCP/A2A:** `.rstack` is adapter-friendly, but a native MCP/A2A server is still a future slice.
+
+## Documentation
+
+Mintlify docs live in [`docs/mintlify`](docs/mintlify):
+
+- [Quickstart](docs/mintlify/quickstart.mdx)
+- [Business Flex Profiles](docs/mintlify/getting-started/business-flex-profiles.mdx)
+- [Builder & Validator Sandbox](docs/mintlify/getting-started/builder-validator-sandbox.mdx)
+- [AI SDLC Trends & Loopholes](docs/mintlify/reference/loopholes-roadmap.mdx)
+- [Business Hub](docs/mintlify/reference/business-hub.mdx)
+
+The original presentation is kept as a backup at:
+
+```text
+docs/mintlify/assets/backups/RStack-The-Future-of-Software-Development.backup.pptx
 ```
-src/
-├── core/             harness (stages, contracts, evidence, guardrails,
-│                     run-state, identity) + tracker (registry, approvals)
-├── observability/    collectors · Business Hub dashboard · alerts · metrics
-├── integrations/     pi/ · operator/ · init (claude-code + custom)
-├── notifications/    channels (slack, teams, discord, telegram, whatsapp) + router
-└── memory/           episodic memory, retrieval, diagnostics
-```
-
-Layer rules and the full map: [src/README.md](src/README.md).
-Adapter contract for new frameworks: [docs/integrations/custom.md](docs/integrations/custom.md).
-Harness internals: [docs/HARNESS.md](docs/HARNESS.md).
 
 ## Development
 
 ```bash
 git clone https://github.com/richard-devbot/SDLC-rstack.git
-cd SDLC-rstack && npm install
-npm test          # 100+ tests
+cd SDLC-rstack
+npm install
+npm test
 npm run lint
-npm run validate  # 196 packaged agents
+npm run validate
 ```
 
-Changes follow issues-first: every PR closes a GitHub issue. See
-[CHANGELOG.md](CHANGELOG.md) for what each release lets you do.
+Latest verified branch state for this business-flex slice:
+
+```text
+npm test -- --runInBand   # 111 pass, 0 fail
+npm run lint              # pass
+npm run validate          # All 196 agents passed validation
+npm pack --dry-run        # package includes new profile/dashboard files
+```
 
 ## License
 

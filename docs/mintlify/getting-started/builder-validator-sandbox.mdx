@@ -1,0 +1,199 @@
+---
+title: "Builder & Validator Sandbox"
+description: "Set up scoped builder and read-only validator agent packets with only the required teams for an end-user request."
+---
+
+RStack's sandbox model is simple: the orchestrator plans the work, then each builder/validator receives a **bounded task packet** instead of the whole project and whole catalog.
+
+This matches current agent-platform trends: multi-agent orchestration, explicit handoffs, tool governance, typed output contracts, traceability, and cost-aware context selection.
+
+## The sandbox flow
+
+```text
+user request
+  → orchestrator clarifies and plans
+  → profile selects enabled domains and plugins
+  → task packet is created
+  → builder works with write-capable tools
+  → validator reviews with read-only tools
+  → contracts and evidence land in .rstack/runs/<run-id>/tasks/<task-id>/
+```
+
+## 1. Choose the smallest useful profile
+
+```bash
+npm install rstack-agents
+npx rstack-agents init --profile lean-mvp          # small team
+npx rstack-agents init --profile business-flex    # balanced business team
+npx rstack-agents init --profile enterprise-webapp # broad enterprise team
+```
+
+For a specific user ask, edit `.rstack/rstack.config.json` to keep only the relevant domains.
+
+Example: "Help me upgrade this Node API with tests and security review":
+
+```json
+{
+  "profile": "business-flex",
+  "enabled_domains": ["product", "backend", "qa", "security", "docs"],
+  "enabled_plugins": [
+    "business-analytics",
+    "backend-development",
+    "unit-testing",
+    "security-scanning",
+    "documentation-generation"
+  ],
+  "dashboard_pages": ["command", "business-flex", "workflow", "agent-work", "live-feed", "approvals"]
+}
+```
+
+## 2. Start and plan the run
+
+From Pi or any host exposing the RStack tools:
+
+```text
+sdlc_start(goal="Upgrade this Node API, add missing tests, document setup, and perform a security review")
+sdlc_clarify()
+sdlc_plan()
+```
+
+`tasks.json` will now include:
+
+- selected profile/workflow
+- selected domains
+- routing explanations
+- specialists selected from the registry
+- budget envelope per task
+
+## 3. Builder packet expectations
+
+Builders are allowed to change files, but only inside task scope.
+
+Recommended builder tools:
+
+```text
+read, bash, edit, write, grep, find, ls
+```
+
+Every builder must write:
+
+```text
+.rstack/runs/<run-id>/tasks/<task-id>/builder.json
+```
+
+Required fields:
+
+```json
+{
+  "task_id": "003-architecture",
+  "agent": "builder",
+  "status": "PASS|FAIL|BLOCKED|DONE_WITH_CONCERNS",
+  "summary": "What changed and why",
+  "files_modified": [],
+  "tests_run": [],
+  "risks": [],
+  "next_steps": []
+}
+```
+
+Optional Contract v2 telemetry is accepted and should be used when possible:
+
+```json
+{
+  "execution": {
+    "delegation_id": "worker-123",
+    "tools_used": ["read", "edit", "bash"],
+    "events": [{ "type": "tool_call", "tool": "bash" }],
+    "artifacts_written": ["src/api.js", "tests/api.test.js"]
+  },
+  "cost": {
+    "currency": "USD",
+    "estimated_usd": 1.5,
+    "actual_usd": 1.2
+  },
+  "context": {
+    "profile": "business-flex",
+    "workflow": "production-business-sdlc",
+    "injected_sources": ["requirements", "architecture", "backend-development"]
+  },
+  "routing": {
+    "selected_by": "profile-domain-stage-affinity",
+    "explanation": ["profile:business-flex", "stage-domains:backend,qa"]
+  }
+}
+```
+
+## 4. Validator packet expectations
+
+Validators should review only. They should not edit files or mutate project state.
+
+Recommended validator tools:
+
+```text
+read, grep, find, ls
+```
+
+Validator output:
+
+```text
+.rstack/runs/<run-id>/tasks/<task-id>/validation.json
+```
+
+Required fields:
+
+```json
+{
+  "task_id": "003-architecture",
+  "validator": "rstack-validator",
+  "status": "PASS|FAIL",
+  "checks": [],
+  "issues": [],
+  "retry_recommendation": "none|retry_builder|ask_user|block"
+}
+```
+
+## 5. How to install only the required agent packs today
+
+Today, the npm package ships the complete catalog. For a scoped project, use a profile plus project-local plugin copies:
+
+```bash
+# List available packs
+npx rstack-agents list plugins
+npx rstack-agents list agents
+
+# Copy only relevant domain packs into this project
+npx rstack-agents add plugin backend-development
+npx rstack-agents add plugin unit-testing
+npx rstack-agents add plugin security-scanning
+
+# Validate before running
+npx rstack-agents validate
+```
+
+<Warning>
+  Do not copy random GitHub agent files directly into production RStack runs. Read open-source patterns, adapt the ideas, keep licenses intact, and validate the local agent frontmatter/contracts before enabling them.
+</Warning>
+
+## 6. Upgrade-agent prompt pattern
+
+Use this pattern when the end user says "help me upgrade this application":
+
+```text
+Use RStack business-flex profile.
+Goal: upgrade this application safely.
+First inspect package files, test setup, framework, CI, security posture, and docs.
+Plan only the minimum required builder/validator teams.
+Prefer existing project conventions.
+Create budget envelope and routing explanation before build.
+Builder must run relevant tests and write builder.json.
+Validator must be read-only and write validation.json.
+Do not claim DONE without command evidence.
+```
+
+## Loopholes to watch
+
+- If a host framework does not expose token usage, `actual_usd` remains builder-reported or zero.
+- Profiles currently guide routing and dashboard visibility; they do not shrink the npm tarball yet.
+- Validators are read-only by convention/tool selection; a host that ignores tools can still violate it.
+- Open-source agent patterns require license review before redistribution.
+- Dashboard panels only show data that exists in `.rstack`; empty panels mean missing contracts/events, not hidden state.
