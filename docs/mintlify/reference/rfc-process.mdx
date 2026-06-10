@@ -23,12 +23,12 @@ The source registry lives in [`rfcs/`](https://github.com/richard-devbot/SDLC-rs
 
 | RFC | Status | Issue | Purpose |
 |---|---|---:|---|
-| [RFC-0001](https://github.com/richard-devbot/SDLC-rstack/blob/main/rfcs/RFC-0001-rstack-spec-v1alpha1.md) | Draft | [#71](https://github.com/richard-devbot/SDLC-rstack/issues/71) | RStack Spec v1alpha1. |
-| [RFC-0002](https://github.com/richard-devbot/SDLC-rstack/blob/main/rfcs/RFC-0002-decision-queue-and-readiness-gate.md) | Draft | [#70](https://github.com/richard-devbot/SDLC-rstack/issues/70) | Decision Queue and Definition-of-Ready gate. |
-| [RFC-0003](https://github.com/richard-devbot/SDLC-rstack/blob/main/rfcs/RFC-0003-cross-harness-validation.md) | Draft | [#72](https://github.com/richard-devbot/SDLC-rstack/issues/72) | Cross-harness validation independence. |
-| [RFC-0004](https://github.com/richard-devbot/SDLC-rstack/blob/main/rfcs/RFC-0004-attestation-envelope.md) | Draft | [#73](https://github.com/richard-devbot/SDLC-rstack/issues/73) | Attestation envelope. |
-| [RFC-0005](https://github.com/richard-devbot/SDLC-rstack/blob/main/rfcs/RFC-0005-traceability-drift-detection.md) | Draft | [#74](https://github.com/richard-devbot/SDLC-rstack/issues/74) | Traceability drift detection. |
-| [RFC-0006](https://github.com/richard-devbot/SDLC-rstack/blob/main/rfcs/RFC-0006-untrusted-pr-gate.md) | Draft | [#75](https://github.com/richard-devbot/SDLC-rstack/issues/75) | Untrusted PR gate. |
+| [RFC-0001](../../../rfcs/RFC-0001-rstack-spec-v1alpha1.md) | Draft | #71 | RStack Spec v1alpha1. |
+| [RFC-0002](../../../rfcs/RFC-0002-decision-queue-and-readiness-gate.md) | Draft | #70 | Decision Queue and Definition-of-Ready gate. |
+| [RFC-0003](../../../rfcs/RFC-0003-cross-harness-validation.md) | Draft | #72 | Cross-harness validation independence. |
+| [RFC-0004](../../../rfcs/RFC-0004-attestation-envelope.md) | Draft | #73 | Attestation envelope. |
+| [RFC-0005](../../../rfcs/RFC-0005-traceability-drift-detection.md) | Draft | #74 | Traceability drift detection. |
+| [RFC-0006](../../../rfcs/RFC-0006-untrusted-pr-gate.md) | Draft | #75 | Untrusted PR gate. |
 
 ## Lifecycle states
 
@@ -51,8 +51,10 @@ RStack includes a CI-backed RFC validator in `tests/validate-rfcs.test.js`. It c
 Run locally:
 
 ```bash
-npm test -- tests/validate-rfcs.test.js
+npm test
 ```
+
+For a fast local RFC-only check, run `npx tsx --test tests/validate-rfcs.test.js`.
 
 ## Human review rule
 

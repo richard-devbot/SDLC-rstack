@@ -32,8 +32,10 @@ Every RFC must include exactly one `## Status` section whose first non-empty lin
 RFC filenames must use this format:
 
 ```text
-RFC-000N-short-kebab-title.md
+RFC-000N-lowercase-kebab-slug.md
 ```
+
+The slug must match the validator pattern `[a-z0-9]+(?:-[a-z0-9]+)*`: lowercase letters and digits separated by hyphens. Uppercase letters, underscores, spaces, and punctuation are intentionally rejected by CI.
 
 Examples:
 

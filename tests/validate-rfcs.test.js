@@ -22,6 +22,10 @@ const REQUIRED_SECTIONS = [
   '## Validation',
 ];
 
+/**
+ * Return sorted RFC markdown filenames that follow the public RFC naming contract.
+ * Non-RFC support files such as README.md and TEMPLATE.md are intentionally excluded.
+ */
 async function rfcFiles() {
   const entries = await readdir(RFCS_DIR, { withFileTypes: true });
   return entries
@@ -30,6 +34,10 @@ async function rfcFiles() {
     .sort();
 }
 
+/**
+ * Extract the first status value from an RFC document.
+ * The validator requires this value to be one of the documented lifecycle states.
+ */
 function statusFrom(text) {
   const match = text.match(/^## Status\s*\n+([^\n]+)/m);
   return match?.[1]?.trim();
