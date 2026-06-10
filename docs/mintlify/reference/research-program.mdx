@@ -1,0 +1,70 @@
+---
+title: "Research Program"
+description: "Bibliography, methodology, claims discipline, and prior-art comparison for the RStack SDLC research paper."
+---
+
+RStack is being developed as both a product and a research-backed AI-SDLC operating model. This page links the research artifacts that explain what RStack implements today, what it claims, what remains a hypothesis, and how future productivity claims should be measured.
+
+## Research thesis
+
+RStack improves the practical use of AI coding agents by wrapping them in a governed lifecycle:
+
+```text
+clarify → plan → spec → approve → build → validate → release-readiness → learn
+```
+
+The careful version of the thesis is:
+
+> RStack does not claim that AI coding alone guarantees productivity. RStack claims that AI-assisted delivery becomes more reliable and measurable when work is constrained by lifecycle stages, approvals, typed handoffs, evidence, budget envelopes, and Business Hub observability.
+
+## Repo research artifacts
+
+| Artifact | Purpose |
+|---|---|
+| [`research/current-state-audit.md`](https://github.com/richard-devbot/SDLC-rstack/blob/main/research/current-state-audit.md) | Detailed audit of where RStack stood before the research roadmap implementation. |
+| [`research/bibliography.md`](https://github.com/richard-devbot/SDLC-rstack/blob/main/research/bibliography.md) | Standards, prior art, empirical research, and RStack primary-source references. |
+| [`research/methodology.md`](https://github.com/richard-devbot/SDLC-rstack/blob/main/research/methodology.md) | How to study RStack and what metrics to collect. |
+| [`research/prior-art-ai-sdlc-framework.md`](https://github.com/richard-devbot/SDLC-rstack/blob/main/research/prior-art-ai-sdlc-framework.md) | Comparison with `ai-sdlc-framework/ai-sdlc` and AI-SDLC reference architecture patterns. |
+| [`research/productivity-claims.md`](https://github.com/richard-devbot/SDLC-rstack/blob/main/research/productivity-claims.md) | Claims register separating implemented facts, external evidence, hypotheses, and unsupported claims. |
+| [`research/rstack-design-history.md`](https://github.com/richard-devbot/SDLC-rstack/blob/main/research/rstack-design-history.md) | Primary-source narrative of current implementation and design history. |
+| [`research/paper-outline.md`](https://github.com/richard-devbot/SDLC-rstack/blob/main/research/paper-outline.md) | Draft paper structure and thesis. |
+
+## Claims discipline
+
+Every RStack paper or docs claim should have at least one of:
+
+1. measured evidence from RStack runs, tests, PRs, or CI,
+2. source evidence from standards, reports, or prior art,
+3. implementation evidence from code or docs,
+4. a clear hypothesis label and experiment plan.
+
+<Warning>
+  Do not claim quantified productivity gains until RStack has measured comparison runs. The current research-safe claim is that RStack creates the lifecycle and evidence structure needed to measure and improve AI-assisted delivery.
+</Warning>
+
+## Research-backed roadmap
+
+The research program is tracked in GitHub issues:
+
+- [#70 Decision Queue and Definition-of-Ready gate](https://github.com/richard-devbot/SDLC-rstack/issues/70)
+- [#71 RStack Spec v1alpha1](https://github.com/richard-devbot/SDLC-rstack/issues/71)
+- [#72 Cross-harness builder/validator review independence](https://github.com/richard-devbot/SDLC-rstack/issues/72)
+- [#73 RStack attestation envelopes](https://github.com/richard-devbot/SDLC-rstack/issues/73)
+- [#74 Traceability drift detection](https://github.com/richard-devbot/SDLC-rstack/issues/74)
+- [#75 Untrusted contributor PR gate](https://github.com/richard-devbot/SDLC-rstack/issues/75)
+- [#76 RFC / Architecture Decision Record process](https://github.com/richard-devbot/SDLC-rstack/issues/76)
+- [#77 Research bibliography and methodology appendix](https://github.com/richard-devbot/SDLC-rstack/issues/77)
+- [#78 Governance packs and profile-based enforcement levels](https://github.com/richard-devbot/SDLC-rstack/issues/78)
+
+## Suggested paper measurement model
+
+RStack should measure productivity through multiple lenses:
+
+- delivery flow: time to plan, build, validate, and release-readiness,
+- quality: builder/validator pass rates, retries, risks, tests run,
+- governance: approvals, blocked gates, policy overrides,
+- traceability: requirement-to-task-to-evidence completeness,
+- cost: estimated vs actual usage when host/provider data is available,
+- operator burden: number of human interventions per run.
+
+See `research/methodology.md` for the full measurement plan.

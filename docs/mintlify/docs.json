@@ -37,7 +37,8 @@
               "reference/business-hub",
               "reference/approvals",
               "reference/webhooks",
-              "reference/loopholes-roadmap"
+              "reference/loopholes-roadmap",
+              "reference/research-program"
             ]
           },
           {
@@ -88,7 +89,8 @@
               "reference/observability",
               "reference/configuration",
               "reference/protected-actions",
-              "reference/loopholes-roadmap"
+              "reference/loopholes-roadmap",
+              "reference/research-program"
             ]
           }
         ]

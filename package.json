@@ -47,6 +47,7 @@
     "plugins/",
     "docs/public/",
     "docs/HARNESS.md",
+    "research/",
     "operator.json",
     "README.md"
   ],
