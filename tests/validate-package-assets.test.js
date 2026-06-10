@@ -21,9 +21,9 @@ test('package-local publishable asset directories exist', () => {
   }
 });
 
-test('package.json ships Pi extension, agents, skills, prompts, and plugins', async () => {
+test('package.json ships Pi extension, agents, skills, prompts, plugins, research, and RFCs', async () => {
   const pkg = await readJson('package.json');
-  for (const required of ['extensions/', 'agents/', 'skills/', 'prompts/', 'plugins/']) {
+  for (const required of ['extensions/', 'agents/', 'skills/', 'prompts/', 'plugins/', 'research/', 'rfcs/']) {
     assert.ok(pkg.files.includes(required), `package.json files should include ${required}`);
   }
   assert.deepEqual(pkg.pi.extensions, ['./extensions/rstack-sdlc.ts']);
