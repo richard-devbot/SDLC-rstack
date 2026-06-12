@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { addDecision, decide, readDecisions, summarizeDecisions } from '../src/core/harness/decisions.js';
 import { dorCheck } from '../src/core/harness/readiness.js';
+import { buildDecisionState } from '../src/observability/dashboard/state/decisions.js';
 import { buildFullState } from '../src/observability/dashboard/state/index.js';
 import { dashboardHtml } from '../src/observability/dashboard/ui.js';
 
@@ -71,6 +72,24 @@ test('Decision Queue covers pending, resolved, waived, and stale summaries', asy
   }
 });
 
+
+test('Decision Queue serializes concurrent additions with unique ids', async () => {
+  const { projectRoot, runId } = await makeRun();
+  try {
+    await Promise.all(Array.from({ length: 20 }, (_, index) => addDecision(projectRoot, runId, {
+      question: `Concurrent decision ${index}`,
+      impact: 'scope',
+    })));
+    const decisions = await readDecisions(projectRoot, runId);
+    const ids = decisions.map((decision) => decision.decision_id).sort();
+    assert.equal(decisions.length, 20);
+    assert.equal(new Set(ids).size, 20);
+    assert.deepEqual(ids, Array.from({ length: 20 }, (_, index) => `DEC-${String(index + 1).padStart(3, '0')}`));
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test('DoR warns for business-flex but fails for enterprise-webapp pending required decisions', async () => {
   const flex = await makeRun('business-flex');
   const enterprise = await makeRun('enterprise-webapp');
@@ -96,6 +115,25 @@ test('DoR warns for business-flex but fails for enterprise-webapp pending requir
   }
 });
 
+
+test('DoR fails closed for unknown decision or target stages', async () => {
+  const { projectRoot, runId } = await makeRun('enterprise-webapp');
+  try {
+    await addDecision(projectRoot, runId, { question: 'Unknown stage should not bypass', impact: 'scope', required_before_stage: '99-made-up' });
+    await assert.rejects(
+      dorCheck(projectRoot, { runId, targetStage: '07-code' }),
+      /Unknown required_before_stage: 99-made-up/,
+    );
+    await decide(projectRoot, runId, 'DEC-001', { status: 'waived', resolution: 'invalid stage entry retired', resolvedBy: 'QA' });
+    await assert.rejects(
+      dorCheck(projectRoot, { runId, targetStage: '99-made-up' }),
+      /Unknown target_stage: 99-made-up/,
+    );
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test('Business Hub exposes decisions and readiness from real .rstack files', async () => {
   const { projectRoot, runId } = await makeRun('enterprise-webapp');
   try {
@@ -108,6 +146,24 @@ test('Business Hub exposes decisions and readiness from real .rstack files', asy
     assert.match(html, /data-page="decisions"/);
     assert.match(html, /id="decisions-list"/);
     assert.match(html, /function renderDecisions\(s\)/);
+    assert.match(html, /scopedDecisionRuns/);
+    assert.match(html, /scopedTotals/);
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+
+test('Business Hub marks decision read failures as WARN instead of PASS', async () => {
+  const { projectRoot, runId, runDir } = await makeRun('business-flex');
+  try {
+    await writeFile(join(runDir, 'decisions.json'), '{ bad json');
+    const state = await buildDecisionState([{ projectRoot, runId, manifest: { goal: 'bad decisions' }, profile: { profile: 'business-flex' } }]);
+    assert.equal(state.runs[0].readiness.status, 'WARN');
+    assert.equal(state.runs[0].readiness.error, true);
+    assert.match(state.runs[0].readiness.errorMessage, /Expected property name|JSON/);
+    assert.equal(state.totals.warn, 1);
+    assert.equal(state.totals.pass, 0);
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
   }

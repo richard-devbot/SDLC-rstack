@@ -266,9 +266,22 @@ function applyScope(s) {
   copy.agentGroups = (s.agentGroups || []).filter(function(group) { return !group.runId || runIds[group.runId]; });
   copy.businessFlex = null;
   if (s.decisions) {
+    var scopedDecisionRuns = (s.decisions.runs || []).filter(function(row) { return runIds[row.runId]; });
+    var scopedTotals = scopedDecisionRuns.reduce(function(acc, row) {
+      var summary = row.summary || {};
+      var readiness = row.readiness || {};
+      acc.total += Number(summary.total || 0);
+      acc.pending += Number(summary.pending || 0);
+      acc.resolved += Number(summary.resolved || 0);
+      acc.waived += Number(summary.waived || 0);
+      if (readiness.status === 'PASS') acc.pass += 1;
+      if (readiness.status === 'WARN') acc.warn += 1;
+      if (readiness.status === 'FAIL') acc.fail += 1;
+      return acc;
+    }, { total: 0, pending: 0, resolved: 0, waived: 0, pass: 0, warn: 0, fail: 0 });
     copy.decisions = {
-      totals: s.decisions.totals,
-      runs: (s.decisions.runs || []).filter(function(row) { return runIds[row.runId]; })
+      totals: scopedTotals,
+      runs: scopedDecisionRuns
     };
   }
   copy.presence = (s.presence || []).filter(function(item) { return runIds[item.runId]; });

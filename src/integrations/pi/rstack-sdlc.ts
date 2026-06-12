@@ -1486,7 +1486,7 @@ export default function (pi: ExtensionAPI) {
           details: { run_id: manifest.run_id, task, readiness: readiness.report }
         };
       }
-      if (readiness.report.status === "WARN") {
+      if (readiness.report.status === "WARN" && (readiness.report.pending_required?.length || 0) > 0) {
         await appendEvent(projectRoot, manifest.run_id, { type: "dor_gate_warning", task_id: task.id, pending_required: readiness.report.pending_required });
       }
       if (missing.length) {

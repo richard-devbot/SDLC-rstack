@@ -1,7 +1,7 @@
 // owner: RStack developed by Richardson Gunde
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 export const DECISION_STATUSES = Object.freeze(['pending', 'resolved', 'waived']);
@@ -56,49 +56,86 @@ function normalizeDecision(raw, index = 0, runId = '') {
   };
 }
 
-export async function readDecisions(projectRoot, runId) {
+async function sleep(ms) {
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+}
+
+async function withDecisionLock(projectRoot, runId, fn) {
   const selected = await resolveRunId(projectRoot, runId);
-  const path = decisionsPath(projectRoot, selected);
+  const runDir = runDirectory(projectRoot, selected);
+  const lockDir = join(runDir, '.decisions.lock');
+  await mkdir(runDir, { recursive: true });
+  for (let attempt = 0; attempt < 60; attempt++) {
+    try {
+      await mkdir(lockDir);
+      try {
+        return await fn(selected);
+      } finally {
+        await rm(lockDir, { recursive: true, force: true });
+      }
+    } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+      await sleep(25 + attempt * 5);
+    }
+  }
+  throw new Error(`Timed out waiting for decisions lock for run ${selected}`);
+}
+
+async function readDecisionsUnlocked(projectRoot, runId) {
+  const path = decisionsPath(projectRoot, runId);
   if (!existsSync(path)) return [];
   const parsed = JSON.parse(await readFile(path, 'utf8'));
   const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed.decisions) ? parsed.decisions : [];
-  return list.map((item, index) => normalizeDecision(item, index, selected));
+  return list.map((item, index) => normalizeDecision(item, index, runId));
 }
 
-export async function writeDecisions(projectRoot, runId, decisions) {
-  const selected = await resolveRunId(projectRoot, runId);
-  const path = decisionsPath(projectRoot, selected);
+async function writeDecisionsUnlocked(projectRoot, runId, decisions) {
+  const path = decisionsPath(projectRoot, runId);
   await mkdir(join(path, '..'), { recursive: true });
-  const normalized = decisions.map((item, index) => normalizeDecision(item, index, selected));
-  await writeFile(path, JSON.stringify({ run_id: selected, updated_at: new Date().toISOString(), decisions: normalized }, null, 2));
+  const normalized = decisions.map((item, index) => normalizeDecision(item, index, runId));
+  const payload = JSON.stringify({ run_id: runId, updated_at: new Date().toISOString(), decisions: normalized }, null, 2);
+  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tempPath, payload);
+  await rename(tempPath, path);
   return normalized;
 }
 
-export async function addDecision(projectRoot, runId, decision) {
+export async function readDecisions(projectRoot, runId) {
   const selected = await resolveRunId(projectRoot, runId);
-  const current = await readDecisions(projectRoot, selected);
-  const nextNumber = current.reduce((max, item) => {
-    const match = /^DEC-(\d+)$/.exec(item.decision_id);
-    return match ? Math.max(max, Number(match[1])) : max;
-  }, 0) + 1;
-  const normalized = normalizeDecision({ decision_id: `DEC-${String(nextNumber).padStart(3, '0')}`, ...decision }, current.length, selected);
-  const updated = await writeDecisions(projectRoot, selected, [...current, normalized]);
-  return updated.find((item) => item.decision_id === normalized.decision_id);
+  return readDecisionsUnlocked(projectRoot, selected);
+}
+
+export async function writeDecisions(projectRoot, runId, decisions) {
+  return withDecisionLock(projectRoot, runId, (selected) => writeDecisionsUnlocked(projectRoot, selected, decisions));
+}
+
+export async function addDecision(projectRoot, runId, decision) {
+  return withDecisionLock(projectRoot, runId, async (selected) => {
+    const current = await readDecisionsUnlocked(projectRoot, selected);
+    const nextNumber = current.reduce((max, item) => {
+      const match = /^DEC-(\d+)$/.exec(item.decision_id);
+      return match ? Math.max(max, Number(match[1])) : max;
+    }, 0) + 1;
+    const normalized = normalizeDecision({ decision_id: `DEC-${String(nextNumber).padStart(3, '0')}`, ...decision }, current.length, selected);
+    const updated = await writeDecisionsUnlocked(projectRoot, selected, [...current, normalized]);
+    return updated.find((item) => item.decision_id === normalized.decision_id);
+  });
 }
 
 export async function decide(projectRoot, runId, decisionId, { status = 'resolved', resolution = '', resolvedBy = 'human' } = {}) {
   if (!['resolved', 'waived'].includes(status)) throw new Error('Decision status must be resolved or waived.');
-  const selected = await resolveRunId(projectRoot, runId);
-  const decisions = await readDecisions(projectRoot, selected);
-  const decision = decisions.find((item) => item.decision_id === decisionId || item.id === decisionId);
-  if (!decision) throw new Error(`Decision not found: ${decisionId}`);
-  decision.status = status;
-  decision.resolution = resolution || decision.resolution || status;
-  decision.resolved_by = resolvedBy;
-  decision.resolved_at = new Date().toISOString();
-  decision.updated_at = decision.resolved_at;
-  await writeDecisions(projectRoot, selected, decisions);
-  return decision;
+  return withDecisionLock(projectRoot, runId, async (selected) => {
+    const decisions = await readDecisionsUnlocked(projectRoot, selected);
+    const decision = decisions.find((item) => item.decision_id === decisionId || item.id === decisionId);
+    if (!decision) throw new Error(`Decision not found: ${decisionId}`);
+    decision.status = status;
+    decision.resolution = resolution || decision.resolution || status;
+    decision.resolved_by = resolvedBy;
+    decision.resolved_at = new Date().toISOString();
+    decision.updated_at = decision.resolved_at;
+    await writeDecisionsUnlocked(projectRoot, selected, decisions);
+    return decision;
+  });
 }
 
 export function summarizeDecisions(decisions, now = new Date()) {

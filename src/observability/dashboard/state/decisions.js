@@ -18,13 +18,21 @@ export async function buildDecisionState(runs) {
         summary: summarizeDecisions(decisions),
         decisions,
       });
-    } catch {
+    } catch (err) {
       entries.push({
         runId: run.runId,
         projectRoot: run.projectRoot,
         goal: run.manifest?.goal || run.runId,
         profile: run.profile?.profile || 'unknown',
-        readiness: { status: 'PASS', score: 100, mode: 'unknown', pending_required: [] },
+        readiness: {
+          status: 'WARN',
+          score: 0,
+          mode: 'unknown',
+          pending_required: [],
+          message: 'Readiness unavailable because decisions or readiness data could not be loaded.',
+          error: true,
+          errorMessage: err?.message || String(err),
+        },
         summary: { total: 0, pending: 0, resolved: 0, waived: 0, byImpact: {}, stale: [] },
         decisions: [],
       });

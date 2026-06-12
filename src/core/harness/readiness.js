@@ -20,13 +20,16 @@ export function readinessModeForProfile(profile) {
 }
 
 function stageIndex(stageId) {
-  const index = STAGE_ORDER.indexOf(stageId);
-  return index === -1 ? STAGE_ORDER.length : index;
+  return STAGE_ORDER.indexOf(stageId);
 }
 
 function isRequiredBefore(decision, targetStage) {
   if (!targetStage) return true;
-  return stageIndex(decision.required_before_stage) <= stageIndex(targetStage);
+  const requiredIndex = stageIndex(decision.required_before_stage);
+  const targetIndex = stageIndex(targetStage);
+  if (requiredIndex === -1) throw new Error(`Unknown required_before_stage: ${decision.required_before_stage}`);
+  if (targetIndex === -1) throw new Error(`Unknown target_stage: ${targetStage}`);
+  return requiredIndex <= targetIndex;
 }
 
 async function readJson(path, fallback = null) {
@@ -43,6 +46,7 @@ async function profileNameForRun(projectRoot, runId) {
 }
 
 export async function dorCheck(projectRoot, { runId, targetStage = '07-code', writeReport = true } = {}) {
+  if (targetStage && stageIndex(targetStage) === -1) throw new Error(`Unknown target_stage: ${targetStage}`);
   const selected = await resolveRunId(projectRoot, runId);
   const profile = await profileNameForRun(projectRoot, selected);
   const mode = readinessModeForProfile(profile);
