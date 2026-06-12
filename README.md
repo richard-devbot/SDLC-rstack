@@ -212,6 +212,7 @@ Mintlify docs live in [`docs/mintlify`](docs/mintlify):
 - [Builder & Validator Sandbox](docs/mintlify/getting-started/builder-validator-sandbox.mdx)
 - [AI SDLC Trends & Loopholes](docs/mintlify/reference/loopholes-roadmap.mdx)
 - [Business Hub](docs/mintlify/reference/business-hub.mdx)
+- [Decision Queue and Definition-of-Ready](docs/mintlify/reference/decision-readiness.mdx)
 - [Research Program](docs/mintlify/reference/research-program.mdx)
 
 Research-paper source material lives in [`research/`](research/): bibliography, methodology, prior-art comparison, productivity claims discipline, design history, paper outline, and the current-state audit.

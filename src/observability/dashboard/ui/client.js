@@ -140,6 +140,7 @@ var PAGE_LABELS = {
   'agent-work': 'Agent Work',
   'live-feed': 'Live Feed',
   approvals: 'Approvals',
+  decisions: 'Decisions / Readiness',
   'alerts-guardrails': 'Alerts & Guardrails',
   traceability: 'Traceability',
   'team-layers': 'Team & Layers',
@@ -158,6 +159,7 @@ var PAGE_SUBS = {
   'agent-work': 'Builder and validator work grouped by project, run, stage and agent contract.',
   'live-feed': 'Real-time event stream from events.jsonl plus live WebSocket refreshes.',
   approvals: 'Human-in-loop actions from the approval queue only.',
+  decisions: 'Decision Queue and Definition-of-Ready status from decisions.json, dor-report.json and readiness.json.',
   'alerts-guardrails': 'Threshold alerts, blocked gates, guardrails, stalled work and spend risks.',
   traceability: 'Requirements, stage artifacts, verified tasks and evidence connected by run.',
   'team-layers': 'Stack layers and framework health across harness, tracker, alerts, hooks, memory and observers.',
@@ -197,6 +199,7 @@ function applyState(state) {
   try { renderAgentWork(scoped); } catch (err) { showErr('agent work: ' + err.message); }
   try { renderLiveFeed(scoped); } catch (err) { showErr('live feed: ' + err.message); }
   try { renderApprovals(state); } catch (err) { showErr('approvals: ' + err.message); }
+  try { renderDecisions(scoped); } catch (err) { showErr('decisions: ' + err.message); }
   try { renderAlertsGuardrails(state); } catch (err) { showErr('alerts: ' + err.message); }
   try { renderTraceability(scoped); } catch (err) { showErr('traceability: ' + err.message); }
   try { renderTeamLayers(scoped); } catch (err) { showErr('team layers: ' + err.message); }
@@ -262,6 +265,25 @@ function applyScope(s) {
   copy.agentWork = (s.agentWork || []).filter(function(work) { return !work.runId || runIds[work.runId]; });
   copy.agentGroups = (s.agentGroups || []).filter(function(group) { return !group.runId || runIds[group.runId]; });
   copy.businessFlex = null;
+  if (s.decisions) {
+    var scopedDecisionRuns = (s.decisions.runs || []).filter(function(row) { return runIds[row.runId]; });
+    var scopedTotals = scopedDecisionRuns.reduce(function(acc, row) {
+      var summary = row.summary || {};
+      var readiness = row.readiness || {};
+      acc.total += Number(summary.total || 0);
+      acc.pending += Number(summary.pending || 0);
+      acc.resolved += Number(summary.resolved || 0);
+      acc.waived += Number(summary.waived || 0);
+      if (readiness.status === 'PASS') acc.pass += 1;
+      if (readiness.status === 'WARN') acc.warn += 1;
+      if (readiness.status === 'FAIL') acc.fail += 1;
+      return acc;
+    }, { total: 0, pending: 0, resolved: 0, waived: 0, pass: 0, warn: 0, fail: 0 });
+    copy.decisions = {
+      totals: scopedTotals,
+      runs: scopedDecisionRuns
+    };
+  }
   copy.presence = (s.presence || []).filter(function(item) { return runIds[item.runId]; });
   copy.trends = s.trends ? {
     stages: s.trends.stages || {},
@@ -858,6 +880,28 @@ function renderApprovals(s) {
   setText('approvals-count', pending.length + ' pending');
   setHTML('approvals-list', pending.map(function(item) { return approvalHtml(item, true); }).join('') || emptyHtml('No pending approvals', 'Only queue-backed approvals appear here.'));
   setHTML('approvals-resolved', resolved.slice(0, 20).map(function(item) { return approvalHtml(item, false); }).join('') || emptyHtml('No resolved approvals', 'Approved and rejected queue entries appear here.'));
+}
+
+function renderDecisions(s) {
+  var state = s.decisions || { runs: [], totals: {} };
+  var runs = state.runs || [];
+  var decisions = [];
+  runs.forEach(function(run) {
+    (run.decisions || []).forEach(function(decision) {
+      decisions.push({ run: run, decision: decision });
+    });
+  });
+  var pending = decisions.filter(function(item) { return item.decision.status === 'pending'; });
+  setText('decisions-count', pending.length + ' pending / ' + decisions.length + ' total');
+  setText('readiness-count', runs.length + ' runs');
+  setHTML('decisions-list', decisions.slice(0, 40).map(function(item) {
+    var d = item.decision;
+    return '<div class="approval-card ' + esc(d.status || 'pending') + '"><div class="agent-head"><div><div class="strong">' + esc(d.decision_id + ' — ' + d.question) + '</div><div class="muted">' + esc(d.recommendation ? 'Recommendation: ' + d.recommendation : 'No recommendation recorded') + '</div><div class="feed-meta"><span>' + esc(d.impact) + '</span><span>before ' + esc(d.required_before_stage) + '</span><span>' + esc((item.run.runId || '').slice(-16)) + '</span></div></div>' + pill(d.status || 'pending', d.status || 'pending') + '</div></div>';
+  }).join('') || emptyHtml('No decisions recorded', 'Use sdlc_decisions or rstack-agents decisions to add Decision Queue items.'));
+  setHTML('readiness-list', runs.map(function(run) {
+    var r = run.readiness || {};
+    return '<div class="alert-card ' + (r.status === 'FAIL' ? 'fail' : r.status === 'WARN' ? 'warn' : 'pass') + '"><div class="agent-head"><div><div class="strong">' + esc(run.goal || run.runId) + '</div><div class="muted">' + esc(r.message || 'Definition-of-Ready status') + '</div><div class="feed-meta"><span>' + esc(run.profile || '') + '</span><span>' + esc(r.mode || '') + '</span><span>score ' + esc(r.score || 0) + '</span></div></div>' + pill(r.status || 'PASS') + '</div></div>';
+  }).join('') || emptyHtml('No readiness data', 'Run sdlc_dor_check or rstack-agents dor after starting an RStack run.'));
 }
 
 function renderAlertsGuardrails(s) {
