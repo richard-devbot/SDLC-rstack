@@ -39,7 +39,9 @@
               "reference/decision-readiness",
               "reference/webhooks",
               "reference/loopholes-roadmap",
-              "reference/research-program"
+              "reference/research-program",
+              "reference/research-backed-design",
+              "reference/rfc-process"
             ]
           },
           {
@@ -92,7 +94,9 @@
               "reference/configuration",
               "reference/protected-actions",
               "reference/loopholes-roadmap",
-              "reference/research-program"
+              "reference/research-program",
+              "reference/research-backed-design",
+              "reference/rfc-process"
             ]
           }
         ]

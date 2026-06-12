@@ -112,7 +112,9 @@
         "reference/observability",
         "reference/configuration",
         "reference/protected-actions",
-        "reference/research-program"
+        "reference/research-program",
+        "reference/research-backed-design",
+        "reference/rfc-process"
       ]
     }
   ],

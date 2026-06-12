@@ -1,7 +1,7 @@
 {
   "name": "rstack-agents",
   "version": "1.8.0",
-  "description": "Production-ready agentic SDLC framework for Pi and coding agents — orchestrator, builder/validator teams, lifecycle state, and specialist reuse",
+  "description": "Production-ready agentic SDLC framework for Pi and coding agents \u2014 orchestrator, builder/validator teams, lifecycle state, and specialist reuse",
   "type": "module",
   "main": "src/index.js",
   "bin": {
@@ -50,6 +50,7 @@
     "docs/mintlify/docs.json",
     "docs/mintlify/reference/decision-readiness.mdx",
     "research/",
+    "rfcs/",
     "operator.json",
     "README.md"
   ],

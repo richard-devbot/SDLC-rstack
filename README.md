@@ -214,8 +214,10 @@ Mintlify docs live in [`docs/mintlify`](docs/mintlify):
 - [Business Hub](docs/mintlify/reference/business-hub.mdx)
 - [Decision Queue and Definition-of-Ready](docs/mintlify/reference/decision-readiness.mdx)
 - [Research Program](docs/mintlify/reference/research-program.mdx)
+- [RFC / ADR Process](docs/mintlify/reference/rfc-process.mdx)
+- [Research-Backed Design Decisions](docs/mintlify/reference/research-backed-design.mdx)
 
-Research-paper source material lives in [`research/`](research/): bibliography, methodology, prior-art comparison, productivity claims discipline, design history, paper outline, and the current-state audit.
+Research-paper source material lives in [`research/`](research/): bibliography, methodology, prior-art comparison, productivity claims discipline, design history, paper outline, and the current-state audit. Architecture decisions live in [`rfcs/`](rfcs/), with CI-backed validation for filename/status/section discipline.
 
 The original presentation is kept as a backup at:
 

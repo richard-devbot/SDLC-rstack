@@ -1,0 +1,61 @@
+---
+title: "RFC / ADR Process"
+description: "How RStack records research-backed architecture decisions and roadmap governance."
+---
+
+RStack uses RFCs as lightweight Architecture Decision Records. The process keeps major AI-SDLC platform decisions explicit, reviewable, and citable.
+
+## Why RFCs matter
+
+RStack is evolving from an npm package into a research-backed AI-SDLC operating layer. That means important choices should be traceable:
+
+- why the feature exists,
+- what decision was made,
+- what alternatives were rejected,
+- which research or prior-art references informed the decision,
+- how implementation will be validated.
+
+This turns roadmap work into primary-source evidence for the RStack research paper.
+
+## Registry
+
+The source registry lives in [`rfcs/`](https://github.com/richard-devbot/SDLC-rstack/tree/main/rfcs).
+
+| RFC | Status | Issue | Purpose |
+|---|---|---:|---|
+| [RFC-0001](../../../rfcs/RFC-0001-rstack-spec-v1alpha1.md) | Draft | #71 | RStack Spec v1alpha1. |
+| [RFC-0002](../../../rfcs/RFC-0002-decision-queue-and-readiness-gate.md) | Draft | #70 | Decision Queue and Definition-of-Ready gate. |
+| [RFC-0003](../../../rfcs/RFC-0003-cross-harness-validation.md) | Draft | #72 | Cross-harness validation independence. |
+| [RFC-0004](../../../rfcs/RFC-0004-attestation-envelope.md) | Draft | #73 | Attestation envelope. |
+| [RFC-0005](../../../rfcs/RFC-0005-traceability-drift-detection.md) | Draft | #74 | Traceability drift detection. |
+| [RFC-0006](../../../rfcs/RFC-0006-untrusted-pr-gate.md) | Draft | #75 | Untrusted PR gate. |
+
+## Lifecycle states
+
+- `Draft` — proposed and open for refinement.
+- `Accepted` — approved for implementation.
+- `Implemented` — shipped and validated.
+- `Superseded` — replaced by a later RFC.
+
+## Validation
+
+RStack includes a CI-backed RFC validator in `tests/validate-rfcs.test.js`. It checks:
+
+- RFC filenames use `RFC-000N-short-title.md`,
+- headers match the file number,
+- statuses are valid,
+- required sections exist,
+- RFC numbers are unique and sequential,
+- the index links every RFC.
+
+Run locally:
+
+```bash
+npm test
+```
+
+For a fast local RFC-only check, run `npx tsx --test tests/validate-rfcs.test.js`.
+
+## Human review rule
+
+RFC PRs should wait for CI and reviewer-bot comments before merge. A human operator should approve the merge after reviewing the summary.
