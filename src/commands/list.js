@@ -45,7 +45,9 @@ function classifyAgent(filename) {
   return 'other';
 }
 
-function parseFrontmatter(content) {
+function parseFrontmatter(rawContent) {
+  // Normalize CRLF/CR so the fence search works on Windows checkouts.
+  const content = rawContent.replace(/\r\n?/g, '\n');
   if (!content.startsWith('---')) return {};
   const end = content.indexOf('\n---', 3);
   if (end === -1) return {};

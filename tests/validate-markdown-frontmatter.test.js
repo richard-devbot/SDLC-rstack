@@ -27,7 +27,9 @@ async function walk(dir, predicate = () => true) {
   return out;
 }
 
-function frontmatterBlock(text) {
+function frontmatterBlock(rawText) {
+  // Normalize CRLF/CR so frontmatter parsing is consistent across OS checkouts.
+  const text = rawText.replace(/\r\n?/g, '\n');
   if (!text.startsWith('---\n')) return null;
   const end = text.indexOf('\n---', 4);
   assert.notEqual(end, -1, 'frontmatter should have a closing fence');

@@ -19,6 +19,12 @@ npx rstack-agents init --profile business-flex
 
 `init` auto-detects `pi | claude-code | operator | custom`, creates `.rstack/`, registers the project with the Business Hub, writes framework glue, and never overwrites existing files.
 
+If `.rstack/` already exists, `init` adopts it and preserves all prior runs — it reports how many it found. To start clean instead, archive the old state (nothing is deleted):
+
+```bash
+npx rstack-agents init --fresh   # moves runs, approvals, memory, registry, config, budget to .rstack/archive/<timestamp>/
+```
+
 Use a smaller or larger business profile when needed:
 
 ```bash
