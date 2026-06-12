@@ -161,6 +161,54 @@ test('init framework detection and setup', async (t) => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  await t.test('init on existing .rstack reports prior run count and points at --fresh', async () => {
+    const root = tmpProject('rstack-init-prior-runs-');
+    mkdirSync(join(root, '.rstack', 'runs', '2026-06-01T07-00-00-000Z-old-run-a'), { recursive: true });
+    mkdirSync(join(root, '.rstack', 'runs', '2026-06-09T10-00-00-000Z-old-run-b'), { recursive: true });
+    const report = await initFramework(root, 'custom');
+    const stateLine = report.skipped.find((item) => item.startsWith('.rstack/'));
+    assert.ok(stateLine, '.rstack/ reported as skipped');
+    assert.match(stateLine, /2 prior runs preserved/, 'prior run count surfaced');
+    assert.match(stateLine, /--fresh/, 'points the user at --fresh');
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('init --fresh archives prior state non-destructively and starts clean', async () => {
+    const root = tmpProject('rstack-init-fresh-');
+    const oldRun = join(root, '.rstack', 'runs', '2026-06-01T07-00-00-000Z-old-run');
+    mkdirSync(oldRun, { recursive: true });
+    writeFileSync(join(oldRun, 'manifest.json'), JSON.stringify({ run_id: 'old-run' }));
+    writeFileSync(join(root, '.rstack', 'approvals.jsonl'), '{"artifact":"destructive-action"}\n');
+    writeFileSync(join(root, '.rstack', 'rstack.config.json'), JSON.stringify({ profile: 'stale' }));
+
+    const report = await initFramework(root, 'custom', { profile: 'lean-mvp', fresh: true });
+    assert.ok(report.created.some((item) => item.includes('.rstack/archive/')), 'archive reported');
+
+    const runsDir = join(root, '.rstack', 'runs');
+    assert.ok(existsSync(runsDir), 'fresh runs/ exists');
+    const { readdirSync } = await import('node:fs');
+    assert.equal(readdirSync(runsDir).length, 0, 'no stale runs in fresh workspace');
+    assert.ok(!existsSync(join(root, '.rstack', 'approvals.jsonl')), 'stale approvals moved aside');
+
+    const archiveRoot = join(root, '.rstack', 'archive');
+    const [stamp] = readdirSync(archiveRoot);
+    assert.ok(existsSync(join(archiveRoot, stamp, 'runs', '2026-06-01T07-00-00-000Z-old-run', 'manifest.json')), 'old run preserved in archive');
+    assert.ok(existsSync(join(archiveRoot, stamp, 'approvals.jsonl')), 'old approvals preserved in archive');
+
+    const profile = JSON.parse(readFileSync(join(root, '.rstack', 'rstack.config.json'), 'utf8'));
+    assert.equal(profile.profile, 'lean-mvp', 'fresh init applies the requested profile, not the stale config');
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('init --fresh on a brand-new project behaves like plain init', async () => {
+    const root = tmpProject('rstack-init-fresh-clean-');
+    const report = await initFramework(root, 'custom', { fresh: true });
+    assert.ok(existsSync(join(root, '.rstack', 'runs')), 'runs/ created');
+    assert.ok(!existsSync(join(root, '.rstack', 'archive')), 'no archive created when there was nothing to archive');
+    assert.ok(report.created.some((item) => item.includes('rstack.config.json')));
+    rmSync(root, { recursive: true, force: true });
+  });
+
   await t.test('init profile files are skipped on second run (idempotent)', async () => {
     const root = tmpProject('rstack-init-idempotent-profile-');
     await initFramework(root, 'custom', { profile: 'lean-mvp' });

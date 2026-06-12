@@ -368,7 +368,9 @@ function projectPluginDirs(projectRoot = findProjectRoot()): string[] {
   ];
 }
 
-function parseFrontmatter(raw: string): Record<string, string> {
+function parseFrontmatter(rawInput: string): Record<string, string> {
+  // Normalize CRLF/CR so the fence search works on Windows checkouts.
+  const raw = rawInput.replace(/\r\n?/g, "\n");
   if (!raw.startsWith("---")) return {};
   const end = raw.indexOf("\n---", 3);
   if (end === -1) return {};
@@ -515,6 +517,17 @@ async function latestRun(projectRoot = findProjectRoot()): Promise<string | unde
     .map((entry) => entry.name)
     .sort();
   return entries.at(-1);
+}
+
+// Run owned by THIS session (set by sdlc_start). Ambient hooks and approval
+// checks must never fall back to latestRun(): that routes a new session's
+// events — and worse, destructive-action approvals — into a stale run from a
+// previous session (#98).
+let sessionRunId: string | undefined;
+
+function sessionRun(projectRoot = findProjectRoot()): string | undefined {
+  if (sessionRunId && existsSync(join(runsDir(projectRoot), sessionRunId))) return sessionRunId;
+  return undefined;
 }
 
 async function readManifest(projectRoot: string, id?: string): Promise<RunManifest> {
@@ -742,7 +755,9 @@ function selectRegistry(registry: RegistryItem[], domains: string[], limit = 6):
   return scored.filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score).slice(0, limit).map((entry) => entry.item);
 }
 
-function stripFrontmatter(raw: string): string {
+function stripFrontmatter(rawInput: string): string {
+  // Normalize CRLF/CR so the fence search works on Windows checkouts.
+  const raw = rawInput.replace(/\r\n?/g, "\n");
   if (!raw.startsWith("---")) return raw.trim();
   const end = raw.indexOf("\n---", 3);
   return end === -1 ? raw.trim() : raw.slice(end + 4).trim();
@@ -946,7 +961,7 @@ function protectedWritePath(pathValue: string): boolean {
 }
 
 async function destructiveApprovalExists(projectRoot: string): Promise<boolean> {
-  const id = await latestRun(projectRoot);
+  const id = sessionRun(projectRoot);
   if (!id) return false;
   const approvals = await readApprovals(join(runsDir(projectRoot), id));
   const approved = approvedArtifacts(approvals);
@@ -960,7 +975,7 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
   const tools = task.tools?.length ? task.tools : defaultToolsForAgent(agent.name);
   
   // Model escalation logic
-  const runId = await latestRun(projectRoot);
+  const runId = sessionRun(projectRoot);
   let attempts = 1;
   let model = process.env.RSTACK_DEFAULT_MODEL || "gemini-2.5-flash";
   if (runId) {
@@ -1054,13 +1069,13 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     const projectRoot = findProjectRoot();
-    const id = await latestRun(projectRoot);
+    const id = sessionRun(projectRoot);
     if (id) await appendEvent(projectRoot, id, { type: "session_shutdown" });
   });
 
   pi.on("tool_call", async (event: any) => {
     const projectRoot = findProjectRoot();
-    const id = await latestRun(projectRoot);
+    const id = sessionRun(projectRoot);
     if (id) await appendEvent(projectRoot, id, { type: "tool_call", tool: event.toolName, input: event.input });
 
     if (process.env.RSTACK_ALLOW_DESTRUCTIVE === "1") return undefined;
@@ -1080,7 +1095,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_result", async (event: any) => {
     const projectRoot = findProjectRoot();
-    const id = await latestRun(projectRoot);
+    const id = sessionRun(projectRoot);
     if (!id) return undefined;
     const text = Array.isArray(event.content) ? event.content.map((part: any) => part?.text || "").join("\n") : "";
     await appendEvent(projectRoot, id, { type: "tool_result", tool: event.toolName, isError: event.isError, summary: truncateText(text, 1200) });
@@ -1220,6 +1235,7 @@ export default function (pi: ExtensionAPI) {
       const id = runId(params.goal);
       const dir = join(runsDir(projectRoot), id);
       await prepareRunState(dir);
+      sessionRunId = id;
       await mkdir(memoryDir(projectRoot), { recursive: true });
       const startedBy = resolveUserIdentity(projectRoot);
       const activeProfile = await loadProjectProfile(projectRoot);

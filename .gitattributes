@@ -1,0 +1,24 @@
+# Normalize line endings so tooling (e.g. frontmatter validation) is consistent
+# across Windows/macOS/Linux checkouts.
+* text=auto eol=lf
+
+# Text assets that must stay LF for parsers and shell execution
+*.md      text eol=lf
+*.json    text eol=lf
+*.js      text eol=lf
+*.ts      text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.sh      text eol=lf
+
+# Binary assets — never normalize
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.webp    binary
+*.ico     binary
+*.docx    binary
+*.pdf     binary
+*.woff    binary
+*.woff2   binary
