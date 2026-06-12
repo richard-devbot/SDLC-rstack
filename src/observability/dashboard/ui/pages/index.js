@@ -12,6 +12,7 @@ export const pages = [
   ['live-feed', '04', 'Live Feed', 'Observe'],
   ['team', '11', 'Team & Presence', 'Observe'],
   ['approvals', '05', 'Approvals', 'Manage'],
+  ['decisions', '16', 'Decisions / Readiness', 'Manage'],
   ['alerts-guardrails', '06', 'Alerts & Guardrails', 'Manage'],
   ['traceability', '07', 'Traceability', 'Explore'],
   ['team-layers', '08', 'Team & Layers', 'Explore'],
@@ -221,6 +222,7 @@ function pageBody(id) {
       </div>
     `,
     approvals: '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Actionable Queue</span><span class="panel-note" id="approvals-count"></span></div><div class="panel-body"><div class="stack-list" id="approvals-list"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Resolved</span></div><div class="panel-body"><div class="stack-list" id="approvals-resolved"></div></div></div></div>',
+    decisions: '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Decision Queue</span><span class="panel-note" id="decisions-count"></span></div><div class="panel-body"><div class="stack-list" id="decisions-list"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Definition of Ready</span><span class="panel-note" id="readiness-count"></span></div><div class="panel-body"><div class="stack-list" id="readiness-list"></div></div></div></div>',
     'alerts-guardrails': '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Alerts</span><span class="panel-note" id="alerts-count"></span></div><div class="panel-body"><div class="stack-list" id="alerts-list"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Blocked Gates</span><span class="panel-note" id="blocked-count"></span></div><div class="panel-body"><div class="stack-list" id="blocked-list"></div></div></div></div>',
     traceability: '<div id="traceability-list"></div>',
     'team-layers': '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Stack Layers</span></div><div class="panel-body"><div class="grid-3" id="layers-grid"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Framework Breakdown</span></div><div class="table-wrap"><table><thead><tr><th>Framework</th><th>Runs</th><th>Pass</th><th>Fail</th><th>Cost</th></tr></thead><tbody id="framework-table"></tbody></table></div></div></div>',
