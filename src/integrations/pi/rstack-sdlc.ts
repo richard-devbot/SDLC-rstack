@@ -16,7 +16,7 @@ import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from "../../core/harness
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
 import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage, updateRunMetrics } from "../../core/harness/run-state.js";
 import { addDecision, decide, readDecisions, summarizeDecisions } from "../../core/harness/decisions.js";
-import { assertReadyForStage, dorCheck } from "../../core/harness/readiness.js";
+import { assertReadyForStage, dorCheck, latestStageId } from "../../core/harness/readiness.js";
 import { resolveUserIdentity } from "../../core/harness/identity.js";
 import { appendApproval as appendApprovalRequest, approvalQueueId, assertManagerAllowed, resolveQueuedApprovalForArtifact } from "../../core/tracker/approvals.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../../memory/index.js";
@@ -1493,7 +1493,7 @@ export default function (pi: ExtensionAPI) {
       const runDir = join(runsDir(projectRoot), manifest.run_id);
       const requiredApprovals = await effectiveRequiredApprovals(projectRoot, manifest, task.id);
       const missing = missingApprovals(await readApprovals(runDir), requiredApprovals);
-      const readinessStage = (task.stage_artifacts || []).find((artifact: any) => artifact?.stage_id)?.stage_id || "07-code";
+      const readinessStage = latestStageId((task.stage_artifacts || []).map((artifact: any) => artifact?.stage_id).filter(Boolean));
       const readiness = await assertReadyForStage(projectRoot, { runId: manifest.run_id, targetStage: readinessStage });
       if (!readiness.ok) {
         await appendEvent(projectRoot, manifest.run_id, { type: "dor_gate_blocked", task_id: task.id, status: readiness.report.status, pending_required: readiness.report.pending_required });

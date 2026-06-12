@@ -23,6 +23,21 @@ function stageIndex(stageId) {
   return STAGE_ORDER.indexOf(stageId);
 }
 
+// Bundled tasks cover several stages; the gate must hold until the latest of
+// them, otherwise a decision required before a mid-bundle stage never blocks.
+export function latestStageId(stageIds, fallback = '07-code') {
+  let bestIndex = -1;
+  let bestId = '';
+  for (const id of stageIds || []) {
+    const index = stageIndex(id);
+    if (index > bestIndex) {
+      bestIndex = index;
+      bestId = id;
+    }
+  }
+  return bestIndex === -1 ? fallback : bestId;
+}
+
 function isRequiredBefore(decision, targetStage) {
   if (!targetStage) return true;
   const requiredIndex = stageIndex(decision.required_before_stage);

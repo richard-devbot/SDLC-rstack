@@ -1,7 +1,7 @@
 // owner: RStack developed by Richardson Gunde
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 export const DECISION_STATUSES = Object.freeze(['pending', 'resolved', 'waived']);
@@ -22,7 +22,12 @@ export async function latestRunId(projectRoot) {
   return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().at(-1);
 }
 
+const RUN_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 export async function resolveRunId(projectRoot, runId) {
+  if (runId && !RUN_ID_REGEX.test(String(runId))) {
+    throw new Error(`Invalid run id "${runId}". Run ids may only contain letters, digits, dots, dashes, and underscores.`);
+  }
   const selected = runId || await latestRunId(projectRoot);
   if (!selected) throw new Error('No RStack run found. Start one with sdlc_start first.');
   return selected;
@@ -60,22 +65,34 @@ async function sleep(ms) {
   await new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 }
 
+const LOCK_STALE_MS = 30000;
+
 async function withDecisionLock(projectRoot, runId, fn) {
   const selected = await resolveRunId(projectRoot, runId);
   const runDir = runDirectory(projectRoot, selected);
   const lockDir = join(runDir, '.decisions.lock');
   await mkdir(runDir, { recursive: true });
   for (let attempt = 0; attempt < 60; attempt++) {
+    let acquired = false;
     try {
       await mkdir(lockDir);
+      acquired = true;
+    } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+      // Steal locks orphaned by a crashed holder so the queue cannot wedge permanently.
+      const lockStat = await stat(lockDir).catch(() => null);
+      if (lockStat && Date.now() - lockStat.mtimeMs > LOCK_STALE_MS) {
+        await rm(lockDir, { recursive: true, force: true }).catch(() => {});
+        continue;
+      }
+      await sleep(25 + attempt * 5);
+    }
+    if (acquired) {
       try {
         return await fn(selected);
       } finally {
         await rm(lockDir, { recursive: true, force: true });
       }
-    } catch (err) {
-      if (err?.code !== 'EEXIST') throw err;
-      await sleep(25 + attempt * 5);
     }
   }
   throw new Error(`Timed out waiting for decisions lock for run ${selected}`);

@@ -1,0 +1,15 @@
+{
+  "extensions": {
+    "list": [
+      {
+        "path": "D:\\SDLC-rstack\\extensions\\rstack_sdlc.py",
+        "settings": {
+          "worker_command": "",
+          "default_model": "",
+          "escalated_model": "",
+          "slack_webhook": ""
+        }
+      }
+    ]
+  }
+}

@@ -5,8 +5,9 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addDecision, decide, readDecisions, summarizeDecisions } from '../src/core/harness/decisions.js';
-import { dorCheck } from '../src/core/harness/readiness.js';
+import { utimes } from 'node:fs/promises';
+import { addDecision, decide, readDecisions, resolveRunId, summarizeDecisions } from '../src/core/harness/decisions.js';
+import { dorCheck, latestStageId } from '../src/core/harness/readiness.js';
 import { buildDecisionState } from '../src/observability/dashboard/state/decisions.js';
 import { buildFullState } from '../src/observability/dashboard/state/index.js';
 import { dashboardHtml } from '../src/observability/dashboard/ui.js';
@@ -88,6 +89,38 @@ test('Decision Queue serializes concurrent additions with unique ids', async () 
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
   }
+});
+
+test('Decision Queue steals a stale orphaned lock instead of timing out', async () => {
+  const { projectRoot, runId, runDir } = await makeRun();
+  try {
+    const lockDir = join(runDir, '.decisions.lock');
+    await mkdir(lockDir, { recursive: true });
+    const stale = new Date(Date.now() - 120000);
+    await utimes(lockDir, stale, stale);
+    const decision = await addDecision(projectRoot, runId, { question: 'Survive crashed lock holder?', impact: 'delivery' });
+    assert.equal(decision.decision_id, 'DEC-001');
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test('resolveRunId rejects run ids with path separators or traversal', async () => {
+  const { projectRoot } = await makeRun();
+  try {
+    await assert.rejects(resolveRunId(projectRoot, '..\\..\\escape'), /Invalid run id/);
+    await assert.rejects(resolveRunId(projectRoot, '../escape'), /Invalid run id/);
+    await assert.rejects(resolveRunId(projectRoot, '..'), /Invalid run id/);
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test('latestStageId gates bundled tasks on their latest stage', () => {
+  assert.equal(latestStageId(['02-requirements', '04-planning', '05-jira']), '05-jira');
+  assert.equal(latestStageId(['06-architecture', '12-security-threat-model', '14-cost-estimation']), '14-cost-estimation');
+  assert.equal(latestStageId([]), '07-code');
+  assert.equal(latestStageId(['99-made-up']), '07-code');
 });
 
 test('DoR warns for business-flex but fails for enterprise-webapp pending required decisions', async () => {
