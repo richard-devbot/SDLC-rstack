@@ -17,6 +17,8 @@ import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/
 import { notifyAll, resolveChannels, formatSlackStageMessage } from '../src/notifications/index.js';
 import { autoLaunchBusinessHub } from '../src/hooks/auto-launch.js';
 import { registerProject } from '../src/core/tracker/registry.js';
+import { addDecision, decide, readDecisions, summarizeDecisions } from '../src/core/harness/decisions.js';
+import { dorCheck } from '../src/core/harness/readiness.js';
 import { log } from '../src/utils/logger.js';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -91,10 +93,70 @@ program
   });
 
 program
+  .command('decisions')
+  .description('List, add, resolve, or waive run-level Decision Queue items')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('-r, --run-id <runId>', 'run id (defaults to latest run)')
+  .option('--add <question>', 'add a pending decision question')
+  .option('--impact <impact>', 'architecture | security | budget | scope | delivery', 'scope')
+  .option('--before <stage>', 'required before canonical stage', '06-architecture')
+  .option('--resolve <decisionId>', 'mark a decision resolved')
+  .option('--waive <decisionId>', 'mark a decision waived')
+  .option('--resolution <text>', 'resolution or waiver reason')
+  .option('--by <name>', 'resolver name', 'human')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      if (opts.add) {
+        const created = await addDecision(projectRoot, opts.runId, {
+          question: opts.add,
+          impact: opts.impact,
+          required_before_stage: opts.before,
+        });
+        console.log(JSON.stringify(created, null, 2));
+        return;
+      }
+      if (opts.resolve || opts.waive) {
+        const updated = await decide(projectRoot, opts.runId, opts.resolve || opts.waive, {
+          status: opts.resolve ? 'resolved' : 'waived',
+          resolution: opts.resolution || '',
+          resolvedBy: opts.by,
+        });
+        console.log(JSON.stringify(updated, null, 2));
+        return;
+      }
+      const decisions = await readDecisions(projectRoot, opts.runId);
+      console.log(JSON.stringify({ summary: summarizeDecisions(decisions), decisions }, null, 2));
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('dor')
+  .description('Run the Definition-of-Ready gate for the latest or selected RStack run')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('-r, --run-id <runId>', 'run id (defaults to latest run)')
+  .option('--stage <stage>', 'target canonical stage', '07-code')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const report = await dorCheck(projectRoot, { runId: opts.runId, targetStage: opts.stage });
+      console.log(JSON.stringify(report, null, 2));
+      process.exit(report.status === 'FAIL' ? 1 : 0);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
   .command('init')
   .description('Set up RStack SDLC in the current project for a host framework')
   .option('-f, --framework <framework>', `host framework: ${FRAMEWORKS.join(' | ')} (auto-detected if omitted)`)
   .option('--profile <profile>', 'business workflow profile: business-flex | enterprise-webapp | lean-mvp', 'business-flex')
+  .option('--fresh', 'archive existing .rstack state (runs, approvals, registry, config) to .rstack/archive/<timestamp>/ and start clean')
   .option('-p, --project <path>', 'project root (defaults to current directory)')
   .action(async (opts) => {
     try {
@@ -103,7 +165,7 @@ program
       if (!opts.framework) {
         console.log(chalk.dim(`[rstack] No --framework given — detected: ${framework}`));
       }
-      const report = await initFramework(projectRoot, framework, { packageRoot: resolve(__dirname, '..'), profile: opts.profile });
+      const report = await initFramework(projectRoot, framework, { packageRoot: resolve(__dirname, '..'), profile: opts.profile, fresh: opts.fresh === true });
       console.log(chalk.bold(`\n[rstack] init complete — framework: ${report.framework}`));
       console.log(chalk.dim(`[rstack] active profile: ${report.profile}`));
       for (const item of report.created) console.log(chalk.green(`  + ${item}`));

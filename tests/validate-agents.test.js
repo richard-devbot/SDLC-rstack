@@ -16,7 +16,9 @@ const AGENTS_DIR = path.join(REPO_ROOT, 'agents');
 
 const NAME_REGEX = /^[a-z0-9][a-z0-9.-]*$/;
 
-function parseFrontmatter(content) {
+function parseFrontmatter(rawContent) {
+  // Normalize CRLF/CR so the line-anchored regex matches on Windows checkouts.
+  const content = rawContent.replace(/\r\n?/g, '\n');
   if (!content.startsWith('---')) return null;
   const end = content.indexOf('\n---', 3);
   if (end === -1) return null;

@@ -15,6 +15,8 @@ import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from "../../core/harness/guardrails.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
 import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage, updateRunMetrics } from "../../core/harness/run-state.js";
+import { addDecision, decide, readDecisions, summarizeDecisions } from "../../core/harness/decisions.js";
+import { assertReadyForStage, dorCheck, latestStageId } from "../../core/harness/readiness.js";
 import { resolveUserIdentity } from "../../core/harness/identity.js";
 import { appendApproval as appendApprovalRequest, approvalQueueId, assertManagerAllowed, resolveQueuedApprovalForArtifact } from "../../core/tracker/approvals.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../../memory/index.js";
@@ -368,7 +370,9 @@ function projectPluginDirs(projectRoot = findProjectRoot()): string[] {
   ];
 }
 
-function parseFrontmatter(raw: string): Record<string, string> {
+function parseFrontmatter(rawInput: string): Record<string, string> {
+  // Normalize CRLF/CR so the fence search works on Windows checkouts.
+  const raw = rawInput.replace(/\r\n?/g, "\n");
   if (!raw.startsWith("---")) return {};
   const end = raw.indexOf("\n---", 3);
   if (end === -1) return {};
@@ -515,6 +519,17 @@ async function latestRun(projectRoot = findProjectRoot()): Promise<string | unde
     .map((entry) => entry.name)
     .sort();
   return entries.at(-1);
+}
+
+// Run owned by THIS session (set by sdlc_start). Ambient hooks and approval
+// checks must never fall back to latestRun(): that routes a new session's
+// events — and worse, destructive-action approvals — into a stale run from a
+// previous session (#98).
+let sessionRunId: string | undefined;
+
+function sessionRun(projectRoot = findProjectRoot()): string | undefined {
+  if (sessionRunId && existsSync(join(runsDir(projectRoot), sessionRunId))) return sessionRunId;
+  return undefined;
 }
 
 async function readManifest(projectRoot: string, id?: string): Promise<RunManifest> {
@@ -742,7 +757,9 @@ function selectRegistry(registry: RegistryItem[], domains: string[], limit = 6):
   return scored.filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score).slice(0, limit).map((entry) => entry.item);
 }
 
-function stripFrontmatter(raw: string): string {
+function stripFrontmatter(rawInput: string): string {
+  // Normalize CRLF/CR so the fence search works on Windows checkouts.
+  const raw = rawInput.replace(/\r\n?/g, "\n");
   if (!raw.startsWith("---")) return raw.trim();
   const end = raw.indexOf("\n---", 3);
   return end === -1 ? raw.trim() : raw.slice(end + 4).trim();
@@ -946,7 +963,7 @@ function protectedWritePath(pathValue: string): boolean {
 }
 
 async function destructiveApprovalExists(projectRoot: string): Promise<boolean> {
-  const id = await latestRun(projectRoot);
+  const id = sessionRun(projectRoot);
   if (!id) return false;
   const approvals = await readApprovals(join(runsDir(projectRoot), id));
   const approved = approvedArtifacts(approvals);
@@ -960,7 +977,7 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
   const tools = task.tools?.length ? task.tools : defaultToolsForAgent(agent.name);
   
   // Model escalation logic
-  const runId = await latestRun(projectRoot);
+  const runId = sessionRun(projectRoot);
   let attempts = 1;
   let model = process.env.RSTACK_DEFAULT_MODEL || "gemini-2.5-flash";
   if (runId) {
@@ -1054,13 +1071,13 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     const projectRoot = findProjectRoot();
-    const id = await latestRun(projectRoot);
+    const id = sessionRun(projectRoot);
     if (id) await appendEvent(projectRoot, id, { type: "session_shutdown" });
   });
 
   pi.on("tool_call", async (event: any) => {
     const projectRoot = findProjectRoot();
-    const id = await latestRun(projectRoot);
+    const id = sessionRun(projectRoot);
     if (id) await appendEvent(projectRoot, id, { type: "tool_call", tool: event.toolName, input: event.input });
 
     if (process.env.RSTACK_ALLOW_DESTRUCTIVE === "1") return undefined;
@@ -1080,7 +1097,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_result", async (event: any) => {
     const projectRoot = findProjectRoot();
-    const id = await latestRun(projectRoot);
+    const id = sessionRun(projectRoot);
     if (!id) return undefined;
     const text = Array.isArray(event.content) ? event.content.map((part: any) => part?.text || "").join("\n") : "";
     await appendEvent(projectRoot, id, { type: "tool_result", tool: event.toolName, isError: event.isError, summary: truncateText(text, 1200) });
@@ -1220,6 +1237,7 @@ export default function (pi: ExtensionAPI) {
       const id = runId(params.goal);
       const dir = join(runsDir(projectRoot), id);
       await prepareRunState(dir);
+      sessionRunId = id;
       await mkdir(memoryDir(projectRoot), { recursive: true });
       const startedBy = resolveUserIdentity(projectRoot);
       const activeProfile = await loadProjectProfile(projectRoot);
@@ -1294,6 +1312,84 @@ export default function (pi: ExtensionAPI) {
       await appendEvent(projectRoot, manifest.run_id, { type: "clarification_requested", question_count: questions.length });
       const text = `Before planning, answer only what materially changes the build. Recommended questions:\n${questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n\nCall sdlc_clarify again with answers, or call sdlc_plan if these are already clear.`;
       return { content: [{ type: "text", text }], details: { manifest, answers: [], questions } };
+    },
+  });
+
+  pi.registerTool({
+    name: "sdlc_decisions",
+    label: "RStack Decision Queue",
+    description: "List or add run-level decisions that must be resolved before later SDLC stages.",
+    parameters: Type.Object({
+      run_id: Type.Optional(Type.String()),
+      question: Type.Optional(Type.String({ description: "When provided, add this as a pending decision." })),
+      impact: Type.Optional(StringEnum(["architecture", "security", "budget", "scope", "delivery"] as const, { default: "scope" })),
+      required_before_stage: Type.Optional(Type.String({ description: "Canonical stage that requires this decision first." })),
+      recommendation: Type.Optional(Type.String()),
+      owner: Type.Optional(Type.String()),
+    }),
+    async execute(_id, params) {
+      const projectRoot = findProjectRoot();
+      const manifest = await readManifest(projectRoot, params.run_id);
+      if (params.question) {
+        const created = await addDecision(projectRoot, manifest.run_id, {
+          question: params.question,
+          impact: params.impact || "scope",
+          required_before_stage: params.required_before_stage || "06-architecture",
+          recommendation: params.recommendation || "",
+          owner: params.owner || "product-owner",
+        });
+        await appendEvent(projectRoot, manifest.run_id, { type: "decision_added", decision_id: created.decision_id, impact: created.impact, required_before_stage: created.required_before_stage });
+      }
+      const decisions = await readDecisions(projectRoot, manifest.run_id);
+      const summary = summarizeDecisions(decisions);
+      const pending = decisions.filter((decision) => decision.status === "pending");
+      return {
+        content: [{ type: "text", text: `Decision Queue for ${manifest.run_id}: ${summary.pending} pending, ${summary.resolved} resolved, ${summary.waived} waived.\n${pending.map((decision) => `- ${decision.decision_id}: ${decision.question} (before ${decision.required_before_stage})`).join("\n") || "No pending decisions."}` }],
+        details: { run_id: manifest.run_id, summary, decisions },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "sdlc_decide",
+    label: "RStack Resolve Decision",
+    description: "Resolve or waive a pending Decision Queue item.",
+    parameters: Type.Object({
+      run_id: Type.Optional(Type.String()),
+      decision_id: Type.String(),
+      status: Type.Optional(StringEnum(["resolved", "waived"] as const, { default: "resolved" })),
+      resolution: Type.String(),
+      resolved_by: Type.Optional(Type.String()),
+    }),
+    async execute(_id, params) {
+      const projectRoot = findProjectRoot();
+      const manifest = await readManifest(projectRoot, params.run_id);
+      const resolvedBy = params.resolved_by || resolveUserIdentity(projectRoot).name;
+      const decision = await decide(projectRoot, manifest.run_id, params.decision_id, {
+        status: params.status || "resolved",
+        resolution: params.resolution,
+        resolvedBy,
+      });
+      await appendEvent(projectRoot, manifest.run_id, { type: "decision_resolved", decision_id: decision.decision_id, status: decision.status, resolved_by: resolvedBy });
+      await addTrace(projectRoot, manifest.run_id, { type: "decision", decision_id: decision.decision_id, status: decision.status, resolution: decision.resolution });
+      return { content: [{ type: "text", text: `Decision ${decision.decision_id} ${decision.status}: ${decision.resolution}` }], details: decision };
+    },
+  });
+
+  pi.registerTool({
+    name: "sdlc_dor_check",
+    label: "RStack Definition of Ready",
+    description: "Evaluate unresolved decisions and write dor-report.json/readiness.json for the selected run.",
+    parameters: Type.Object({
+      run_id: Type.Optional(Type.String()),
+      target_stage: Type.Optional(Type.String({ description: "Canonical stage to check readiness for." })),
+    }),
+    async execute(_id, params) {
+      const projectRoot = findProjectRoot();
+      const manifest = await readManifest(projectRoot, params.run_id);
+      const report = await dorCheck(projectRoot, { runId: manifest.run_id, targetStage: params.target_stage || "07-code" });
+      await appendEvent(projectRoot, manifest.run_id, { type: "dor_check", status: report.status, score: report.score, pending_required: report.pending_required });
+      return { content: [{ type: "text", text: `Definition-of-Ready ${report.status} (${report.score}/100): ${report.message}` }], details: report };
     },
   });
 
@@ -1397,6 +1493,18 @@ export default function (pi: ExtensionAPI) {
       const runDir = join(runsDir(projectRoot), manifest.run_id);
       const requiredApprovals = await effectiveRequiredApprovals(projectRoot, manifest, task.id);
       const missing = missingApprovals(await readApprovals(runDir), requiredApprovals);
+      const readinessStage = latestStageId((task.stage_artifacts || []).map((artifact: any) => artifact?.stage_id).filter(Boolean));
+      const readiness = await assertReadyForStage(projectRoot, { runId: manifest.run_id, targetStage: readinessStage });
+      if (!readiness.ok) {
+        await appendEvent(projectRoot, manifest.run_id, { type: "dor_gate_blocked", task_id: task.id, status: readiness.report.status, pending_required: readiness.report.pending_required });
+        return {
+          content: [{ type: "text", text: `Definition-of-Ready blocked ${task.id}. Pending required decision(s): ${readiness.report.pending_required.join(", ")}\nUse sdlc_decisions to inspect and sdlc_decide to resolve or waive.` }],
+          details: { run_id: manifest.run_id, task, readiness: readiness.report }
+        };
+      }
+      if (readiness.report.status === "WARN" && (readiness.report.pending_required?.length || 0) > 0) {
+        await appendEvent(projectRoot, manifest.run_id, { type: "dor_gate_warning", task_id: task.id, pending_required: readiness.report.pending_required });
+      }
       if (missing.length) {
         await appendEvent(projectRoot, manifest.run_id, { type: "approval_gate_blocked", task_id: task.id, missing });
         const requestedBy = manifest.started_by?.name ?? resolveUserIdentity(projectRoot).name;

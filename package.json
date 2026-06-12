@@ -47,6 +47,8 @@
     "plugins/",
     "docs/public/",
     "docs/HARNESS.md",
+    "docs/mintlify/docs.json",
+    "docs/mintlify/reference/decision-readiness.mdx",
     "research/",
     "rfcs/",
     "operator.json",

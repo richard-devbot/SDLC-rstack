@@ -13,7 +13,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { registerProject } from '../core/tracker/registry.js';
 import { budgetPolicyForProfile, profileConfig } from '../core/profiles.js';
@@ -36,10 +36,46 @@ export async function detectFramework(projectRoot) {
   return 'custom';
 }
 
-async function ensureStateDir(projectRoot, report) {
+async function countPriorRuns(stateDir) {
+  const runsPath = join(stateDir, 'runs');
+  if (!existsSync(runsPath)) return 0;
+  const entries = await readdir(runsPath, { withFileTypes: true });
+  return entries.filter((entry) => entry.isDirectory()).length;
+}
+
+// State init adopts an existing .rstack/ — but a business user expects init to
+// mean "clean slate", so an adopted workspace with stale runs must say so
+// loudly, and --fresh must offer a non-destructive way out (#99).
+const ARCHIVABLE_STATE = ['runs', 'approvals.jsonl', 'memory', 'registry', 'rstack.config.json', 'budget.json'];
+
+async function archiveExistingState(stateDir, report) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const archiveDir = join(stateDir, 'archive', stamp);
+  let moved = 0;
+  for (const entry of ARCHIVABLE_STATE) {
+    const source = join(stateDir, entry);
+    if (!existsSync(source)) continue;
+    await mkdir(archiveDir, { recursive: true });
+    await rename(source, join(archiveDir, entry));
+    moved += 1;
+  }
+  if (moved > 0) {
+    report.created.push(`.rstack/archive/${stamp}/ (--fresh moved ${moved} prior state entr${moved === 1 ? 'y' : 'ies'} aside — nothing deleted)`);
+  }
+  await mkdir(join(stateDir, 'runs'), { recursive: true });
+}
+
+async function ensureStateDir(projectRoot, report, { fresh = false } = {}) {
   const stateDir = join(projectRoot, '.rstack');
   if (existsSync(stateDir)) {
-    report.skipped.push('.rstack/ (already exists)');
+    if (fresh) {
+      await archiveExistingState(stateDir, report);
+      return;
+    }
+    const priorRuns = await countPriorRuns(stateDir);
+    report.skipped.push(priorRuns > 0
+      ? `.rstack/ (already exists — ${priorRuns} prior run${priorRuns === 1 ? '' : 's'} preserved; rerun with --fresh to archive them and start clean)`
+      : '.rstack/ (already exists)');
   } else {
     await mkdir(join(stateDir, 'runs'), { recursive: true });
     report.created.push('.rstack/');
@@ -64,7 +100,7 @@ const ENV_HINTS = [
   'RSTACK_ESCALATED_MODEL — model used when a task needs attempt >= 2',
 ];
 
-export async function initFramework(projectRoot, framework, { packageRoot, profile = 'business-flex' } = {}) {
+export async function initFramework(projectRoot, framework, { packageRoot, profile = 'business-flex', fresh = false } = {}) {
   const root = resolve(projectRoot);
   const fw = framework ?? await detectFramework(root);
   if (!FRAMEWORKS.includes(fw)) {
@@ -73,7 +109,7 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
 
   const activeProfile = profileConfig(profile);
   const report = { framework: fw, profile: activeProfile.profile, projectRoot: root, created: [], skipped: [], nextSteps: [] };
-  await ensureStateDir(root, report);
+  await ensureStateDir(root, report, { fresh });
   await writeIfMissing(
     join(root, '.rstack', 'rstack.config.json'),
     JSON.stringify(activeProfile, null, 2) + '\n',

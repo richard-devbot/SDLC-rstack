@@ -19,6 +19,12 @@ npx rstack-agents init --profile business-flex
 
 `init` auto-detects `pi | claude-code | operator | custom`, creates `.rstack/`, registers the project with the Business Hub, writes framework glue, and never overwrites existing files.
 
+If `.rstack/` already exists, `init` adopts it and preserves all prior runs — it reports how many it found. To start clean instead, archive the old state (nothing is deleted):
+
+```bash
+npx rstack-agents init --fresh   # moves runs, approvals, memory, registry, config, budget to .rstack/archive/<timestamp>/
+```
+
 Use a smaller or larger business profile when needed:
 
 ```bash
@@ -206,6 +212,7 @@ Mintlify docs live in [`docs/mintlify`](docs/mintlify):
 - [Builder & Validator Sandbox](docs/mintlify/getting-started/builder-validator-sandbox.mdx)
 - [AI SDLC Trends & Loopholes](docs/mintlify/reference/loopholes-roadmap.mdx)
 - [Business Hub](docs/mintlify/reference/business-hub.mdx)
+- [Decision Queue and Definition-of-Ready](docs/mintlify/reference/decision-readiness.mdx)
 - [Research Program](docs/mintlify/reference/research-program.mdx)
 - [RFC / ADR Process](docs/mintlify/reference/rfc-process.mdx)
 - [Research-Backed Design Decisions](docs/mintlify/reference/research-backed-design.mdx)

@@ -1,0 +1,36 @@
+---
+title: Decision Queue and Definition-of-Ready
+description: Front-load business and technical decisions before agent execution.
+---
+
+<!-- owner: RStack developed by Richardson Gunde -->
+
+# Decision Queue and Definition-of-Ready
+
+RStack treats unresolved product, architecture, security, budget, scope, and delivery choices as first-class run artifacts instead of hidden conversation context.
+
+## Why this improves AI-SDLC reliability
+
+Research-backed AI-SDLC systems reduce ambiguity before execution. Augment Code's AI-SDLC reference architecture highlights orchestration, observability, and governance layers, while comparable decision-engine patterns show that operator decisions are cheaper and safer before build work starts. RStack adapts that into auditable `.rstack` files so agents do not make expensive mid-build guesses.
+
+## Artifacts
+
+```text
+.rstack/runs/<run-id>/decisions.json
+.rstack/runs/<run-id>/dor-report.json
+.rstack/runs/<run-id>/readiness.json
+```
+
+## CLI
+
+```bash
+rstack-agents decisions --project .
+rstack-agents dor --project .
+```
+
+## Runtime behavior
+
+- `business-flex` defaults to warning / approval mode.
+- `enterprise-webapp` defaults to blocking mode.
+- Pending required decisions block build preparation only when the active profile is blocking.
+- Resolved and waived decisions both satisfy the readiness gate, but waived decisions stay visible in audit data.

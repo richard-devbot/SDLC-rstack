@@ -23,7 +23,7 @@ test('package-local publishable asset directories exist', () => {
 
 test('package.json ships Pi extension, agents, skills, prompts, plugins, research, and RFCs', async () => {
   const pkg = await readJson('package.json');
-  for (const required of ['extensions/', 'agents/', 'skills/', 'prompts/', 'plugins/', 'research/', 'rfcs/']) {
+  for (const required of ['extensions/', 'agents/', 'skills/', 'prompts/', 'plugins/', 'research/', 'rfcs/', 'docs/mintlify/docs.json', 'docs/mintlify/reference/decision-readiness.mdx']) {
     assert.ok(pkg.files.includes(required), `package.json files should include ${required}`);
   }
   assert.deepEqual(pkg.pi.extensions, ['./extensions/rstack-sdlc.ts']);

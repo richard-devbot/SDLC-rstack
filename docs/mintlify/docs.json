@@ -36,6 +36,7 @@
             "pages": [
               "reference/business-hub",
               "reference/approvals",
+              "reference/decision-readiness",
               "reference/webhooks",
               "reference/loopholes-roadmap",
               "reference/research-program",
@@ -89,6 +90,7 @@
               "reference/cli",
               "reference/pi-tools",
               "reference/observability",
+              "reference/decision-readiness",
               "reference/configuration",
               "reference/protected-actions",
               "reference/loopholes-roadmap",

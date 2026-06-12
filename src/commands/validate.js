@@ -25,10 +25,12 @@ const AGENTS_DIR = path.join(PACKAGE_ROOT, 'agents');
 const NAME_REGEX = /^[a-z0-9][a-z0-9.-]*$/;
 
 function parseFrontmatter(content) {
-  if (!content.startsWith('---')) return null;
-  const end = content.indexOf('\n---', 3);
+  // Normalize CRLF/CR so the line-anchored regex below matches on Windows checkouts.
+  const normalized = content.replace(/\r\n?/g, '\n');
+  if (!normalized.startsWith('---')) return null;
+  const end = normalized.indexOf('\n---', 3);
   if (end === -1) return null;
-  const block = content.slice(3, end);
+  const block = normalized.slice(3, end);
   const out = {};
   for (const line of block.split('\n')) {
     const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
