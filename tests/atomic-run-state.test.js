@@ -135,13 +135,18 @@ test('a fresh lock is honored — waiter blocks until release', async () => {
   const file = join(dir, 'tasks.json');
 
   const order = [];
+  // Signal the moment the holder is inside the critical section, so the waiter
+  // is only started once the lock is provably held — no timing guess that can
+  // race on a slow/contended CI runner.
+  let holderEntered;
+  const holderEnteredP = new Promise((resolve) => { holderEntered = resolve; });
   const holder = withFileLock(file, async () => {
     order.push('holder-start');
-    await new Promise((done) => setTimeout(done, 120));
+    holderEntered();
+    await new Promise((done) => setTimeout(done, 50));
     order.push('holder-end');
   });
-  // Give the holder a head start so the waiter finds the lock present.
-  await new Promise((done) => setTimeout(done, 20));
+  await holderEnteredP;
   const waiter = withFileLock(file, async () => {
     order.push('waiter');
   });
