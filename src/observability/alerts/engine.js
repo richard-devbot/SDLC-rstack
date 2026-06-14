@@ -135,8 +135,11 @@ export function plainLanguageSummary(event) {
       return `Run started${event.task_count ? ` — ${event.task_count} tasks planned` : ''}`;
     case 'plan_created':
       return `Plan created — ${event.task_count ?? '?'} tasks`;
-    case 'cost_recorded':
-      return `Cost recorded: $${Number(event.usd ?? event.cost ?? 0).toFixed(4)}`;
+    case 'cost_recorded': {
+      const rawCost = event.usd ?? event.cost ?? 0;
+      const cost = Number(rawCost);
+      return `Cost recorded: $${Number.isFinite(cost) ? cost.toFixed(4) : '0.0000'}`;
+    }
     case 'guardrail_triggered':
       return `Guardrail hit: ${event.limit_name ?? event.limit ?? '?'}`;
     case 'memory_recalled':
