@@ -1,7 +1,8 @@
-import { mkdir, readFile, writeFile, cp, rm } from 'node:fs/promises';
+import { mkdir, readFile, cp, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CANONICAL_SDLC_STAGES, assertCanonicalStages, getCanonicalStage } from './stages.js';
+import { withFileLock, writeJsonAtomic } from './safe-write.js';
 
 export function stageArtifactsDir(runDir) {
   return join(runDir, 'artifacts', 'stages');
@@ -37,33 +38,38 @@ export async function prepareRunState(runDir) {
 
 export async function updateRunMetrics(runDir, metricsUpdate = {}) {
   const path = join(runDir, 'metrics.json');
-  let current = {
-    cumulative_duration_ms: 0,
-    cumulative_cost_usd: 0,
-    cumulative_tool_calls: 0,
-    stage_elapsed_ms: {},
-    stage_status: {},
-  };
+  // Lock the whole read-modify-write: concurrent stage updates (parallel
+  // builders, dashboard actions) must both land instead of the last writer
+  // silently dropping the first (issue #81).
+  return withFileLock(path, async () => {
+    let current = {
+      cumulative_duration_ms: 0,
+      cumulative_cost_usd: 0,
+      cumulative_tool_calls: 0,
+      stage_elapsed_ms: {},
+      stage_status: {},
+    };
 
-  if (existsSync(path)) {
-    try {
-      current = JSON.parse(await readFile(path, 'utf8'));
-    } catch { current = {}; }
-  }
+    if (existsSync(path)) {
+      try {
+        current = JSON.parse(await readFile(path, 'utf8'));
+      } catch { current = {}; }
+    }
 
-  const merged = {
-    ...current,
-    ...metricsUpdate,
-    stage_elapsed_ms: { ...current.stage_elapsed_ms, ...(metricsUpdate.stage_elapsed_ms || {}) },
-    stage_status: { ...current.stage_status, ...(metricsUpdate.stage_status || {}) },
-  };
+    const merged = {
+      ...current,
+      ...metricsUpdate,
+      stage_elapsed_ms: { ...current.stage_elapsed_ms, ...(metricsUpdate.stage_elapsed_ms || {}) },
+      stage_status: { ...current.stage_status, ...(metricsUpdate.stage_status || {}) },
+    };
 
-  if (metricsUpdate.cumulative_duration_ms !== undefined) merged.cumulative_duration_ms = metricsUpdate.cumulative_duration_ms;
-  if (metricsUpdate.cumulative_cost_usd !== undefined) merged.cumulative_cost_usd = metricsUpdate.cumulative_cost_usd;
-  if (metricsUpdate.cumulative_tool_calls !== undefined) merged.cumulative_tool_calls = metricsUpdate.cumulative_tool_calls;
+    if (metricsUpdate.cumulative_duration_ms !== undefined) merged.cumulative_duration_ms = metricsUpdate.cumulative_duration_ms;
+    if (metricsUpdate.cumulative_cost_usd !== undefined) merged.cumulative_cost_usd = metricsUpdate.cumulative_cost_usd;
+    if (metricsUpdate.cumulative_tool_calls !== undefined) merged.cumulative_tool_calls = metricsUpdate.cumulative_tool_calls;
 
-  await writeFile(path, JSON.stringify(merged, null, 2));
-  return merged;
+    await writeJsonAtomic(path, merged);
+    return merged;
+  });
 }
 
 export async function createStageCheckpoint(runDir, stageId) {
