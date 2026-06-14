@@ -197,7 +197,9 @@ export function buildStageTrends(runs) {
   for (const run of runs ?? []) {
     const events = run.events ?? [];
     const tasks = run.tasks ?? [];
-    const elapsed = deriveStageElapsed(events, tasks);
+    // Index-served runs carry precomputed rollups (run.stageElapsed /
+    // run.totals) so trends never need their raw events re-parsed.
+    const elapsed = run.stageElapsed ?? deriveStageElapsed(events, tasks);
     const seenStages = new Set();
     for (const [stageId, ms] of Object.entries(elapsed)) {
       const entry = (stages[stageId] ??= { runs: 0, total_elapsed_ms: 0, avg_elapsed_ms: 0, completions: 0 });
@@ -205,7 +207,7 @@ export function buildStageTrends(runs) {
       entry.completions++;
       if (!seenStages.has(stageId)) { entry.runs++; seenStages.add(stageId); }
     }
-    const totals = deriveRunTotals(events);
+    const totals = run.totals ?? deriveRunTotals(events);
     runRows.push({
       runId: run.runId,
       created_at: run.manifest?.created_at ?? null,

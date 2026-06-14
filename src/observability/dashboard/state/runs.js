@@ -122,11 +122,14 @@ async function indexArtifacts(runDir) {
   return index.sort((a, b) => a.stage.localeCompare(b.stage) || a.path.localeCompare(b.path));
 }
 
-export async function getRunsForRoot(projectRoot) {
+export async function getRunsForRoot(projectRoot, options = {}) {
   const runsDir = join(projectRoot, '.rstack', 'runs');
   if (!existsSync(runsDir)) return [];
   let entries;
   try { entries = await readdir(runsDir); } catch { return []; }
+  // Scoped parse: the rollup index passes the set of runs that actually need
+  // a full re-parse; everything else is served from .rstack/index.json.
+  if (options.only) entries = entries.filter((runId) => options.only.has(runId));
 
   const runs = await Promise.all(entries.map(async (runId) => {
     const runDir = join(runsDir, runId);

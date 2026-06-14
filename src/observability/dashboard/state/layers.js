@@ -72,15 +72,21 @@ export function buildLayerSummaries(state) {
   ];
 }
 
-export function buildDiagnostics(runs, roots) {
+export function buildDiagnostics(runs, roots, indexMeta = null) {
   const tasks = (runs ?? []).flatMap((run) => run.tasks ?? []);
+  const fullyParsed = (runs ?? []).filter((run) => !run.fromIndex);
+  const fullyParsedTasks = fullyParsed.flatMap((run) => run.tasks ?? []);
   return {
     sourceRoots: roots ?? [],
     runCount: runs?.length ?? 0,
     taskCount: tasks.length,
     eventCount: (runs ?? []).reduce((total, run) => total + (run.events?.length ?? 0), 0),
     evidenceCount: (runs ?? []).reduce((total, run) => total + (run.evidence?.length ?? 0), 0),
-    missingBuilderCount: tasks.filter((task) => !task.builder).length,
-    missingValidationCount: tasks.filter((task) => !task.validation).length,
+    // builder/validation payloads are only hydrated on fully-parsed runs, so
+    // index-served runs must not be counted as "missing" artifacts.
+    missingBuilderCount: fullyParsedTasks.filter((task) => !task.builder).length,
+    missingValidationCount: fullyParsedTasks.filter((task) => !task.validation).length,
+    // Rollup index freshness + retention visibility for the Diagnostics page.
+    index: indexMeta,
   };
 }
