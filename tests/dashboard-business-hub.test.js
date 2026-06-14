@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildFullState, resolveDashboardApproval } from '../src/observability/dashboard/state/index.js';
 import { dashboardHtml } from '../src/observability/dashboard/ui.js';
+import { plainLanguageSummary } from '../src/observability/alerts/engine.js';
 
 async function writeJson(filePath, value) {
   await writeFile(filePath, JSON.stringify(value, null, 2));
@@ -156,6 +157,12 @@ test('Business Hub client does not overwrite a live WebSocket label after HTTP s
   assert.match(html, /if \(!WS_CONNECTED\) \{\s*setConnectionStatus\('connecting', 'Loaded \(connecting…\)'\);/);
 });
 
+test('Business Hub renders malformed cost events without NaN in live activity', () => {
+  assert.equal(plainLanguageSummary({ type: 'cost_recorded', usd: 'NaN' }), 'Cost recorded: $0.0000');
+  assert.equal(plainLanguageSummary({ type: 'cost_recorded', cost: Number.NaN }), 'Cost recorded: $0.0000');
+  assert.equal(plainLanguageSummary({ type: 'cost_recorded', usd: 0.25 }), 'Cost recorded: $0.2500');
+});
+
 test('Business Hub exposes the planned production observability screens', () => {
   const html = dashboardHtml(3008);
   const expectedPages = [
@@ -163,9 +170,17 @@ test('Business Hub exposes the planned production observability screens', () => 
     'business-flex',
     'workflow',
     'projects',
+    'run-report',
+    'run-analytics',
     'agent-work',
     'live-feed',
+    'team',
     'approvals',
+    'decisions',
+    'release-readiness',
+    'security',
+    'compliance',
+    'cost-budget',
     'alerts-guardrails',
     'traceability',
     'team-layers',
@@ -175,6 +190,51 @@ test('Business Hub exposes the planned production observability screens', () => 
   for (const page of expectedPages) {
     assert.match(html, new RegExp(`data-page="${page}"`));
     assert.match(html, new RegExp(`id="page-${page}"`));
+  }
+});
+
+test('Business Hub navigation is organized around mission-critical SDLC functions', () => {
+  const html = dashboardHtml(3008);
+  for (const section of ['DELIVER', 'QUALITY', 'GOVERN', 'OPERATE']) {
+    assert.match(html, new RegExp(`>${section}<`));
+  }
+  for (const label of ['Release Readiness', 'Security', 'Compliance', 'Cost & Budget', 'Decisions / Readiness']) {
+    assert.match(html, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+});
+
+test('Command Center exposes an executive mission brief and decision-grade rollup', () => {
+  const html = dashboardHtml(3008);
+  const expectedSections = [
+    'executive-mission-brief',
+    'executive-readiness-verdict',
+    'executive-next-action',
+    'executive-risk-strip',
+    'executive-governance-score',
+  ];
+
+  for (const section of expectedSections) {
+    assert.match(html, new RegExp(`id="${section}"`));
+  }
+
+  assert.match(html, /function renderExecutiveMissionBrief\(s\)/);
+});
+
+test('Governance pages expose release readiness, security, compliance and cost shells', () => {
+  const html = dashboardHtml(3008);
+  const expectedSections = [
+    'release-readiness-verdict',
+    'release-readiness-checklist',
+    'security-threat-heatmap',
+    'security-threat-registry',
+    'compliance-scorecards',
+    'compliance-controls',
+    'cost-budget-summary',
+    'cost-budget-drivers',
+  ];
+
+  for (const section of expectedSections) {
+    assert.match(html, new RegExp(`id="${section}"`));
   }
 });
 
