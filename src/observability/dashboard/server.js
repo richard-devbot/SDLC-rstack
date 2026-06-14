@@ -15,6 +15,7 @@ import {
   etagFor,
   ifNoneMatchSatisfied,
   logHttpRequest,
+  stableStringify,
 } from './hardening.js';
 
 // owner: RStack developed by Richardson Gunde
@@ -360,15 +361,9 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/state' && req.method === 'GET') {
     try {
       const state = await buildFullState(PROJECT_ROOT);
-      // Hash the state minus its per-request `ts` — and minus each alert's
-      // evaluation timestamp, which the stateless alert engine restamps on
-      // every rebuild — so an unchanged project yields a stable ETag and
-      // revalidation can actually return 304.
-      const { ts: _ts, ...stable } = state;
-      if (Array.isArray(stable.alerts)) {
-        stable.alerts = stable.alerts.map(({ ts: _alertTs, ...alert }) => alert);
-      }
-      sendJsonCacheable(req, res, 200, state, { hashInput: JSON.stringify(stable) });
+      // Hash a projection with server eval-time timestamps stripped, so an
+      // unchanged project yields a stable ETag and revalidation returns 304.
+      sendJsonCacheable(req, res, 200, state, { hashInput: stableStringify(state) });
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: String(err?.message) }));

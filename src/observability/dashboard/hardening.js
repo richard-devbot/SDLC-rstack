@@ -67,6 +67,32 @@ export function etagFor(payload) {
   return '"' + createHash('sha256').update(payload).digest('base64url') + '"';
 }
 
+// State builders restamp evaluation timestamps ("now") on every rebuild — the
+// top-level `ts`, each alert's `ts`, the decision-readiness `generated_at`, and
+// any future per-page stamp. Hashing those would make every poll a fresh ETag
+// and 304s would never fire. Recursively drop any key that is a server
+// eval-time stamp so the ETag tracks real data changes only. This is safe for
+// cache correctness: a meaningful data change is never *only* a timestamp —
+// it always moves a status, count, or id that survives this strip.
+const VOLATILE_TS_KEY = /^(ts|generated_at|generatedAt|evaluated_at|evaluatedAt|computed_at|computedAt)$/;
+
+export function stableStringify(value) {
+  return JSON.stringify(stripVolatileTimestamps(value));
+}
+
+function stripVolatileTimestamps(value) {
+  if (Array.isArray(value)) return value.map(stripVolatileTimestamps);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (VOLATILE_TS_KEY.test(key)) continue;
+      out[key] = stripVolatileTimestamps(val);
+    }
+    return out;
+  }
+  return value;
+}
+
 export function ifNoneMatchSatisfied(headerValue, etag) {
   if (!headerValue) return false;
   const header = String(headerValue).trim();

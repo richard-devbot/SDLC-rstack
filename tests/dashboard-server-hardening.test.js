@@ -19,7 +19,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createRateLimiter, etagFor, ifNoneMatchSatisfied } from '../src/observability/dashboard/hardening.js';
+import { createRateLimiter, etagFor, ifNoneMatchSatisfied, stableStringify } from '../src/observability/dashboard/hardening.js';
 
 const SERVER_PATH = join(process.cwd(), 'src', 'observability', 'dashboard', 'server.js');
 
@@ -143,6 +143,19 @@ test('ETag helpers: stable hashes and If-None-Match matching incl. weak/list for
   assert.equal(ifNoneMatchSatisfied('*', etag), true);
   assert.equal(ifNoneMatchSatisfied('"other"', etag), false);
   assert.equal(ifNoneMatchSatisfied(undefined, etag), false);
+});
+
+test('stableStringify drops server eval-time timestamps so the ETag is stable across rebuilds', () => {
+  // Two consecutive state builds differ only in restamped "now" fields at any
+  // nesting depth — top-level ts, alert ts, decision-readiness generated_at.
+  const buildA = { ts: '2026-06-14T09:00:00.000Z', runs: [{ id: 'r1', status: 'DONE' }], alerts: [{ kind: 'stalled', ts: 1 }], decisions: { runs: [{ readiness: { generated_at: '2026-06-14T09:00:00.001Z', status: 'PASS' } }] } };
+  const buildB = { ts: '2026-06-14T09:00:05.000Z', runs: [{ id: 'r1', status: 'DONE' }], alerts: [{ kind: 'stalled', ts: 2 }], decisions: { runs: [{ readiness: { generated_at: '2026-06-14T09:00:05.999Z', status: 'PASS' } }] } };
+  assert.equal(stableStringify(buildA), stableStringify(buildB), 'timestamp-only deltas hash identically');
+  assert.equal(etagFor(stableStringify(buildA)), etagFor(stableStringify(buildB)));
+
+  // A real data change (status moves) must still change the hash.
+  const buildC = { ...buildB, runs: [{ id: 'r1', status: 'FAILED' }] };
+  assert.notEqual(stableStringify(buildA), stableStringify(buildC), 'real data change is not masked');
 });
 
 test('auth matrix holds and the 11th POST in a minute gets 429 + Retry-After', async () => {
