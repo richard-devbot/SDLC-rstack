@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CANONICAL_SDLC_STAGES } from '../../../core/harness/stages.js';
+import { cleanOrphanedTmpFiles } from '../../../core/harness/safe-write.js';
 import { deriveRunTimeline, deriveRunTotals, deriveStageElapsed } from '../../metrics/derive.js';
 import { stageReportIndex } from './stage-reports.js';
 import { readJson, readJsonlSync } from './files.js';
@@ -131,6 +132,10 @@ export async function getRunsForRoot(projectRoot) {
   const runs = await Promise.all(entries.map(async (runId) => {
     const runDir = join(runsDir, runId);
     const stagesDir = join(runDir, 'artifacts', 'stages');
+
+    // Sweep `*.tmp.<pid>` files orphaned by a crashed atomic writer so they
+    // never accumulate in run dirs; fresh in-flight tmp files are left alone.
+    await cleanOrphanedTmpFiles(runDir);
 
     const [manifest, metrics, tasksRaw, contextText, planText, requirements, runApprovals, projectProfile, budgetPolicy] = await Promise.all([
       readJson(join(runDir, 'manifest.json'), {}),
