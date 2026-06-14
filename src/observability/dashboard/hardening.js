@@ -28,10 +28,27 @@ export function createRateLimiter({ capacity = 10, windowMs = 60_000, now = Date
     }
   }
 
+  function enforceCap(t) {
+    if (buckets.size < MAX_TRACKED_BUCKETS) return;
+    sweep(t);
+    // If every tracked bucket is still active (a flood from many live
+    // addresses), evict the least-recently-seen one so the map can never grow
+    // past the cap. Evicting the oldest only resets that address's window — a
+    // bounded, fair degradation under a deliberate flood.
+    while (buckets.size >= MAX_TRACKED_BUCKETS) {
+      let oldestKey;
+      let oldest = Infinity;
+      for (const [key, bucket] of buckets) {
+        if (bucket.last < oldest) { oldest = bucket.last; oldestKey = key; }
+      }
+      buckets.delete(oldestKey);
+    }
+  }
+
   return {
     check(key) {
       const t = now();
-      if (buckets.size >= MAX_TRACKED_BUCKETS) sweep(t);
+      if (!buckets.has(key)) enforceCap(t);
       let bucket = buckets.get(key);
       if (!bucket) {
         bucket = { tokens: capacity, last: t };
@@ -57,9 +74,22 @@ export function approvalAuditPath(projectRoot) {
   return join(projectRoot, '.rstack', 'approvals-audit.jsonl');
 }
 
-export async function appendApprovalAudit(projectRoot, entry) {
-  await mkdir(join(projectRoot, '.rstack'), { recursive: true });
-  await appendFile(approvalAuditPath(projectRoot), JSON.stringify(entry) + '\n', { flag: 'a' });
+// The server fire-and-forgets these writes, so serialize them through a tail
+// promise: each append waits for the previous one to finish, guaranteeing the
+// JSONL line order matches the order appendApprovalAudit was called in — even
+// under concurrent approval attempts. A failed write never wedges the queue.
+let auditTail = Promise.resolve();
+
+export function appendApprovalAudit(projectRoot, entry) {
+  auditTail = auditTail.then(async () => {
+    await mkdir(join(projectRoot, '.rstack'), { recursive: true });
+    await appendFile(approvalAuditPath(projectRoot), JSON.stringify(entry) + '\n', { flag: 'a' });
+  }, async () => {
+    // Previous write rejected; reset the chain and still attempt this entry.
+    await mkdir(join(projectRoot, '.rstack'), { recursive: true });
+    await appendFile(approvalAuditPath(projectRoot), JSON.stringify(entry) + '\n', { flag: 'a' });
+  });
+  return auditTail;
 }
 
 // --- ETag / 304 support -----------------------------------------------------
