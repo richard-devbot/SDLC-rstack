@@ -9,6 +9,14 @@ import { studio3dHtml } from './ui/studio3d.js';
 import { buildFullState, resolveDashboardApproval, toClientState } from './state/index.js';
 import { sourceRoots } from './state/roots.js';
 import { collectStageReports } from './state/stage-reports.js';
+import {
+  appendApprovalAudit,
+  createRateLimiter,
+  etagFor,
+  ifNoneMatchSatisfied,
+  logHttpRequest,
+  stableStringify,
+} from './hardening.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -115,6 +123,30 @@ async function broadcastSnapshot() {
   broadcast(toClientState(state));
 }
 
+// Per-IP token bucket for POST endpoints: 10 requests per minute, then 429
+// with a Retry-After. Applied before auth so a brute-force against the
+// approval token is throttled too.
+const postRateLimiter = createRateLimiter({ capacity: 10, windowMs: 60_000 });
+
+// Append-only audit trail for every approval attempt — successful AND denied.
+// Best-effort: an audit write failure is reported on stderr but never turns a
+// valid approval into a 500.
+function auditApprovalAttempt(req, { id, decision, resolvedBy, outcome, reason }) {
+  const entry = {
+    ts: new Date().toISOString(),
+    id: id ?? null,
+    decision,
+    resolvedBy: resolvedBy ?? null,
+    remote: req.socket?.remoteAddress ?? null,
+    origin: req.headers?.origin ?? null,
+    outcome,
+    ...(reason ? { reason } : {}),
+  };
+  appendApprovalAudit(PROJECT_ROOT, entry).catch((err) => {
+    process.stderr.write(`[rstack-business] approval audit write failed: ${err?.message}\n`);
+  });
+}
+
 // A signed approval is required whenever RSTACK_APPROVAL_TOKEN is set: the
 // dashboard cannot mint manager identity from an unauthenticated request body.
 // Without the env token, approving from the browser is blocked entirely (the
@@ -146,37 +178,99 @@ async function handleApproval(req, res, decision) {
   };
   const contentType = String(req.headers['content-type'] ?? '');
   if (!contentType.includes('application/json')) {
+    auditApprovalAttempt(req, { decision, outcome: 'denied', reason: 'Content-Type must be application/json' });
     return fail(415, 'Content-Type must be application/json');
   }
   const authErr = approvalAuthError(req);
-  if (authErr) return fail(authErr.code, authErr.msg);
+  if (authErr) {
+    auditApprovalAttempt(req, { decision, outcome: 'denied', reason: authErr.msg });
+    return fail(authErr.code, authErr.msg);
+  }
 
   let body = '';
   let tooLarge = false;
   req.on('error', () => fail(400, 'request stream error'));
   req.on('data', (chunk) => {
+    if (tooLarge) return;
     body += chunk;
-    if (body.length > 64 * 1024) { tooLarge = true; req.destroy(); }
+    if (Buffer.byteLength(body, 'utf8') > 64 * 1024) {
+      // Reject oversized bodies on the spot but keep the socket alive so the
+      // 413 and its audit entry actually reach the client. Destroying the
+      // request here (the old behavior) raced the response into a connection
+      // reset. Drain the rest of the stream instead.
+      tooLarge = true;
+      auditApprovalAttempt(req, { decision, outcome: 'denied', reason: 'request body too large' });
+      fail(413, 'request body too large');
+      req.resume();
+    }
   });
   req.on('end', async () => {
-    if (tooLarge) return fail(413, 'request body too large');
+    if (tooLarge) return;
+    const parsed = safeJson(body) ?? {};
+    const { id, resolvedBy } = parsed;
     try {
-      const parsed = safeJson(body) ?? {};
-      const { id, resolvedBy } = parsed;
-      if (!id) return fail(400, 'missing approval id');
-      if (!resolvedBy || typeof resolvedBy !== 'string') return fail(400, 'resolvedBy (approver identity) is required');
+      if (!id) {
+        auditApprovalAttempt(req, {
+          decision,
+          resolvedBy: typeof resolvedBy === 'string' ? resolvedBy : null,
+          outcome: 'denied',
+          reason: 'missing approval id',
+        });
+        return fail(400, 'missing approval id');
+      }
+      if (!resolvedBy || typeof resolvedBy !== 'string') {
+        auditApprovalAttempt(req, { id, outcome: 'denied', decision, reason: 'resolvedBy (approver identity) is required' });
+        return fail(400, 'resolvedBy (approver identity) is required');
+      }
       // Actor evidence: token-verified, not just a body string.
       const ok = await resolveDashboardApproval(PROJECT_ROOT, id, decision, resolvedBy, {
         actor: { name: resolvedBy, via: 'dashboard', tokenVerified: true, ts: new Date().toISOString() },
       });
+      auditApprovalAttempt(req, { id, decision, resolvedBy, outcome: ok ? 'success' : 'not-found' });
       res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok }));
-      if (ok) await broadcastSnapshot();
+      // Fire-and-forget the refresh: the approval already succeeded and the 200
+      // is sent, so a snapshot-build failure must not fall into the catch below
+      // and append a false `error` audit entry for a completed approval.
+      if (ok) {
+        broadcastSnapshot().catch((broadcastErr) => {
+          process.stderr.write(`[rstack-business] approval broadcast error: ${broadcastErr?.message}\n`);
+        });
+      }
     } catch (err) {
       process.stderr.write(`[rstack-business] approval error: ${err?.message}\n`);
-      fail(Number(err?.statusCode) || 500, String(err?.message));
+      const status = Number(err?.statusCode) || 500;
+      auditApprovalAttempt(req, {
+        id,
+        decision,
+        resolvedBy: typeof resolvedBy === 'string' ? resolvedBy : null,
+        outcome: status >= 400 && status < 500 ? 'denied' : 'error',
+        reason: String(err?.message),
+      });
+      fail(status, String(err?.message));
     }
   });
+}
+
+// Send a JSON response with a strong content-hash ETag on 200s, answering a
+// matching If-None-Match with an empty 304 instead of the full body.
+// `hashInput` lets callers hash a stable projection of the body (e.g. the
+// state without its per-request timestamp) so 304s are actually reachable.
+function sendJsonCacheable(req, res, status, body, { hashInput } = {}) {
+  const payload = JSON.stringify(body);
+  if (status !== 200) {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(payload);
+    return;
+  }
+  const etag = etagFor(hashInput ?? payload);
+  if (ifNoneMatchSatisfied(req.headers['if-none-match'], etag)) {
+    res.writeHead(304, { ETag: etag });
+    res.end();
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': 'application/json', ETag: etag });
+  res.end(payload);
 }
 
 // Read one run artifact, strictly sandboxed: the run is located via the known
@@ -195,11 +289,8 @@ async function resolveRunDir(runId) {
     .find((dir) => existsSync(dir)) ?? null;
 }
 
-async function handleRunReport(url, res) {
-  const sendJson = (status, body) => {
-    res.writeHead(status, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(body));
-  };
+async function handleRunReport(req, url, res) {
+  const sendJson = (status, body) => sendJsonCacheable(req, res, status, body);
   try {
     const runId = url.searchParams.get('run') ?? '';
     if (!runId) return sendJson(400, { error: 'run is required' });
@@ -212,11 +303,8 @@ async function handleRunReport(url, res) {
   }
 }
 
-async function handleArtifact(url, res) {
-  const sendJson = (status, body) => {
-    res.writeHead(status, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(body));
-  };
+async function handleArtifact(req, url, res) {
+  const sendJson = (status, body) => sendJsonCacheable(req, res, status, body);
   try {
     const runId = url.searchParams.get('run') ?? '';
     const relPath = url.searchParams.get('path') ?? '';
@@ -240,6 +328,7 @@ async function handleArtifact(url, res) {
 }
 
 const server = createServer(async (req, res) => {
+  logHttpRequest(req, res);
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
   // CORS: only reflect localhost origins — a wildcard would let any website
@@ -257,6 +346,26 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Throttle all POSTs per client IP before any routing or auth work, so the
+  // approval token cannot be brute-forced and write endpoints cannot be spammed.
+  if (req.method === 'POST') {
+    const verdict = postRateLimiter.check(req.socket?.remoteAddress ?? 'unknown');
+    if (!verdict.allowed) {
+      if (url.pathname === '/api/approve' || url.pathname === '/api/reject') {
+        auditApprovalAttempt(req, {
+          decision: url.pathname === '/api/approve' ? 'approved' : 'rejected',
+          outcome: 'rate-limited',
+        });
+      }
+      res.writeHead(429, {
+        'Content-Type': 'application/json',
+        'Retry-After': String(verdict.retryAfterSec),
+      });
+      res.end(JSON.stringify({ ok: false, error: 'rate limit exceeded — retry later' }));
+      return;
+    }
+  }
+
   if (url.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, port: PORT, ts: new Date().toISOString() }));
@@ -266,8 +375,9 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/state' && req.method === 'GET') {
     try {
       const state = await buildFullState(PROJECT_ROOT);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(state));
+      // Hash a projection with server eval-time timestamps stripped, so an
+      // unchanged project yields a stable ETag and revalidation returns 304.
+      sendJsonCacheable(req, res, 200, state, { hashInput: stableStringify(state) });
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: String(err?.message) }));
@@ -292,12 +402,12 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/artifact' && req.method === 'GET') {
-    await handleArtifact(url, res);
+    await handleArtifact(req, url, res);
     return;
   }
 
   if (url.pathname === '/api/run-report' && req.method === 'GET') {
-    await handleRunReport(url, res);
+    await handleRunReport(req, url, res);
     return;
   }
 
@@ -322,7 +432,9 @@ server.on('upgrade', async (req, socket) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  const url = `http://localhost:${PORT}`;
+  // Report the bound port, not the requested one — `--port 0` asks the OS for
+  // an ephemeral port (used by the test harness).
+  const url = `http://localhost:${server.address().port}`;
   console.log('\n  RStack Business Hub - live observability for your team');
   console.log(`  Project : ${PROJECT_ROOT}`);
   console.log(`  Dashboard: ${url}\n`);
