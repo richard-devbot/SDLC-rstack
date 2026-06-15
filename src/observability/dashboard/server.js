@@ -191,14 +191,21 @@ async function handleApproval(req, res, decision) {
   let tooLarge = false;
   req.on('error', () => fail(400, 'request stream error'));
   req.on('data', (chunk) => {
+    if (tooLarge) return;
     body += chunk;
-    if (body.length > 64 * 1024) { tooLarge = true; req.destroy(); }
+    if (Buffer.byteLength(body, 'utf8') > 64 * 1024) {
+      // Reject oversized bodies on the spot but keep the socket alive so the
+      // 413 and its audit entry actually reach the client. Destroying the
+      // request here (the old behavior) raced the response into a connection
+      // reset. Drain the rest of the stream instead.
+      tooLarge = true;
+      auditApprovalAttempt(req, { decision, outcome: 'denied', reason: 'request body too large' });
+      fail(413, 'request body too large');
+      req.resume();
+    }
   });
   req.on('end', async () => {
-    if (tooLarge) {
-      auditApprovalAttempt(req, { decision, outcome: 'denied', reason: 'request body too large' });
-      return fail(413, 'request body too large');
-    }
+    if (tooLarge) return;
     const parsed = safeJson(body) ?? {};
     const { id, resolvedBy } = parsed;
     try {

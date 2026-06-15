@@ -221,6 +221,31 @@ test('auth matrix holds and the 11th POST in a minute gets 429 + Retry-After', a
   }
 });
 
+test('an oversized approval body gets a clean 413 (not a connection reset) and is audited', async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-harden-413-'));
+  let server;
+  try {
+    server = await startServer({ projectRoot, env: { RSTACK_APPROVAL_TOKEN: 'secret-token' } });
+    const oversized = JSON.stringify({ id: 'x', resolvedBy: 'Maya', pad: 'a'.repeat(70 * 1024) });
+    const res = await fetch(`${server.baseUrl}/api/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-rstack-approval-token': 'secret-token' },
+      body: oversized,
+    });
+    // The body exceeds the 64 KB cap: the server must answer 413, not drop the
+    // socket. A reset would surface as a fetch TypeError instead of a response.
+    assert.equal(res.status, 413, 'oversized body is rejected with a real HTTP 413');
+    const entries = await readAuditEntries(projectRoot, { minEntries: 1 });
+    assert.ok(
+      entries.some((e) => e.outcome === 'denied' && /too large/i.test(e.reason || '')),
+      'the oversized attempt is recorded in the audit trail',
+    );
+  } finally {
+    server?.stop();
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
 test('approval audit log records denied and successful attempts as append-only JSONL', async () => {
   const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-harden-audit-'));
   let server;
