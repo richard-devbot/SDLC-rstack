@@ -17,6 +17,7 @@ import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../
 import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage, updateRunMetrics } from "../../core/harness/run-state.js";
 import { addDecision, decide, readDecisions, summarizeDecisions } from "../../core/harness/decisions.js";
 import { assertReadyForStage, dorCheck, latestStageId } from "../../core/harness/readiness.js";
+import { withFileLock, writeJsonAtomic } from "../../core/harness/safe-write.js";
 import { resolveUserIdentity } from "../../core/harness/identity.js";
 import { appendApproval as appendApprovalRequest, approvalQueueId, assertManagerAllowed, resolveQueuedApprovalForArtifact } from "../../core/tracker/approvals.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../../memory/index.js";
@@ -1167,27 +1168,30 @@ export default function (pi: ExtensionAPI) {
       const runDir = join(runsDir(projectRoot), manifest.run_id);
       const path = approvalsPath(runDir);
 
-      let approvals: ApprovalRecord[] = [];
-      if (existsSync(path)) {
-        try {
-          approvals = JSON.parse(await readFile(path, "utf8"));
-        } catch {}
-      }
-
       const approver = params.approver || resolveUserIdentity(projectRoot).name;
       await assertManagerAllowed(projectRoot, approver);
 
-      const record: ApprovalRecord = {
-        id: `app-${timestamp().replace(/[:.]/g, "-")}`,
-        artifact: params.artifact,
-        status: params.status,
-        approver,
-        timestamp: timestamp(),
-        comments: params.comments
-      };
-
-      approvals.push(record);
-      await writeFile(path, JSON.stringify(approvals, null, 2));
+      // Locked read-modify-write: concurrent approvals (dashboard + tool)
+      // must both land, and the file must never be observed half-written.
+      const record: ApprovalRecord = await withFileLock(path, async () => {
+        let approvals: ApprovalRecord[] = [];
+        if (existsSync(path)) {
+          try {
+            approvals = JSON.parse(await readFile(path, "utf8"));
+          } catch {}
+        }
+        const next: ApprovalRecord = {
+          id: `app-${timestamp().replace(/[:.]/g, "-")}`,
+          artifact: params.artifact,
+          status: params.status,
+          approver,
+          timestamp: timestamp(),
+          comments: params.comments
+        };
+        approvals.push(next);
+        await writeJsonAtomic(path, approvals);
+        return next;
+      });
       await appendEvent(projectRoot, manifest.run_id, { type: "approval_gate", artifact: params.artifact, status: params.status });
       await addTrace(projectRoot, manifest.run_id, { type: "approval", ...record });
       await resolveQueuedApprovalForArtifact(projectRoot, {
@@ -1257,7 +1261,7 @@ export default function (pi: ExtensionAPI) {
       } as RunManifest & { profile: string; workflow: string };
       await writeManifest(manifest);
       await mkdir(specsDir(dir), { recursive: true });
-      await writeFile(approvalsPath(dir), JSON.stringify([], null, 2));
+      await writeJsonAtomic(approvalsPath(dir), []);
       await writeFile(join(dir, "context.md"), `# RStack Run Context\n\nGoal: ${params.goal}\n\nMode: ${manifest.mode}\n\nProfile: ${activeProfile.profile}\nWorkflow: ${activeProfile.workflow}\nRun budget: ${budgetPolicy.currency || 'USD'} ${budgetPolicy.run_budget_usd}\n\n## Product-owner notes\n\n`);
       await appendEvent(projectRoot, id, { type: "run_started", goal: params.goal, started_by: startedBy.name, profile: activeProfile.profile, workflow: activeProfile.workflow });
       await appendEvent(projectRoot, id, { type: "budget_policy_loaded", profile: activeProfile.profile, run_budget_usd: budgetPolicy.run_budget_usd, daily_budget_usd: budgetPolicy.daily_budget_usd, monthly_budget_usd: budgetPolicy.monthly_budget_usd });
@@ -1458,7 +1462,7 @@ export default function (pi: ExtensionAPI) {
       await prepareStageFolders(runDir);
       const plan = `# RStack SDLC Plan\n\nGoal: ${manifest.goal}\n\nMode: ${manifest.mode}\nProfile: ${activeProfile.profile}\nWorkflow: ${activeProfile.workflow}\nRun budget: ${budgetPolicy.currency || 'USD'} ${budgetPolicy.run_budget_usd}\n\n## Constraints\n${(params.constraints || ["Ask before destructive actions", "Validate before release", "Keep scope bounded", "Do not claim DONE without evidence", "Use .rstack/runs state, not legacy outputs/team_state"]).map((c) => `- ${c}`).join("\n")}\n\n## Lifecycle\n${tasks.map((t) => `- [ ] ${t.id}: ${t.title}\n  - Artifact: ${t.artifact_path}\n  - Pipeline agents: ${t.pipeline_agents.join(", ") || "none"}\n  - Budget envelope: ${t.budget_envelope.currency} ${t.budget_envelope.estimated_ai_cost_usd}\n  - Routing: ${t.routing.explanation.join("; ")}\n  - Acceptance: ${t.acceptance_criteria.join("; ")}`).join("\n")}\n\n## Operating model\n\nThe orchestrator creates bounded builder tasks. Validators check each task before the run advances. User approval is required for major product decisions, destructive changes, and release/merge actions.\n`;
       await writeFile(join(runDir, "plan.md"), plan);
-      await writeFile(join(runDir, "tasks.json"), JSON.stringify({ run_id: manifest.run_id, profile: activeProfile.profile, workflow: activeProfile.workflow, budget_policy: budgetPolicy, tasks }, null, 2));
+      await writeJsonAtomic(join(runDir, "tasks.json"), { run_id: manifest.run_id, profile: activeProfile.profile, workflow: activeProfile.workflow, budget_policy: budgetPolicy, tasks });
       const sDir = specsDir(runDir);
       await mkdir(sDir, { recursive: true });
       for (const stage of lifecycleStages) {
@@ -1487,22 +1491,43 @@ export default function (pi: ExtensionAPI) {
       const manifest = await readManifest(projectRoot, params.run_id);
       const tasksPath = join(runsDir(projectRoot), manifest.run_id, "tasks.json");
       const registry = await loadRegistry(projectRoot);
-      const taskState = JSON.parse(await readFile(tasksPath, "utf8"));
-      const task = taskState.tasks.find((t: any) => t.status === "PENDING" || t.status === "READY") || taskState.tasks.find((t: any) => t.status === "FAIL");
-      if (!task) return { content: [{ type: "text", text: `No pending task for ${manifest.run_id}. Run sdlc_status or sdlc_validate for final checks.` }], details: taskState };
       const runDir = join(runsDir(projectRoot), manifest.run_id);
-      const requiredApprovals = await effectiveRequiredApprovals(projectRoot, manifest, task.id);
-      const missing = missingApprovals(await readApprovals(runDir), requiredApprovals);
-      const readinessStage = latestStageId((task.stage_artifacts || []).map((artifact: any) => artifact?.stage_id).filter(Boolean));
-      const readiness = await assertReadyForStage(projectRoot, { runId: manifest.run_id, targetStage: readinessStage });
-      if (!readiness.ok) {
+      // Locked claim: read tasks.json, pick the next task, run the gates, and
+      // stamp it IN_PROGRESS in one critical section so two concurrent builders
+      // can never claim the same task or drop each other's update (issue #81).
+      // The approval gate and the Definition-of-Ready gate (#101) are evaluated
+      // *before* stamping, so a blocked task is never marked started. Side
+      // effects (notifications, events) run after the lock is released.
+      const claim = await withFileLock(tasksPath, async () => {
+        const taskState = JSON.parse(await readFile(tasksPath, "utf8"));
+        const task = taskState.tasks.find((t: any) => t.status === "PENDING" || t.status === "READY") || taskState.tasks.find((t: any) => t.status === "FAIL");
+        if (!task) return { taskState, task: null, missing: [] as string[], requiredApprovals: [] as string[], readiness: null as any };
+        const requiredApprovals = await effectiveRequiredApprovals(projectRoot, manifest, task.id);
+        const missing = missingApprovals(await readApprovals(runDir), requiredApprovals);
+        if (missing.length) return { taskState, task, missing, requiredApprovals, readiness: null as any };
+        const readinessStage = latestStageId((task.stage_artifacts || []).map((artifact: any) => artifact?.stage_id).filter(Boolean));
+        const readiness = await assertReadyForStage(projectRoot, { runId: manifest.run_id, targetStage: readinessStage });
+        if (!readiness.ok) return { taskState, task, missing, requiredApprovals, readiness };
+        task.status = "IN_PROGRESS";
+        task._started_at = Date.now();
+        // Real attribution: stamp the routed pipeline agent so builder.json and
+        // the dashboard show who actually executed, not a generic "builder".
+        if (!task.agent && Array.isArray(task.pipeline_agents) && task.pipeline_agents.length) {
+          task.agent = task.pipeline_agents[0];
+        }
+        await writeJsonAtomic(tasksPath, taskState);
+        return { taskState, task, missing, requiredApprovals, readiness };
+      });
+      const { taskState, task, missing, requiredApprovals, readiness } = claim;
+      if (!task) return { content: [{ type: "text", text: `No pending task for ${manifest.run_id}. Run sdlc_status or sdlc_validate for final checks.` }], details: taskState };
+      if (readiness && !readiness.ok) {
         await appendEvent(projectRoot, manifest.run_id, { type: "dor_gate_blocked", task_id: task.id, status: readiness.report.status, pending_required: readiness.report.pending_required });
         return {
           content: [{ type: "text", text: `Definition-of-Ready blocked ${task.id}. Pending required decision(s): ${readiness.report.pending_required.join(", ")}\nUse sdlc_decisions to inspect and sdlc_decide to resolve or waive.` }],
           details: { run_id: manifest.run_id, task, readiness: readiness.report }
         };
       }
-      if (readiness.report.status === "WARN" && (readiness.report.pending_required?.length || 0) > 0) {
+      if (readiness && readiness.report.status === "WARN" && (readiness.report.pending_required?.length || 0) > 0) {
         await appendEvent(projectRoot, manifest.run_id, { type: "dor_gate_warning", task_id: task.id, pending_required: readiness.report.pending_required });
       }
       if (missing.length) {
@@ -1537,14 +1562,6 @@ export default function (pi: ExtensionAPI) {
           details: { run_id: manifest.run_id, task, missing_approvals: missing, required_approvals: requiredApprovals }
         };
       }
-      task.status = "IN_PROGRESS";
-      task._started_at = Date.now();
-      // Real attribution: stamp the routed pipeline agent so builder.json and
-      // the dashboard show who actually executed, not a generic "builder".
-      if (!task.agent && Array.isArray(task.pipeline_agents) && task.pipeline_agents.length) {
-        task.agent = task.pipeline_agents[0];
-      }
-      await writeFile(tasksPath, JSON.stringify(taskState, null, 2));
       await appendEvent(projectRoot, manifest.run_id, { type: "task_started", task_id: task.id, agent: task.agent ?? null, ts: new Date().toISOString() });
       const selected = registry.filter((item) => task.specialists?.includes(item.id));
       const prompt = await builderPrompt(projectRoot, task, selected, manifest.run_id);
@@ -1568,42 +1585,47 @@ export default function (pi: ExtensionAPI) {
       const projectRoot = findProjectRoot();
       const manifest = await readManifest(projectRoot, params.run_id);
       const tasksPath = join(runsDir(projectRoot), manifest.run_id, "tasks.json");
-      const taskState = JSON.parse(await readFile(tasksPath, "utf8"));
-      const task = params.task_id ? taskState.tasks.find((t: any) => t.id === params.task_id) : taskState.tasks.find((t: any) => t.status === "IN_PROGRESS");
-      if (!task) throw new Error("No task selected for validation.");
-      const builderPath = join(projectRoot, task.output_dir, "builder.json");
-      const checks = [];
-      let status = "PASS";
-      let builderContract: any = undefined;
-      if (!existsSync(builderPath)) {
-        status = "FAIL";
-        checks.push({ name: "builder_contract_exists", status: "FAIL", evidence: `${task.output_dir}/builder.json not found` });
-      } else {
-        try {
-          const builder = JSON.parse(await readFile(builderPath, "utf8"));
-          builderContract = builder;
-          const contract = validateBuilderContract(builder, task.id);
-          checks.push(...contract.checks);
-          const hardening = validationHardeningChecks(builder, task);
-          checks.push(...hardening);
-          if (!contract.ok || hardening.some((check: any) => check.status === "FAIL")) status = "FAIL";
-          if (Array.isArray(builder.files_modified)) {
-            for (const file of builder.files_modified.slice(0, 20)) {
-              if (typeof file !== "string") continue;
-              const exists = existsSync(resolve(projectRoot, file));
-              checks.push({ name: "modified_file_exists", status: exists ? "PASS" : "FAIL", evidence: file });
-              if (!exists) status = "FAIL";
-            }
-          }
-        } catch (error) {
+      // Locked read-modify-write: the verdict stamp must not race a concurrent
+      // sdlc_build_next claim on another task (issue #81).
+      const { task, checks, status, builderContract, validation } = await withFileLock(tasksPath, async () => {
+        const taskState = JSON.parse(await readFile(tasksPath, "utf8"));
+        const task = params.task_id ? taskState.tasks.find((t: any) => t.id === params.task_id) : taskState.tasks.find((t: any) => t.status === "IN_PROGRESS");
+        if (!task) throw new Error("No task selected for validation.");
+        const builderPath = join(projectRoot, task.output_dir, "builder.json");
+        const checks = [];
+        let status = "PASS";
+        let builderContract: any = undefined;
+        if (!existsSync(builderPath)) {
           status = "FAIL";
-          checks.push({ name: "builder_contract_json", status: "FAIL", evidence: String(error) });
+          checks.push({ name: "builder_contract_exists", status: "FAIL", evidence: `${task.output_dir}/builder.json not found` });
+        } else {
+          try {
+            const builder = JSON.parse(await readFile(builderPath, "utf8"));
+            builderContract = builder;
+            const contract = validateBuilderContract(builder, task.id);
+            checks.push(...contract.checks);
+            const hardening = validationHardeningChecks(builder, task);
+            checks.push(...hardening);
+            if (!contract.ok || hardening.some((check: any) => check.status === "FAIL")) status = "FAIL";
+            if (Array.isArray(builder.files_modified)) {
+              for (const file of builder.files_modified.slice(0, 20)) {
+                if (typeof file !== "string") continue;
+                const exists = existsSync(resolve(projectRoot, file));
+                checks.push({ name: "modified_file_exists", status: exists ? "PASS" : "FAIL", evidence: file });
+                if (!exists) status = "FAIL";
+              }
+            }
+          } catch (error) {
+            status = "FAIL";
+            checks.push({ name: "builder_contract_json", status: "FAIL", evidence: String(error) });
+          }
         }
-      }
-      const validation = { task_id: task.id, validator: "rstack-pi-extension", status, checks, issues: checks.filter((c: any) => c.status === "FAIL"), retry_recommendation: status === "PASS" ? "none" : "retry_builder" };
-      await writeFile(join(projectRoot, task.output_dir, "validation.json"), JSON.stringify(validation, null, 2));
-      task.status = status;
-      await writeFile(tasksPath, JSON.stringify(taskState, null, 2));
+        const validation = { task_id: task.id, validator: "rstack-pi-extension", status, checks, issues: checks.filter((c: any) => c.status === "FAIL"), retry_recommendation: status === "PASS" ? "none" : "retry_builder" };
+        await writeFile(join(projectRoot, task.output_dir, "validation.json"), JSON.stringify(validation, null, 2));
+        task.status = status;
+        await writeJsonAtomic(tasksPath, taskState);
+        return { task, checks, status, builderContract, validation };
+      });
       // Compute real elapsed time from task _started_at stamp (written at sdlc_build_next)
       const elapsedMs = task._started_at ? Math.max(0, Date.now() - Number(task._started_at)) : 0;
       // Compute quality score from fraction of checks that passed

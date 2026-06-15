@@ -1,6 +1,7 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
+import { withFileLock, writeFileAtomic, writeJsonAtomic } from '../harness/safe-write.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -73,7 +74,7 @@ async function writeQueue(projectRoot, approvals) {
   await mkdir(join(projectRoot, '.rstack'), { recursive: true });
   const path = queuePath(projectRoot);
   const lines = approvals.map((approval) => JSON.stringify(approval)).join('\n');
-  await writeFile(path, lines ? `${lines}\n` : '');
+  await writeFileAtomic(path, lines ? `${lines}\n` : '');
 }
 
 export async function readApprovalPolicy(projectRoot) {
@@ -106,23 +107,27 @@ export async function assertManagerAllowed(projectRoot, resolvedBy, env = proces
 }
 
 export async function appendApproval(projectRoot, entry) {
-  const all = await readApprovals(projectRoot);
-  const now = new Date().toISOString();
-  const id = entry.id || approvalQueueId(entry);
-  const existing = all.findIndex((approval) => approval.id === id);
-  const next = {
-    status: 'pending',
-    ...entry,
-    id,
-    ts: entry.ts ?? now,
-    updatedAt: now,
-  };
+  // Lock the queue across the read-modify-write so concurrent gate blocks
+  // (parallel builders) both land instead of overwriting each other.
+  return withFileLock(queuePath(projectRoot), async () => {
+    const all = await readApprovals(projectRoot);
+    const now = new Date().toISOString();
+    const id = entry.id || approvalQueueId(entry);
+    const existing = all.findIndex((approval) => approval.id === id);
+    const next = {
+      status: 'pending',
+      ...entry,
+      id,
+      ts: entry.ts ?? now,
+      updatedAt: now,
+    };
 
-  if (existing === -1) all.push(next);
-  else all[existing] = { ...all[existing], ...next };
+    if (existing === -1) all.push(next);
+    else all[existing] = { ...all[existing], ...next };
 
-  await writeQueue(projectRoot, all);
-  return next;
+    await writeQueue(projectRoot, all);
+    return next;
+  });
 }
 
 export async function readApprovals(projectRoot) {
@@ -141,56 +146,66 @@ export async function appendRunApproval(projectRoot, runId, record) {
   // Hard sandbox: unsafe/escaping runId, or a run with no manifest, writes nothing.
   const path = safeRunApprovalsPath(projectRoot, runId);
   if (!path) return null;
-  const approvals = await readJson(path, []);
-  const all = Array.isArray(approvals) ? approvals : [];
-  const next = {
-    id: record.id || `app-${new Date().toISOString().replace(/[:.]/g, '-')}`,
-    artifact: record.artifact,
-    status: record.status,
-    approver: record.approver,
-    timestamp: record.timestamp || new Date().toISOString(),
-    comments: record.comments,
-    source: record.source || 'dashboard',
-  };
-  all.push(next);
-  await writeFile(path, JSON.stringify(all, null, 2));
-  return next;
+  return withFileLock(path, async () => {
+    const approvals = await readJson(path, []);
+    const all = Array.isArray(approvals) ? approvals : [];
+    const next = {
+      id: record.id || `app-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+      artifact: record.artifact,
+      status: record.status,
+      approver: record.approver,
+      timestamp: record.timestamp || new Date().toISOString(),
+      comments: record.comments,
+      source: record.source || 'dashboard',
+    };
+    all.push(next);
+    await writeJsonAtomic(path, all);
+    return next;
+  });
 }
 
 export async function resolveApproval(projectRoot, id, decision, resolvedBy, options = {}) {
-  const all = await readApprovals(projectRoot);
-  const idx = all.findIndex(a => a.id === id);
-  const parsed = idx === -1 ? parseApprovalQueueId(id) : null;
-  if (idx === -1 && !parsed) return false;
-  // parseApprovalQueueId already rejected unsafe runIds; require a real run.
-  if (idx === -1 && parsed && !safeRunApprovalsPath(projectRoot, parsed.runId)) return false;
-  // A queued entry could predate validation — re-check before trusting its runId.
-  if (idx !== -1 && all[idx].runId && !isSafeRunId(all[idx].runId)) return false;
+  // Lock the queue across the read-modify-write so two concurrent
+  // resolutions (dashboard + sdlc_approve) both land. The per-run
+  // approvals.json write happens after release — it takes its own lock.
+  const resolved = await withFileLock(queuePath(projectRoot), async () => {
+    const all = await readApprovals(projectRoot);
+    const idx = all.findIndex(a => a.id === id);
+    const parsed = idx === -1 ? parseApprovalQueueId(id) : null;
+    if (idx === -1 && !parsed) return null;
+    // parseApprovalQueueId already rejected unsafe runIds; require a real run.
+    if (idx === -1 && parsed && !safeRunApprovalsPath(projectRoot, parsed.runId)) return null;
+    // A queued entry could predate validation — re-check before trusting its runId.
+    if (idx !== -1 && all[idx].runId && !isSafeRunId(all[idx].runId)) return null;
 
-  const base = idx === -1 ? {
-    id,
-    ...parsed,
-    title: `Approve ${parsed.artifact}`,
-    detail: parsed.taskId ? `Task ${parsed.taskId} is blocked` : 'Workflow is blocked',
-    status: 'pending',
-    source: 'blocked_gate',
-    ts: new Date().toISOString(),
-  } : all[idx];
+    const base = idx === -1 ? {
+      id,
+      ...parsed,
+      title: `Approve ${parsed.artifact}`,
+      detail: parsed.taskId ? `Task ${parsed.taskId} is blocked` : 'Workflow is blocked',
+      status: 'pending',
+      source: 'blocked_gate',
+      ts: new Date().toISOString(),
+    } : all[idx];
 
-  const approver = resolvedBy || 'dashboard';
-  await assertManagerAllowed(projectRoot, approver, options.env ?? process.env);
+    const approver = resolvedBy || 'dashboard';
+    await assertManagerAllowed(projectRoot, approver, options.env ?? process.env);
 
-  const queueStatus = decision === 'approved' ? 'approved' : 'rejected';
+    const queueStatus = decision === 'approved' ? 'approved' : 'rejected';
+    const resolvedAt = new Date().toISOString();
+    // Audit-proof actor evidence, not just a name string.
+    const actor = options.actor ? { ...options.actor } : { name: approver, via: 'api', tokenVerified: false, ts: resolvedAt };
+    const next = { ...base, status: queueStatus, resolvedBy: approver, actor, resolvedAt, updatedAt: resolvedAt };
+
+    if (idx === -1) all.push(next);
+    else all[idx] = next;
+    await writeQueue(projectRoot, all);
+    return { base, approver, queueStatus, resolvedAt };
+  });
+  if (!resolved) return false;
+
+  const { base, approver, queueStatus, resolvedAt } = resolved;
   const runStatus = decision === 'approved' ? 'APPROVED' : 'REJECTED';
-  const resolvedAt = new Date().toISOString();
-  // Audit-proof actor evidence, not just a name string.
-  const actor = options.actor ? { ...options.actor } : { name: approver, via: 'api', tokenVerified: false, ts: resolvedAt };
-  const next = { ...base, status: queueStatus, resolvedBy: approver, actor, resolvedAt, updatedAt: resolvedAt };
-
-  if (idx === -1) all.push(next);
-  else all[idx] = next;
-  await writeQueue(projectRoot, all);
-
   if (!options.skipRunWrite && base.runId && base.artifact) {
     await appendRunApproval(projectRoot, base.runId, {
       id: `dash-${resolvedAt.replace(/[:.]/g, '-')}`,
