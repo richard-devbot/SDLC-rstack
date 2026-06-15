@@ -1,4 +1,9 @@
-// owner: RStack developed by Richardson Gunde
+/**
+ * Generates a self-contained browser client script for the RStack dashboard UI.
+ *
+ * @param {number} port - The WebSocket server port number for live state updates.
+ * @return {string} A template string containing the complete JavaScript client code for the dashboard, including state management, rendering, and WebSocket connectivity.
+ */
 
 export function clientScript(port) {
   return `

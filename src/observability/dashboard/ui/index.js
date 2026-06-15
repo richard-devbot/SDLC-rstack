@@ -3,7 +3,11 @@ import { clientScript } from './client.js';
 import { artifactRenderScript } from './artifact-render.js';
 import { pageMarkup, sidebarMarkup } from './pages/index.js';
 
-// owner: RStack developed by Richardson Gunde
+/**
+ * Generates the complete HTML document for the RStack Business Hub dashboard.
+ * @param {number} port - The server port, used to configure client-side script behavior.
+ * @returns {string} A complete HTML document string embedding server-side markup and client-side scripts.
+ */
 
 export function dashboardHtml(port) {
   return `<!DOCTYPE html>
