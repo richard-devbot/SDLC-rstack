@@ -1153,6 +1153,44 @@ tr.clickable:hover td { background: #f8fbff; }
 .evidence-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
 .evidence-row:last-child { border-bottom: none; }
 
+/* ── Human-readable artifact viewer (issue #89) ───────────────────────────── */
+.ar-toolbar { display: flex; align-items: center; gap: 8px; margin: 12px 0 10px; flex-wrap: wrap; }
+.ar-toolbar .ar-path { font-size: 12px; font-weight: 600; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-toolbar .ar-size { font-size: 11px; color: var(--faint); }
+.ar-toolbar .ar-spacer { flex: 1; }
+.ar-toolbar a.ar-dl { text-decoration: none; }
+.ar-panel { margin: 0; }
+.ar-md { font-size: 13px; line-height: 1.6; color: var(--ink); word-break: break-word; }
+.ar-md .ar-h { margin: 16px 0 8px; line-height: 1.25; }
+.ar-md .ar-h1 { font-size: 20px; } .ar-md .ar-h2 { font-size: 17px; } .ar-md .ar-h3 { font-size: 15px; }
+.ar-md .ar-h4, .ar-md .ar-h5, .ar-md .ar-h6 { font-size: 13px; color: var(--muted); }
+.ar-md .ar-p { margin: 8px 0; }
+.ar-md .ar-list { margin: 8px 0 8px 18px; } .ar-md .ar-list li { margin: 3px 0; }
+.ar-md .ar-quote { border-left: 3px solid var(--line-strong); margin: 8px 0; padding: 4px 12px; color: var(--muted); background: var(--soft); border-radius: 0 6px 6px 0; }
+.ar-md .ar-hr { border: none; border-top: 1px solid var(--line); margin: 14px 0; }
+.ar-md code { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+.ar-md a { color: var(--blue); }
+.ar-code { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow: auto; max-height: 40vh; }
+.ar-code code { background: none; padding: 0; font-size: 12px; line-height: 1.5; }
+.ar-tablewrap { overflow-x: auto; margin: 10px 0; }
+.ar-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.ar-table th, .ar-table td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.ar-table th { background: var(--soft); font-weight: 600; }
+.ar-json { font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; }
+.ar-json .ar-node { margin-left: 12px; }
+.ar-json > .ar-node { margin-left: 0; }
+.ar-json summary { cursor: pointer; padding: 1px 0; list-style: revert; }
+.ar-json .ar-children { border-left: 1px solid var(--line); margin-left: 4px; padding-left: 8px; }
+.ar-json .ar-row { margin-left: 12px; padding: 1px 0; }
+.ar-key { color: var(--purple, #6d28d9); font-weight: 600; margin-right: 6px; }
+.ar-meta { color: var(--faint); font-size: 11px; }
+.ar-jsonl-count { display: block; margin-bottom: 6px; }
+.ar-str { color: var(--ink); } .ar-number { color: var(--blue); } .ar-boolean { color: var(--amber); } .ar-null { color: var(--faint); font-style: italic; }
+.ar-faint { color: var(--faint); }
+.ar-clamp { display: inline-block; max-height: 1.6em; overflow: hidden; cursor: pointer; vertical-align: bottom; border-bottom: 1px dotted var(--line-strong); }
+.ar-clamp.ar-open { max-height: none; }
+.ar-warn { background: var(--soft); border: 1px solid var(--amber); border-radius: 8px; padding: 8px 12px; font-size: 12px; margin-bottom: 8px; }
+
 /* ── Run Report: infographic stage cards (issue #60) ──────────────────────── */
 .report-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
 .report-kpi { background: var(--soft); border: 1px solid var(--line); border-top: 3px solid var(--line-strong); border-radius: 10px; padding: 12px 14px; }

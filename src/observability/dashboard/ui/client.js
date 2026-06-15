@@ -1758,14 +1758,15 @@ function viewArtifact(btn) {
     .then(function(data) {
       if (data.error) { showErr('artifact: ' + data.error); return; }
       var body = document.getElementById('drawer-body');
-      var back = document.createElement('button');
-      back.className = 'tb-chip';
-      back.textContent = '← Back to run';
-      back.addEventListener('click', function() { openDrawer(runId); });
-      body.innerHTML =
-        '<div class="panel" style="margin-top:12px"><div class="panel-head"><span class="panel-title mono">' + esc(data.path) + '</span><span class="panel-note">' + Math.ceil(data.size / 1024) + ' KB</span></div>' +
-        '<div class="panel-body"><pre class="artifact-content">' + esc(data.content) + '</pre></div></div>';
-      body.insertBefore(back, body.firstChild);
+      // Rich rendering (Markdown / structured JSON / JSONL) lives in
+      // artifact-render.js; fall back to a raw <pre> if that module is absent.
+      if (typeof renderArtifactInto === 'function') {
+        renderArtifactInto(body, data, runId, function() { openDrawer(runId); });
+      } else {
+        body.innerHTML =
+          '<div class="panel" style="margin-top:12px"><div class="panel-head"><span class="panel-title mono">' + esc(data.path) + '</span><span class="panel-note">' + Math.ceil(data.size / 1024) + ' KB</span></div>' +
+          '<div class="panel-body"><pre class="artifact-content">' + esc(data.content) + '</pre></div></div>';
+      }
     })
     .catch(function(err) { showErr('artifact: ' + err.message); });
 }
