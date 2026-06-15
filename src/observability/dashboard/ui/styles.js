@@ -1187,7 +1187,8 @@ tr.clickable:hover td { background: #f8fbff; }
 .ar-jsonl-count { display: block; margin-bottom: 6px; }
 .ar-str { color: var(--ink); } .ar-number { color: var(--blue); } .ar-boolean { color: var(--amber); } .ar-null { color: var(--faint); font-style: italic; }
 .ar-faint { color: var(--faint); }
-.ar-clamp { display: inline-block; max-height: 1.6em; overflow: hidden; cursor: pointer; vertical-align: bottom; border-bottom: 1px dotted var(--line-strong); }
+.ar-clamp { display: inline-block; max-height: 1.6em; overflow: hidden; cursor: pointer; vertical-align: bottom; border: none; border-bottom: 1px dotted var(--line-strong); background: none; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; }
+.ar-clamp:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .ar-clamp.ar-open { max-height: none; }
 .ar-warn { background: var(--soft); border: 1px solid var(--amber); border-radius: 8px; padding: 8px 12px; font-size: 12px; margin-bottom: 8px; }
 

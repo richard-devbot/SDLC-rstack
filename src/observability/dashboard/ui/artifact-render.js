@@ -120,7 +120,10 @@ function arJsonScalar(value) {
   if (t === 'number' || t === 'boolean') return '<span class="ar-' + t + '">' + arEsc(value) + '</span>';
   var s = String(value);
   if (s.length > 240) {
-    return '<span class="ar-str ar-clamp" onclick="this.classList.toggle(\\'ar-open\\')">' + arEsc(s) + '</span>';
+    // A real button so keyboard-only users can expand long values (Enter/Space).
+    return '<button type="button" class="ar-str ar-clamp" aria-expanded="false" ' +
+      'onclick="var o=this.classList.toggle(\\'ar-open\\');this.setAttribute(\\'aria-expanded\\',o?\\'true\\':\\'false\\')">' +
+      arEsc(s) + '</button>';
   }
   return '<span class="ar-str">' + arEsc(s) + '</span>';
 }

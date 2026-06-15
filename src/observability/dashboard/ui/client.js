@@ -1763,9 +1763,13 @@ function viewArtifact(btn) {
       if (typeof renderArtifactInto === 'function') {
         renderArtifactInto(body, data, runId, function() { openDrawer(runId); });
       } else {
+        var kb = Math.ceil((data.size || 0) / 1024);
         body.innerHTML =
-          '<div class="panel" style="margin-top:12px"><div class="panel-head"><span class="panel-title mono">' + esc(data.path) + '</span><span class="panel-note">' + Math.ceil(data.size / 1024) + ' KB</span></div>' +
-          '<div class="panel-body"><pre class="artifact-content">' + esc(data.content) + '</pre></div></div>';
+          '<div class="ar-toolbar"><button class="tb-chip ar-back">← Back to run</button>' +
+          '<span class="ar-path mono">' + esc(data.path) + '</span><span class="ar-size">' + kb + ' KB</span></div>' +
+          '<div class="panel"><div class="panel-body"><pre class="artifact-content">' + esc(data.content) + '</pre></div></div>';
+        var fb = body.querySelector('.ar-back');
+        if (fb) fb.addEventListener('click', function() { openDrawer(runId); });
       }
     })
     .catch(function(err) { showErr('artifact: ' + err.message); });
