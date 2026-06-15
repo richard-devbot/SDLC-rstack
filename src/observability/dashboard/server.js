@@ -229,7 +229,14 @@ async function handleApproval(req, res, decision) {
       auditApprovalAttempt(req, { id, decision, resolvedBy, outcome: ok ? 'success' : 'not-found' });
       res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok }));
-      if (ok) await broadcastSnapshot();
+      // Fire-and-forget the refresh: the approval already succeeded and the 200
+      // is sent, so a snapshot-build failure must not fall into the catch below
+      // and append a false `error` audit entry for a completed approval.
+      if (ok) {
+        broadcastSnapshot().catch((broadcastErr) => {
+          process.stderr.write(`[rstack-business] approval broadcast error: ${broadcastErr?.message}\n`);
+        });
+      }
     } catch (err) {
       process.stderr.write(`[rstack-business] approval error: ${err?.message}\n`);
       const status = Number(err?.statusCode) || 500;
