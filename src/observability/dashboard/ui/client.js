@@ -988,6 +988,10 @@ function renderSecurity(s) {
   var securityRuns = runs.filter(function(run) { return (run.stageReports || []).indexOf('12-security-threat-model') !== -1; });
   var alertRisks = (s.alerts || []).filter(function(alert) { return /security|threat|risk|gate/i.test(String(alert.title || alert.type || alert.detail || '')); });
   var high = alertRisks.length;
+  // First-pass heuristic: all blocked gates are treated as medium-severity
+  // security signals. Not every blocked gate is security-related (deployment
+  // or architecture approvals also block), so this over-counts until #91 adds
+  // a dedicated STRIDE/DREAD registry sourced from threat_model.json.
   var medium = Math.max(0, ((s.blockedGates || []).length));
   var low = securityRuns.length;
   setText('security-threat-count', (high + medium + low) + ' signals');
