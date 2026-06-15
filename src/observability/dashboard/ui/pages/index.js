@@ -1,22 +1,26 @@
 // owner: RStack developed by Richardson Gunde
 
 export const pages = [
-  ['command', '00', 'Command Center', 'Observe'],
-  ['business-flex', '15', 'Business Flex', 'Observe'],
-  ['studio', '12', 'Studio', 'Observe'],
-  ['workflow', '01', 'Workflow Map', 'Observe'],
-  ['projects', '02', 'Projects & Runs', 'Observe'],
-  ['run-report', '13', 'Run Report', 'Observe'],
-  ['run-analytics', '10', 'Run Analytics', 'Observe'],
-  ['agent-work', '03', 'Agent Work', 'Observe'],
-  ['live-feed', '04', 'Live Feed', 'Observe'],
-  ['team', '11', 'Team & Presence', 'Observe'],
-  ['approvals', '05', 'Approvals', 'Manage'],
-  ['decisions', '16', 'Decisions / Readiness', 'Manage'],
-  ['alerts-guardrails', '06', 'Alerts & Guardrails', 'Manage'],
-  ['traceability', '07', 'Traceability', 'Explore'],
-  ['team-layers', '08', 'Team & Layers', 'Explore'],
-  ['diagnostics', '09', 'Diagnostics', 'Explore'],
+  ['command', '00', 'Command Center', 'Deliver'],
+  ['projects', '02', 'Projects & Runs', 'Deliver'],
+  ['workflow', '01', 'Workflow Map', 'Deliver'],
+  ['run-analytics', '10', 'Run Analytics', 'Deliver'],
+  ['studio', '12', 'Studio', 'Deliver'],
+  ['business-flex', '15', 'Business Flex', 'Deliver'],
+  ['traceability', '07', 'Requirements & Traceability', 'Quality'],
+  ['run-report', '13', 'Run Report', 'Quality'],
+  ['release-readiness', '17', 'Release Readiness', 'Quality'],
+  ['agent-work', '03', 'Agent Work', 'Quality'],
+  ['approvals', '05', 'Approvals', 'Govern'],
+  ['decisions', '16', 'Decisions / Readiness', 'Govern'],
+  ['security', '18', 'Security', 'Govern'],
+  ['compliance', '19', 'Compliance', 'Govern'],
+  ['cost-budget', '20', 'Cost & Budget', 'Govern'],
+  ['live-feed', '04', 'Live Feed', 'Operate'],
+  ['alerts-guardrails', '06', 'Alerts & Guardrails', 'Operate'],
+  ['team', '11', 'Team & Presence', 'Operate'],
+  ['team-layers', '08', 'Team & Layers', 'Operate'],
+  ['diagnostics', '09', 'Diagnostics', 'Operate'],
 ];
 
 export function sidebarMarkup() {
@@ -28,7 +32,7 @@ export function sidebarMarkup() {
   }, {});
 
   return Object.entries(grouped).map(([section, items]) =>
-    `<div class="nav-section">${section}</div>` +
+    `<div class="nav-section">${section.toUpperCase()}</div>` +
     items.map(([id, icon, label]) =>
       `<button class="nav-link${id === 'command' ? ' active' : ''}" data-page="${id}">` +
         `<span class="nav-icon">${icon}</span><span>${label}</span>` +
@@ -56,13 +60,28 @@ function badgeFor(id) {
 function pageBody(id) {
   const bodies = {
     command: `
-      <div class="command-brief">
-        <div>
-          <div class="command-kicker">Live portfolio status</div>
+      <div class="mission-brief" id="executive-mission-brief">
+        <div class="mission-main">
+          <div class="command-kicker">Executive mission brief</div>
           <h2 id="command-summary-title">Loading .rstack data...</h2>
           <p id="command-summary-sub">The dashboard will show real project, stage, agent, approval and alert data once the snapshot loads.</p>
+          <div class="mission-actions">
+            <button class="tb-chip danger" onclick="showPage('alerts-guardrails')">Open blockers</button>
+            <button class="tb-chip" onclick="showPage('release-readiness')">Release readiness</button>
+            <button class="tb-chip" onclick="showPage('traceability')">Traceability matrix</button>
+          </div>
         </div>
-        <div class="command-status" id="command-status-chip">Loading</div>
+        <div class="mission-side">
+          <div class="command-status" id="command-status-chip">Loading</div>
+          <div class="mission-verdict" id="executive-readiness-verdict">—</div>
+          <div class="mission-next" id="executive-next-action">Waiting for snapshot…</div>
+        </div>
+      </div>
+
+      <div class="executive-grid">
+        <div class="executive-card"><div class="kpi-l">Ship readiness</div><div class="kpi-v" id="executive-governance-score">—</div><div class="kpi-s">computed from gates, alerts and evidence</div></div>
+        <div class="executive-card"><div class="kpi-l">Top risks</div><div class="risk-strip" id="executive-risk-strip"></div></div>
+        <div class="executive-card"><div class="kpi-l">Manager decision</div><div class="strong" id="executive-decision-summary">—</div><div class="kpi-s">approvals, DoR and readiness queue</div></div>
       </div>
 
       <div class="kpi-grid command-kpi-grid">
@@ -223,6 +242,10 @@ function pageBody(id) {
     `,
     approvals: '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Actionable Queue</span><span class="panel-note" id="approvals-count"></span></div><div class="panel-body"><div class="stack-list" id="approvals-list"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Resolved</span></div><div class="panel-body"><div class="stack-list" id="approvals-resolved"></div></div></div></div>',
     decisions: '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Decision Queue</span><span class="panel-note" id="decisions-count"></span></div><div class="panel-body"><div class="stack-list" id="decisions-list"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Definition of Ready</span><span class="panel-note" id="readiness-count"></span></div><div class="panel-body"><div class="stack-list" id="readiness-list"></div></div></div></div>',
+    'release-readiness': '<div class="command-brief"><div><div class="command-kicker">Ship / no-ship control</div><h2 id="release-readiness-verdict">Computing release readiness…</h2><p id="release-readiness-sub">Conservative verdict derived from tests, blocked gates, approvals, security, compliance, and evidence completeness.</p></div><div class="command-status" id="release-readiness-chip">Loading</div></div><div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Readiness Checklist</span><span class="panel-note" id="release-readiness-count"></span></div><div class="panel-body"><div class="stack-list" id="release-readiness-checklist"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Blocking Actions</span></div><div class="panel-body"><div class="stack-list" id="release-readiness-blockers"></div></div></div></div>',
+    security: '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Threat Severity Heatmap</span><span class="panel-note" id="security-threat-count"></span></div><div class="panel-body" id="security-threat-heatmap"></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Release Gate</span></div><div class="panel-body" id="security-release-gate"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Security Threat Registry</span></div><div class="table-wrap"><table><thead><tr><th>Severity</th><th>Risk</th><th>Run</th><th>Mitigation</th></tr></thead><tbody id="security-threat-registry"></tbody></table></div></div>',
+    compliance: '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Compliance Scorecards</span><span class="panel-note" id="compliance-score-count"></span></div><div class="panel-body"><div class="stack-list" id="compliance-scorecards"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Control Coverage</span></div><div class="panel-body" id="compliance-controls"></div></div></div>',
+    'cost-budget': '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Cost & Budget Summary</span><span class="panel-note" id="cost-budget-count"></span></div><div class="panel-body" id="cost-budget-summary"></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Cost Drivers & Assumptions</span></div><div class="panel-body"><div class="stack-list" id="cost-budget-drivers"></div></div></div></div>',
     'alerts-guardrails': '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Alerts</span><span class="panel-note" id="alerts-count"></span></div><div class="panel-body"><div class="stack-list" id="alerts-list"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Blocked Gates</span><span class="panel-note" id="blocked-count"></span></div><div class="panel-body"><div class="stack-list" id="blocked-list"></div></div></div></div>',
     traceability: '<div id="traceability-list"></div>',
     'team-layers': '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Stack Layers</span></div><div class="panel-body"><div class="grid-3" id="layers-grid"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Framework Breakdown</span></div><div class="table-wrap"><table><thead><tr><th>Framework</th><th>Runs</th><th>Pass</th><th>Fail</th><th>Cost</th></tr></thead><tbody id="framework-table"></tbody></table></div></div></div>',

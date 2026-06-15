@@ -137,12 +137,19 @@ var PAGE_LABELS = {
   'business-flex': 'Business Flex',
   workflow: 'Workflow Map',
   projects: 'Projects & Runs',
+  'run-report': 'Run Report',
+  'run-analytics': 'Run Analytics',
   'agent-work': 'Agent Work',
   'live-feed': 'Live Feed',
+  team: 'Team & Presence',
   approvals: 'Approvals',
   decisions: 'Decisions / Readiness',
+  'release-readiness': 'Release Readiness',
+  security: 'Security',
+  compliance: 'Compliance',
+  'cost-budget': 'Cost & Budget',
   'alerts-guardrails': 'Alerts & Guardrails',
-  traceability: 'Traceability',
+  traceability: 'Requirements & Traceability',
   'team-layers': 'Team & Layers',
   diagnostics: 'Diagnostics'
 };
@@ -160,8 +167,12 @@ var PAGE_SUBS = {
   'live-feed': 'Real-time event stream from events.jsonl plus live WebSocket refreshes.',
   approvals: 'Human-in-loop actions from the approval queue only.',
   decisions: 'Decision Queue and Definition-of-Ready status from decisions.json, dor-report.json and readiness.json.',
+  'release-readiness': 'The conservative ship/no-ship view: blockers, test status, unresolved gates, evidence completeness, and manager actions.',
+  security: 'Threat registry and release-gate status from threat-model artifacts, open risks, and security-stage findings.',
+  compliance: 'Control coverage, audit gaps, evidence status, and compliance readiness across SDLC runs.',
+  'cost-budget': 'Estimated cost, run spend, budget envelopes, and cost drivers for business governance.',
   'alerts-guardrails': 'Threshold alerts, blocked gates, guardrails, stalled work and spend risks.',
-  traceability: 'Requirements, stage artifacts, verified tasks and evidence connected by run.',
+  traceability: 'FR/NFR requirements, stage artifacts, verified tasks and evidence connected by run.',
   'team-layers': 'Stack layers and framework health across harness, tracker, alerts, hooks, memory and observers.',
   diagnostics: 'Source roots, missing builder contracts, validation coverage and raw .rstack data health.'
 };
@@ -200,6 +211,10 @@ function applyState(state) {
   try { renderLiveFeed(scoped); } catch (err) { showErr('live feed: ' + err.message); }
   try { renderApprovals(state); } catch (err) { showErr('approvals: ' + err.message); }
   try { renderDecisions(scoped); } catch (err) { showErr('decisions: ' + err.message); }
+  try { renderReleaseReadiness(scoped); } catch (err) { showErr('release readiness: ' + err.message); }
+  try { renderSecurity(scoped); } catch (err) { showErr('security: ' + err.message); }
+  try { renderCompliance(scoped); } catch (err) { showErr('compliance: ' + err.message); }
+  try { renderCostBudget(scoped); } catch (err) { showErr('cost budget: ' + err.message); }
   try { renderAlertsGuardrails(state); } catch (err) { showErr('alerts: ' + err.message); }
   try { renderTraceability(scoped); } catch (err) { showErr('traceability: ' + err.message); }
   try { renderTeamLayers(scoped); } catch (err) { showErr('team layers: ' + err.message); }
@@ -412,6 +427,7 @@ function renderCommand(s) {
   setText('command-summary-sub', commandSummarySub(s, attentionItems, counts));
   setText('command-status-chip', hasAttention ? 'Needs review' : activeRunCount ? 'Live work running' : 'All clear');
   setClass('command-status-chip', 'command-status ' + (hasAttention ? 'warn' : activeRunCount ? 'active' : 'ok'));
+  renderExecutiveMissionBrief(s);
 
   setText('kpi-projects', projects.length);
   setText('kpi-projects-s', (s.sourceRoots || []).length + ' source roots tracked');
@@ -444,6 +460,41 @@ function renderCommand(s) {
   var feed = (s.feed || []).slice(0, 12);
   setText('command-feed-count', feed.length + ' events');
   setHTML('command-feed', feed.length ? feed.map(feedRowHtml).join('') : emptyHtml('No activity yet', 'Events appear as runs execute.'));
+}
+
+function renderExecutiveMissionBrief(s) {
+  var tasks = allTasks(s);
+  var counts = taskStatusCounts(tasks);
+  var pendingApprovals = (s.pendingApprovals || []).length;
+  var blocked = (s.blockedGates || []).length;
+  var alerts = (s.alerts || []).length;
+  var missingValidation = (s.diagnostics && s.diagnostics.missingValidationCount) || 0;
+  var openDecisionCount = (((s.decisions || {}).runs || []).reduce(function(sum, run) {
+    return sum + ((run.decisions || []).filter(function(d) { return (d.status || 'pending') === 'pending'; }).length);
+  }, 0));
+  var blockers = blocked + pendingApprovals + counts.FAIL;
+  var score = Math.max(0, 100 - (blockers * 12) - Math.min(35, missingValidation) - Math.min(20, alerts));
+  var verdict = blockers ? 'BLOCKED' : alerts || missingValidation ? 'READY WITH CONCERNS' : 'READY';
+  var nextAction = blockers
+    ? 'Resolve ' + blockers + ' blocking gate/test signal' + (blockers === 1 ? '' : 's') + ' before shipment.'
+    : openDecisionCount
+      ? 'Review ' + openDecisionCount + ' pending architecture/product decision' + (openDecisionCount === 1 ? '' : 's') + '.'
+      : missingValidation
+        ? 'Attach missing validation proof before production confidence is claimed.'
+        : 'No manager-blocking action detected in the current scope.';
+  setText('executive-readiness-verdict', verdict);
+  setText('executive-next-action', nextAction);
+  setText('executive-governance-score', score + '%');
+  setText('executive-decision-summary', pendingApprovals ? pendingApprovals + ' approval' + (pendingApprovals === 1 ? '' : 's') + ' pending' : openDecisionCount ? openDecisionCount + ' decision' + (openDecisionCount === 1 ? '' : 's') + ' pending' : 'No pending manager decision');
+  var risks = [
+    { label: 'Blocked gates', value: blocked, tone: blocked ? 'danger' : 'ok' },
+    { label: 'Alerts', value: alerts, tone: alerts ? 'danger' : 'ok' },
+    { label: 'Missing validations', value: missingValidation, tone: missingValidation ? 'warn' : 'ok' },
+    { label: 'Failed tasks', value: counts.FAIL, tone: counts.FAIL ? 'danger' : 'ok' }
+  ];
+  setHTML('executive-risk-strip', risks.map(function(risk) {
+    return '<div class="risk-chip ' + risk.tone + '"><b>' + esc(risk.value) + '</b><span>' + esc(risk.label) + '</span></div>';
+  }).join(''));
 }
 
 function renderBusinessFlex(s) {
@@ -902,6 +953,87 @@ function renderDecisions(s) {
     var r = run.readiness || {};
     return '<div class="alert-card ' + (r.status === 'FAIL' ? 'fail' : r.status === 'WARN' ? 'warn' : 'pass') + '"><div class="agent-head"><div><div class="strong">' + esc(run.goal || run.runId) + '</div><div class="muted">' + esc(r.message || 'Definition-of-Ready status') + '</div><div class="feed-meta"><span>' + esc(run.profile || '') + '</span><span>' + esc(r.mode || '') + '</span><span>score ' + esc(r.score || 0) + '</span></div></div>' + pill(r.status || 'PASS') + '</div></div>';
   }).join('') || emptyHtml('No readiness data', 'Run sdlc_dor_check or rstack-agents dor after starting an RStack run.'));
+}
+
+function renderReleaseReadiness(s) {
+  var tasks = allTasks(s);
+  var counts = taskStatusCounts(tasks);
+  var blocked = (s.blockedGates || []).length;
+  var alerts = (s.alerts || []).length;
+  var pending = (s.pendingApprovals || []).length;
+  var missingValidation = (s.diagnostics && s.diagnostics.missingValidationCount) || 0;
+  var passEvidence = (s.diagnostics && s.diagnostics.evidenceCount) || 0;
+  var checks = [
+    { name: 'Tests passing', ok: counts.FAIL === 0, detail: counts.PASS + ' passed / ' + counts.FAIL + ' failed' },
+    { name: 'Approval gates resolved', ok: blocked === 0 && pending === 0, detail: blocked + ' blocked gates, ' + pending + ' pending approvals' },
+    { name: 'Validation evidence attached', ok: missingValidation === 0, detail: passEvidence + ' evidence records, ' + missingValidation + ' missing validations' },
+    { name: 'Operational alerts clear', ok: alerts === 0, detail: alerts + ' active alerts' }
+  ];
+  var blockedCount = checks.filter(function(c) { return !c.ok; }).length;
+  var verdict = blockedCount ? 'BLOCKED — ' + blockedCount + ' release condition' + (blockedCount === 1 ? '' : 's') + ' need work' : 'READY TO SHIP';
+  setText('release-readiness-verdict', verdict);
+  setText('release-readiness-chip', blockedCount ? 'Blocked' : 'Ready');
+  setClass('release-readiness-chip', 'command-status ' + (blockedCount ? 'warn' : 'ok'));
+  setText('release-readiness-count', checks.filter(function(c) { return c.ok; }).length + '/' + checks.length + ' passed');
+  setHTML('release-readiness-checklist', checks.map(function(check) {
+    return '<div class="command-row"><div><div class="strong">' + esc(check.name) + '</div><div class="muted">' + esc(check.detail) + '</div></div>' + pill(check.ok ? 'pass' : 'warn', check.ok ? 'PASS' : 'BLOCK') + '</div>';
+  }).join(''));
+  setHTML('release-readiness-blockers', checks.filter(function(c) { return !c.ok; }).map(function(check) {
+    return '<div class="attention-item warn"><div class="attention-value">!</div><div><div class="attention-title">' + esc(check.name) + '</div><div class="attention-detail">' + esc(check.detail) + '</div></div><span class="pill warn">ACTION</span></div>';
+  }).join('') || emptyHtml('No release blockers', 'This scoped data is ready by the conservative dashboard checks.'));
+}
+
+function renderSecurity(s) {
+  var runs = s.runs || [];
+  var securityRuns = runs.filter(function(run) { return (run.stageReports || []).indexOf('12-security-threat-model') !== -1; });
+  var alertRisks = (s.alerts || []).filter(function(alert) { return /security|threat|risk|gate/i.test(String(alert.title || alert.type || alert.detail || '')); });
+  var high = alertRisks.length;
+  // First-pass heuristic: all blocked gates are treated as medium-severity
+  // security signals. Not every blocked gate is security-related (deployment
+  // or architecture approvals also block), so this over-counts until #91 adds
+  // a dedicated STRIDE/DREAD registry sourced from threat_model.json.
+  var medium = Math.max(0, ((s.blockedGates || []).length));
+  var low = securityRuns.length;
+  setText('security-threat-count', (high + medium + low) + ' signals');
+  setHTML('security-threat-heatmap', '<div class="heatmap"><div class="heat high"><b>' + high + '</b><span>high security/risk alerts</span></div><div class="heat med"><b>' + medium + '</b><span>blocked gates to review</span></div><div class="heat low"><b>' + low + '</b><span>runs with security stage</span></div></div>');
+  setHTML('security-release-gate', high || medium ? '<div class="alert-card warn"><div class="strong">Security release gate needs review</div><div class="muted">Resolve open security/risk alerts and blocked gates before shipment.</div></div>' : '<div class="alert-card pass"><div class="strong">No security blocker detected</div><div class="muted">Threat model artifacts are present where the run produced them.</div></div>');
+  var rows = (alertRisks.length ? alertRisks : securityRuns.slice(0, 20).map(function(run) { return { level: 'info', title: 'Security threat model produced', detail: 'Stage 12 artifact present', runId: run.runId }; })).slice(0, 30);
+  setHTML('security-threat-registry', rows.map(function(item) {
+    return '<tr><td>' + pill(item.level || 'info', item.level || 'info') + '</td><td><div class="strong">' + esc(item.title || item.type || 'Security signal') + '</div><div class="muted">' + esc(item.detail || '') + '</div></td><td class="mono muted">' + esc((item.runId || '').slice(-24)) + '</td><td>Review / mitigate</td></tr>';
+  }).join('') || '<tr><td colspan="4" class="empty">No security stage artifacts or security alerts in scope.</td></tr>');
+}
+
+function renderCompliance(s) {
+  var runs = s.runs || [];
+  var complianceRuns = runs.filter(function(run) { return (run.stageReports || []).indexOf('13-compliance-checker') !== -1; });
+  var evidence = (s.diagnostics && s.diagnostics.evidenceCount) || 0;
+  var tasks = (s.diagnostics && s.diagnostics.taskCount) || allTasks(s).length;
+  var coverage = tasks ? Math.min(100, Math.round((evidence / tasks) * 100)) : 0;
+  setText('compliance-score-count', complianceRuns.length + ' compliance runs');
+  setHTML('compliance-scorecards', [
+    { name: 'Audit evidence coverage', value: coverage + '%', detail: evidence + ' evidence records / ' + tasks + ' tasks' },
+    { name: 'Compliance stage coverage', value: complianceRuns.length, detail: 'runs with 13-compliance-checker output' },
+    { name: 'Validation gaps', value: (s.diagnostics && s.diagnostics.missingValidationCount) || 0, detail: 'missing validation contracts' }
+  ].map(function(card) { return '<div class="command-row"><div><div class="strong">' + esc(card.name) + '</div><div class="muted">' + esc(card.detail) + '</div></div><div class="side-v mini">' + esc(card.value) + '</div></div>'; }).join(''));
+  setHTML('compliance-controls', complianceRuns.length ? '<div class="stack-list">' + complianceRuns.slice(0, 12).map(function(run) { return '<div class="command-row"><div><div class="strong">Compliance report available</div><div class="muted mono">' + esc(run.runId) + '</div></div>' + pill('pass', 'report') + '</div>'; }).join('') + '</div>' : emptyHtml('Compliance stage not run in this scope', 'Run stage 13 or select a run that produced compliance_report.json.'));
+}
+
+function renderCostBudget(s) {
+  var model = businessFlexModel(s);
+  var budget = model.budget || {};
+  var totalCost = Number(s.totalCost || 0);
+  var avgCost = (s.totalRuns || 0) ? totalCost / s.totalRuns : 0;
+  setText('cost-budget-count', (s.totalRuns || 0) + ' runs');
+  setHTML('cost-budget-summary', '<div class="proof-grid"><div><div class="proof-value">$' + totalCost.toFixed(4) + '</div><div class="proof-label">actual tracked spend</div></div><div><div class="proof-value">$' + avgCost.toFixed(4) + '</div><div class="proof-label">avg / run</div></div><div><div class="proof-value">$' + Number(budget.runBudgetTotal || 0).toFixed(2) + '</div><div class="proof-label">profile run budget</div></div><div><div class="proof-value">$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + '</div><div class="proof-label">estimated task budget</div></div></div>');
+  var drivers = [];
+  (s.runs || []).forEach(function(run) {
+    (run.tasks || []).forEach(function(task) {
+      if (task.budget_envelope) drivers.push({ task: task.title || task.id, runId: run.runId, cost: task.budget_envelope.estimated_ai_cost_usd || 0 });
+    });
+  });
+  setHTML('cost-budget-drivers', drivers.slice(0, 20).map(function(driver) {
+    return '<div class="command-row"><div><div class="strong">' + esc(driver.task) + '</div><div class="muted mono">' + esc(driver.runId) + '</div></div><div class="side-v mini">$' + Number(driver.cost || 0).toFixed(2) + '</div></div>';
+  }).join('') || emptyHtml('No task budget envelopes', 'Business Flex budgets appear after init/profile and task routing metadata are written.'));
 }
 
 function renderAlertsGuardrails(s) {
