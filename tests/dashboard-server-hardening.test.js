@@ -315,6 +315,13 @@ test('GET /api/state, /api/run-report, /api/artifact serve ETags and answer If-N
       `${server.baseUrl}/api/artifact?run=${encodeURIComponent(runId)}&path=plan.md`,
     ];
 
+    // Warm the rollup index: the first /api/state assembles a freshly-parsed
+    // run, after which the same run is served from .rstack/index.json in a
+    // slimmer shape. That one cold→warm transition legitimately changes the
+    // payload; ETag stability is a steady-state guarantee, so prime it once
+    // before asserting revalidation.
+    await (await fetch(`${server.baseUrl}/api/state`)).json();
+
     for (const endpoint of endpoints) {
       const first = await fetch(endpoint);
       assert.equal(first.status, 200, `${endpoint} responds 200`);
