@@ -1,5 +1,6 @@
 import { styles } from './styles.js';
 import { clientScript } from './client.js';
+import { artifactRenderScript } from './artifact-render.js';
 import { pageMarkup, sidebarMarkup } from './pages/index.js';
 
 // owner: RStack developed by Richardson Gunde
@@ -64,6 +65,7 @@ export function dashboardHtml(port) {
   </div>
   <div class="drawer-body" id="drawer-body"></div>
 </aside>
+<script>${artifactRenderScript}</script>
 <script>${clientScript(port)}</script>
 </body>
 </html>`;
