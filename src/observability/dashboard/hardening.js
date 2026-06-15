@@ -99,24 +99,27 @@ export function etagFor(payload) {
 
 // State builders restamp evaluation timestamps ("now") on every rebuild — the
 // top-level `ts`, each alert's `ts`, the decision-readiness `generated_at`, and
-// any future per-page stamp. Hashing those would make every poll a fresh ETag
-// and 304s would never fire. Recursively drop any key that is a server
-// eval-time stamp so the ETag tracks real data changes only. This is safe for
-// cache correctness: a meaningful data change is never *only* a timestamp —
-// it always moves a status, count, or id that survives this strip.
-const VOLATILE_TS_KEY = /^(ts|generated_at|generatedAt|evaluated_at|evaluatedAt|computed_at|computedAt)$/;
+// any future per-page stamp. They also emit dashboard-internal telemetry about
+// HOW the snapshot was assembled (rollup-index age and cold/warm parse
+// counters) that flips as the index warms but says nothing about the run data
+// itself. Hashing any of these would make every poll a fresh ETag and 304s
+// would never fire. Recursively drop these keys so the ETag tracks real,
+// client-facing data changes only. Safe for cache correctness: a meaningful
+// data change is never *only* a timestamp or an index-internal counter — it
+// always moves a status, count, or id that survives this strip.
+const VOLATILE_KEY = /^(ts|generated_at|generatedAt|evaluated_at|evaluatedAt|computed_at|computedAt|freshnessMs|fullyParsedRuns|indexServedRuns)$/;
 
 export function stableStringify(value) {
-  return JSON.stringify(stripVolatileTimestamps(value));
+  return JSON.stringify(stripVolatileKeys(value));
 }
 
-function stripVolatileTimestamps(value) {
-  if (Array.isArray(value)) return value.map(stripVolatileTimestamps);
+function stripVolatileKeys(value) {
+  if (Array.isArray(value)) return value.map(stripVolatileKeys);
   if (value && typeof value === 'object') {
     const out = {};
     for (const [key, val] of Object.entries(value)) {
-      if (VOLATILE_TS_KEY.test(key)) continue;
-      out[key] = stripVolatileTimestamps(val);
+      if (VOLATILE_KEY.test(key)) continue;
+      out[key] = stripVolatileKeys(val);
     }
     return out;
   }

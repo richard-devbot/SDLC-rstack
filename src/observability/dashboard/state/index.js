@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { evaluateAlerts } from '../../alerts/engine.js';
 import { sourceRoots } from './roots.js';
-import { getAllRuns } from './runs.js';
+import { getIndexedRuns } from './rollup-index.js';
 import { getAllApprovals, buildBlockedGates, approvalRequestsFromBlockedGates, summarizeApprovals, resolveApprovalAcrossRoots } from './approvals.js';
 import { buildActivityFeed } from './feed.js';
 import { buildStageMatrix } from './stage-matrix.js';
@@ -20,8 +20,15 @@ export { resolveApprovalAcrossRoots } from './approvals.js';
 
 export async function buildFullState(projectRoot, options = {}) {
   const roots = await sourceRoots(projectRoot, options);
-  const [runs, queueApprovals] = await Promise.all([
-    getAllRuns(roots),
+  // Rollup index: completed runs come from .rstack/index.json; only active
+  // (or explicitly scoped) runs pay the full directory parse.
+  const [{ runs, indexMeta }, queueApprovals] = await Promise.all([
+    getIndexedRuns(roots, {
+      scopeRunIds: options.scopeRunIds,
+      retentionDays: options.retentionDays,
+      io: options.indexIo,
+      now: options.now,
+    }),
     getAllApprovals(roots),
   ]);
 
@@ -83,7 +90,7 @@ export async function buildFullState(projectRoot, options = {}) {
     presence,
     businessFlex: buildBusinessFlexState(runs),
     decisions: await buildDecisionState(runs),
-    diagnostics: buildDiagnostics(runs, roots),
+    diagnostics: buildDiagnostics(runs, roots, indexMeta),
     ts: new Date().toISOString(),
   };
 
