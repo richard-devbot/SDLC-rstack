@@ -1,7 +1,7 @@
 {
   "name": "rstack-agents",
   "version": "1.8.0",
-  "description": "Production-ready agentic SDLC framework for Pi and coding agents \u2014 orchestrator, builder/validator teams, lifecycle state, and specialist reuse",
+  "description": "Production-ready agentic SDLC framework for Pi and coding agents — orchestrator, builder/validator teams, lifecycle state, and specialist reuse",
   "type": "module",
   "main": "src/index.js",
   "bin": {
@@ -91,5 +91,8 @@
   "homepage": "https://github.com/richard-devbot/SDLC-rstack#readme",
   "publishConfig": {
     "access": "public"
+  },
+  "overrides": {
+    "esbuild": ">=0.28.1"
   }
 }
