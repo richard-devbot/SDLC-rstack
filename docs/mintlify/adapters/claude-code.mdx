@@ -7,7 +7,19 @@ description: "Asset adapter for Claude Code — agents, commands, and skills via
 
 Claude Code can use project/user subagents and slash commands. RStack runs in Claude Code today as portable agent assets — the Pi-native lifecycle hooks are not available, but the full agent/skill/plugin library is.
 
-## Installation
+## Recommended: npm init
+
+```bash
+cd your-project
+npm install rstack-agents
+npx rstack-agents init --framework claude-code --profile business-flex
+```
+
+`init` creates `.rstack/`, scaffolds `CLAUDE.md`, `SOUL.md`, and `HEARTBEAT.md` from the package templates, writes `.claude/rstack-sdlc.md`, and optionally a SessionStart hub hook snippet. Existing files are never overwritten.
+
+## Manual asset copy (optional)
+
+If you prefer a local vendor copy instead of reading from `node_modules/rstack-agents/`:
 
 ```bash
 export RSTACK_HOME=/path/to/SDLC-rstack
@@ -23,21 +35,21 @@ cp "$RSTACK_HOME/prompts"/*.md .claude/commands/rstack/ 2>/dev/null || true
 
 ## CLAUDE.md configuration
 
-Add this to `CLAUDE.md` in your project root:
+Run `init`, or copy the canonical template from the package:
 
-```markdown
-# RStack SDLC
-
-Use RStack SDLC from `.rstack/vendor/rstack`.
-Start with `.rstack/vendor/rstack/agents/core/orchestrator.md`.
-Use `.rstack/vendor/rstack/agents/core/builder.md` for implementation tasks.
-Use `.rstack/vendor/rstack/agents/core/validator.md` for read-only verification.
-Use SDLC pipeline agents from `.rstack/vendor/rstack/agents/sdlc/`.
-Use skills from `.rstack/vendor/rstack/skills/` and plugin packs from `.rstack/vendor/rstack/plugins/`.
-Write all run state under `.rstack/runs/<run_id>/`.
-Require specs, approvals, traceability, `builder.json`, and `validation.json`.
-Never claim DONE without evidence.
+```bash
+cp node_modules/rstack-agents/templates/bootstrap/CLAUDE.md ./CLAUDE.md
+cp node_modules/rstack-agents/templates/bootstrap/SOUL.md ./SOUL.md
+cp node_modules/rstack-agents/templates/bootstrap/HEARTBEAT.md ./HEARTBEAT.md
 ```
+
+| File | Purpose |
+|---|---|
+| `CLAUDE.md` | Claude Code bootstrap — asset paths, slash commands, optional hooks |
+| `SOUL.md` | Governance identity — orchestrator/builder/validator roles, evidence rules |
+| `HEARTBEAT.md` | Optional standby checks — approvals, budget, stalled tasks |
+
+The template covers orchestrator/builder/validator routing, `.rstack/rstack.config.json` profile awareness, run state under `.rstack/runs/<run_id>/`, and optional SessionStart hub hooks.
 
 ## Limitations vs. Pi
 
