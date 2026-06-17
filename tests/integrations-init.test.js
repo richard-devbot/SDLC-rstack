@@ -8,8 +8,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { detectFramework, initFramework, FRAMEWORKS } from '../src/integrations/init.js';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { detectFramework, initFramework, FRAMEWORKS, BOOTSTRAP_BY_FRAMEWORK } from '../src/integrations/init.js';
+
+const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function tmpProject(prefix) {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -56,11 +59,45 @@ test('init framework detection and setup', async (t) => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  await t.test('init custom scaffolds AGENTS.md, SOUL.md, HEARTBEAT.md', async () => {
+    const root = tmpProject('rstack-init-bootstrap-custom-');
+    const report = await initFramework(root, 'custom', { packageRoot: PACKAGE_ROOT });
+    assert.ok(existsSync(join(root, 'AGENTS.md')), 'AGENTS.md bootstrap created');
+    assert.ok(existsSync(join(root, 'SOUL.md')), 'SOUL.md bootstrap created');
+    assert.ok(existsSync(join(root, 'HEARTBEAT.md')), 'HEARTBEAT.md bootstrap created');
+    assert.ok(!existsSync(join(root, 'CLAUDE.md')), 'custom init should not create CLAUDE.md');
+    assert.ok(report.created.includes('AGENTS.md'));
+    assert.ok(report.nextSteps.some((step) => step.includes('SOUL.md')));
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('init pi scaffolds SOUL.md and HEARTBEAT.md only', async () => {
+    const root = tmpProject('rstack-init-bootstrap-pi-');
+    const report = await initFramework(root, 'pi', { packageRoot: PACKAGE_ROOT });
+    assert.ok(existsSync(join(root, 'SOUL.md')));
+    assert.ok(existsSync(join(root, 'HEARTBEAT.md')));
+    assert.ok(!existsSync(join(root, 'CLAUDE.md')));
+    assert.ok(!existsSync(join(root, 'AGENTS.md')));
+    assert.deepEqual([...BOOTSTRAP_BY_FRAMEWORK.pi], ['SOUL.md', 'HEARTBEAT.md']);
+    assert.ok(report.created.includes('SOUL.md'));
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('bootstrap files are idempotent on second init', async () => {
+    const root = tmpProject('rstack-init-bootstrap-idem-');
+    await initFramework(root, 'custom', { packageRoot: PACKAGE_ROOT });
+    writeFileSync(join(root, 'AGENTS.md'), '# modified');
+    const second = await initFramework(root, 'custom', { packageRoot: PACKAGE_ROOT });
+    assert.ok(second.skipped.some((item) => item.includes('AGENTS.md')));
+    assert.equal(readFileSync(join(root, 'AGENTS.md'), 'utf8'), '# modified');
+    rmSync(root, { recursive: true, force: true });
+  });
+
   await t.test('init claude-code creates state dir, doc, registers project — idempotently', async () => {
     const root = tmpProject('rstack-init-run-');
     mkdirSync(join(root, '.claude'), { recursive: true });
 
-    const first = await initFramework(root, 'claude-code');
+    const first = await initFramework(root, 'claude-code', { packageRoot: PACKAGE_ROOT });
     assert.equal(first.framework, 'claude-code');
     assert.ok(existsSync(join(root, '.rstack', 'runs')), '.rstack/runs created');
     assert.ok(existsSync(join(root, '.rstack', 'rstack.config.json')), 'business profile config created');
@@ -72,6 +109,9 @@ test('init framework detection and setup', async (t) => {
     assert.equal(budget.currency, 'USD');
     assert.ok(budget.run_budget_usd > 0);
     assert.ok(existsSync(join(root, '.claude', 'rstack-sdlc.md')), 'usage doc created');
+    assert.ok(existsSync(join(root, 'CLAUDE.md')), 'CLAUDE.md bootstrap created');
+    assert.ok(existsSync(join(root, 'SOUL.md')), 'SOUL.md bootstrap created');
+    assert.ok(existsSync(join(root, 'HEARTBEAT.md')), 'HEARTBEAT.md bootstrap created');
     assert.ok(first.created.some((item) => item.includes('.rstack/')));
     assert.ok(first.nextSteps.length > 0);
 
@@ -80,11 +120,14 @@ test('init framework detection and setup', async (t) => {
 
     // Second run: nothing overwritten, everything reported as skipped.
     const doc = readFileSync(join(root, '.claude', 'rstack-sdlc.md'), 'utf8');
-    const second = await initFramework(root, 'claude-code');
+    const second = await initFramework(root, 'claude-code', { packageRoot: PACKAGE_ROOT });
     assert.ok(second.skipped.some((item) => item.includes('.rstack/')));
     assert.ok(second.skipped.some((item) => item.includes('rstack.config.json')));
     assert.ok(second.skipped.some((item) => item.includes('budget.json')));
     assert.ok(second.skipped.some((item) => item.includes('rstack-sdlc.md')));
+    assert.ok(second.skipped.some((item) => item.includes('CLAUDE.md')));
+    assert.ok(second.skipped.some((item) => item.includes('SOUL.md')));
+    assert.ok(second.skipped.some((item) => item.includes('HEARTBEAT.md')));
     assert.equal(readFileSync(join(root, '.claude', 'rstack-sdlc.md'), 'utf8'), doc, 'existing file untouched');
     rmSync(root, { recursive: true, force: true });
   });

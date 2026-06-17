@@ -49,6 +49,7 @@
     "docs/HARNESS.md",
     "docs/mintlify/docs.json",
     "docs/mintlify/reference/decision-readiness.mdx",
+    "templates/bootstrap/",
     "research/",
     "rfcs/",
     "operator.json",

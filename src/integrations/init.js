@@ -15,10 +15,21 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { registerProject } from '../core/tracker/registry.js';
 import { budgetPolicyForProfile, profileConfig } from '../core/profiles.js';
 
 export const FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'custom']);
+
+const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
+/** Bootstrap files written at project root per framework (only when missing). */
+export const BOOTSTRAP_BY_FRAMEWORK = Object.freeze({
+  'claude-code': ['CLAUDE.md', 'SOUL.md', 'HEARTBEAT.md'],
+  pi: ['SOUL.md', 'HEARTBEAT.md'],
+  operator: ['SOUL.md', 'HEARTBEAT.md'],
+  custom: ['AGENTS.md', 'SOUL.md', 'HEARTBEAT.md'],
+});
 
 /** Best-effort host framework detection from project signals. */
 export async function detectFramework(projectRoot) {
@@ -93,6 +104,22 @@ async function writeIfMissing(filePath, content, label, report) {
   return true;
 }
 
+async function readBootstrapTemplate(packageRoot, name) {
+  const templatePath = join(packageRoot, 'templates', 'bootstrap', name);
+  if (!existsSync(templatePath)) {
+    throw new Error(`Bootstrap template missing: templates/bootstrap/${name}`);
+  }
+  return readFile(templatePath, 'utf8');
+}
+
+async function scaffoldBootstrapFiles(projectRoot, framework, report) {
+  const names = BOOTSTRAP_BY_FRAMEWORK[framework] ?? BOOTSTRAP_BY_FRAMEWORK.custom;
+  for (const name of names) {
+    const content = await readBootstrapTemplate(PACKAGE_ROOT, name);
+    await writeIfMissing(join(projectRoot, name), content, name, report);
+  }
+}
+
 const ENV_HINTS = [
   'RSTACK_SLACK_WEBHOOK   — webhook URL for Slack / Teams / Discord notifications',
   'RSTACK_BUSINESS_PORT   — Business Hub dashboard port (default 3008)',
@@ -124,6 +151,8 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
   );
   await registerProject(root);
   report.created.push('project registered for Business Hub multi-project observation');
+
+  await scaffoldBootstrapFiles(root, fw, report);
 
   if (fw === 'pi') {
     report.nextSteps.push(
@@ -192,8 +221,10 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
 
   report.nextSteps.push(
     `Active RStack profile: ${activeProfile.profile} (${activeProfile.name})`,
+    'Governance identity: SOUL.md (team roles, contracts, evidence). Standby automation: HEARTBEAT.md (optional periodic checks).',
     'Adjust the profile any time in .rstack/rstack.config.json to enable only the business teams, plugins, and dashboard pages this project needs.',
     'Adjust budget controls in .rstack/budget.json before high-cost agent runs.',
+    'SessionStart hub hook and heartbeat checks are opt-in — disable hub auto-launch with RSTACK_NO_BUSINESS_HUB=1.',
     'Optional environment configuration:',
     ...ENV_HINTS.map((hint) => `  ${hint}`),
   );
