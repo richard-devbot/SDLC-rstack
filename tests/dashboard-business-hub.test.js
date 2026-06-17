@@ -149,12 +149,21 @@ test('Business Hub approval resolution writes the run-level approval artifact', 
   }
 });
 
-test('Business Hub client does not overwrite a live WebSocket label after HTTP state loads', () => {
+test('Business Hub freshness chip reflects socket + snapshot age, never silently stale', () => {
   const html = dashboardHtml(3008);
 
   assert.match(html, /var WS_CONNECTED = false;/);
   assert.match(html, /WS_CONNECTED = true;/);
-  assert.match(html, /if \(!WS_CONNECTED\) \{\s*setConnectionStatus\('connecting', 'Loaded \(connecting…\)'\);/);
+  // Freshness (issue #87) derives the label from socket state + snapshot age,
+  // so an HTTP load can no longer overwrite a live socket's label.
+  assert.match(html, /function classifyFreshness/);
+  assert.match(html, /function updateFreshness/);
+  assert.match(html, /FRESHNESS_TIMER = setInterval\(updateFreshness/);
+  // A REST poll keeps data flowing (and the chip honest) while the socket is down.
+  assert.match(html, /function startPolling/);
+  assert.match(html, /id="conn-live"[^>]*aria-live/);
+  // The old hard-coded "Loaded (connecting…)" override is gone.
+  assert.doesNotMatch(html, /Loaded \(connecting/);
 });
 
 test('Business Hub renders malformed cost events without NaN in live activity', () => {

@@ -1,6 +1,7 @@
 import { styles } from './styles.js';
 import { clientScript } from './client.js';
 import { artifactRenderScript } from './artifact-render.js';
+import { freshnessScript } from './freshness.js';
 import { pageMarkup, sidebarMarkup } from './pages/index.js';
 
 // owner: RStack developed by Richardson Gunde
@@ -42,7 +43,8 @@ export function dashboardHtml(port) {
         <select class="run-select" id="scope-project" onchange="setScopeProject(this.value)" title="Project scope"><option value="">All projects</option></select>
         <select class="run-select" id="scope-run" onchange="setScopeRun(this.value)" title="Run scope"><option value="">All runs</option></select>
       </div>
-      <div class="tb-status"><span class="status-dot status-connecting" id="status-dot"></span><span id="status-text">Loading...</span></div>
+      <div class="tb-status" title="Data freshness — live, stale, or disconnected"><span class="status-dot status-connecting" id="status-dot"></span><span id="status-text">Loading...</span></div>
+      <div id="conn-live" role="status" aria-live="polite" class="sr-only"></div>
       <div class="tb-actions">
         <button class="tb-chip" id="btn-alerts" onclick="showPage('alerts-guardrails')">Alerts <span id="alert-count">-</span></button>
         <button class="tb-chip" id="btn-approvals" onclick="showPage('approvals')">Approvals <span id="approval-count">-</span></button>
@@ -66,6 +68,7 @@ export function dashboardHtml(port) {
   <div class="drawer-body" id="drawer-body"></div>
 </aside>
 <script>${artifactRenderScript}</script>
+<script>${freshnessScript}</script>
 <script>${clientScript(port)}</script>
 </body>
 </html>`;
