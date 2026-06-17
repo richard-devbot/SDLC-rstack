@@ -149,12 +149,104 @@ test('Business Hub approval resolution writes the run-level approval artifact', 
   }
 });
 
-test('Business Hub client does not overwrite a live WebSocket label after HTTP state loads', () => {
+test('Business Hub freshness chip reflects socket + snapshot age, never silently stale', () => {
   const html = dashboardHtml(3008);
 
   assert.match(html, /var WS_CONNECTED = false;/);
   assert.match(html, /WS_CONNECTED = true;/);
-  assert.match(html, /if \(!WS_CONNECTED\) \{\s*setConnectionStatus\('connecting', 'Loaded \(connecting…\)'\);/);
+  // Freshness (issue #87) derives the label from socket state + snapshot age,
+  // so an HTTP load can no longer overwrite a live socket's label.
+  assert.match(html, /function classifyFreshness/);
+  assert.match(html, /function updateFreshness/);
+  assert.match(html, /FRESHNESS_TIMER = setInterval\(updateFreshness/);
+  // A REST poll keeps data flowing (and the chip honest) while the socket is down.
+  assert.match(html, /function startPolling/);
+  assert.match(html, /id="conn-live"[^>]*aria-live/);
+  // The old hard-coded "Loaded (connecting…)" override is gone.
+  assert.doesNotMatch(html, /Loaded \(connecting/);
+});
+
+test('Business Hub freshness variables are declared in the client script', () => {
+  const html = dashboardHtml(3008);
+  // All module-level tracking variables introduced by issue #87 must be present.
+  assert.match(html, /var LAST_SERVER_TS = null/);
+  assert.match(html, /var LAST_SNAPSHOT_AT = 0/);
+  assert.match(html, /var LAST_ETAG = null/);
+  assert.match(html, /var POLL_TIMER = null/);
+  assert.match(html, /var FRESHNESS_TIMER = null/);
+  assert.match(html, /var LAST_CONN_KIND = null/);
+});
+
+test('Business Hub shortClock helper is emitted in the client script', () => {
+  const html = dashboardHtml(3008);
+  assert.match(html, /function shortClock\(value\)/);
+  // Null guard: returns null for falsy input.
+  assert.match(html, /if \(!value\) return null/);
+  // Padding helper ensures HH:MM:SS format.
+  assert.match(html, /function pad\(n\)/);
+});
+
+test('Business Hub fetchState sends conditional ETag request and handles 304', () => {
+  const html = dashboardHtml(3008);
+  // ETag is stored from the response and sent on subsequent requests.
+  assert.match(html, /If-None-Match/);
+  assert.match(html, /LAST_ETAG/);
+  // A 304 confirms the snapshot is still current: refresh the clock, don't re-render.
+  assert.match(html, /response\.status === 304/);
+  assert.match(html, /LAST_SNAPSHOT_AT = Date\.now\(\)/);
+});
+
+test('Business Hub startPolling is idempotent (guard prevents duplicate intervals)', () => {
+  const html = dashboardHtml(3008);
+  // The guard `if (POLL_TIMER) return;` prevents stacking multiple intervals.
+  assert.match(html, /if \(POLL_TIMER\) return/);
+  assert.match(html, /POLL_TIMER = setInterval/);
+});
+
+test('Business Hub stopPolling clears and nulls the poll timer', () => {
+  const html = dashboardHtml(3008);
+  assert.match(html, /if \(!POLL_TIMER\) return/);
+  assert.match(html, /clearInterval\(POLL_TIMER\)/);
+  assert.match(html, /POLL_TIMER = null/);
+});
+
+test('Business Hub topbar status chip has accessibility title attribute', () => {
+  const html = dashboardHtml(3008);
+  assert.match(html, /class="tb-status"[^>]*title="Data freshness/);
+});
+
+test('Business Hub conn-live region has correct ARIA attributes and sr-only class', () => {
+  const html = dashboardHtml(3008);
+  // Must have role="status" and aria-live="polite" for screen-reader announcements.
+  assert.match(html, /id="conn-live"[^>]*role="status"/);
+  assert.match(html, /id="conn-live"[^>]*aria-live="polite"/);
+  assert.match(html, /id="conn-live"[^>]*class="sr-only"/);
+});
+
+test('Business Hub styles include the sr-only utility class for visually-hidden ARIA live region', () => {
+  const html = dashboardHtml(3008);
+  assert.match(html, /\.sr-only\s*\{[^}]*position:\s*absolute/);
+  assert.match(html, /clip:\s*rect\(0,0,0,0\)/);
+});
+
+test('Business Hub emits freshnessScript before clientScript so classifyFreshness is available on load', () => {
+  const html = dashboardHtml(3008);
+  const freshnessPos = html.indexOf('function classifyFreshness');
+  const clientPos = html.indexOf('function updateFreshness');
+  assert.ok(freshnessPos !== -1, 'classifyFreshness should be in the HTML');
+  assert.ok(clientPos !== -1, 'updateFreshness should be in the HTML');
+  assert.ok(freshnessPos < clientPos, 'freshnessScript must appear before clientScript');
+});
+
+test('Business Hub WS close/error handler starts polling instead of calling setConnectionStatus', () => {
+  const html = dashboardHtml(3008);
+  // The old approach called setConnectionStatus directly on close; the new approach
+  // calls updateFreshness + startPolling.
+  assert.match(html, /ws\.onclose = ws\.onerror = function/);
+  assert.match(html, /startPolling\(\)/);
+  // Hard-coded status strings that bypass the freshness system must be absent.
+  assert.doesNotMatch(html, /setConnectionStatus\('connecting', 'Reconnecting/);
+  assert.doesNotMatch(html, /setConnectionStatus\('error', 'Socket unavailable'\)/);
 });
 
 test('Business Hub renders malformed cost events without NaN in live activity', () => {
