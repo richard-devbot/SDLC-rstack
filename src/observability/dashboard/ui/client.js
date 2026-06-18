@@ -201,10 +201,15 @@ function showPage(name) {
   setText('page-title', PAGE_LABELS[name] || name);
 }
 
-function applyState(state) {
+function applyState(state, opts) {
   STATE = state;
-  LAST_SERVER_TS = (state && state.ts) ? state.ts : LAST_SERVER_TS;
-  LAST_SNAPSHOT_AT = Date.now();
+  // Only a genuine WS/REST snapshot advances the freshness clock. UI-only
+  // rerenders (scope changes, studio inspector) reuse STATE and must NOT make
+  // old data look freshly updated — that would defeat the staleness signal.
+  if (opts && opts.fromSnapshot) {
+    LAST_SERVER_TS = (state && state.ts) ? state.ts : LAST_SERVER_TS;
+    LAST_SNAPSHOT_AT = Date.now();
+  }
   try { updateFreshness(); } catch (err) { /* freshness chip is best-effort */ }
   try { notifyNewGates(state); } catch (err) { /* notifications are best-effort */ }
   try { renderScopeSelectors(state); } catch (err) { showErr('scope: ' + err.message); }
@@ -1840,7 +1845,13 @@ function fetchState() {
         updateFreshness();
         return null;
       }
-      return response.json().then(function(data) { applyState(data); return data; });
+      if (!response.ok) {
+        // Never let an error body masquerade as a fresh snapshot.
+        return response.json().catch(function() { return {}; }).then(function(body) {
+          throw new Error(body.error || ('HTTP ' + response.status));
+        });
+      }
+      return response.json().then(function(data) { applyState(data, { fromSnapshot: true }); return data; });
     })
     .catch(function(err) {
       // Don't claim freshness — let the heartbeat age the chip toward stale.
@@ -1866,7 +1877,7 @@ function connectWS() {
   };
   ws.onmessage = function(event) {
     try {
-      applyState(JSON.parse(event.data));
+      applyState(JSON.parse(event.data), { fromSnapshot: true });
     } catch (err) {
       showErr('WS render: ' + err.message);
     }
