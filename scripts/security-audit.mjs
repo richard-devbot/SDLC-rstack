@@ -19,6 +19,12 @@ const BUNDLED_ROOTS = [
   'node_modules/@earendil-works/pi-coding-agent/node_modules/',
 ];
 
+// An advisory is tolerated ONLY when it is one of these named packages AND its
+// every install path is bundled (below). The name allowlist is deliberate: a
+// brand-new high/critical in the bundled subtree for any other package still
+// fails the gate, forcing a conscious decision rather than silent acceptance.
+const TOLERATED_BUNDLED_ADVISORIES = new Set(['protobufjs', 'ws']);
+
 const BLOCKING = new Set(['high', 'critical']);
 
 function runAudit() {
@@ -48,7 +54,7 @@ const tolerated = [];
 
 for (const [name, info] of Object.entries(vulns)) {
   if (!BLOCKING.has(info.severity)) continue;
-  if (isFullyBundled(info.nodes)) {
+  if (TOLERATED_BUNDLED_ADVISORIES.has(name) && isFullyBundled(info.nodes)) {
     tolerated.push({ name, severity: info.severity });
   } else {
     blocking.push({ name, severity: info.severity, nodes: info.nodes });
