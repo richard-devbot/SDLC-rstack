@@ -5,6 +5,69 @@
 All notable changes to RStack are documented here. Entries are user-focused:
 what you can now do that you couldn't before.
 
+## [Unreleased] — v1.9.0 planning
+
+> **Target:** v1.9.0 release. Loop engineering, governance upgrades, and dashboard hardening.
+> Contributions welcome — see [`docs/github-issues/`](docs/github-issues/) for issue specs.
+
+### Planned — Loop Engineering (Phase 0–5)
+- **Harness ↔ Loop Runner Bridge** — SDLC agents will emit `builder.json` and `validation.json` to the run directory so the JS harness, dashboard, and loop runner all share a single source of truth
+- **Per-agent retry + Maker/Checker validation** — retry wrapper with configurable max attempts and exponential backoff; Haiku validator agents audit each stage before the pipeline advances
+- **Goal-conditioned pipeline loop** — pipeline runs until Agent 11's `consistency_score >= 90 AND critical_count == 0`, automatically re-running only failing stages (max 3 iterations)
+- **Cost/context footer standard** — `OPERATING-STANDARD.md` will require every agent to emit a METRICS block; `updateRunMetrics()` will populate `cumulative_cost_usd` from it
+- **Parallel safety** — git worktree isolation for Agent 07 (code generation) so generated code never pollutes the framework working directory
+
+---
+
+## [1.9.0-rc] - 2026-06-17
+
+Features merged to `main` after the 1.8.0 release, included in the next version.
+
+### Added
+- **Bootstrap templates as first-class project assets** (PR #122). `SOUL.md`, `HEARTBEAT.md`,
+  `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md` now ship as canonical copies in
+  `templates/bootstrap/` — `init` reads from there, and you can inspect or fork the exact
+  templates your project uses.
+- **Artifact viewer in the dashboard** (PR #107). Every run artifact now renders richly inside
+  the drawer — Markdown headings and code blocks, JSON as a collapsible tree, JSONL as a
+  paginated list. No more staring at raw `<pre>` output. XSS-safe, keyboard-accessible, zero
+  extra dependencies.
+- **Executive mission brief + governance pages** (PR #105). Four new dashboard pages:
+  Security threat heat-map (CRITICAL/HIGH/MEDIUM/LOW counts), Compliance score gauge,
+  Cost flash-card, and Release readiness gate. The Command Center now opens with an
+  executive mission brief.
+- **Run rollup index + retention** (PR #104). The dashboard builds an incremental rollup index
+  over all runs and enforces configurable retention — older run data rolls off automatically
+  without manual cleanup.
+- **Atomic run-state writes** (PR #103). Every write to `metrics.json`, `tasks.json`, and
+  `approvals.json` now goes through `withFileLock` (advisory O_EXCL lockfile) and atomic
+  rename — no torn writes even when parallel agents race.
+- **Dashboard server hardening** (PR #102). POST endpoints are rate-limited; approval writes
+  are serialized and append an audit record; GET responses carry ETags for conditional
+  fetching; body size is capped at a real 413.
+- **Decision readiness gate** (#101). The orchestrator now blocks stage advancement until
+  pending architectural decisions are resolved — surfaced as an approval-style gate in the
+  Business Hub.
+- **Business-flex profiles, budgets, and routing visibility** (#68). Three named profiles
+  (`lean-mvp`, `business-flex`, `enterprise-webapp`) with per-profile budget envelopes and
+  routing explanation shown in the dashboard so you can see _why_ each agent was selected.
+- **RFC / ADR process** (#85). `rfcs/` directory with ADR template and process documentation
+  so architectural decisions are captured alongside the code.
+
+### Fixed
+- **esbuild high-severity advisory cleared** (PR #106). Pinned `esbuild >= 0.28.1`.
+- **`init --fresh`** now correctly scopes destructive operations to the current session run
+  and archives prior state to `.rstack/archive/<timestamp>/` (#98, #99).
+- **Windows dynamic import path fix** (#63). Dashboard server-side import now uses a file URL
+  so it works on Windows paths with spaces.
+- **Approval audit no longer leaks snapshot failures** — broadcast errors are caught separately
+  from the audit log write.
+
+### Security
+- SDLC RSTACK logo added to project (since 2026).
+
+---
+
 ## [1.8.0] - 2026-06-02
 
 ### Added
