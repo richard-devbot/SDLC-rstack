@@ -52,9 +52,84 @@ Ask or capture product-owner answers before planning. Called when the goal has a
 
 ```text
 sdlc_clarify()
+sdlc_clarify(answers=["Ship password login only for v1", "Use Postgres because the repo already has it"])
 ```
 
 RStack surfaces `open_questions` from the transcript and waits for your answers before proceeding to `sdlc_plan`.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `run_id` | string | — | Target a specific run (default: latest active run) |
+| `answers` | string[] | — | Product-owner answers or decisions to append to `context.md` |
+
+---
+
+### `sdlc_decisions`
+
+List the Decision Queue, or add a pending run-level decision that must be resolved before a later stage.
+
+```text
+sdlc_decisions()
+sdlc_decisions(
+  question="Should refresh tokens be stored in Redis or Postgres?",
+  impact="architecture",
+  required_before_stage="06-architecture",
+  owner="product-owner"
+)
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `run_id` | string | — | Target a specific run (default: latest active run) |
+| `question` | string | — | Add this question as a pending decision |
+| `impact` | `"architecture"` \| `"security"` \| `"budget"` \| `"scope"` \| `"delivery"` | — | Decision category, defaults to `scope` |
+| `required_before_stage` | string | — | Canonical stage that must not proceed until the decision is resolved |
+| `recommendation` | string | — | Suggested answer or tradeoff note |
+| `owner` | string | — | Human or role responsible for resolving the decision |
+
+Writes decision state under the active run and appends a `decision_added` event when a new question is created.
+
+---
+
+### `sdlc_decide`
+
+Resolve or waive a pending Decision Queue item.
+
+```text
+sdlc_decide(
+  decision_id="decision_001",
+  status="resolved",
+  resolution="Use Redis for refresh-token rotation; Postgres remains the source of user identity."
+)
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `run_id` | string | — | Target a specific run (default: latest active run) |
+| `decision_id` | string | ✅ | Decision Queue item to resolve or waive |
+| `status` | `"resolved"` \| `"waived"` | — | Final decision status, defaults to `resolved` |
+| `resolution` | string | ✅ | Human-readable resolution or waiver reason |
+| `resolved_by` | string | — | Resolver identity (defaults to the detected user identity) |
+
+Writes the decision update, appends a `decision_resolved` event, and records traceability for the decision.
+
+---
+
+### `sdlc_dor_check`
+
+Run the Definition-of-Ready gate for a target stage. This checks unresolved decisions and writes readiness reports before builders are allowed to advance.
+
+```text
+sdlc_dor_check()
+sdlc_dor_check(target_stage="07-code")
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `run_id` | string | — | Target a specific run (default: latest active run) |
+| `target_stage` | string | — | Canonical stage to check readiness for, defaults to `07-code` |
+
+Creates or updates readiness artifacts for the run and appends a `dor_check` event to `events.jsonl`.
 
 ---
 

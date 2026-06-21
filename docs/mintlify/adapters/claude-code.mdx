@@ -17,6 +17,21 @@ npx rstack-agents init --framework claude-code --profile business-flex
 
 `init` creates `.rstack/`, scaffolds `CLAUDE.md`, `SOUL.md`, and `HEARTBEAT.md` from the package templates, writes `.claude/rstack-sdlc.md`, and optionally a SessionStart hub hook snippet. Existing files are never overwritten.
 
+## How invocation works
+
+Claude Code does not call `sdlc_start` or any other Pi tool directly. It invokes RStack through portable files:
+
+| Surface | Source | How it is invoked |
+|---|---|---|
+| Bootstrap instructions | `CLAUDE.md`, `SOUL.md`, `HEARTBEAT.md`, `.claude/rstack-sdlc.md` | Loaded by Claude Code as project guidance |
+| Core and SDLC agents | `agents/**/*.md`, optionally copied to `.claude/agents/rstack/` | Run through Claude Code's subagent mechanism or by explicitly asking for the named RStack agent |
+| Skills | `skills/**/SKILL.md` | Used by Claude Code when a task matches the skill trigger |
+| Plugins | `plugins/*/plugin.json` plus plugin assets | Installed/copied by package or project convention, then routed by Claude Code/plugin metadata |
+| Slash-command prompts | `prompts/*.md`, optionally copied to `.claude/commands/rstack/` | Exposed by Claude Code according to its command-file naming convention, for example `.claude/commands/rstack/build.md` becomes the RStack `build` command namespace entry |
+| CLI bridge | `rstack-agents` | Runs setup, validation, decision queue, readiness, and hub commands outside the model runtime |
+
+The practical difference from Pi is enforcement. Claude Code can follow RStack's orchestrator/builder/validator contracts and write `.rstack/runs/<run_id>/` state, but the package cannot intercept every Claude Code tool call the way the Pi `tool_call` hook can. Use approval and validation contracts in Claude Code, but treat destructive-action blocking as a Pi-native guarantee unless a future Claude Code adapter adds equivalent tool gating.
+
 ## Manual asset copy (optional)
 
 If you prefer a local vendor copy instead of reading from `node_modules/rstack-agents/`:

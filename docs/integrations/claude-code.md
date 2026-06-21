@@ -2,8 +2,9 @@
 
 <!-- owner: RStack developed by Richardson Gunde -->
 
-Claude Code drives RStack through the `sdlc-automation` plugin (skills for
-every pipeline agent) while RStack keeps the governed state in `.rstack/`.
+Claude Code runs RStack through portable project assets: agents, skills,
+plugins, prompts, and bootstrap instructions. It writes governed state under
+`.rstack/`, but it does not run the Pi extension hook layer.
 
 ## Setup
 
@@ -13,22 +14,33 @@ npx rstack-agents init --framework claude-code
 ```
 
 This creates `.claude/rstack-sdlc.md` (project-local usage guide) and
-registers the project with the Business Hub. Then install the plugin inside
-Claude Code:
+registers the project with the Business Hub. It also scaffolds `CLAUDE.md`,
+`SOUL.md`, and `HEARTBEAT.md` from the package templates when they do not
+already exist.
 
-```
-/plugin install sdlc-automation
-```
+Optional local asset copies can place package agents under
+`.claude/agents/rstack/` and prompt files under `.claude/commands/rstack/`.
+Claude Code then exposes them through its normal subagent and slash-command
+file conventions.
 
-## Daily flow
+## Runtime surfaces
 
-| Command | Purpose |
+| Surface | Purpose |
 |---|---|
-| `/sdlc-start` | Full pipeline, agents chain autonomously |
-| `/sdlc-sequential` / `/sdlc-parallel` | One agent at a time, or DAG mode |
-| `/sdlc-status` | Which agents completed, which are pending |
-| `/sdlc-resume` | Resume from a specific agent |
-| `/sdlc-agent <name>` | Run a single SDLC agent in isolation |
+| `CLAUDE.md` | Project bootstrap and RStack routing guidance |
+| `.claude/rstack-sdlc.md` | Local usage guide for SDLC runs |
+| `.claude/agents/rstack/*.md` | Optional Claude Code subagent copies for RStack agents |
+| `.claude/commands/rstack/*.md` | Optional slash-command prompt copies |
+| `skills/**/SKILL.md` | Portable skills used when their trigger matches the task |
+| `plugins/*/plugin.json` | Portable plugin metadata and bundled plugin assets |
+| `rstack-agents` | CLI setup, validation, decisions, readiness, hub, and notifications |
+
+## Limitations
+
+Claude Code can follow RStack's orchestrator, builder, validator, evidence, and
+approval contracts, but it cannot enforce Pi-native `tool_call` blocking. Treat
+destructive-action blocking as a Pi guarantee unless an adapter adds equivalent
+Claude Code tool gating.
 
 ## Observability
 
