@@ -24,6 +24,7 @@ logs/
 
 # OS/editor
 .DS_Store
+**/.DS_Store
 .idea/
 .vscode/
 
@@ -32,3 +33,16 @@ logs/
 
 # backups
 .claude/_backups/
+
+# loop engineering runtime (Phase 0-5)
+.rstack/worktrees/
+.rstack/runs/
+*.lock/
+
+# hook/session noise (Claude Code internal)
+logs/post_tool_use.json
+logs/pre_tool_use.json
+logs/session_end.json
+logs/stop.json
+logs/subagent_stop.json
+outputs/team_state

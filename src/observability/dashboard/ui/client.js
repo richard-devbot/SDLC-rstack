@@ -9,6 +9,14 @@ var reconnectTimer = null;
 var ws = null;
 var WORKFLOW_SELECTED_STAGE_ID = null;
 
+// Data-freshness tracking (issue #87): never let stale data look live.
+var LAST_SERVER_TS = null;   // ISO ts carried by the last snapshot
+var LAST_SNAPSHOT_AT = 0;    // client clock (ms) when the last snapshot landed
+var LAST_ETAG = null;        // ETag for conditional REST polling
+var POLL_TIMER = null;       // REST fallback poll handle (active while WS down)
+var FRESHNESS_TIMER = null;  // 1s heartbeat that ages the freshness chip
+var LAST_CONN_KIND = null;   // last announced connection kind (debounces aria)
+
 var WORKFLOW_STAGE_META = {
   '00-environment': {
     business: 'System Check',
@@ -193,8 +201,16 @@ function showPage(name) {
   setText('page-title', PAGE_LABELS[name] || name);
 }
 
-function applyState(state) {
+function applyState(state, opts) {
   STATE = state;
+  // Only a genuine WS/REST snapshot advances the freshness clock. UI-only
+  // rerenders (scope changes, studio inspector) reuse STATE and must NOT make
+  // old data look freshly updated — that would defeat the staleness signal.
+  if (opts && opts.fromSnapshot) {
+    LAST_SERVER_TS = (state && state.ts) ? state.ts : LAST_SERVER_TS;
+    LAST_SNAPSHOT_AT = Date.now();
+  }
+  try { updateFreshness(); } catch (err) { /* freshness chip is best-effort */ }
   try { notifyNewGates(state); } catch (err) { /* notifications are best-effort */ }
   try { renderScopeSelectors(state); } catch (err) { showErr('scope: ' + err.message); }
   var scoped = applyScope(state);
@@ -1816,16 +1832,30 @@ function resolveApproval(id, action) {
 }
 
 function fetchState() {
-  return fetch('/api/state')
-    .then(function(response) { return response.json(); })
-    .then(function(data) {
-      applyState(data);
-      if (!WS_CONNECTED) {
-        setConnectionStatus('connecting', 'Loaded (connecting…)');
+  // Conditional request: an unchanged snapshot returns 304, which still
+  // confirms the data is current (refresh the freshness clock) without a
+  // re-render. ETag stripping of server eval-time stamps lives server-side.
+  var opts = LAST_ETAG ? { headers: { 'If-None-Match': LAST_ETAG } } : {};
+  return fetch('/api/state', opts)
+    .then(function(response) {
+      var etag = response.headers.get('etag');
+      if (etag) LAST_ETAG = etag;
+      if (response.status === 304) {
+        LAST_SNAPSHOT_AT = Date.now();
+        updateFreshness();
+        return null;
       }
+      if (!response.ok) {
+        // Never let an error body masquerade as a fresh snapshot.
+        return response.json().catch(function() { return {}; }).then(function(body) {
+          throw new Error(body.error || ('HTTP ' + response.status));
+        });
+      }
+      return response.json().then(function(data) { applyState(data, { fromSnapshot: true }); return data; });
     })
     .catch(function(err) {
-      setConnectionStatus('error', 'HTTP error');
+      // Don't claim freshness — let the heartbeat age the chip toward stale.
+      updateFreshness();
       showErr('HTTP load failed: ' + err.message);
     });
 }
@@ -1834,35 +1864,76 @@ function connectWS() {
   try {
     ws = new WebSocket('ws://localhost:' + PORT);
   } catch (err) {
-    setConnectionStatus('error', 'Socket unavailable');
+    WS_CONNECTED = false;
+    startPolling();
+    updateFreshness();
     return;
   }
   ws.onopen = function() {
     WS_CONNECTED = true;
     clearTimeout(reconnectTimer);
-    setConnectionStatus('live', 'Live');
+    stopPolling();
+    updateFreshness();
   };
   ws.onmessage = function(event) {
     try {
-      applyState(JSON.parse(event.data));
+      applyState(JSON.parse(event.data), { fromSnapshot: true });
     } catch (err) {
       showErr('WS render: ' + err.message);
     }
   };
   ws.onclose = ws.onerror = function() {
     WS_CONNECTED = false;
-    setConnectionStatus('connecting', 'Reconnecting...');
+    updateFreshness();
+    startPolling();
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connectWS, 2500);
   };
 }
 
-function setConnectionStatus(kind, label) {
+// While the socket is down, keep data flowing with a 5s REST poll so the
+// dashboard recovers on its own (and the chip can show "Reconnecting" with a
+// live-as-of stamp rather than a frozen page).
+function startPolling() {
+  if (POLL_TIMER) return;
+  POLL_TIMER = setInterval(function() { if (!WS_CONNECTED) fetchState(); }, 5000);
+}
+
+function stopPolling() {
+  if (!POLL_TIMER) return;
+  clearInterval(POLL_TIMER);
+  POLL_TIMER = null;
+}
+
+function shortClock(value) {
+  if (!value) return null;
+  var d = new Date(value);
+  if (isNaN(d.getTime())) return String(value).slice(11, 19) || null;
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
+// Single source of truth for the topbar connection chip. Derives the kind from
+// socket state + snapshot age, paints the dot/label, and announces transitions
+// to assistive tech via the aria-live region.
+function updateFreshness() {
+  var kind = classifyFreshness({
+    now: Date.now(),
+    lastSnapshotAt: LAST_SNAPSHOT_AT,
+    wsConnected: WS_CONNECTED,
+    hasData: LAST_SNAPSHOT_AT > 0,
+  });
+  var label = freshnessLabel(kind, shortClock(LAST_SERVER_TS));
   setText('status-text', label);
   var statusDot = document.getElementById('status-dot');
   var wsDot = document.getElementById('ws-dot');
-  if (statusDot) statusDot.className = 'status-dot status-' + kind;
+  if (statusDot) statusDot.className = 'status-dot ' + freshnessDotClass(kind);
   if (wsDot) wsDot.className = kind === 'live' ? 'ws-dot ws-live' : 'ws-dot';
+  if (kind !== LAST_CONN_KIND) {
+    LAST_CONN_KIND = kind;
+    var live = document.getElementById('conn-live');
+    if (live) live.textContent = label;
+  }
 }
 
 function allTasks(s) {
@@ -1953,7 +2024,10 @@ function showErr(message) {
   console.error('[rstack-business]', message);
 }
 
-setConnectionStatus('connecting', 'Loading...');
+updateFreshness();
+// Heartbeat: re-evaluate freshness every second so the chip ages from "live"
+// to "stale"/"disconnected" on its own, even when no new snapshot arrives.
+FRESHNESS_TIMER = setInterval(updateFreshness, 1000);
 fetchState();
 connectWS();
 `;

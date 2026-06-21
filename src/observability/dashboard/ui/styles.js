@@ -125,6 +125,7 @@ button { cursor: pointer; }
 .status-live, .ws-live { background: var(--green); box-shadow: 0 0 0 4px rgba(21,128,61,.12); }
 .status-connecting { background: var(--amber); box-shadow: 0 0 0 4px rgba(180,83,9,.12); }
 .status-error { background: var(--red); box-shadow: 0 0 0 4px rgba(180,35,24,.12); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .tb-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .tb-chip {
   border: 1px solid var(--line);

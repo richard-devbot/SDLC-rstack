@@ -55,7 +55,10 @@ jobs:
         run: npm ci
 
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        # Fails on high/critical advisories in our own tree; tolerates ones
+        # whose every install path is inside a vendored bundled dependency we
+        # cannot patch downstream (documented in scripts/security-audit.mjs).
+        run: node scripts/security-audit.mjs
 
       - name: Secret scan with gitleaks
         uses: gitleaks/gitleaks-action@v2
