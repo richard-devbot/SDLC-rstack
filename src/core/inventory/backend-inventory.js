@@ -26,15 +26,59 @@ function toPosix(value) {
   return value.split(path.sep).join('/');
 }
 
+function isMissingFileError(error) {
+  return error && error.code === 'ENOENT';
+}
+
 async function exists(filePath) {
   try {
     await stat(filePath);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isMissingFileError(error)) return false;
+    throw error;
   }
 }
 
+async function readTextIfPresent(filePath) {
+  try {
+    return await readFile(filePath, 'utf8');
+  } catch (error) {
+    if (isMissingFileError(error)) return null;
+    throw error;
+  }
+}
+
+async function readJsonIfPresent(filePath) {
+  const content = await readTextIfPresent(filePath);
+  if (content === null) return {};
+  try {
+    return JSON.parse(content);
+  } catch (error) {
+    if (error instanceof SyntaxError) return {};
+    throw error;
+  }
+}
+
+async function readMarkdownMeta(filePath) {
+  const content = await readTextIfPresent(filePath);
+  if (content === null) {
+    return {
+      name: path.basename(filePath, path.extname(filePath)),
+      description: '',
+    };
+  }
+
+  const frontmatter = parseFrontmatter(content);
+  return {
+    name: frontmatter.name || path.basename(filePath, path.extname(filePath)),
+    description: frontmatter.description || '',
+  };
+}
+
+async function readJson(filePath) {
+  return readJsonIfPresent(filePath);
+}
 async function listFilesRecursive(dir, predicate) {
   if (!(await exists(dir))) return [];
   const entries = await readdir(dir, { withFileTypes: true });
@@ -62,30 +106,6 @@ function parseFrontmatter(rawContent) {
     if (match) fields[match[1]] = match[2].trim().replace(/^["']|["']$/g, '');
   }
   return fields;
-}
-
-async function readMarkdownMeta(filePath) {
-  try {
-    const content = await readFile(filePath, 'utf8');
-    const frontmatter = parseFrontmatter(content);
-    return {
-      name: frontmatter.name || path.basename(filePath, path.extname(filePath)),
-      description: frontmatter.description || '',
-    };
-  } catch {
-    return {
-      name: path.basename(filePath, path.extname(filePath)),
-      description: '',
-    };
-  }
-}
-
-async function readJson(filePath) {
-  try {
-    return JSON.parse(await readFile(filePath, 'utf8'));
-  } catch {
-    return {};
-  }
 }
 
 function classifyDomain(sourcePath, fallback = 'other') {

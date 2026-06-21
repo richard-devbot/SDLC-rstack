@@ -124,6 +124,20 @@ test('buildBackendInventory includes project-local .rstack and .pi runtime asset
   ));
 });
 
+test('buildBackendInventory surfaces project-local inventory read errors', async () => {
+  const projectRoot = await tempProject();
+  await mkdir(path.join(projectRoot, '.rstack', 'plugins', 'broken', 'plugin.json'), { recursive: true });
+
+  await assert.rejects(
+    () => buildBackendInventory({
+      packageRoot: repoRoot,
+      projectRoot,
+      generatedAt: '2026-06-18T00:00:00.000Z',
+    }),
+    (error) => error?.code === 'EISDIR',
+  );
+});
+
 test('rstack-agents inventory prints JSON and writes the registry report', async () => {
   const projectRoot = await tempProject();
   const binPath = path.join(repoRoot, 'bin', 'rstack-agents.js');
