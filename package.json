@@ -77,7 +77,8 @@
     "fs-extra": "^11.2.0",
     "ora": "^8.0.1",
     "tsx": "^4.19.0",
-    "typebox": "^1.1.38"
+    "typebox": "^1.1.38",
+    "@earendil-works/pi-coding-agent": "^0.79.6"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
@@ -94,6 +95,8 @@
     "access": "public"
   },
   "overrides": {
-    "esbuild": ">=0.28.1"
+    "esbuild": ">=0.28.1",
+    "protobufjs": ">=7.6.4 <8",
+    "ws": ">=8.21.0"
   }
 }
