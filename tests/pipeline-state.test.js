@@ -84,6 +84,7 @@ test('buildPipelineState derives status from canonical run files', async () => {
   ]);
   await appendJsonl(path.join(dir, 'evidence.jsonl'), [
     { ts: '2026-06-21T00:00:04.000Z', task_id: 'task-build-code', stage_id: '07-code', kind: 'validation', status: 'PASS', evidence: 'tests passed' },
+    { ts: '2026-06-21T00:00:05.000Z', task_id: 'task-test-code', stage: '08-testing', kind: 'validation', status: 'INFO', evidence: 'test pending' },
   ]);
   await writeJson(path.join(dir, 'artifacts', 'stages', '07-code', 'code_report.json'), { ok: true });
 
@@ -106,6 +107,7 @@ test('buildPipelineState derives status from canonical run files', async () => {
     '.rstack/runs/run-123/artifacts/stages/07-code/code_report.json',
     'evidence.jsonl#task-build-code',
   ]);
+  assert.deepEqual(state.stages.find((stage) => stage.id === '08-testing').evidence_paths, ['evidence.jsonl#task-test-code']);
 
   assert.equal(state.retries.total, 1);
   assert.equal(state.guardrails.total, 1);
@@ -138,12 +140,18 @@ test('pipeline-state write/read regenerates equivalent status and handles missin
   const dir = runDir(projectRoot, runId);
 
   await writeJson(path.join(dir, 'manifest.json'), { run_id: runId, status: 'STARTED' });
+  await appendJsonl(path.join(dir, 'events.jsonl'), [
+    { ts: '2026-06-21T00:00:01.000Z', type: 'stage_started', stage_id: '02-requirements', task_id: 'task-requirements' },
+  ]);
   await mkdir(path.join(dir, 'artifacts', 'stages'), { recursive: true });
 
   const { state, statePath } = await writePipelineState(projectRoot, runId, { generatedAt: '2026-06-21T00:00:00.000Z' });
   assert.equal(statePath, path.join(dir, 'pipeline-state.json'));
   assert.equal(state.stages.length, CANONICAL_SDLC_STAGES.length);
-  assert.ok(state.stages.every((stage) => stage.status === 'PENDING'));
+  assert.equal(state.current.stage_id, '02-requirements');
+  assert.equal(state.current.task_id, 'task-requirements');
+  assert.equal(state.stages.find((stage) => stage.id === '02-requirements').status, 'RUNNING');
+  assert.ok(state.stages.filter((stage) => stage.id !== '02-requirements').every((stage) => stage.status === 'PENDING'));
 
   const persisted = JSON.parse(await readFile(statePath, 'utf8'));
   assert.deepEqual(persisted, state);

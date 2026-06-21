@@ -136,6 +136,14 @@ function isGuardrailEvent(event) {
   return /guardrail|approval.*block|blocked/i.test(String(event.type || event.kind || event.event || ''));
 }
 
+function eventStageId(event) {
+  return event.stage_id || event.stage || null;
+}
+
+function isStageStartedEvent(event) {
+  return eventStageId(event) && /stage_started|started/i.test(String(event.type || event.kind || event.event || ''));
+}
+
 function deriveAttempts(stageId, events) {
   const started = events.filter((event) => event.stage_id === stageId && /started|attempt/i.test(String(event.type || ''))).length;
   const retries = events.filter((event) => event.stage_id === stageId && isRetryEvent(event)).length;
@@ -156,8 +164,11 @@ function findCurrentStage({ tasks, stages, metrics, events }) {
   const runningMetricStage = stages.find((stage) => RUNNING_STATUSES.has(normalizeStatus(metrics.stage_status?.[stage.id], null)));
   if (runningMetricStage) return { stage_id: runningMetricStage.id, task_id: null };
 
-  const lastRunningEvent = [...events].reverse().find((event) => event.stage_id && RUNNING_STATUSES.has(normalizeStatus(event.status, null)));
-  if (lastRunningEvent) return { stage_id: lastRunningEvent.stage_id, task_id: lastRunningEvent.task_id || null };
+  const lastRunningEvent = [...events].reverse().find((event) => (
+    eventStageId(event)
+    && (RUNNING_STATUSES.has(normalizeStatus(event.status, null)) || isStageStartedEvent(event))
+  ));
+  if (lastRunningEvent) return { stage_id: eventStageId(lastRunningEvent), task_id: lastRunningEvent.task_id || null };
 
   return { stage_id: null, task_id: null };
 }
@@ -233,7 +244,7 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
     const stageTasks = tasks.filter((task) => taskStageIds(task).includes(stage.id));
     const artifactPaths = await listStageEvidencePaths(dir, stage);
     const evidencePaths = evidenceEvents
-      .filter((event) => event.stage_id === stage.id || taskStageIds({ stage_id: event.stage_id, pipeline_agents: [] }).includes(stage.id))
+      .filter((event) => eventStageId(event) === stage.id)
       .map((event) => `evidence.jsonl#${event.task_id || stage.id}`);
 
     stages.push({
