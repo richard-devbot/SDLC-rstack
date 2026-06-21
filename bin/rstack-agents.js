@@ -5,6 +5,7 @@
  * Commands:
  *   rstack-agents init [--framework pi|claude-code|operator|custom]
  *   rstack-agents list <agents|skills|plugins>
+ *   rstack-agents inventory [--json]
  *   rstack-agents add plugin <name>
  *   rstack-agents validate
  */
@@ -12,6 +13,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { listAgents, listSkills, listPlugins, addPlugin } from '../src/commands/list.js';
+import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
 import { notifyAll, resolveChannels, formatSlackStageMessage } from '../src/notifications/index.js';
@@ -227,6 +229,31 @@ program
         else { failed++; console.log(chalk.red(`  ✗ ${result.channel} — ${result.detail}`)); }
       }
       process.exit(failed ? 1 : 0);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('inventory')
+  .description('Generate a backend control-plane registry report')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--json', 'print the complete inventory JSON')
+  .option('--no-write', 'print inventory without writing .rstack/registry/backend-inventory.json')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      if (opts.write === false) {
+        const inventory = await buildBackendInventory({ projectRoot, packageRoot: resolve(__dirname, '..') });
+        if (opts.json) console.log(JSON.stringify(inventory, null, 2));
+        else process.stdout.write(formatBackendInventory(inventory, { reportPath: null }));
+        return;
+      }
+
+      const { inventory, reportPath } = await writeBackendInventory({ projectRoot, packageRoot: resolve(__dirname, '..') });
+      if (opts.json) console.log(JSON.stringify(inventory, null, 2));
+      else process.stdout.write(formatBackendInventory(inventory, { reportPath }));
     } catch (err) {
       log.error(err.message);
       process.exit(1);

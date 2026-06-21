@@ -2,7 +2,23 @@
 
 <!-- owner: RStack developed by Richardson Gunde -->
 
-**A governed AI-SDLC operating layer for any coding framework.**
+<p align="center">
+  <img src="sdlc-rstack-logo.png" alt="SDLC RSTACK" width="280" />
+</p>
+
+<p align="center">
+  <strong>A governed AI-SDLC operating layer for any coding framework.</strong><br/>
+  Since 2026 &nbsp;·&nbsp; MIT &nbsp;·&nbsp; <a href="https://github.com/richard-devbot/SDLC-rstack">richard-devbot/SDLC-rstack</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.9.0--rc-orange" alt="v1.9.0-rc"/>
+  <img src="https://img.shields.io/badge/agents-196%20validated-brightgreen" alt="196 agents"/>
+  <img src="https://img.shields.io/badge/tests-244%20pass-brightgreen" alt="244 tests"/>
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"/>
+</p>
+
+---
 
 RStack sits on top of Pi, Claude Code, Operator, Codex-style CLIs, Gemini-style CLIs, or a custom harness and gives agent teams a repeatable lifecycle with approvals, builder/validator contracts, evidence, memory, budget envelopes, and a live Business Hub.
 
@@ -351,11 +367,28 @@ The dashboard derives everything from real `.rstack` files — no fake demo stat
 
 ## Known limitations and roadmap
 
+### Current limitations
+
 - **Actual token/cost capture:** host frameworks execute model calls, so real usage needs host-side reporting or provider adapters.
 - **Physical pack pruning:** profiles narrow routing today; a future pack installer should reduce project-local agent/plugin footprint.
 - **Validator enforcement:** validator tool policy is encoded in RStack packets, but strict enforcement depends on the host sandbox.
-- **Open-source adaptation:** learn from OSS agent frameworks, but preserve licenses and validate contracts before importing anything.
 - **MCP/A2A:** `.rstack` is adapter-friendly, but a native MCP/A2A server is still a future slice.
+
+### Roadmap — v1.9.0 (contributions welcome)
+
+| # | Feature | Status |
+|---|---------|--------|
+| [Phase 0](docs/github-issues/PHASE-0-harness-bridge.md) | **Harness ↔ Loop Runner Bridge** — SDLC agents emit `builder.json`/`validation.json` to the harness run directory | 🗺 planned |
+| [Phase 1](docs/github-issues/PHASE-1-pipeline-state.md) | **Pipeline State & Restart Recovery** — resume-aware pipeline runner, skip DONE stages | 🗺 planned |
+| [Phase 2](docs/github-issues/PHASE-2-retry-validation.md) | **Per-Agent Retry + Maker/Checker Validation** — retry wrapper, Haiku validator agents | 🗺 planned |
+| [Phase 3](docs/github-issues/PHASE-3-goal-loop.md) | **Goal Condition + True Pipeline Loop** — loop until `consistency_score >= 90` | 🗺 planned |
+| [Phase 4](docs/github-issues/PHASE-4-cost-observability.md) | **Cost Tracking & Observability** — cost footer standard, per-stage cost report | 🗺 planned |
+| [Phase 5](docs/github-issues/PHASE-5-parallel-safety.md) | **Parallel Safety & Worktree Isolation** — git worktree for code agent | 🗺 planned |
+| — | Pack installer — physically copy only selected packs into `.rstack/` | 🗺 future |
+
+See [`docs/github-issues/`](docs/github-issues/) for detailed issue specs. See [`docs/LOOP-ENGINEERING-UPGRADE-PLAN.md`](docs/LOOP-ENGINEERING-UPGRADE-PLAN.md) for the full design.
+
+**Contributions are welcome.** Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for branching rules, CI requirements, IP policy, and CodeRabbit guidelines before opening a PR.
 
 ---
 
@@ -406,10 +439,10 @@ npm run validate
 Latest verified branch state:
 
 ```text
-npm test -- --runInBand   # 111+ pass
-npm run lint              # pass
-npm run validate          # All 196 agents passed validation
-npm pack --dry-run        # package includes templates/bootstrap/
+npm test          # 244 pass, 0 fail
+npm run lint      # pass
+npm run validate  # All 196 agents passed validation
+npm pack --dry-run  # package includes templates/bootstrap/
 ```
 
 ## License
