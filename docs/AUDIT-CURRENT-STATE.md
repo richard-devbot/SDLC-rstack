@@ -113,30 +113,16 @@ The harness defines the schema for `builder.json` and `validation.json` but **cu
 ### Summary
 
 ```
-tests 218 total
-pass  207
-fail  11
+tests 244 total
+pass  244
+fail  0
 ```
 
-### Failing tests (11)
+### Current status
 
-| Test file | Category |
-|-----------|----------|
-| `extension-memory.test.js` | Pi extension |
-| `extension-stage-attribution.test.js` | Pi extension |
-| `harness-checkpoints-signatures.test.js` | Harness feature |
-| `harness-observability.test.js` | Observability |
-| `harness.test.js` | Core harness |
-| `operator bridge runs sdlc_agents` | Operator bridge |
-| `operator bridge reports unknown tools` | Operator bridge |
-| `people-layer-approvals.test.js` | Approvals |
-| `rstack Pi extension imports successfully` | Pi extension |
-| `rstack Pi extension registers expected tools` | Pi extension |
-| `resources_discover returns project-local overrides` | Pi extension |
+The full Node test suite is green in the release-prep validation pass: 244 passing tests, 0 failures. The suite now covers the Pi extension import/registration path, operator bridge behavior, core harness contracts, evidence, stages, run-state, safe-write, observability, approvals, and packaging checks.
 
-**Pattern:** Most failures are in Pi extension and operator bridge areas — new infrastructure that is still being wired up. Core harness tests (contracts, evidence, stages, run-state, safe-write) **pass**. CI as-is would fail on a PR touching these files.
-
-**Action required before any PR:** Fix the 11 failing tests or confirm they are expected failures from in-progress work and update the test suite accordingly. CI checks `npm test` — a red test suite blocks merging.
+**Action required before any PR:** Keep `npm test`, `npm run validate`, `npm run lint`, and the security baseline green. CI checks the same merge-blocking surfaces, so any regression should be fixed before merging.
 
 ---
 

@@ -8,6 +8,18 @@ ISSUE_ROOT="$ROOT/docs/github-issues/backend-loop-engineering-v1"
 MILESTONE="Backend Loop Engineering v1"
 APPLY=0
 
+if ! command -v gh >/dev/null 2>&1; then
+  echo "Error: GitHub CLI (gh) is required but was not found in PATH." >&2
+  echo "Install it from https://cli.github.com/ and run 'gh auth login'." >&2
+  exit 1
+fi
+
+if ! gh repo view "$REPO" >/dev/null 2>&1; then
+  echo "Error: gh cannot access target repository '$REPO'." >&2
+  echo "Check RSTACK_GITHUB_REPO and GitHub authentication with 'gh auth status'." >&2
+  exit 1
+fi
+
 usage() {
   cat <<'USAGE'
 Usage:

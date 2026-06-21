@@ -30,7 +30,7 @@
 
 ### Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  Trinity Platform                                      │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐ │
@@ -70,7 +70,7 @@
 
 ### Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  SDLC-rstack (current)                                 │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐ │
@@ -140,7 +140,7 @@ Phase 0 (harness bridge) fixes this before Phases 1–5 add more bash wrappers.
 
 ## Recommended implementation order
 
-```
+```text
 Phase 0 (harness bridge) ──→ Phase 1 (state + pipeline.yaml)
          │                            │
          └──────────────────→ Phase 2 (retry + validators)
@@ -158,4 +158,4 @@ Phase 0 (harness bridge) ──→ Phase 1 (state + pipeline.yaml)
 
 ## Issue index
 
-See `docs/github-issues/README.md` for all 23 issues across 6 phases.
+See `docs/github-issues/README.md` for all 29 issues across 7 epics.
