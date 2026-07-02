@@ -147,7 +147,29 @@ Guardrail defaults live in `src/core/harness/guardrails.js`:
 - `requireUserApprovalForDestructiveActions: true`
 - `requireUserApprovalForPublishDeployOrForcePush: true`
 
-The extension includes this summary in generated builder prompts.
+Budgets can be overridden per project in `.rstack/rstack.config.json`:
+
+```json
+{
+  "guardrails": { "maxTaskAttempts": 3 }
+}
+```
+
+Invalid override values (negative numbers, non-numeric strings, unknown keys) are ignored and the defaults apply.
+
+### Enforcement
+
+Attempt budgets are enforced at the task claim gate, not just described in prompts. When `sdlc_build_next` selects a task whose recorded `task_started` events already meet the budget (`maxDestructiveTaskAttempts` for tasks marked `destructive: true` or `risk_level: "destructive"`), the claim is blocked before the task is stamped `IN_PROGRESS`:
+
+- a `guardrail_triggered` event is appended to `events.jsonl` with `limit_name`, `current_value`, and `limit_value`,
+- a pending `guardrail-override:<task_id>` approval request is queued for the Business Hub,
+- configured notification channels are paged.
+
+Approving the `guardrail-override:<task_id>` artifact (via `sdlc_approve` or the dashboard) permits **exactly one** more attempt: the harness stamps the override `CONSUMED` as soon as the claim succeeds and appends a `guardrail_overridden` audit event, so the next over-budget claim blocks again.
+
+Tool-call and message budgets are checked at validation time from builder contract telemetry (`execution.tool_calls`, `execution.messages`). Overages fail validation with a `guardrail_<rule>` check and emit `guardrail_triggered` events.
+
+The extension also includes the guardrail summary in generated builder prompts so agents see the budgets they are held to.
 
 ## Validation commands
 
