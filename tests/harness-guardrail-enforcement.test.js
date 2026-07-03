@@ -29,6 +29,12 @@ test('resolveGuardrails merges overrides and rejects invalid values', () => {
 
   const flags = resolveGuardrails({ requireEvidenceForPass: false });
   assert.equal(flags.requireEvidenceForPass, false);
+
+  // String booleans: only explicit "true"/"false" are honored — Boolean("false")
+  // coercion would have flipped flags on unexpectedly.
+  assert.equal(resolveGuardrails({ requireEvidenceForPass: 'false' }).requireEvidenceForPass, false);
+  assert.equal(resolveGuardrails({ requireBuilderContract: 'true' }).requireBuilderContract, true);
+  assert.equal(resolveGuardrails({ requireEvidenceForPass: 'nope' }).requireEvidenceForPass, DEFAULT_HARNESS_GUARDRAILS.requireEvidenceForPass);
 });
 
 test('loadProjectGuardrails reads overrides from rstack.config.json and falls back on bad input', async () => {

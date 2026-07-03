@@ -29,7 +29,11 @@ export function resolveGuardrails(overrides = {}) {
       const parsed = Number(value);
       if (Number.isFinite(parsed) && parsed >= 0) merged[key] = parsed;
     } else if (typeof defaultValue === 'boolean') {
-      merged[key] = Boolean(value);
+      // Boolean(value) would turn the string "false" into true — accept only
+      // real booleans and explicit "true"/"false" strings, ignore the rest.
+      if (typeof value === 'boolean') merged[key] = value;
+      else if (value === 'true') merged[key] = true;
+      else if (value === 'false') merged[key] = false;
     }
   }
   return merged;
@@ -41,8 +45,15 @@ export async function loadProjectGuardrails(projectRoot) {
   try {
     const parsed = JSON.parse(await readFile(configPath, 'utf8'));
     return resolveGuardrails(parsed?.guardrails || {});
-  } catch {
-    return resolveGuardrails();
+  } catch (error) {
+    // A malformed config must not silently weaken enforcement without a
+    // signal; unexpected I/O failures (EACCES, EIO) must surface, not
+    // masquerade as "no config".
+    if (error instanceof SyntaxError) {
+      console.error(`[rstack] Ignoring malformed ${configPath}: ${error.message}. Default guardrails apply.`);
+      return resolveGuardrails();
+    }
+    throw error;
   }
 }
 
