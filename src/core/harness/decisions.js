@@ -1,37 +1,16 @@
 // owner: RStack developed by Richardson Gunde
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import { rstackStateDir, runDirectory, latestRunId, resolveRunId } from './runs.js';
 
 export const DECISION_STATUSES = Object.freeze(['pending', 'resolved', 'waived']);
 export const DECISION_IMPACTS = Object.freeze(['architecture', 'security', 'budget', 'scope', 'delivery']);
 
-export function rstackStateDir(projectRoot) {
-  return resolve(process.env.RSTACK_STATE_DIR || join(projectRoot, '.rstack'));
-}
-
-export function runDirectory(projectRoot, runId) {
-  return join(rstackStateDir(projectRoot), 'runs', runId);
-}
-
-export async function latestRunId(projectRoot) {
-  const runsDir = join(rstackStateDir(projectRoot), 'runs');
-  if (!existsSync(runsDir)) return undefined;
-  const entries = await readdir(runsDir, { withFileTypes: true }).catch(() => []);
-  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().at(-1);
-}
-
-const RUN_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-export async function resolveRunId(projectRoot, runId) {
-  if (runId && !RUN_ID_REGEX.test(String(runId))) {
-    throw new Error(`Invalid run id "${runId}". Run ids may only contain letters, digits, dots, dashes, and underscores.`);
-  }
-  const selected = runId || await latestRunId(projectRoot);
-  if (!selected) throw new Error('No RStack run found. Start one with sdlc_start first.');
-  return selected;
-}
+// Re-exported for existing importers; canonical home is runs.js.
+export { rstackStateDir, runDirectory, latestRunId, resolveRunId };
 
 export function decisionsPath(projectRoot, runId) {
   return join(runDirectory(projectRoot, runId), 'decisions.json');
