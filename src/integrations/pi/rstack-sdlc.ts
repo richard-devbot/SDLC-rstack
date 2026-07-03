@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
 import { validateBuilderContract } from "../../core/harness/contracts.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
-import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, countTaskAttempts, guardrailEvent } from "../../core/harness/guardrails.js";
+import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, countTaskAttempts, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
 import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage, updateRunMetrics } from "../../core/harness/run-state.js";
 import { addDecision, decide, readDecisions, summarizeDecisions } from "../../core/harness/decisions.js";
@@ -1500,7 +1500,11 @@ export default function (pi: ExtensionAPI) {
       // effects (notifications, events) run after the lock is released.
       const claim = await withFileLock(tasksPath, async () => {
         const taskState = JSON.parse(await readFile(tasksPath, "utf8"));
-        const task = taskState.tasks.find((t: any) => t.status === "PENDING" || t.status === "READY") || taskState.tasks.find((t: any) => t.status === "FAIL");
+        // BLOCKED tasks stay claim candidates so an approved guardrail override
+        // can resume them — the gate below re-evaluates on every claim.
+        const task = taskState.tasks.find((t: any) => t.status === "PENDING" || t.status === "READY")
+          || taskState.tasks.find((t: any) => t.status === "FAIL")
+          || taskState.tasks.find((t: any) => t.status === "BLOCKED");
         if (!task) return { taskState, task: null, missing: [] as string[], requiredApprovals: [] as string[], readiness: null as any, guardrailCheck: null as any };
         const runApprovals = await readApprovals(runDir);
         // Attempt-budget gate: a FAIL task must not be re-claimed forever. The
@@ -1512,13 +1516,45 @@ export default function (pi: ExtensionAPI) {
           approvals: runApprovals,
           guardrails: await loadProjectGuardrails(projectRoot),
         });
-        if (!guardrailCheck.allowed) return { taskState, task, missing: [] as string[], requiredApprovals: [] as string[], readiness: null as any, guardrailCheck };
+        if (!guardrailCheck.allowed) {
+          // Hard-block for auditability: the dashboard and pipeline state must
+          // show the task as BLOCKED, not linger on FAIL. Stamping only on the
+          // transition also keys the post-lock event/notification dedupe.
+          const alreadyBlocked = task.status === "BLOCKED";
+          if (!alreadyBlocked) {
+            task.status = "BLOCKED";
+            await writeJsonAtomic(tasksPath, taskState);
+          }
+          return { taskState, task, missing: [] as string[], requiredApprovals: [] as string[], readiness: null as any, guardrailCheck, guardrailAlreadyBlocked: alreadyBlocked };
+        }
         const requiredApprovals = await effectiveRequiredApprovals(projectRoot, manifest, task.id);
         const missing = missingApprovals(runApprovals, requiredApprovals);
         if (missing.length) return { taskState, task, missing, requiredApprovals, readiness: null as any, guardrailCheck };
         const readinessStage = latestStageId((task.stage_artifacts || []).map((artifact: any) => artifact?.stage_id).filter(Boolean));
         const readiness = await assertReadyForStage(projectRoot, { runId: manifest.run_id, targetStage: readinessStage });
         if (!readiness.ok) return { taskState, task, missing, requiredApprovals, readiness, guardrailCheck };
+        if (guardrailCheck.overridden) {
+          // Consume the one-shot override BEFORE granting the attempt, inside
+          // the claim critical section: a crash between consumption and the
+          // IN_PROGRESS stamp fails closed (override burned, no extra attempt)
+          // instead of leaving an APPROVED override reusable.
+          const approvalsFile = approvalsPath(runDir);
+          await withFileLock(approvalsFile, async () => {
+            let approvals: ApprovalRecord[] = [];
+            if (existsSync(approvalsFile)) {
+              try { approvals = JSON.parse(await readFile(approvalsFile, "utf8")); } catch {}
+            }
+            approvals.push({
+              id: `app-${timestamp().replace(/[:.]/g, "-")}`,
+              artifact: guardrailCheck.override_artifact,
+              status: "CONSUMED",
+              approver: "rstack-harness",
+              timestamp: timestamp(),
+              comments: `Override consumed by attempt on ${task.id}`,
+            });
+            await writeJsonAtomic(approvalsFile, approvals);
+          });
+        }
         task.status = "IN_PROGRESS";
         task._started_at = Date.now();
         // Real attribution: stamp the routed pipeline agent so builder.json and
@@ -1529,34 +1565,39 @@ export default function (pi: ExtensionAPI) {
         await writeJsonAtomic(tasksPath, taskState);
         return { taskState, task, missing, requiredApprovals, readiness, guardrailCheck };
       });
-      const { taskState, task, missing, requiredApprovals, readiness, guardrailCheck } = claim;
+      const { taskState, task, missing, requiredApprovals, readiness, guardrailCheck, guardrailAlreadyBlocked } = claim;
       if (!task) return { content: [{ type: "text", text: `No pending task for ${manifest.run_id}. Run sdlc_status or sdlc_validate for final checks.` }], details: taskState };
       if (guardrailCheck && !guardrailCheck.allowed) {
-        for (const violation of guardrailCheck.violations) {
-          await appendEvent(projectRoot, manifest.run_id, guardrailEvent(task.id, violation));
-        }
-        const requestedBy = manifest.started_by?.name ?? resolveUserIdentity(projectRoot).name;
-        await appendApprovalRequest(projectRoot, {
-          id: approvalQueueId({ runId: manifest.run_id, taskId: task.id, artifact: guardrailCheck.override_artifact }),
-          title: `Override guardrail for ${task.id}`,
-          detail: `Task ${task.id} is blocked: ${guardrailCheck.violations.map((violation: any) => violation.reason).join("; ")}`,
-          status: "pending",
-          runId: manifest.run_id,
-          taskId: task.id,
-          artifact: guardrailCheck.override_artifact,
-          requestedBy,
-          projectRoot,
-          source: "guardrail_gate_blocked",
-        });
-        // Page the manager the moment a guardrail blocks — same rule as the
-        // approval gate: silence means blocked work waits invisibly.
-        try {
-          const payload = formatSlackStageMessage(manifest.run_id, task.id, "APPROVAL_PENDING", {
-            message: `Guardrail blocked ${task.id}: ${guardrailCheck.violations.map((violation: any) => violation.reason).join("; ")}. Approve '${guardrailCheck.override_artifact}' via sdlc_approve or the Business Hub to allow one more attempt.`,
+        // Events, queue entry, and paging fire only on the transition to
+        // BLOCKED — repeated claims while blocked return the message without
+        // flooding events.jsonl or notification channels.
+        if (!guardrailAlreadyBlocked) {
+          for (const violation of guardrailCheck.violations) {
+            await appendEvent(projectRoot, manifest.run_id, guardrailEvent(task.id, violation));
+          }
+          const requestedBy = manifest.started_by?.name ?? resolveUserIdentity(projectRoot).name;
+          await appendApprovalRequest(projectRoot, {
+            id: approvalQueueId({ runId: manifest.run_id, taskId: task.id, artifact: guardrailCheck.override_artifact }),
+            title: `Override guardrail for ${task.id}`,
+            detail: `Task ${task.id} is blocked: ${guardrailCheck.violations.map((violation: any) => violation.reason).join("; ")}`,
+            status: "pending",
+            runId: manifest.run_id,
+            taskId: task.id,
+            artifact: guardrailCheck.override_artifact,
+            requestedBy,
+            projectRoot,
+            source: "guardrail_gate_blocked",
           });
-          await notifyAll(payload, { projectRoot });
-        } catch (err) {
-          console.error("Failed to send guardrail-gate notification:", err);
+          // Page the manager the moment a guardrail blocks — same rule as the
+          // approval gate: silence means blocked work waits invisibly.
+          try {
+            const payload = formatSlackStageMessage(manifest.run_id, task.id, "APPROVAL_PENDING", {
+              message: `Guardrail blocked ${task.id}: ${guardrailCheck.violations.map((violation: any) => violation.reason).join("; ")}. Approve '${guardrailCheck.override_artifact}' via sdlc_approve or the Business Hub to allow one more attempt.`,
+            });
+            await notifyAll(payload, { projectRoot });
+          } catch (err) {
+            console.error("Failed to send guardrail-gate notification:", err);
+          }
         }
         return {
           content: [{ type: "text", text: `Guardrail blocked ${task.id}: ${guardrailCheck.violations.map((violation: any) => violation.reason).join("; ")}\nApprove '${guardrailCheck.override_artifact}' via sdlc_approve after human review to allow exactly one more attempt.` }],
@@ -1607,24 +1648,8 @@ export default function (pi: ExtensionAPI) {
       }
       await appendEvent(projectRoot, manifest.run_id, { type: "task_started", task_id: task.id, agent: task.agent ?? null, ts: new Date().toISOString() });
       if (guardrailCheck?.overridden) {
-        // One-shot override: mark it consumed (latest record wins) so the next
-        // over-budget claim blocks again instead of riding one approval forever.
-        const approvalsFile = approvalsPath(runDir);
-        await withFileLock(approvalsFile, async () => {
-          let approvals: ApprovalRecord[] = [];
-          if (existsSync(approvalsFile)) {
-            try { approvals = JSON.parse(await readFile(approvalsFile, "utf8")); } catch {}
-          }
-          approvals.push({
-            id: `app-${timestamp().replace(/[:.]/g, "-")}`,
-            artifact: guardrailCheck.override_artifact,
-            status: "CONSUMED",
-            approver: "rstack-harness",
-            timestamp: timestamp(),
-            comments: `Override consumed by attempt on ${task.id}`,
-          });
-          await writeJsonAtomic(approvalsFile, approvals);
-        });
+        // Consumption already happened inside the claim critical section
+        // (fail-closed); this is the audit trail entry.
         await appendEvent(projectRoot, manifest.run_id, { type: "guardrail_overridden", task_id: task.id, artifact: guardrailCheck.override_artifact, violations: guardrailCheck.violations });
       }
       const selected = registry.filter((item) => task.specialists?.includes(item.id));
@@ -1771,10 +1796,13 @@ export default function (pi: ExtensionAPI) {
         const runDir = join(runsDir(projectRoot), manifest.run_id);
         const runEvents = await readJsonl(join(runDir, "events.jsonl"));
         const attemptCount = countTaskAttempts(runEvents, task.id);
-        const maxAttempts = (await loadProjectGuardrails(projectRoot)).maxTaskAttempts;
+        const validateGuardrails = await loadProjectGuardrails(projectRoot);
+        const destructive = isDestructiveTask(task);
+        const attemptRule = destructive ? "maxDestructiveTaskAttempts" : "maxTaskAttempts";
+        const maxAttempts = destructive ? validateGuardrails.maxDestructiveTaskAttempts : validateGuardrails.maxTaskAttempts;
         if (attemptCount >= maxAttempts) {
           await appendEvent(projectRoot, manifest.run_id, guardrailEvent(task.id, {
-            rule: "maxTaskAttempts",
+            rule: attemptRule,
             limit: maxAttempts,
             observed: attemptCount,
             reason: `task ${task.id} already has ${attemptCount} attempt(s); limit is ${maxAttempts}`,

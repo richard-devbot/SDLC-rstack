@@ -70,8 +70,8 @@ test('Guardrail gate blocks over-budget claims and honors one-shot overrides', a
     assert.equal(res.details.override_artifact, overrideArtifact);
     assert.ok(res.details.guardrail_violations[0].rule === 'maxTaskAttempts');
 
-    // Task must not be stamped IN_PROGRESS by a blocked claim.
-    assert.equal(readJson(tasksPath).tasks.find((task) => task.id === firstTaskId).status, 'FAIL');
+    // A blocked claim hard-blocks the task for auditability — never IN_PROGRESS.
+    assert.equal(readJson(tasksPath).tasks.find((task) => task.id === firstTaskId).status, 'BLOCKED');
 
     const guardrailEvents = readEvents(runDir).filter((event) => event.type === 'guardrail_triggered');
     assert.ok(guardrailEvents.length >= 1);
@@ -85,6 +85,14 @@ test('Guardrail gate blocks over-budget claims and honors one-shot overrides', a
     assert.ok(existsSync(queuePath), 'approval queue should exist');
     const queued = readFileSync(queuePath, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
     assert.ok(queued.some((entry) => entry.artifact === overrideArtifact && entry.status === 'pending'));
+  });
+
+  await t.test('repeated claims while blocked do not flood events or notifications', async () => {
+    const before = readEvents(runDir).filter((event) => event.type === 'guardrail_triggered').length;
+    const res = await mockPi.tools.sdlc_build_next.execute('5b', { run_id: runId });
+    assert.ok(res.content[0].text.includes(`Guardrail blocked ${firstTaskId}`), res.content[0].text);
+    const after = readEvents(runDir).filter((event) => event.type === 'guardrail_triggered').length;
+    assert.equal(after, before, 'already-BLOCKED claims must not append new guardrail events');
   });
 
   await t.test('an APPROVED override allows exactly one more attempt and is consumed', async () => {
