@@ -127,6 +127,92 @@ export function validateBuilderContract(builder, expectedTaskId) {
   return summarizeChecks(checks);
 }
 
+function hasMeaningfulText(value, minLength = 10) {
+  return typeof value === 'string' && value.trim().length >= minLength;
+}
+
+function hasNonEmptyArray(value) {
+  return Array.isArray(value) && value.some((item) => (typeof item === 'string' ? item.trim().length > 0 : Boolean(item)));
+}
+
+// Completeness gate for passing builders (#118): a PASS or DONE_WITH_CONCERNS
+// contract must carry enough structure for validators, retries, memory, and
+// later agents — evidence, memory summaries, and per-stage summaries. FAIL and
+// BLOCKED contracts are exempt: they are valid statuses, just never passing.
+export function validateBuilderCompleteness(builder, { expectedStageIds = [] } = {}) {
+  const checks = [];
+  const passingStatus = ['PASS', 'DONE_WITH_CONCERNS'].includes(builder?.status);
+  if (!passingStatus) return summarizeChecks(checks);
+
+  checks.push({
+    name: 'builder_summary_meaningful',
+    status: hasMeaningfulText(builder?.summary, 10) ? 'PASS' : 'FAIL',
+    evidence: hasMeaningfulText(builder?.summary, 10) ? 'summary present' : 'summary must be at least 10 characters',
+  });
+
+  checks.push({
+    name: 'builder_tests_run_has_evidence',
+    status: hasNonEmptyArray(builder?.tests_run) ? 'PASS' : 'FAIL',
+    evidence: hasNonEmptyArray(builder?.tests_run) ? `${builder.tests_run.length} item(s)` : 'tests_run must include commands run or SKIPPED: reason',
+  });
+
+  checks.push({
+    name: 'builder_memory_summary_exists',
+    status: builder?.memory_summary && typeof builder.memory_summary === 'object' ? 'PASS' : 'FAIL',
+    evidence: builder?.memory_summary && typeof builder.memory_summary === 'object' ? 'present' : 'missing memory_summary',
+  });
+
+  checks.push({
+    name: 'builder_memory_summary_work_done',
+    status: hasMeaningfulText(builder?.memory_summary?.work_done, 10) ? 'PASS' : 'FAIL',
+    evidence: hasMeaningfulText(builder?.memory_summary?.work_done, 10) ? 'present' : 'memory_summary.work_done missing or too short',
+  });
+
+  checks.push({
+    name: 'builder_memory_summary_evidence',
+    status: hasNonEmptyArray(builder?.memory_summary?.evidence) ? 'PASS' : 'FAIL',
+    evidence: hasNonEmptyArray(builder?.memory_summary?.evidence) ? `${builder.memory_summary.evidence.length} item(s)` : 'memory_summary.evidence must list proof paths or commands',
+  });
+
+  const stageSummaries = Array.isArray(builder?.stage_summaries) ? builder.stage_summaries : [];
+  const actualStageIds = new Set(stageSummaries.map((item) => item?.stage_id).filter(Boolean));
+  for (const stageId of expectedStageIds) {
+    const summary = stageSummaries.find((item) => item?.stage_id === stageId);
+    checks.push({
+      name: `stage_summary_${stageId}_exists`,
+      status: summary ? 'PASS' : 'FAIL',
+      evidence: summary ? 'present' : `missing stage_summaries entry for ${stageId}`,
+    });
+    if (summary) {
+      checks.push({
+        name: `stage_summary_${stageId}_work_done`,
+        status: hasMeaningfulText(summary.work_done, 10) ? 'PASS' : 'FAIL',
+        evidence: hasMeaningfulText(summary.work_done, 10) ? 'present' : 'work_done missing or too short',
+      });
+      checks.push({
+        name: `stage_summary_${stageId}_evidence`,
+        status: hasNonEmptyArray(summary.evidence) ? 'PASS' : 'FAIL',
+        evidence: hasNonEmptyArray(summary.evidence) ? `${summary.evidence.length} item(s)` : 'evidence must list proof paths or commands',
+      });
+    }
+  }
+  if (!expectedStageIds.length) {
+    checks.push({
+      name: 'stage_summaries_not_required',
+      status: 'PASS',
+      evidence: 'task has no canonical stage targets',
+    });
+  } else if (stageSummaries.length) {
+    checks.push({
+      name: 'stage_summaries_only_known_stages',
+      status: stageSummaries.every((item) => !item?.stage_id || expectedStageIds.includes(item.stage_id)) ? 'PASS' : 'FAIL',
+      evidence: `expected ${expectedStageIds.join(', ')}; got ${[...actualStageIds].join(', ')}`,
+    });
+  }
+
+  return summarizeChecks(checks);
+}
+
 export function validateValidatorContract(validator, expectedTaskId) {
   const checks = validateRequiredFields(validator, VALIDATOR_REQUIRED_FIELDS, 'validator');
 
