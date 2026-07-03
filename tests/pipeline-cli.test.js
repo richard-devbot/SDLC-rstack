@@ -69,9 +69,9 @@ async function seedRun(projectRoot, runId, { goal = 'Ship the CLI', blockedAppro
   return dir;
 }
 
-async function runCli(args, { expectFailure = false } = {}) {
+async function runCli(args, { expectFailure = false, env = {} } = {}) {
   try {
-    const { stdout, stderr } = await execFileAsync(process.execPath, [BIN, ...args]);
+    const { stdout, stderr } = await execFileAsync(process.execPath, [BIN, ...args], { env: { ...process.env, ...env } });
     return { code: 0, stdout, stderr };
   } catch (error) {
     if (!expectFailure) throw error;
@@ -165,6 +165,21 @@ test('invalid run ids fail without reading outside .rstack/runs', async () => {
   const res = await runCli(['pipeline', 'status', '--project', projectRoot, '--run-id', '../escape'], { expectFailure: true });
   assert.notEqual(res.code, 0);
   assert.match(res.stderr, /Invalid run id/);
+});
+
+test('RSTACK_STATE_DIR overrides govern run selection and rollup writes consistently', async () => {
+  const projectRoot = await tempProject();
+  const stateDir = await mkdtemp(path.join(os.tmpdir(), 'rstack-state-dir-'));
+  // Seed the run under the OVERRIDE state dir, not the project root.
+  const dir = path.join(stateDir, 'runs', 'run-ext');
+  await writeJson(path.join(dir, 'manifest.json'), { run_id: 'run-ext', goal: 'External state dir', status: 'RUNNING' });
+  await writeJson(path.join(dir, 'tasks.json'), { tasks: [] });
+
+  const env = { RSTACK_STATE_DIR: stateDir };
+  const { stdout } = await runCli(['pipeline', 'status', '--project', projectRoot, '--regenerate', '--json'], { env });
+  assert.equal(JSON.parse(stdout).run.run_id, 'run-ext', 'run must be selected from the override state dir');
+  assert.ok(existsSync(path.join(dir, 'pipeline-state.json')), 'rollup must be persisted under the override state dir');
+  assert.ok(!existsSync(path.join(projectRoot, '.rstack')), 'nothing may be written under the project root when overridden');
 });
 
 test('a project with no runs fails with start-run guidance', async () => {

@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { CANONICAL_SDLC_STAGES } from './stages.js';
+import { runDirectory } from './runs.js';
 import { withFileLock, writeJsonAtomic } from './safe-write.js';
 
 // owner: RStack developed by Richardson Gunde
@@ -12,8 +13,11 @@ const PASSED_STATUSES = new Set(['PASS', 'PASSED', 'SUCCESS', 'SUCCEEDED', 'DONE
 const FAILED_STATUSES = new Set(['FAIL', 'FAILED', 'ERROR', 'BLOCKED']);
 const BLOCKING_APPROVAL_STATUSES = new Set(['PENDING', 'REQUIRED', 'REQUESTED', 'BLOCKED', 'NEEDS_APPROVAL']);
 
+// Anchor to the shared resolver so run selection (resolveRunId) and rollup
+// reads/writes always agree when RSTACK_STATE_DIR overrides the default
+// <projectRoot>/.rstack location.
 function runDir(projectRoot, runId) {
-  return path.join(projectRoot, '.rstack', 'runs', runId);
+  return runDirectory(projectRoot, runId);
 }
 
 function statePath(projectRoot, runId) {
