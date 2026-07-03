@@ -13,6 +13,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { listAgents, listSkills, listPlugins, addPlugin } from '../src/commands/list.js';
+import { loadPipelineStatus, formatPipelineStatus } from '../src/commands/pipeline.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
@@ -147,6 +148,33 @@ program
       const report = await dorCheck(projectRoot, { runId: opts.runId, targetStage: opts.stage });
       console.log(JSON.stringify(report, null, 2));
       process.exit(report.status === 'FAIL' ? 1 : 0);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+const pipelineCmd = program
+  .command('pipeline')
+  .description('Inspect authoritative harness pipeline state without the Business Hub');
+
+pipelineCmd
+  .command('status')
+  .description('Show pipeline status for the latest or selected run, with one recommended next action')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('-r, --run-id <runId>', 'run id (defaults to latest run)')
+  .option('--json', 'print the complete pipeline-state object as JSON with no decorative text')
+  .option('--regenerate', 'rebuild and persist the rollup from canonical run artifacts')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const { state } = await loadPipelineStatus(projectRoot, { runId: opts.runId, regenerate: opts.regenerate });
+      if (opts.json) {
+        // JSON mode: the state object only — errors and decoration stay on stderr.
+        process.stdout.write(`${JSON.stringify(state, null, 2)}\n`);
+      } else {
+        console.log(formatPipelineStatus(state));
+      }
     } catch (err) {
       log.error(err.message);
       process.exit(1);
