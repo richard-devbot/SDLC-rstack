@@ -324,3 +324,51 @@ test('builder completeness enforces per-stage summaries against the task packet'
   const none = validateBuilderCompleteness(builder, { expectedStageIds: [] });
   assert.ok(none.checks.some((check) => check.name === 'stage_summaries_not_required' && check.status === 'PASS'));
 });
+
+test('builder completeness fails a PASS contract missing memory_summary entirely', () => {
+  const noMemory = {
+    status: 'PASS',
+    summary: 'Implemented the payment flow end to end.',
+    tests_run: ['npm test'],
+    stage_summaries: [{ stage_id: '07-code', work_done: 'Implemented payment module.', evidence: ['src/pay.js'] }],
+  };
+  const result = validateBuilderCompleteness(noMemory, { expectedStageIds: ['07-code'] });
+  assert.equal(result.ok, false);
+  const exists = result.issues.find((check) => check.name === 'builder_memory_summary_exists');
+  assert.ok(exists, 'absent memory_summary must fail the exists check');
+  assert.equal(exists.evidence, 'missing memory_summary');
+});
+
+test('builder completeness tolerates null or non-array expectedStageIds', () => {
+  const builder = {
+    status: 'PASS',
+    summary: 'Delivered with valid memory summaries.',
+    tests_run: ['npm test'],
+    memory_summary: { work_done: 'Delivered the work end to end.', evidence: ['tests/x.test.js'] },
+  };
+  for (const bad of [null, undefined, 'not-an-array', 42]) {
+    const result = validateBuilderCompleteness(builder, { expectedStageIds: bad });
+    assert.ok(result.checks.some((check) => check.name === 'stage_summaries_not_required'), `expectedStageIds=${String(bad)} must degrade to no stage targets, not throw`);
+  }
+});
+
+test('builder completeness rejects junk evidence entries that carry no text', () => {
+  const base = {
+    status: 'PASS',
+    summary: 'Attempting to pass with junk evidence.',
+    memory_summary: { work_done: 'Did the work with proof attached.', evidence: [{}] },
+    tests_run: [{}],
+  };
+  const junk = validateBuilderCompleteness(base, { expectedStageIds: [] });
+  assert.equal(junk.ok, false);
+  assert.ok(junk.issues.some((check) => check.name === 'builder_tests_run_has_evidence'));
+  assert.ok(junk.issues.some((check) => check.name === 'builder_memory_summary_evidence'));
+
+  // Object-shaped evidence with real text remains valid.
+  const structured = validateBuilderCompleteness({
+    ...base,
+    tests_run: ['npm test'],
+    memory_summary: { work_done: 'Did the work with proof attached.', evidence: [{ kind: 'file', path: 'tests/pay.test.js' }] },
+  }, { expectedStageIds: [] });
+  assert.equal(structured.ok, true);
+});
