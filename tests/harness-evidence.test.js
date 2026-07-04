@@ -57,16 +57,20 @@ test('appendEvidenceEvent rejects missing evidence fields', async () => {
 
 test('parallel evidence appends never interleave — every line stays intact JSON', async () => {
   const runDir = mkdtempSync(join(tmpdir(), 'rstack-evidence-lock-'));
-  const events = Array.from({ length: 25 }, (_, index) => ({
-    task_id: `task-${index}`,
-    kind: 'validation',
-    status: 'PASS',
-    evidence: `proof-${index}`.repeat(50),
-  }));
-  await Promise.all(events.map((event) => appendEvidenceEvent(runDir, event)));
+  try {
+    const events = Array.from({ length: 25 }, (_, index) => ({
+      task_id: `task-${index}`,
+      kind: 'validation',
+      status: 'PASS',
+      evidence: `proof-${index}`.repeat(50),
+    }));
+    await Promise.all(events.map((event) => appendEvidenceEvent(runDir, event)));
 
-  const lines = readFileSync(join(runDir, 'evidence.jsonl'), 'utf8').split('\n').filter(Boolean);
-  assert.equal(lines.length, 25);
-  const parsed = lines.map((line) => JSON.parse(line));
-  assert.equal(new Set(parsed.map((entry) => entry.task_id)).size, 25);
+    const lines = readFileSync(join(runDir, 'evidence.jsonl'), 'utf8').split('\n').filter(Boolean);
+    assert.equal(lines.length, 25);
+    const parsed = lines.map((line) => JSON.parse(line));
+    assert.equal(new Set(parsed.map((entry) => entry.task_id)).size, 25);
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
 });
