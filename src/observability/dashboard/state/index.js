@@ -13,6 +13,7 @@ import { buildStageTrends } from '../../metrics/derive.js';
 import { buildPeople, buildPresence } from './people.js';
 import { buildBusinessFlexState } from './business-flex.js';
 import { buildDecisionState } from './decisions.js';
+import { validateProjectConfigs } from '../../../core/harness/config-validation.js';
 export { toClientState } from './client-state.js';
 export { resolveApprovalAcrossRoots } from './approvals.js';
 
@@ -90,7 +91,14 @@ export async function buildFullState(projectRoot, options = {}) {
     presence,
     businessFlex: buildBusinessFlexState(runs),
     decisions: await buildDecisionState(runs),
-    diagnostics: buildDiagnostics(runs, roots, indexMeta),
+    diagnostics: {
+      ...buildDiagnostics(runs, roots, indexMeta),
+      // Config validation (#151): invalid .rstack config values are surfaced
+      // here per root so Diagnostics shows exactly which field is ignored.
+      configIssues: (await Promise.all(roots.map(async (root) => (
+        (await validateProjectConfigs(root)).map((issue) => ({ root, ...issue }))
+      )))).flat(),
+    },
     ts: new Date().toISOString(),
   };
 
