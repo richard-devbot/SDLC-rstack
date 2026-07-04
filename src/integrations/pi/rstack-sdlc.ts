@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
 import { validateBuilderContract, validateBuilderCompleteness } from "../../core/harness/contracts.js";
+import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, countTaskAttempts, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
@@ -161,6 +162,7 @@ type RegistryItem = {
 };
 
 type RunManifest = {
+  schema_version?: number;
   run_id: string;
   created_at: string;
   updated_at: string;
@@ -536,7 +538,8 @@ function sessionRun(projectRoot = findProjectRoot()): string | undefined {
 async function readManifest(projectRoot: string, id?: string): Promise<RunManifest> {
   const selected = id || await latestRun(projectRoot);
   if (!selected) throw new Error("No RStack run found. Start one with sdlc_start first.");
-  return JSON.parse(await readFile(join(runsDir(projectRoot), selected, "manifest.json"), "utf8"));
+  // Old (unversioned) manifests are migrated forward in memory on every read.
+  return migrateManifest(JSON.parse(await readFile(join(runsDir(projectRoot), selected, "manifest.json"), "utf8"))) as RunManifest;
 }
 
 async function writeManifest(manifest: RunManifest): Promise<void> {
@@ -1171,6 +1174,7 @@ export default function (pi: ExtensionAPI) {
       const activeProfile = await loadProjectProfile(projectRoot);
       const budgetPolicy = await loadBudgetPolicy(projectRoot, activeProfile.profile);
       const manifest: RunManifest = {
+        schema_version: MANIFEST_SCHEMA_VERSION,
         run_id: id,
         created_at: timestamp(),
         updated_at: timestamp(),

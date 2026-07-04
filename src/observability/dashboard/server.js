@@ -7,6 +7,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { dashboardHtml } from './ui.js';
 import { studio3dHtml } from './ui/studio3d.js';
 import { buildFullState, resolveDashboardApproval, toClientState } from './state/index.js';
+import { validateProjectConfigs } from '../../core/harness/config-validation.js';
 import { sourceRoots } from './state/roots.js';
 import { collectStageReports } from './state/stage-reports.js';
 import {
@@ -438,6 +439,10 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log('\n  RStack Business Hub - live observability for your team');
   console.log(`  Project : ${PROJECT_ROOT}`);
   console.log(`  Dashboard: ${url}\n`);
+  // Loud once at startup (#151): invalid config values must never be a
+  // silent default — Diagnostics shows them live; this makes them visible
+  // in the terminal the moment the hub starts.
+  validateProjectConfigs(PROJECT_ROOT, { warn: true }).catch(() => {});
   if (!NO_BROWSER) openBrowser(url);
   startPolling();
 });

@@ -908,8 +908,9 @@ function renderProjects(s) {
     var tasks = run.tasks || [];
     var passed = tasks.filter(function(task) { return task.status === 'PASS'; }).length;
     var project = shortName(run.projectRoot);
+    var integrityBadge = run.hasIntegrityErrors ? ' ' + pill('warn', 'data damaged') : '';
     return '<tr class="clickable" data-runid="' + esc(run.runId) + '" onclick="openDrawerRow(this)">' +
-      '<td>' + pill(run.derivedStatus || 'idle') + '</td>' +
+      '<td>' + pill(run.derivedStatus || 'idle') + integrityBadge + '</td>' +
       '<td><div class="strong">' + esc((run.manifest && run.manifest.goal) || run.runId) + '</div><div class="faint mono">' + esc(run.runId) + '</div></td>' +
       '<td class="mono muted">' + esc(project) + '</td>' +
       '<td><span class="strong">' + passed + '</span><span class="muted">/' + tasks.length + '</span></td>' +
@@ -1104,11 +1105,20 @@ function renderDiagnostics(s) {
     ['Events', d.eventCount || 0],
     ['Evidence records', d.evidenceCount || 0],
     ['Missing builder contracts', d.missingBuilderCount || 0],
-    ['Missing validation contracts', d.missingValidationCount || 0]
+    ['Missing validation contracts', d.missingValidationCount || 0],
+    ['Data integrity errors', d.integrityErrorCount || 0]
   ];
   setHTML('diagnostics-health', rows.map(function(row) {
     return '<div class="feed-row"><div class="feed-icon info">i</div><div><div class="feed-summary">' + esc(row[0]) + '</div></div><div class="feed-ts">' + esc(row[1]) + '</div></div>';
   }).join(''));
+  var integrity = d.integrity || [];
+  var configIssues = d.configIssues || [];
+  var problems = integrity.map(function(issue) {
+    return '<div class="feed-row"><div class="feed-icon warn">!</div><div><div class="feed-summary">' + esc(issue.file) + '</div><div class="feed-meta"><span>' + esc(issue.runId || '') + '</span><span>' + esc(issue.error) + '</span></div></div></div>';
+  }).concat(configIssues.map(function(issue) {
+    return '<div class="feed-row"><div class="feed-icon warn">!</div><div><div class="feed-summary">' + esc(issue.file) + '</div><div class="feed-meta"><span>' + esc(issue.field || 'config') + '</span><span>' + esc(issue.problem) + '</span></div></div></div>';
+  }));
+  setHTML('diagnostics-integrity', problems.join('') || emptyHtml('No data integrity or config problems', 'Damaged run files and invalid .rstack config values appear here.'));
   setHTML('diagnostics-roots', (d.sourceRoots || s.sourceRoots || []).map(function(root) {
     return '<div class="project-card"><div class="strong">' + esc(shortName(root)) + '</div><div class="project-path mono">' + esc(root) + '</div></div>';
   }).join('') || emptyHtml('No source roots', ''));

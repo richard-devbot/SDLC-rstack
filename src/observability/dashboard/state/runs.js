@@ -5,7 +5,7 @@ import { CANONICAL_SDLC_STAGES } from '../../../core/harness/stages.js';
 import { cleanOrphanedTmpFiles } from '../../../core/harness/safe-write.js';
 import { deriveRunTimeline, deriveRunTotals, deriveStageElapsed } from '../../metrics/derive.js';
 import { stageReportIndex } from './stage-reports.js';
-import { readJson, readJsonlSync } from './files.js';
+import { readJson, readJsonTracked, readJsonlTracked } from './files.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -140,14 +140,19 @@ export async function getRunsForRoot(projectRoot, options = {}) {
     // never accumulate in run dirs; fresh in-flight tmp files are left alone.
     await cleanOrphanedTmpFiles(runDir);
 
+    // Per-run damage report (#82): parse failures in canonical run files are
+    // recorded here and surfaced in Diagnostics instead of silently skipped.
+    const integrity = [];
+    const rel = (name) => join('.rstack', 'runs', runId, name);
+
     const [manifest, metrics, tasksRaw, contextText, planText, requirements, runApprovals, projectProfile, budgetPolicy] = await Promise.all([
-      readJson(join(runDir, 'manifest.json'), {}),
-      readJson(join(runDir, 'metrics.json'), {}),
-      readJson(join(runDir, 'tasks.json'), null),
+      readJsonTracked(join(runDir, 'manifest.json'), {}, integrity, rel('manifest.json')),
+      readJsonTracked(join(runDir, 'metrics.json'), {}, integrity, rel('metrics.json')),
+      readJsonTracked(join(runDir, 'tasks.json'), null, integrity, rel('tasks.json')),
       readFile(join(runDir, 'context.md'), 'utf8').catch(() => ''),
       readFile(join(runDir, 'plan.md'), 'utf8').catch(() => ''),
       readJson(join(stagesDir, '02-requirements', 'requirements.json'), null),
-      readJson(join(runDir, 'approvals.json'), []),
+      readJsonTracked(join(runDir, 'approvals.json'), [], integrity, rel('approvals.json')),
       readJson(join(projectRoot, '.rstack', 'rstack.config.json'), null),
       readJson(join(projectRoot, '.rstack', 'budget.json'), null),
     ]);
@@ -156,8 +161,8 @@ export async function getRunsForRoot(projectRoot, options = {}) {
       ? tasksRaw
       : Array.isArray(tasksRaw?.tasks) ? tasksRaw.tasks : [];
     const tasks = await enrichTasks(projectRoot, runId, rawTasks);
-    const events = readJsonlSync(join(runDir, 'events.jsonl'));
-    const evidence = readJsonlSync(join(runDir, 'evidence.jsonl'));
+    const events = readJsonlTracked(join(runDir, 'events.jsonl'), integrity, rel('events.jsonl'));
+    const evidence = readJsonlTracked(join(runDir, 'evidence.jsonl'), integrity, rel('evidence.jsonl'));
 
     const reqList = Array.isArray(requirements)
       ? requirements
@@ -187,6 +192,8 @@ export async function getRunsForRoot(projectRoot, options = {}) {
       totals: deriveRunTotals(events),
       stageElapsed: deriveStageElapsed(events, rawTasks),
       derivedStatus: deriveRunStatus(manifest, events),
+      integrity,
+      hasIntegrityErrors: integrity.length > 0,
       host: inferHost(manifest),
       brief,
       requirements: reqList.slice(0, 20),

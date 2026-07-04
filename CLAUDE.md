@@ -24,6 +24,9 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-04 | Config validation on load: field-level warnings for all `.rstack/*.json`, surfaced in Diagnostics + at hub startup | 4 | #151 |
+| 2026-07-04 | Data-integrity collector: corrupt run files recorded per run, Diagnostics panel + "data damaged" run badges | 4 | #82 |
+| 2026-07-04 | Schema migration registry (`migrations.js`); manifests stamped `schema_version: 2`, legacy runs migrate on read | 4 | #82 |
 | 2026-07-03 | Completeness gate hardened: junk evidence (`[{}]`) rejected, non-array option shapes tolerated | 1 | #154 follow-up |
 | 2026-07-03 | Builder contract completeness as shared harness API (`validateBuilderCompleteness`); Pi delegates | 1 | #118, PR #154 |
 | 2026-07-03 | `rstack-agents pipeline status` CLI (text + `--json` + `--regenerate`); run-id resolution lifted to `runs.js`; `RSTACK_STATE_DIR` mismatch fixed | 4 | #115, PR #153 |
@@ -37,21 +40,25 @@ Pre-2026-06 history lives in CHANGELOG.md (v1.0 → v1.9.0-rc).
 
 Work top-down. File a GitHub issue before any branch (Richardson's rule: issues before PRs).
 
-1. **#82 + #151** — schema versioning/migration registry + config validation on load (one branch:
-   both are "loud failures instead of silent defaults"). Goal 4.
-2. **#150** — dashboard production hardening: TLS flags, request size limits, token rotation,
+1. **#150** — dashboard production hardening: TLS flags, request size limits, token rotation,
    log rotation, wire-or-remove `RSTACK_SIGNING_KEY`. Goal 2.
-3. **#116** — normalize SDLC markdown agents to harness paths (closes BLE-1 epic #112). Goal 4.
-4. **#119 / #120** — validator sandbox policy + validator registry (closes BLE-2 epic #117). Goal 1.
-5. **#123 / #124 / #125** — retry policy, resume-aware runner, retry trace (BLE-3 epic #121);
+2. **#116** — normalize SDLC markdown agents to harness paths (closes BLE-1 epic #112). Goal 4.
+3. **#119 / #120** — validator sandbox policy + validator registry (closes BLE-2 epic #117). Goal 1.
+4. **#123 / #124 / #125** — retry policy, resume-aware runner, retry trace (BLE-3 epic #121);
    prerequisite for brownfield feature mode. Goal 3.
-6. **#148** — brownfield `adopt` command: `--dry-run` stage-population plan, evidence harvesters,
+5. **#148** — brownfield `adopt` command: `--dry-run` stage-population plan, evidence harvesters,
    migration guide. Goal 3 (flagship gap for client use).
+6. **#156** — UI: surface loop-engineering state (BLOCKED tasks, guardrail override lifecycle,
+   pipeline next-action on Command Center, retry-trace slot); pairs with #95 modularization. Goal 2.
 7. **#126–#129** — goal loop (BLE-4). Goal 1.
 8. **#134–#137** — cost/context/memory (BLE-6), incl. #83 persisted cost metrics. Goal 4.
 9. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
 10. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
     E2E tests, dark stages). Goal 2.
+
+UI ↔ backend alignment note (2026-07-04 review): the dashboard approve path writes run-level
+`approvals.json` (`appendRunApproval`), so guardrail overrides approved from the Business Hub reach
+the claim gate end-to-end — the remaining UI work in #156 is presentational, not plumbing.
 
 Declined / out of scope (do not re-open without new context):
 - Runtime tool-call interception in the harness — host frameworks execute tools; strongest available

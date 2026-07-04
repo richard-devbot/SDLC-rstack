@@ -86,6 +86,10 @@ export function buildDiagnostics(runs, roots, indexMeta = null) {
     // index-served runs must not be counted as "missing" artifacts.
     missingBuilderCount: fullyParsedTasks.filter((task) => !task.builder).length,
     missingValidationCount: fullyParsedTasks.filter((task) => !task.validation).length,
+    // Data integrity (#82): damaged run files recorded during the state build,
+    // one entry per corrupt file so operators see WHAT is broken, not zeros.
+    integrity: fullyParsed.flatMap((run) => (run.integrity ?? []).map((issue) => ({ runId: run.runId, ...issue }))),
+    integrityErrorCount: fullyParsed.reduce((total, run) => total + (run.integrity?.length ?? 0), 0),
     // Rollup index freshness + retention visibility for the Diagnostics page.
     index: indexMeta,
   };
