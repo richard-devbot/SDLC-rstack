@@ -36,8 +36,11 @@ cat skills/retro/SKILL.md | head -30
 
 After context compaction or session restart, check for existing pipeline outputs:
 ```bash
-ls $RSTACK_RUN_DIR/artifacts/feedback/ 2>/dev/null | head -20
-cat $RSTACK_RUN_DIR/artifacts/feedback/consistency_report.json 2>/dev/null | python3 -m json.tool 2>/dev/null | grep -E '"pipeline_complete|"summary"' 2>/dev/null | head -10
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+# Canonical harness path (preferred)
+cat "$RUN_BASE/artifacts/stages/11-feedback-loop/feedback.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | grep -E '"pipeline_complete|"summary"' 2>/dev/null | head -10
+# Legacy compatibility fallback
+cat "$RUN_BASE/artifacts/feedback/consistency_report.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | grep -E '"pipeline_complete|"summary"' 2>/dev/null | head -10
 ```
 If `consistency_report.json` exists with `"pipeline_complete": true`, report the consistency score and ask whether to re-analyze or use the existing report.
 
@@ -58,21 +61,22 @@ You are domain-agnostic. You apply consistency checking rules universally and
 add domain-specific validation based on the domain detected in the contracts.
 
 ## Input
-Read ALL output JSON contracts from the pipeline:
-- `$RSTACK_RUN_DIR/artifacts/transcripts/structured_meeting_output.json`
-- `$RSTACK_RUN_DIR/artifacts/requirements/requirement_spec.json`
-- `$RSTACK_RUN_DIR/artifacts/documents/documentation_output.json`
-- `$RSTACK_RUN_DIR/artifacts/planning/sprint_plan.json`
-- `$RSTACK_RUN_DIR/artifacts/jira/jira_tickets.json`
-- `$RSTACK_RUN_DIR/artifacts/architecture/system_design.json`
-- `$RSTACK_RUN_DIR/artifacts/code/code_output.json`
-- `$RSTACK_RUN_DIR/artifacts/qa/qa_results.json`
-- `$RSTACK_RUN_DIR/artifacts/deployment/deployment_output.json`
-- `$RSTACK_RUN_DIR/artifacts/pipeline_final.json`
+Read ALL output JSON contracts from the pipeline. Canonical stage paths first
+(`$RUN_BASE/artifacts/stages/<stage-id>/<artifact>`), legacy roots as fallback:
+- `$RUN_BASE/artifacts/stages/01-transcript/transcript.json` (legacy: `artifacts/transcripts/structured_meeting_output.json`)
+- `$RUN_BASE/artifacts/stages/02-requirements/requirement_spec.json` (legacy: `artifacts/requirements/requirement_spec.json`)
+- `$RUN_BASE/artifacts/stages/03-documentation/documentation.json` (legacy: `artifacts/documents/documentation_output.json`)
+- `$RUN_BASE/artifacts/stages/04-planning/plan.json` (legacy: `artifacts/planning/sprint_plan.json`)
+- `$RUN_BASE/artifacts/stages/05-jira/jira_tickets.json` (legacy: `artifacts/jira/jira_tickets.json`)
+- `$RUN_BASE/artifacts/stages/06-architecture/system_design.json` (legacy: `artifacts/architecture/system_design.json`)
+- `$RUN_BASE/artifacts/stages/07-code/code_report.json` (legacy: `artifacts/code/code_output.json`)
+- `$RUN_BASE/artifacts/stages/08-testing/test_report.json` (legacy: `artifacts/qa/qa_results.json`)
+- `$RUN_BASE/artifacts/stages/09-deployment/deployment_report.json` (legacy: `artifacts/deployment/deployment_output.json`)
+- `$RUN_BASE/artifacts/stages/10-summary/summary.json` (legacy: `artifacts/pipeline_final.json`)
 
 Also check for optional agent outputs:
-- `$RSTACK_RUN_DIR/artifacts/security/threat_model.json` (if security threat model agent ran)
-- `$RSTACK_RUN_DIR/artifacts/compliance/compliance_matrix.json` (if compliance checker agent ran)
+- `$RUN_BASE/artifacts/stages/12-security-threat-model/threat_model.json` (legacy: `artifacts/security/threat_model.json`)
+- `$RUN_BASE/artifacts/stages/13-compliance-checker/compliance_report.json` (legacy: `artifacts/compliance/compliance_matrix.json`)
 - `$RSTACK_RUN_DIR/artifacts/cost/cost_estimation.json` (if cost estimation agent ran)
 
 ## GUARD: Graceful Partial Read
@@ -82,7 +86,7 @@ failed, or optional agents were skipped). For each file:
 - If it exists but is malformed -> log as CRITICAL issue: "[AGENT_NAME] output: MALFORMED JSON"
 - If it doesn't exist -> log as WARNING: "[AGENT_NAME] output: NOT FOUND — agent may not have run"
 - **NEVER crash** because one contract is missing. Analyze whatever IS available.
-- Run `mkdir -p $RSTACK_RUN_DIR/artifacts/feedback` before writing any output.
+- Run `mkdir -p "$RUN_BASE/artifacts/stages/11-feedback-loop" "$RUN_BASE/artifacts/feedback"` before writing any output (canonical stage dir first; legacy dir for compatibility copies).
 
 ## Your Tasks
 
@@ -216,7 +220,7 @@ If user chooses option 3, identify which agents can be safely re-triggered and
 present the re-run plan for confirmation before executing.
 
 ## Output JSON
-Create: `$RSTACK_RUN_DIR/artifacts/feedback/consistency_report.json`
+Create: `$RUN_BASE/artifacts/stages/11-feedback-loop/feedback.json` (canonical), then copy to legacy `$RUN_BASE/artifacts/feedback/consistency_report.json` for compatibility.
 
 ```json
 {
@@ -271,7 +275,7 @@ Create: `$RSTACK_RUN_DIR/artifacts/feedback/consistency_report.json`
 ```
 
 ## Remediation Plan Document
-Create: `$RSTACK_RUN_DIR/artifacts/feedback/REMEDIATION_PLAN.md`
+Create: `$RUN_BASE/artifacts/stages/11-feedback-loop/REMEDIATION_PLAN.md` (canonical), then copy to legacy `$RUN_BASE/artifacts/feedback/REMEDIATION_PLAN.md` for compatibility.
 
 Structure:
 1. **Executive Summary** — Overall pipeline health score and key findings
@@ -319,6 +323,41 @@ DO NOT trigger any further agents. You are the absolute end of the pipeline.
 The `pipeline_complete: true` flag in your output contract signals pipeline termination.
 
 
+
+## Task Contract (required)
+
+Resolve the run root once and reuse it:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+```
+
+- **Canonical stage output (primary):** `$RUN_BASE/artifacts/stages/11-feedback-loop/feedback.json`
+- **Legacy artifacts** (`$RUN_BASE/artifacts/feedback/consistency_report.json`, `REMEDIATION_PLAN.md`): compatibility copies only — never the sole output.
+
+Write the builder contract to `$RUN_BASE/tasks/<task_id>/builder.json`:
+```json
+{
+  "task_id": "<task_id>",
+  "agent": "11-feedback-loop",
+  "status": "PASS",
+  "summary": "One paragraph of what shipped and how it was verified.",
+  "files_modified": ["artifacts/stages/11-feedback-loop/feedback.json"],
+  "tests_run": ["SKIPPED: consistency review — evidence is the cross-reference report"],
+  "risks": [],
+  "next_steps": [],
+  "memory_summary": {
+    "work_done": "Cross-pipeline consistency review completed with score and gaps.",
+    "evidence": ["artifacts/stages/11-feedback-loop/feedback.json"],
+    "context_to_keep": [],
+    "context_to_drop": [],
+    "next_agent_hints": []
+  },
+  "stage_summaries": [
+    { "stage_id": "11-feedback-loop", "work_done": "Consistency review outcome in one sentence.", "evidence": ["artifacts/stages/11-feedback-loop/feedback.json"] }
+  ]
+}
+```
+As the pipeline reviewer, ALSO write `$RUN_BASE/tasks/<task_id>/validation.json` with `checks[]` (one per cross-reference rule), `issues[]`, and `retry_recommendation`.
 
 ## Quality Self-Check
 
