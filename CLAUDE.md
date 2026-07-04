@@ -24,6 +24,8 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-04 | Dashboard read-path auth: RSTACK_DASHBOARD_READ_TOKEN(_FILE) gates state/artifact/run-report + WS; foreign Origins always rejected on reads and WS upgrades; tokens session-scoped | 2 | #164, PR #168 (external audit) |
+| 2026-07-04 | Release hygiene: evidence ledger lock-serialized, publish workflow gains lint + security-audit parity with CI, README counts honest | 1, 4 | #165 #166, PR #167 (external audit) |
 | 2026-07-04 | Loop-engineering UI slice: feed names blocked task + reason, override one-shot explainer on approval cards, Guardrail-blocked signal in Needs Attention, retry-event rendering slot | 2 | #156 (partial), PR #162 |
 | 2026-07-04 | Hub hardening: TLS opt-in (fails loudly if half-configured), token-file rotation without restart, timing-safe compare, signing-key fallback warning | 2 | #150, PR #161 |
 | 2026-07-04 | Config validation on load: field-level warnings for all `.rstack/*.json`, surfaced in Diagnostics + at hub startup | 4 | #151 |
@@ -60,6 +62,12 @@ Work top-down. File a GitHub issue before any branch (Richardson's rule: issues 
 UI ↔ backend alignment note (2026-07-04 review): the dashboard approve path writes run-level
 `approvals.json` (`appendRunApproval`), so guardrail overrides approved from the Business Hub reach
 the claim gate end-to-end — the remaining UI work in #156 is presentational, not plumbing.
+
+External audit reconciliation (identity.md, 2026-07-04): all 5 confirmed-new findings fixed same
+day (#164–#166 + README + localStorage); remainder were already fixed by this session's merges,
+already tracked (BLE phases, #73, #83, #159), or false alarms (.DS_Store untracked). Strategic
+read: hardening is now DONE for the current stage — reputation comes from adoption, so #158
+(quick-start) and #148 (brownfield adopt) outrank further internal robustness work.
 
 Declined / out of scope (do not re-open without new context):
 - Runtime tool-call interception in the harness — host frameworks execute tools; strongest available
