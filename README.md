@@ -14,7 +14,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.9.0--rc-orange" alt="v1.9.0-rc"/>
   <img src="https://img.shields.io/badge/agents-196%20validated-brightgreen" alt="196 agents"/>
-  <img src="https://img.shields.io/badge/tests-244%20pass-brightgreen" alt="244 tests"/>
+  <img src="https://img.shields.io/badge/tests-357%20pass-brightgreen" alt="357 tests"/>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"/>
 </p>
 
@@ -439,7 +439,7 @@ npm run validate
 Latest verified branch state:
 
 ```text
-npm test          # 244 pass, 0 fail
+npm test          # 357 pass, 0 fail
 npm run lint      # pass
 npm run validate  # All 196 agents passed validation
 npm pack --dry-run  # package includes templates/bootstrap/
