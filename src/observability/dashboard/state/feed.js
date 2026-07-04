@@ -51,7 +51,11 @@ export function buildActivityFeed(runs) {
 
 function eventLevel(ev) {
   if (ev.type === 'task_validated' && ev.status === 'FAIL') return 'fail';
+  if (ev.type === 'validation_failed') return 'fail';
   if (ev.type === 'guardrail_triggered') return 'warn';
+  if (ev.type === 'guardrail_overridden') return 'pass';
+  if (ev.type === 'dor_gate_blocked') return 'blocked';
+  if (/^retry_/.test(String(ev.type ?? ''))) return 'warn';
   if (ev.type === 'approval_gate_blocked') return 'blocked';
   if (ev.type === 'approval_gate') return 'pass';
   if (ev.type === 'quality_score_recorded') return 'pass';

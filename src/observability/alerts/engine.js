@@ -141,7 +141,13 @@ export function plainLanguageSummary(event) {
       return `Cost recorded: $${Number.isFinite(cost) ? cost.toFixed(4) : '0.0000'}`;
     }
     case 'guardrail_triggered':
-      return `Guardrail hit: ${event.limit_name ?? event.limit ?? '?'}`;
+      return `🛡 Guardrail blocked ${event.task_id ?? 'task'} — ${event.reason ?? event.limit_name ?? event.limit ?? 'budget exceeded'}`;
+    case 'guardrail_overridden':
+      return `🛡 Guardrail override consumed — ${event.task_id ?? 'task'} granted exactly one more attempt (${event.artifact ?? 'override'})`;
+    case 'validation_failed':
+      return `↻ Validation failed — attempt ${event.attempt ?? '?'}/${event.max_attempts ?? '?'} for ${event.task_id ?? 'task'}`;
+    case 'dor_gate_blocked':
+      return `Definition-of-Ready blocked ${event.task_id ?? 'task'} — pending: ${(event.pending_required ?? []).join(', ') || 'required decisions'}`;
     case 'memory_recalled':
       return `Memory recalled — ${event.count ?? 0} episodes injected`;
     case 'episode_memory_written':
@@ -150,7 +156,13 @@ export function plainLanguageSummary(event) {
       return `Session ended`;
     case 'observer_new_run':
       return `New run detected: ${event.run_id?.slice(-12) ?? '?'}`;
-    default: return null;
+    default:
+      // Retry-recovery events (BLE-3) share a retry_* prefix — render them
+      // rather than dropping unknown loop-engineering signals from the feed.
+      if (/^retry_/.test(String(event.type ?? ''))) {
+        return `↻ ${String(event.type).replace(/_/g, ' ')} — ${event.task_id ?? event.stage_id ?? 'task'}${event.reason ? ` (${event.reason})` : ''}`;
+      }
+      return null;
   }
 }
 
