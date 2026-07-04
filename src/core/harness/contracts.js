@@ -131,8 +131,19 @@ function hasMeaningfulText(value, minLength = 10) {
   return typeof value === 'string' && value.trim().length >= minLength;
 }
 
+// Evidence entries must carry actual text — a command, a path, or an object
+// with at least one non-empty string field. Bare truthy junk like [{}] is not
+// proof and must not satisfy the completeness gate.
+function meaningfulEvidenceItem(item) {
+  if (typeof item === 'string') return item.trim().length > 0;
+  if (item && typeof item === 'object' && !Array.isArray(item)) {
+    return Object.values(item).some((value) => typeof value === 'string' && value.trim().length > 0);
+  }
+  return false;
+}
+
 function hasNonEmptyArray(value) {
-  return Array.isArray(value) && value.some((item) => (typeof item === 'string' ? item.trim().length > 0 : Boolean(item)));
+  return Array.isArray(value) && value.some(meaningfulEvidenceItem);
 }
 
 // Completeness gate for passing builders (#118): a PASS or DONE_WITH_CONCERNS
@@ -143,6 +154,9 @@ export function validateBuilderCompleteness(builder, { expectedStageIds = [] } =
   const checks = [];
   const passingStatus = ['PASS', 'DONE_WITH_CONCERNS'].includes(builder?.status);
   if (!passingStatus) return summarizeChecks(checks);
+  // Shared harness API: tolerate null/non-array option shapes instead of
+  // throwing mid-validation in external consumers.
+  const stageIdTargets = Array.isArray(expectedStageIds) ? expectedStageIds.filter(Boolean) : [];
 
   checks.push({
     name: 'builder_summary_meaningful',
@@ -176,7 +190,7 @@ export function validateBuilderCompleteness(builder, { expectedStageIds = [] } =
 
   const stageSummaries = Array.isArray(builder?.stage_summaries) ? builder.stage_summaries : [];
   const actualStageIds = new Set(stageSummaries.map((item) => item?.stage_id).filter(Boolean));
-  for (const stageId of expectedStageIds) {
+  for (const stageId of stageIdTargets) {
     const summary = stageSummaries.find((item) => item?.stage_id === stageId);
     checks.push({
       name: `stage_summary_${stageId}_exists`,
@@ -196,7 +210,7 @@ export function validateBuilderCompleteness(builder, { expectedStageIds = [] } =
       });
     }
   }
-  if (!expectedStageIds.length) {
+  if (!stageIdTargets.length) {
     checks.push({
       name: 'stage_summaries_not_required',
       status: 'PASS',
@@ -205,8 +219,8 @@ export function validateBuilderCompleteness(builder, { expectedStageIds = [] } =
   } else if (stageSummaries.length) {
     checks.push({
       name: 'stage_summaries_only_known_stages',
-      status: stageSummaries.every((item) => !item?.stage_id || expectedStageIds.includes(item.stage_id)) ? 'PASS' : 'FAIL',
-      evidence: `expected ${expectedStageIds.join(', ')}; got ${[...actualStageIds].join(', ')}`,
+      status: stageSummaries.every((item) => !item?.stage_id || stageIdTargets.includes(item.stage_id)) ? 'PASS' : 'FAIL',
+      evidence: `expected ${stageIdTargets.join(', ')}; got ${[...actualStageIds].join(', ')}`,
     });
   }
 
