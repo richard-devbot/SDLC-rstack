@@ -178,6 +178,47 @@ function tokenMatches(provided, expected) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+// Read-path authentication (#164): SDLC state (goals, costs, artifacts,
+// security notes) is sensitive. Foreign browser Origins are ALWAYS rejected
+// on read APIs and the WebSocket stream — CORS does not protect WS upgrades.
+// Setting RSTACK_DASHBOARD_READ_TOKEN (or _FILE, re-read per request for
+// rotation, same pattern as the approval token) additionally requires the
+// token on every read via the x-rstack-read-token header or ?token= param.
+function expectedReadToken() {
+  const file = process.env.RSTACK_DASHBOARD_READ_TOKEN_FILE;
+  if (file) {
+    try {
+      return readFileSync(file, 'utf8').trim() || null;
+    } catch {
+      // Unreadable token file fails closed: reads stay locked.
+      return 'unreadable-token-file-fails-closed';
+    }
+  }
+  return process.env.RSTACK_DASHBOARD_READ_TOKEN || null;
+}
+
+function readAuthError(req, url) {
+  const origin = req.headers.origin;
+  if (origin && !LOCALHOST_ORIGIN.test(origin)) {
+    return { code: 403, msg: 'cross-origin read rejected' };
+  }
+  const expected = expectedReadToken();
+  if (expected) {
+    const token = req.headers['x-rstack-read-token'] || url.searchParams.get('token');
+    if (!token || !tokenMatches(token, expected)) {
+      return { code: 401, msg: 'missing or invalid dashboard read token — set RSTACK_DASHBOARD_READ_TOKEN on the client' };
+    }
+  }
+  return null;
+}
+
+function denyRead(res, authErr) {
+  res.writeHead(authErr.code, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ ok: false, error: authErr.msg }));
+}
+
 function approvalAuthError(req) {
   const expected = expectedApprovalToken();
   if (!expected) {
@@ -186,7 +227,7 @@ function approvalAuthError(req) {
   // CSRF: a cross-site form POST cannot set custom headers and would carry a
   // foreign Origin. Require the token header and a localhost (or absent) origin.
   const origin = req.headers.origin;
-  if (origin && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+  if (origin && !LOCALHOST_ORIGIN.test(origin)) {
     return { code: 403, msg: 'cross-origin approval rejected' };
   }
   const token = req.headers['x-rstack-approval-token'];
@@ -418,6 +459,8 @@ const requestHandler = async (req, res) => {
   }
 
   if (url.pathname === '/api/state' && req.method === 'GET') {
+    const authErr = readAuthError(req, url);
+    if (authErr) return denyRead(res, authErr);
     try {
       const state = await buildFullState(PROJECT_ROOT);
       // Hash a projection with server eval-time timestamps stripped, so an
@@ -447,11 +490,15 @@ const requestHandler = async (req, res) => {
   }
 
   if (url.pathname === '/api/artifact' && req.method === 'GET') {
+    const authErr = readAuthError(req, url);
+    if (authErr) return denyRead(res, authErr);
     await handleArtifact(req, url, res);
     return;
   }
 
   if (url.pathname === '/api/run-report' && req.method === 'GET') {
+    const authErr = readAuthError(req, url);
+    if (authErr) return denyRead(res, authErr);
     await handleRunReport(req, url, res);
     return;
   }
@@ -464,6 +511,15 @@ const server = TLS_OPTIONS ? createTlsServer(TLS_OPTIONS, requestHandler) : crea
 
 server.on('upgrade', async (req, socket) => {
   if (req.headers.upgrade?.toLowerCase() !== 'websocket') {
+    socket.destroy();
+    return;
+  }
+  // CORS does not apply to WebSocket upgrades — enforce the read policy here:
+  // foreign browser Origins are always rejected, and a configured read token
+  // is required (?token= — browsers cannot set custom headers on WS).
+  const wsAuthErr = readAuthError(req, new URL(req.url, `${SCHEME}://localhost:${PORT}`));
+  if (wsAuthErr) {
+    socket.write(`HTTP/1.1 ${wsAuthErr.code === 403 ? '403 Forbidden' : '401 Unauthorized'}\r\nConnection: close\r\n\r\n`);
     socket.destroy();
     return;
   }

@@ -1374,7 +1374,7 @@ var STAGE_CARD_ORDER = Object.keys(STAGE_CARD_META);
 
 function fetchRunReport(runId) {
   if (REPORT_CACHE[runId]) return Promise.resolve(REPORT_CACHE[runId]);
-  return fetch('/api/run-report?run=' + encodeURIComponent(runId))
+  return authAwareFetch('/api/run-report?run=' + encodeURIComponent(runId))
     .then(function(r) { return r.json(); })
     .then(function(data) { if (!data.error) REPORT_CACHE[runId] = data; return data; });
 }
@@ -1788,7 +1788,7 @@ function evidenceListHtml(run) {
 function viewArtifact(btn) {
   var runId = btn.getAttribute('data-runid');
   var path = btn.getAttribute('data-path');
-  fetch('/api/artifact?run=' + encodeURIComponent(runId) + '&path=' + encodeURIComponent(path))
+  authAwareFetch('/api/artifact?run=' + encodeURIComponent(runId) + '&path=' + encodeURIComponent(path))
     .then(function(response) { return response.json(); })
     .then(function(data) {
       if (data.error) { showErr('artifact: ' + data.error); return; }
@@ -1831,10 +1831,10 @@ function resolveApproval(id, action) {
   }
   // Approvals require the signed token (RSTACK_APPROVAL_TOKEN) so identity
   // can't be spoofed from a bare request. Stored locally after first entry.
-  var token = localStorage.getItem('rstack-approval-token') || '';
+  var token = sessionStorage.getItem('rstack-approval-token') || '';
   if (!token && typeof window.prompt === 'function') {
     token = window.prompt('Approval token (RSTACK_APPROVAL_TOKEN set on the hub)') || '';
-    if (token) localStorage.setItem('rstack-approval-token', token);
+    if (token) sessionStorage.setItem('rstack-approval-token', token);
   }
   fetch('/api/' + action, {
     method: 'POST',
@@ -1850,12 +1850,47 @@ function resolveApproval(id, action) {
   }).catch(function(err) { showErr('approval: ' + err.message); });
 }
 
+// Read token (#164): kept in sessionStorage only — never persisted across
+// browser sessions. Prompted once on the first 401 from a read endpoint.
+function readToken() {
+  return sessionStorage.getItem('rstack-read-token') || '';
+}
+
+function promptReadToken() {
+  if (typeof window.prompt !== 'function') return '';
+  var token = window.prompt('Dashboard read token (RSTACK_DASHBOARD_READ_TOKEN set on the hub)') || '';
+  if (token) sessionStorage.setItem('rstack-read-token', token);
+  return token;
+}
+
+function readHeaders(extra) {
+  var headers = extra || {};
+  var token = readToken();
+  if (token) headers['x-rstack-read-token'] = token;
+  return headers;
+}
+
+function authAwareFetch(url, opts) {
+  opts = opts || {};
+  opts.headers = readHeaders(opts.headers);
+  return fetch(url, opts).then(function(response) {
+    if (response.status === 401 && !readToken()) {
+      var token = promptReadToken();
+      if (token) {
+        opts.headers = readHeaders(opts.headers);
+        return fetch(url, opts);
+      }
+    }
+    return response;
+  });
+}
+
 function fetchState() {
   // Conditional request: an unchanged snapshot returns 304, which still
   // confirms the data is current (refresh the freshness clock) without a
   // re-render. ETag stripping of server eval-time stamps lives server-side.
   var opts = LAST_ETAG ? { headers: { 'If-None-Match': LAST_ETAG } } : {};
-  return fetch('/api/state', opts)
+  return authAwareFetch('/api/state', opts)
     .then(function(response) {
       var etag = response.headers.get('etag');
       if (etag) LAST_ETAG = etag;
@@ -1881,7 +1916,11 @@ function fetchState() {
 
 function connectWS() {
   try {
-    ws = new WebSocket('ws://localhost:' + PORT);
+    // Browsers cannot set custom headers on WebSocket upgrades, so the read
+    // token travels as a query param when configured.
+    var wsProto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    var wsToken = readToken();
+    ws = new WebSocket(wsProto + 'localhost:' + PORT + (wsToken ? '/?token=' + encodeURIComponent(wsToken) : ''));
   } catch (err) {
     WS_CONNECTED = false;
     startPolling();
