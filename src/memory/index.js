@@ -326,8 +326,18 @@ export function episodeFromValidation({ projectRoot, manifest, task, builder = {
   };
 }
 
+let warnedDefaultSigningSecret = false;
+
 function getSigningSecret(projectSlug) {
-  return process.env.RSTACK_SIGNING_KEY || `rstack-bft-secret-${projectSlug}`;
+  if (process.env.RSTACK_SIGNING_KEY) return process.env.RSTACK_SIGNING_KEY;
+  // The fallback secret is derivable from the project slug, so episode
+  // signatures only detect accidental corruption — not tampering. Say so
+  // once instead of letting the signatures imply integrity they can't give.
+  if (!warnedDefaultSigningSecret) {
+    warnedDefaultSigningSecret = true;
+    console.error('[rstack] RSTACK_SIGNING_KEY is not set — memory episode signatures use a predictable default and only detect corruption, not tampering. Set RSTACK_SIGNING_KEY for tamper-evident memory.');
+  }
+  return `rstack-bft-secret-${projectSlug}`;
 }
 
 export function calculateEpisodeSignature(episode) {

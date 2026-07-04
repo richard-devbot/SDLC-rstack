@@ -1,8 +1,9 @@
 import { createServer } from 'node:http';
+import { createServer as createTlsServer } from 'node:https';
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { dashboardHtml } from './ui.js';
 import { studio3dHtml } from './ui/studio3d.js';
@@ -152,10 +153,35 @@ function auditApprovalAttempt(req, { id, decision, resolvedBy, outcome, reason }
 // dashboard cannot mint manager identity from an unauthenticated request body.
 // Without the env token, approving from the browser is blocked entirely (the
 // secure default for a multi-user company hub) — set the token to enable it.
+// Token resolution supports rotation without a restart: with
+// RSTACK_APPROVAL_TOKEN_FILE set, the file is re-read on every request, so
+// replacing its contents rotates the credential immediately. The env token
+// remains the simple single-user path. The token value is never logged.
+function expectedApprovalToken() {
+  const file = process.env.RSTACK_APPROVAL_TOKEN_FILE;
+  if (file) {
+    try {
+      return readFileSync(file, 'utf8').trim() || null;
+    } catch {
+      // Unreadable token file fails closed: approvals stay disabled.
+      return null;
+    }
+  }
+  return process.env.RSTACK_APPROVAL_TOKEN || null;
+}
+
+function tokenMatches(provided, expected) {
+  const a = Buffer.from(String(provided ?? ''), 'utf8');
+  const b = Buffer.from(String(expected ?? ''), 'utf8');
+  // Length comparison leaks only length, not content; timingSafeEqual
+  // requires equal-length buffers.
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 function approvalAuthError(req) {
-  const expected = process.env.RSTACK_APPROVAL_TOKEN;
+  const expected = expectedApprovalToken();
   if (!expected) {
-    return { code: 403, msg: 'dashboard approvals are disabled — set RSTACK_APPROVAL_TOKEN to enable signed approvals, or approve via sdlc_approve' };
+    return { code: 403, msg: 'dashboard approvals are disabled — set RSTACK_APPROVAL_TOKEN (or RSTACK_APPROVAL_TOKEN_FILE) to enable signed approvals, or approve via sdlc_approve' };
   }
   // CSRF: a cross-site form POST cannot set custom headers and would carry a
   // foreign Origin. Require the token header and a localhost (or absent) origin.
@@ -164,7 +190,7 @@ function approvalAuthError(req) {
     return { code: 403, msg: 'cross-origin approval rejected' };
   }
   const token = req.headers['x-rstack-approval-token'];
-  if (!token || token !== expected) {
+  if (!token || !tokenMatches(token, expected)) {
     return { code: 401, msg: 'missing or invalid approval token' };
   }
   return null;
@@ -328,9 +354,27 @@ async function handleArtifact(req, url, res) {
   }
 }
 
-const server = createServer(async (req, res) => {
+// TLS is opt-in (#150): set RSTACK_TLS_CERT and RSTACK_TLS_KEY (PEM file
+// paths) to serve HTTPS — needed when the hub sits on a shared network where
+// the approval token must not travel in cleartext. Localhost HTTP stays the
+// default. A half-configured pair fails loudly instead of silently serving
+// HTTP with the operator believing TLS is on.
+function resolveTlsOptions() {
+  const certPath = process.env.RSTACK_TLS_CERT;
+  const keyPath = process.env.RSTACK_TLS_KEY;
+  if (!certPath && !keyPath) return null;
+  if (!certPath || !keyPath) {
+    throw new Error('TLS misconfigured: both RSTACK_TLS_CERT and RSTACK_TLS_KEY must be set (PEM file paths).');
+  }
+  return { cert: readFileSync(certPath), key: readFileSync(keyPath) };
+}
+
+const TLS_OPTIONS = resolveTlsOptions();
+const SCHEME = TLS_OPTIONS ? 'https' : 'http';
+
+const requestHandler = async (req, res) => {
   logHttpRequest(req, res);
-  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const url = new URL(req.url, `${SCHEME}://localhost:${PORT}`);
 
   // CORS: only reflect localhost origins — a wildcard would let any website
   // a browser visits silently read the full SDLC state from this port.
@@ -414,7 +458,9 @@ const server = createServer(async (req, res) => {
 
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(dashboardHtml(PORT));
-});
+};
+
+const server = TLS_OPTIONS ? createTlsServer(TLS_OPTIONS, requestHandler) : createServer(requestHandler);
 
 server.on('upgrade', async (req, socket) => {
   if (req.headers.upgrade?.toLowerCase() !== 'websocket') {
@@ -435,7 +481,7 @@ server.on('upgrade', async (req, socket) => {
 server.listen(PORT, '127.0.0.1', () => {
   // Report the bound port, not the requested one — `--port 0` asks the OS for
   // an ephemeral port (used by the test harness).
-  const url = `http://localhost:${server.address().port}`;
+  const url = `${SCHEME}://localhost:${server.address().port}`;
   console.log('\n  RStack Business Hub - live observability for your team');
   console.log(`  Project : ${PROJECT_ROOT}`);
   console.log(`  Dashboard: ${url}\n`);
