@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { withFileLock } from './safe-write.js';
 
 export const EVIDENCE_REQUIRED_FIELDS = Object.freeze(['task_id', 'kind', 'status', 'evidence']);
 export const EVIDENCE_STATUSES = Object.freeze(['PASS', 'FAIL', 'BLOCKED', 'INFO']);
@@ -36,7 +37,11 @@ export async function appendEvidenceEvent(runDir, event) {
 
   const eventPath = join(runDir, 'evidence.jsonl');
   await mkdir(dirname(eventPath), { recursive: true });
-  await appendFile(eventPath, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`);
+  // The evidence ledger is the audit surface — hold the same lock every other
+  // canonical state file uses so parallel agents can never interleave a line.
+  await withFileLock(eventPath, async () => {
+    await appendFile(eventPath, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`);
+  });
   return eventPath;
 }
 
