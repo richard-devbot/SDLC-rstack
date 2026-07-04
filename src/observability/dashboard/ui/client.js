@@ -632,6 +632,9 @@ function commandAttentionItems(s, counts) {
   if (counts.FAIL) {
     items.push({ level: 'danger', value: counts.FAIL, title: 'Failed tasks', detail: 'Tasks marked FAIL by the underlying run state.', meta: 'Workflow' });
   }
+  if (counts.BLOCKED) {
+    items.push({ level: 'danger', value: counts.BLOCKED, title: 'Guardrail-blocked tasks', detail: 'Attempt budget exhausted. Approve the guardrail-override entry in Approvals to allow exactly one more attempt.', meta: 'Guardrails' });
+  }
   if (missingValidation) {
     items.push({ level: 'warn', value: missingValidation, title: 'Missing validations', detail: 'Agent work that does not yet have validation.json proof attached.', meta: 'Proof' });
   }
@@ -1153,7 +1156,13 @@ function agentItemHtml(work) {
 
 function approvalHtml(item, canAct) {
   var status = item.status || 'pending';
-  return '<div class="approval-card ' + esc(status) + '"><div class="agent-head"><div><div class="strong">' + esc(item.title || item.type || 'Approval required') + '</div><div class="muted">' + esc(item.detail || item.reason || '') + '</div><div class="feed-meta"><span>' + esc(shortName(item.projectRoot)) + '</span><span>' + esc((item.runId || '').slice(-16)) + '</span><span>' + esc(fmtTime(item.ts)) + '</span></div></div>' + pill(status, status) + '</div>' +
+  // Guardrail overrides are one-shot credentials, not standing approvals —
+  // say so on the card so the manager knows exactly what they are granting.
+  var isOverride = String(item.artifact || '').indexOf('guardrail-override:') === 0;
+  var overrideNote = isOverride
+    ? '<div class="muted" style="margin-top:6px">🛡 One-shot override: approving grants exactly <span class="strong">one</span> more attempt for this task, then the override is consumed and further attempts block again.</div>'
+    : '';
+  return '<div class="approval-card ' + esc(status) + '"><div class="agent-head"><div><div class="strong">' + esc(item.title || item.type || 'Approval required') + '</div><div class="muted">' + esc(item.detail || item.reason || '') + '</div>' + overrideNote + '<div class="feed-meta"><span>' + esc(shortName(item.projectRoot)) + '</span><span>' + esc((item.runId || '').slice(-16)) + '</span><span>' + esc(fmtTime(item.ts)) + '</span></div></div>' + pill(status, status) + '</div>' +
     (canAct ? '<div class="approval-actions"><button class="btn primary" data-id="' + esc(item.id) + '" onclick="approveFromButton(this)">Approve</button><button class="btn danger" data-id="' + esc(item.id) + '" onclick="rejectFromButton(this)">Reject</button></div>' : '') +
     '</div>';
 }
