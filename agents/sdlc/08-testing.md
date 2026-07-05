@@ -41,8 +41,12 @@ cat skills/webapp-testing/SKILL.md | head -30
 
 After context compaction or session restart, check for existing pipeline outputs:
 ```bash
-ls $RSTACK_RUN_DIR/artifacts/ 2>/dev/null | head -20
-cat $RSTACK_RUN_DIR/artifacts/test_report.json 2>/dev/null | python3 -m json.tool 2>/dev/null | head -30
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
+# Canonical harness path (preferred)
+cat "$RUN_BASE/artifacts/stages/08-testing/test_report.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -30
+# Legacy compatibility fallback
+cat "$RUN_BASE/artifacts/test_report.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -30
 ```
 If `test_report.json` exists with `"status": "PASS"`, report the test results and ask whether to re-run tests or accept the existing report.
 
@@ -50,7 +54,9 @@ If `test_report.json` exists with `"status": "PASS"`, report the test results an
 
 **Step 1: Read the code report**:
 ```bash
-cat $RSTACK_RUN_DIR/artifacts/code_report.json
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
+cat "$RUN_BASE/artifacts/stages/07-code/code_report.json" 2>/dev/null || cat "$RUN_BASE/artifacts/code_report.json"
 ```
 
 **Step 2: Set up the test runner**:
@@ -90,8 +96,44 @@ npm test 2>/dev/null || pytest -v 2>/dev/null
 }
 ```
 
-Write to: `$RSTACK_RUN_DIR/artifacts/test_report.json`
+Write to: `$RUN_BASE/artifacts/stages/08-testing/test_report.json` (canonical), then copy to legacy `$RUN_BASE/artifacts/test_report.json` for compatibility.
 
+
+## Task Contract (required)
+
+Resolve the run root once and reuse it:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
+```
+
+- **Canonical stage output (primary):** `$RUN_BASE/artifacts/stages/08-testing/test_report.json`
+- **Legacy root artifact** (`$RUN_BASE/artifacts/test_report.json`): compatibility copy only — never the sole output.
+
+Write the builder contract to `$RUN_BASE/tasks/<task_id>/builder.json`:
+```json
+{
+  "task_id": "<task_id>",
+  "agent": "08-testing",
+  "status": "PASS",
+  "summary": "One paragraph of what shipped and how it was verified.",
+  "files_modified": ["artifacts/stages/08-testing/test_report.json"],
+  "tests_run": ["<command>", "SKIPPED: <reason> (only when nothing runnable)"],
+  "risks": [],
+  "next_steps": [],
+  "memory_summary": {
+    "work_done": "What was accomplished, in one or two sentences.",
+    "evidence": ["artifacts/stages/08-testing/test_report.json"],
+    "context_to_keep": [],
+    "context_to_drop": [],
+    "next_agent_hints": []
+  },
+  "stage_summaries": [
+    { "stage_id": "08-testing", "work_done": "Stage outcome in one sentence.", "evidence": ["artifacts/stages/08-testing/test_report.json"] }
+  ]
+}
+```
+Validators write `$RUN_BASE/tasks/<task_id>/validation.json` with the full validator schema: `task_id`, `validator`, `status` (PASS|FAIL), `checks[]`, `issues[]`, and `retry_recommendation`.
 
 ## Quality Self-Check
 
