@@ -217,6 +217,15 @@ Validators check work — they never modify it. `src/core/harness/validator-sand
 - **Events**: each blocked mutation appends a `validator_sandbox_denied` event (tool name + reason) to `events.jsonl`. Allowed reads are not logged unless `RSTACK_VALIDATOR_SANDBOX_DEBUG=1` opts in (`validator_sandbox_allowed_read`), so events.jsonl never floods.
 - **No escape hatch**: the sandbox is checked before the builder-oriented gates and is not bypassable via `RSTACK_ALLOW_DESTRUCTIVE` or destructive-action approvals. Builder contexts (env var unset) are completely unaffected. Human-approved exceptions are out of scope by design.
 
+### Retry visibility
+
+Every retry decision is observable without reading source (#125):
+
+- **Events**: `sdlc_validate` appends `retry_decision` plus the action-specific event — `task_retry_scheduled`, `task_retry_exhausted`, `task_human_context_required`, or `task_blocked_by_validator` — each carrying `task_id`, `stage_id`, `attempt`, `max_attempts`, `retry_recommendation`, an operator-readable `reason`, and compact `issues[]`.
+- **Trace**: `sdlc_trace` renders retry lines with attempt counters, e.g. `↻ retry scheduled 1/2 — 004-implementation: validator found missing evidence` and `⛔ retries exhausted (2/2) — blocked pending guardrail-override`.
+- **Pipeline state**: the rollup's `retries` summary carries `{ total, scheduled, exhausted, human_required }`, and each failed stage carries `retry_state: "retryable" | "exhausted"` so `rstack-agents pipeline status` can distinguish "re-run the builder" from "approve the override".
+- **Feed**: the Business Hub live feed renders the four `task_retry_*` events with distinct levels (warn / fail / blocked).
+
 ## Validation commands
 
 Run these after Harness changes:
