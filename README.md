@@ -46,6 +46,9 @@ clarify → plan → spec → approve → build → validate → release-readine
 
 ## Quick start
 
+> **New here? [RStack in 5 Minutes](docs/quick-start-guide.md)** — install to a
+> validated, human-approved pipeline task from a bare terminal, no framework required.
+
 ```bash
 cd your-project
 npm install rstack-agents

@@ -47,6 +47,8 @@
     "plugins/",
     "docs/public/",
     "docs/HARNESS.md",
+    "docs/quick-start-guide.md",
+    "docs/integrations/",
     "docs/mintlify/docs.json",
     "docs/mintlify/reference/decision-readiness.mdx",
     "templates/bootstrap/",
