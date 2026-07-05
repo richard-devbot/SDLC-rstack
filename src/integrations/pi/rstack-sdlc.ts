@@ -15,6 +15,7 @@ import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/mig
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, countTaskAttempts, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
 import { VALIDATOR_CONTEXT_ENV, VALIDATOR_RUN_ID_ENV, VALIDATOR_READ_ONLY_TOOLS, evaluateValidatorAction, isValidatorContext, isValidatorRole, isValidatorSandboxDebug } from "../../core/harness/validator-sandbox.js";
+import { loadValidatorRegistry, resolveValidatorProfile } from "../../core/harness/validator-registry.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
 import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage, updateRunMetrics } from "../../core/harness/run-state.js";
 import { addDecision, decide, readDecisions, summarizeDecisions } from "../../core/harness/decisions.js";
@@ -1680,7 +1681,34 @@ export default function (pi: ExtensionAPI) {
             checks.push({ name: "builder_contract_json", status: "FAIL", evidence: String(error) });
           }
         }
-        const validation = { task_id: task.id, validator: "rstack-pi-extension", status, checks, issues: checks.filter((c: any) => c.status === "FAIL"), retry_recommendation: status === "PASS" ? "none" : "retry_builder" };
+        // Select the stage-specific validator profile (#120). Task ids are plan
+        // ids — the profile keys off the task's canonical stage targets, picking
+        // the highest-priority registered stage (or the generic profile).
+        const profileStageIds = Array.isArray(task.stage_artifacts)
+          ? task.stage_artifacts.map((item: any) => item?.stage_id).filter(Boolean)
+          : [];
+        const validatorProfile = resolveValidatorProfile(profileStageIds, await loadValidatorRegistry(projectRoot));
+        // Informational only — required_checks execution is future work; recording
+        // which validator should own this task is the contract here.
+        checks.push({
+          name: "validator_profile_selected",
+          status: "PASS",
+          evidence: `${validatorProfile.validator} (stage: ${validatorProfile.stage_id ?? "generic"}, model_hint: ${validatorProfile.model_hint})`,
+        });
+        const validation = {
+          task_id: task.id,
+          validator: "rstack-pi-extension",
+          validator_profile: {
+            stage_id: validatorProfile.stage_id,
+            validator: validatorProfile.validator,
+            model_hint: validatorProfile.model_hint,
+            required_checks: validatorProfile.required_checks,
+          },
+          status,
+          checks,
+          issues: checks.filter((c: any) => c.status === "FAIL"),
+          retry_recommendation: status === "PASS" ? "none" : "retry_builder",
+        };
         await writeFile(join(projectRoot, task.output_dir, "validation.json"), JSON.stringify(validation, null, 2));
         task.status = status;
         await writeJsonAtomic(tasksPath, taskState);
