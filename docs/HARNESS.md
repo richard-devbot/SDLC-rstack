@@ -65,6 +65,23 @@ task_id, validator, status, checks, issues, retry_recommendation
 
 The Pi extension uses these shared checks in `sdlc_validate`. For PASS and DONE_WITH_CONCERNS builders, `sdlc_validate` also requires meaningful `summary`, non-empty `tests_run`, `memory_summary.work_done`, `memory_summary.evidence`, and one evidence-backed `stage_summaries` entry for each canonical stage target listed in the task prompt.
 
+### Validator registry
+
+`src/core/harness/validator-registry.js` maps the critical SDLC stages (`06-architecture`, `07-code`, `08-testing`, `12-security-threat-model`, `13-compliance-checker`) to stage-specific validator profiles: `validator` id, advisory `model_hint`, `read_only: true`, `required_checks`, and `output_contract_fields`. Stages without a registered entry get the generic profile (`validator.generic`). When a task targets several canonical stages, `resolveValidatorProfile` picks the highest-priority registered one (security > compliance > code > testing > architecture).
+
+Projects can override entries per stage in `.rstack/validators/registry.json`:
+
+```json
+{
+  "07-code": { "model_hint": "sonnet" },
+  "09-deployment": { "validator": "validator.09-deployment", "required_checks": ["deployment_report_exists"] }
+}
+```
+
+Partial entries deep-merge over the defaults per stage; overrides for canonical stages not in the default registry are layered over the generic profile. A malformed file warns loudly and the defaults apply, and `read_only` can never be flipped to `false`.
+
+`sdlc_validate` resolves the profile from the task's canonical stage targets and records it in `validation.json` as `validator_profile` (`stage_id`, `validator`, `model_hint`, `required_checks`) alongside the existing `validator` field, plus an informational `validator_profile_selected` check. Executing `required_checks` per profile is future work — the recorded profile is the routing contract.
+
 ## Evidence ledger
 
 Raw runtime events are appended to `events.jsonl`. Validator-grounded task evidence is appended to `evidence.jsonl` with:
