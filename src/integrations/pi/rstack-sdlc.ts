@@ -14,6 +14,7 @@ import { validateBuilderContract, validateBuilderCompleteness } from "../../core
 import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, countTaskAttempts, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
+import { VALIDATOR_CONTEXT_ENV, VALIDATOR_RUN_ID_ENV, VALIDATOR_READ_ONLY_TOOLS, evaluateValidatorAction, isValidatorContext, isValidatorRole, isValidatorSandboxDebug } from "../../core/harness/validator-sandbox.js";
 import { loadValidatorRegistry, resolveValidatorProfile } from "../../core/harness/validator-registry.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
 import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage, updateRunMetrics } from "../../core/harness/run-state.js";
@@ -862,7 +863,10 @@ type DelegateTask = { agent: string; task: string; cwd?: string; tools?: string[
 
 function defaultToolsForAgent(agentName: string): string[] {
   const lower = agentName.toLowerCase();
-  if (/(validator|review|qa|security|audit|tester|architect-reviewer)/.test(lower)) return ["read", "grep", "find", "ls", "bash"];
+  // Validator/reviewer/security roles share the harness sandbox's read-only
+  // set (#119): no write/edit; bash stays but mutating commands are denied
+  // at runtime by the validator sandbox hook.
+  if (isValidatorRole(lower)) return [...VALIDATOR_READ_ONLY_TOOLS];
   if (/(orchestrator|product|planning|requirements|docs|writer)/.test(lower)) return ["read", "grep", "find", "ls"];
   return ["read", "bash", "edit", "write", "grep", "find", "ls"];
 }
@@ -932,10 +936,22 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
   const prompt = `# RStack delegated agent: ${agent.name}\n\n${agentBody}\n\n## Delegated task\n${task.task}\n\n## Contract\nReturn concise results with evidence, files read/changed, commands run, blockers, and next action.`;
   const args = ["--mode", "json", "-p", "--no-session", "--model", model, "--tools", tools.join(","), prompt];
   const invocation = piInvocation(args);
+  // Validator sandbox context (#119): validator/reviewer/security roles run
+  // read-only. The env var travels into the Pi subprocess, where this same
+  // extension's tool_call hook enforces the sandbox. Builder-role children
+  // get the vars scrubbed so they can never inherit a stale validator flag.
+  const validatorRole = isValidatorRole(agent.name) || isValidatorRole(agent.id);
+  const childEnv: NodeJS.ProcessEnv = { ...process.env };
+  delete childEnv[VALIDATOR_CONTEXT_ENV];
+  delete childEnv[VALIDATOR_RUN_ID_ENV];
+  if (validatorRole) {
+    childEnv[VALIDATOR_CONTEXT_ENV] = "1";
+    if (runId) childEnv[VALIDATOR_RUN_ID_ENV] = runId;
+  }
   const messages: any[] = [];
   let stderr = "";
   const code = await new Promise<number>((resolveCode) => {
-    const proc = spawn(invocation.command, invocation.args, { cwd: task.cwd || projectRoot, stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(invocation.command, invocation.args, { cwd: task.cwd || projectRoot, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
     let buffer = "";
     const processLine = (line: string) => {
       if (!line.trim()) return;
@@ -960,7 +976,7 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
       else signal.addEventListener("abort", abort, { once: true });
     }
   });
-  return { agent: agent.name, agent_id: agent.id, path: agent.path, tools, task: task.task, exit_code: code, output: finalAssistantText(messages), stderr, messages };
+  return { agent: agent.name, agent_id: agent.id, path: agent.path, tools, validator_sandbox: validatorRole, task: task.task, exit_code: code, output: finalAssistantText(messages), stderr, messages };
 }
 
 // Module-level JSONL reader used by sdlc_trace and other tools.
@@ -1008,6 +1024,27 @@ export default function (pi: ExtensionAPI) {
     const projectRoot = findProjectRoot();
     const id = sessionRun(projectRoot);
     if (id) await appendEvent(projectRoot, id, { type: "tool_call", tool: event.toolName, input: event.input });
+
+    // Validator sandbox (#119): delegated validator/reviewer/security
+    // subprocesses are read-only. Checked before the builder-oriented gates
+    // below, and deliberately NOT bypassable via RSTACK_ALLOW_DESTRUCTIVE or
+    // destructive-action approvals — human-approved exceptions are out of
+    // scope for the sandbox. Builder contexts (env var unset) skip this
+    // block entirely.
+    if (isValidatorContext()) {
+      const eventRunId = id || process.env[VALIDATOR_RUN_ID_ENV];
+      const verdict = evaluateValidatorAction({ toolName: event.toolName, input: event.input });
+      if (!verdict.allowed) {
+        // Best-effort audit trail: a broken event log must never disable the block.
+        if (eventRunId) await appendEvent(projectRoot, eventRunId, { type: "validator_sandbox_denied", tool: event.toolName, reason: verdict.reason }).catch(() => {});
+        return { block: true, reason: `RStack validator sandbox blocked '${event.toolName}': ${verdict.reason}` };
+      }
+      // Do not log every allowed read — that would flood events.jsonl.
+      // Opt-in debug flag only.
+      if (isValidatorSandboxDebug() && eventRunId) {
+        await appendEvent(projectRoot, eventRunId, { type: "validator_sandbox_allowed_read", tool: event.toolName }).catch(() => {});
+      }
+    }
 
     if (process.env.RSTACK_ALLOW_DESTRUCTIVE === "1") return undefined;
 
