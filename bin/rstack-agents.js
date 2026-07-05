@@ -15,6 +15,7 @@ import chalk from 'chalk';
 import { listAgents, listSkills, listPlugins, addPlugin } from '../src/commands/list.js';
 import { loadPipelineStatus, formatPipelineStatus } from '../src/commands/pipeline.js';
 import { runPipeline, formatRunReport } from '../src/commands/pipeline-run.js';
+import { adoptProject, formatAdoptionReport } from '../src/commands/adopt.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
@@ -206,6 +207,26 @@ pipelineCmd
       // Human-gate stops exit non-zero so CI can distinguish "needs a human"
       // from "complete"; dry-run and completion exit zero.
       process.exit(['complete', 'dry_run', 'missing_contract', 'max_steps'].includes(report.stopped_on) ? 0 : 1);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('adopt')
+  .description('Adopt an existing codebase: harvest evidence into a pipeline run so work resumes from reality, not from scratch')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('-g, --goal <text>', 'adoption goal recorded on the run manifest')
+  .option('-r, --run-id <runId>', 'run id for the adoption run (defaults to adopt-<timestamp>)')
+  .option('--dry-run', 'print the stage-population plan without writing anything')
+  .option('--json', 'print the structured adoption report as JSON')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const report = await adoptProject(projectRoot, { goal: opts.goal, runId: opts.runId, dryRun: opts.dryRun === true });
+      if (opts.json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+      else console.log(formatAdoptionReport(report));
     } catch (err) {
       log.error(err.message);
       process.exit(1);

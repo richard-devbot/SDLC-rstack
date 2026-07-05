@@ -94,7 +94,7 @@ approve → build → validate → evidence**.
 | Lighter/heavier governance | `npx rstack-agents init --profile lean-mvp` or `enterprise-webapp` |
 | The full harness contract (state layout, builder/validator schemas, guardrails) | [HARNESS.md](HARNESS.md) |
 | Decision queue + Definition-of-Ready gates | `npx rstack-agents decisions --help`, `npx rstack-agents dor --help` |
-| Adopting a large existing codebase | Brownfield `adopt` is in progress — track [#148](https://github.com/richard-devbot/SDLC-rstack/issues/148) |
+| Adopting a large existing codebase | `npx rstack-agents adopt --dry-run` — see the [brownfield guide](brownfield-adoption.md) |
 
 **Troubleshooting:** `npx rstack-agents pipeline status --regenerate` rebuilds
 run state from artifacts; the Diagnostics page in the Hub lists damaged files
