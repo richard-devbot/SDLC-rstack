@@ -24,6 +24,8 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-05 | "RStack in 5 Minutes" quick-start: bare-terminal tour via the bridge, approval gate as the hero moment; packaged in npm, linked from README + Mintlify | 2 | #158, PR #171 |
+| 2026-07-05 | Reference SDLC agents (00/06/07/08/11) normalized to canonical stage paths + Task Contract sections; 07-code plan-task/stage-id conflation fixed; closes BLE-1 epic #112 | 4 | #116, PR #170 |
 | 2026-07-04 | Dashboard read-path auth: RSTACK_DASHBOARD_READ_TOKEN(_FILE) gates state/artifact/run-report + WS; foreign Origins always rejected on reads and WS upgrades; tokens session-scoped | 2 | #164, PR #168 (external audit) |
 | 2026-07-04 | Release hygiene: evidence ledger lock-serialized, publish workflow gains lint + security-audit parity with CI, README counts honest | 1, 4 | #165 #166, PR #167 (external audit) |
 | 2026-07-04 | Loop-engineering UI slice: feed names blocked task + reason, override one-shot explainer on approval cards, Guardrail-blocked signal in Needs Attention, retry-event rendering slot | 2 | #156 (partial), PR #162 |
@@ -44,19 +46,17 @@ Pre-2026-06 history lives in CHANGELOG.md (v1.0 → v1.9.0-rc).
 
 Work top-down. File a GitHub issue before any branch (Richardson's rule: issues before PRs).
 
-1. **#116** — normalize SDLC markdown agents to harness paths (closes BLE-1 epic #112). Goal 4.
-2. **#119 / #120** — validator sandbox policy + validator registry (closes BLE-2 epic #117). Goal 1.
-3. **#123 / #124 / #125** — retry policy, resume-aware runner, retry trace (BLE-3 epic #121);
+1. **#119 / #120** — validator sandbox policy + validator registry (closes BLE-2 epic #117). Goal 1.
+2. **#123 / #124 / #125** — retry policy, resume-aware runner, retry trace (BLE-3 epic #121);
    prerequisite for brownfield feature mode. Goal 3.
-4. **#148** — brownfield `adopt` command: `--dry-run` stage-population plan, evidence harvesters,
+3. **#148** — brownfield `adopt` command: `--dry-run` stage-population plan, evidence harvesters,
    migration guide. Goal 3 (flagship gap for client use). Include #160 (specialist gap scan).
-5. **#158** — quick-start guide "RStack in 5 minutes" (recovered stabilization draft). Goal 2.
-6. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
+4. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
    do after the #95 page-module split. Goal 2.
-7. **#126–#129** — goal loop (BLE-4). Goal 1.
-8. **#134–#137** — cost/context/memory (BLE-6), incl. #83 persisted cost metrics. Goal 4.
-9. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
-10. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
+5. **#126–#129** — goal loop (BLE-4). Goal 1.
+6. **#134–#137** — cost/context/memory (BLE-6), incl. #83 persisted cost metrics. Goal 4.
+7. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
+8. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
     E2E tests, dark stages) + #159 parallel benchmark. Goal 2.
 
 UI ↔ backend alignment note (2026-07-04 review): the dashboard approve path writes run-level
