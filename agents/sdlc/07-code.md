@@ -52,6 +52,7 @@ Load these skills via their trigger phrases — do not read them with bash:
 After context compaction or session restart, check for existing pipeline outputs:
 ```bash
 RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
 # Canonical harness path (preferred) — 07-code is the CANONICAL stage id;
 # plan task ids like 004-implementation are NOT stage directories.
 cat "$RUN_BASE/artifacts/stages/07-code/code_report.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -30
@@ -68,6 +69,7 @@ If `code_report.json` exists with `"status": "PASS"`, report which files were cr
 **Step 1: Read the architecture**:
 ```bash
 RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
 # Canonical harness paths (preferred), legacy roots as fallback
 cat "$RUN_BASE/artifacts/stages/06-architecture/system_design.json" 2>/dev/null || cat "$RUN_BASE/artifacts/system_design.json"
 { cat "$RUN_BASE/artifacts/stages/06-architecture/HLD.md" 2>/dev/null || cat "$RUN_BASE/artifacts/architecture/HLD.md"; } | head -100
@@ -119,6 +121,7 @@ Write to: `$RUN_BASE/artifacts/stages/07-code/code_report.json` (canonical), the
 Resolve the run root once and reuse it:
 ```bash
 RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
 ```
 
 - **Canonical stage output (primary):** `$RUN_BASE/artifacts/stages/07-code/code_report.json`
@@ -147,7 +150,7 @@ Write the builder contract to `$RUN_BASE/tasks/<task_id>/builder.json`:
   ]
 }
 ```
-Validators write `$RUN_BASE/tasks/<task_id>/validation.json` with `checks[]`, `issues[]`, and `retry_recommendation`.
+Validators write `$RUN_BASE/tasks/<task_id>/validation.json` with the full validator schema: `task_id`, `validator`, `status` (PASS|FAIL), `checks[]`, `issues[]`, and `retry_recommendation`.
 
 ## Quality Self-Check
 

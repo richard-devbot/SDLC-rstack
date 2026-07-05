@@ -45,6 +45,7 @@ ls plugins/backend-development/skills/
 After context compaction or session restart, check for existing pipeline outputs:
 ```bash
 RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
 # Canonical harness path (preferred)
 cat "$RUN_BASE/artifacts/stages/06-architecture/system_design.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -40
 # Legacy compatibility fallback
@@ -57,6 +58,7 @@ If `system_design.json` already exists with `"status": "PASS"`, report it and as
 **Step 1: Read inputs**:
 ```bash
 RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
 # Canonical harness paths (preferred), legacy roots as fallback
 cat "$RUN_BASE/artifacts/stages/05-jira/jira_tickets.json" 2>/dev/null || cat "$RUN_BASE/artifacts/jira_tickets.json"
 cat "$RUN_BASE/artifacts/stages/02-requirements/requirement_spec.json" 2>/dev/null || cat "$RUN_BASE/artifacts/requirement_spec.json"
@@ -96,6 +98,7 @@ Write to: `$RUN_BASE/artifacts/stages/06-architecture/system_design.json` and `$
 Resolve the run root once and reuse it:
 ```bash
 RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
 ```
 
 - **Canonical stage output (primary):** `$RUN_BASE/artifacts/stages/06-architecture/system_design.json`
@@ -124,7 +127,7 @@ Write the builder contract to `$RUN_BASE/tasks/<task_id>/builder.json`:
   ]
 }
 ```
-Validators write `$RUN_BASE/tasks/<task_id>/validation.json` with `checks[]`, `issues[]`, and `retry_recommendation`.
+Validators write `$RUN_BASE/tasks/<task_id>/validation.json` with the full validator schema: `task_id`, `validator`, `status` (PASS|FAIL), `checks[]`, `issues[]`, and `retry_recommendation`.
 
 ## Quality Self-Check
 

@@ -42,6 +42,7 @@ cat skills/webapp-testing/SKILL.md | head -30
 After context compaction or session restart, check for existing pipeline outputs:
 ```bash
 RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
 # Canonical harness path (preferred)
 cat "$RUN_BASE/artifacts/stages/08-testing/test_report.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -30
 # Legacy compatibility fallback
@@ -54,6 +55,7 @@ If `test_report.json` exists with `"status": "PASS"`, report the test results an
 **Step 1: Read the code report**:
 ```bash
 RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
 cat "$RUN_BASE/artifacts/stages/07-code/code_report.json" 2>/dev/null || cat "$RUN_BASE/artifacts/code_report.json"
 ```
 
@@ -102,6 +104,7 @@ Write to: `$RUN_BASE/artifacts/stages/08-testing/test_report.json` (canonical), 
 Resolve the run root once and reuse it:
 ```bash
 RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
 ```
 
 - **Canonical stage output (primary):** `$RUN_BASE/artifacts/stages/08-testing/test_report.json`
@@ -130,7 +133,7 @@ Write the builder contract to `$RUN_BASE/tasks/<task_id>/builder.json`:
   ]
 }
 ```
-Validators write `$RUN_BASE/tasks/<task_id>/validation.json` with `checks[]`, `issues[]`, and `retry_recommendation`.
+Validators write `$RUN_BASE/tasks/<task_id>/validation.json` with the full validator schema: `task_id`, `validator`, `status` (PASS|FAIL), `checks[]`, `issues[]`, and `retry_recommendation`.
 
 ## Quality Self-Check
 

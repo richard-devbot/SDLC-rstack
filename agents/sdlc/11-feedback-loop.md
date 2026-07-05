@@ -37,12 +37,13 @@ cat skills/retro/SKILL.md | head -30
 After context compaction or session restart, check for existing pipeline outputs:
 ```bash
 RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
 # Canonical harness path (preferred)
 cat "$RUN_BASE/artifacts/stages/11-feedback-loop/feedback.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | grep -E '"pipeline_complete|"summary"' 2>/dev/null | head -10
 # Legacy compatibility fallback
 cat "$RUN_BASE/artifacts/feedback/consistency_report.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | grep -E '"pipeline_complete|"summary"' 2>/dev/null | head -10
 ```
-If `consistency_report.json` exists with `"pipeline_complete": true`, report the consistency score and ask whether to re-analyze or use the existing report.
+If the canonical `feedback.json` (or the legacy `consistency_report.json` fallback) exists with `"pipeline_complete": true`, report the consistency score and ask whether to re-analyze or use the existing report.
 
 
 # FEEDBACK LOOP AGENT — SDLC Automation Pipeline
@@ -329,6 +330,7 @@ The `pipeline_complete: true` flag in your output contract signals pipeline term
 Resolve the run root once and reuse it:
 ```bash
 RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
 ```
 
 - **Canonical stage output (primary):** `$RUN_BASE/artifacts/stages/11-feedback-loop/feedback.json`
@@ -357,7 +359,7 @@ Write the builder contract to `$RUN_BASE/tasks/<task_id>/builder.json`:
   ]
 }
 ```
-As the pipeline reviewer, ALSO write `$RUN_BASE/tasks/<task_id>/validation.json` with `checks[]` (one per cross-reference rule), `issues[]`, and `retry_recommendation`.
+As the pipeline reviewer, ALSO write `$RUN_BASE/tasks/<task_id>/validation.json` with the full validator schema: `task_id`, `validator`, `status` (PASS|FAIL), `checks[]` (one per cross-reference rule), `issues[]`, and `retry_recommendation`.
 
 ## Quality Self-Check
 
