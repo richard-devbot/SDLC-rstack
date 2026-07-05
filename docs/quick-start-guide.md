@@ -7,11 +7,11 @@ one approval, one validated task. No prior RStack knowledge assumed.
 
 ## What you need
 
-- **Node.js 20+** and **git** (`node --version`, `git --version`)
+- **Node.js 18+** and **git** (`node --version`, `git --version`)
 - Any project directory (a fresh `mkdir demo && cd demo && git init` is fine)
-- Optional but recommended: an AI coding framework — [Pi](docs/integrations/pi.md),
-  [Claude Code](docs/integrations/claude-code.md), or
-  [Operator](docs/integrations/operator.md). **Not required for this guide** —
+- Optional but recommended: an AI coding framework — [Pi](integrations/pi.md),
+  [Claude Code](integrations/claude-code.md), or
+  [Operator](integrations/operator.md). **Not required for this guide** —
   everything below runs from a bare terminal through the bridge.
 
 ## Minute 1 — install and initialize
@@ -90,9 +90,9 @@ approve → build → validate → evidence**.
 
 | You want | Go to |
 |---|---|
-| Your framework driving this instead of the bridge | [docs/mintlify/getting-started/install-your-framework.mdx](mintlify/getting-started/install-your-framework.mdx) |
+| Your framework driving this instead of the bridge | [mintlify/getting-started/install-your-framework.mdx](mintlify/getting-started/install-your-framework.mdx) |
 | Lighter/heavier governance | `npx rstack-agents init --profile lean-mvp` or `enterprise-webapp` |
-| The full harness contract (state layout, builder/validator schemas, guardrails) | [docs/HARNESS.md](HARNESS.md) |
+| The full harness contract (state layout, builder/validator schemas, guardrails) | [HARNESS.md](HARNESS.md) |
 | Decision queue + Definition-of-Ready gates | `npx rstack-agents decisions --help`, `npx rstack-agents dor --help` |
 | Adopting a large existing codebase | Brownfield `adopt` is in progress — track [#148](https://github.com/richard-devbot/SDLC-rstack/issues/148) |
 
