@@ -13,7 +13,8 @@ import { getCanonicalStage, stageArtifactRelativePath } from "../../core/harness
 import { validateBuilderContract, validateBuilderCompleteness } from "../../core/harness/contracts.js";
 import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
-import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, countTaskAttempts, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
+import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
+import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
 import { VALIDATOR_CONTEXT_ENV, VALIDATOR_RUN_ID_ENV, VALIDATOR_READ_ONLY_TOOLS, evaluateValidatorAction, isValidatorContext, isValidatorRole, isValidatorSandboxDebug } from "../../core/harness/validator-sandbox.js";
 import { loadValidatorRegistry, resolveValidatorProfile } from "../../core/harness/validator-registry.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
@@ -1642,7 +1643,7 @@ export default function (pi: ExtensionAPI) {
       const tasksPath = join(runsDir(projectRoot), manifest.run_id, "tasks.json");
       // Locked read-modify-write: the verdict stamp must not race a concurrent
       // sdlc_build_next claim on another task (issue #81).
-      const { task, checks, status, builderContract, validation, telemetryViolations } = await withFileLock(tasksPath, async () => {
+      const { task, checks, status, builderContract, validation, telemetryViolations, retryDecision } = await withFileLock(tasksPath, async () => {
         const taskState = JSON.parse(await readFile(tasksPath, "utf8"));
         const task = params.task_id ? taskState.tasks.find((t: any) => t.id === params.task_id) : taskState.tasks.find((t: any) => t.status === "IN_PROGRESS");
         if (!task) throw new Error("No task selected for validation.");
@@ -1710,9 +1711,24 @@ export default function (pi: ExtensionAPI) {
           retry_recommendation: status === "PASS" ? "none" : "retry_builder",
         };
         await writeFile(join(projectRoot, task.output_dir, "validation.json"), JSON.stringify(validation, null, 2));
-        task.status = status;
+        // Post-validation transition (#123): PASS stamps PASS as before; FAIL
+        // routes through the deterministic retry policy. The decision needs the
+        // attempt history, so events.jsonl is read inside the lock (like the
+        // sdlc_build_next claim gate) and the status stamp stays atomic.
+        let retryDecision: any = null;
+        if (status === "PASS") {
+          task.status = status;
+        } else {
+          retryDecision = classifyRetryDecision({
+            task,
+            validation,
+            events: await readJsonl(join(runsDir(projectRoot), manifest.run_id, "events.jsonl")),
+            guardrails: await loadProjectGuardrails(projectRoot),
+          });
+          task.status = retryDecision.next_status;
+        }
         await writeJsonAtomic(tasksPath, taskState);
-        return { task, checks, status, builderContract, validation, telemetryViolations };
+        return { task, checks, status, builderContract, validation, telemetryViolations, retryDecision };
       });
       // Compute real elapsed time from task _started_at stamp (written at sdlc_build_next)
       const elapsedMs = task._started_at ? Math.max(0, Date.now() - Number(task._started_at)) : 0;
@@ -1785,28 +1801,54 @@ export default function (pi: ExtensionAPI) {
             console.error(`Failed to save stage checkpoint for ${stageId}:`, cpError);
           }
         }
-      } else {
-        const runDir = join(runsDir(projectRoot), manifest.run_id);
-        const runEvents = await readJsonl(join(runDir, "events.jsonl"));
-        const attemptCount = countTaskAttempts(runEvents, task.id);
-        const validateGuardrails = await loadProjectGuardrails(projectRoot);
-        const destructive = isDestructiveTask(task);
-        const attemptRule = destructive ? "maxDestructiveTaskAttempts" : "maxTaskAttempts";
-        const maxAttempts = destructive ? validateGuardrails.maxDestructiveTaskAttempts : validateGuardrails.maxTaskAttempts;
-        if (attemptCount >= maxAttempts) {
-          await appendEvent(projectRoot, manifest.run_id, guardrailEvent(task.id, {
-            rule: attemptRule,
-            limit: maxAttempts,
-            observed: attemptCount,
-            reason: `task ${task.id} already has ${attemptCount} attempt(s); limit is ${maxAttempts}`,
-          }));
-        } else {
+      } else if (retryDecision) {
+        // Retry policy events (#123). `retry_decision` is a pinned contract —
+        // downstream consumers (dashboard loop feed, retry trace) key on this
+        // exact shape; change it only with a schema migration.
+        const retryStageId = [
+          ...(Array.isArray(task.stage_artifacts) ? task.stage_artifacts : [])
+            .map((artifact: any) => artifact?.stage_id)
+            .filter((id: any) => typeof id === "string" && getCanonicalStage(id)),
+          ...(getCanonicalStage(task.id) ? [task.id] : []),
+        ][0] ?? null;
+        const retryEventBase = {
+          task_id: task.id,
+          stage_id: retryStageId,
+          attempt: retryDecision.attempt,
+          max_attempts: retryDecision.max_attempts,
+          retry_recommendation: retryDecision.retry_recommendation,
+          reason: retryDecision.reason,
+          issues: retryDecision.issues,
+        };
+        await appendEvent(projectRoot, manifest.run_id, {
+          type: "retry_decision",
+          ...retryEventBase,
+          action: retryDecision.action,
+          next_status: retryDecision.next_status,
+        });
+        if (retryDecision.action === "retry") {
+          await appendEvent(projectRoot, manifest.run_id, { type: "task_retry_scheduled", ...retryEventBase });
+          // Backward compat: dashboards render validation_failed on the retry path.
           await appendEvent(projectRoot, manifest.run_id, {
             type: "validation_failed",
             task_id: task.id,
-            attempt: attemptCount,
-            max_attempts: maxAttempts,
+            attempt: retryDecision.attempt,
+            max_attempts: retryDecision.max_attempts,
           });
+        } else if (retryDecision.action === "exhausted") {
+          await appendEvent(projectRoot, manifest.run_id, { type: "task_retry_exhausted", ...retryEventBase });
+          // The guardrail claim gate and dashboards key on guardrail_triggered —
+          // keep emitting it exactly as before the retry policy existed.
+          await appendEvent(projectRoot, manifest.run_id, guardrailEvent(task.id, {
+            rule: isDestructiveTask(task) ? "maxDestructiveTaskAttempts" : "maxTaskAttempts",
+            limit: retryDecision.max_attempts,
+            observed: retryDecision.attempt,
+            reason: `task ${task.id} already has ${retryDecision.attempt} attempt(s); limit is ${retryDecision.max_attempts}`,
+          }));
+        } else if (retryDecision.action === "human_context") {
+          await appendEvent(projectRoot, manifest.run_id, { type: "task_human_context_required", ...retryEventBase });
+        } else if (retryDecision.action === "block") {
+          await appendEvent(projectRoot, manifest.run_id, { type: "task_blocked_by_validator", ...retryEventBase });
         }
       }
       await appendEvidenceEvent(join(runsDir(projectRoot), manifest.run_id), {
