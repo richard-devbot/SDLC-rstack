@@ -53,16 +53,22 @@ Pre-2026-06 history lives in CHANGELOG.md (v1.0 → v1.9.0-rc).
 
 Work top-down. File a GitHub issue before any branch (Richardson's rule: issues before PRs).
 
-1. **#126–#129** — BLE-4 goal loop: evaluator, agent-11 goal contract, bounded budget-capped
-   runner + loop recipes (docs sweep, error sweep, architecture satisfaction — see
-   docs/STATE-OF-RSTACK-2026-07-05.md §2). Goal 1. The LLM-as-judge loop capability.
-2. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
+1. **#183** — adopt-aware agents: stage prompts recognize brownfield baselines; run-modes
+   contract (greenfield/brownfield/feature) in OPERATING-STANDARD. Completes the #148 flagship
+   end-to-end. Goal 3.
+2. **#126–#129** — BLE-4 goal loop: evaluator, agent-11 goal contract (fold in #186 maintenance
+   taxonomy), bounded budget-capped runner + loop recipes (docs sweep, error sweep, architecture
+   satisfaction — see docs/STATE-OF-RSTACK-2026-07-05.md §2). Goal 1.
+3. **#184 / #185 / #187** — Stephens book alignment batch: requirements quality gates (Ch4),
+   test taxonomy + cutover strategy (Ch8/9), wrap-party defect analysis (Ch10). Parallel-agent
+   friendly (disjoint files). Goals 1, 4.
+4. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
    do after the #95 page-module split. Goal 2.
-3. **#134–#137** — cost/context/memory (BLE-6), incl. #83 persisted cost metrics. Goal 4.
-4. **#130–#133** — BLE-5 remainder: stage checkpoints (#132), approval audit consistency (#133);
+5. **#134–#137** — cost/context/memory (BLE-6), incl. #83 persisted cost metrics. Goal 4.
+6. **#130–#133** — BLE-5 remainder: stage checkpoints (#132), approval audit consistency (#133);
    re-scope #131 first — partially superseded by the validator sandbox. Goal 1.
-5. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
-6. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
+7. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
+8. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
     E2E tests, dark stages) + #159 parallel benchmark. Goal 2.
 
 UI ↔ backend alignment note (2026-07-04 review): the dashboard approve path writes run-level
