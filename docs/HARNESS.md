@@ -226,6 +226,10 @@ Every retry decision is observable without reading source (#125):
 - **Pipeline state**: the rollup's `retries` summary carries `{ total, scheduled, exhausted, human_required }`, and each failed stage carries `retry_state: "retryable" | "exhausted"` so `rstack-agents pipeline status` can distinguish "re-run the builder" from "approve the override".
 - **Feed**: the Business Hub live feed renders the four `task_retry_*` events with distinct levels (warn / fail / blocked).
 
+### Resume-aware runner
+
+`rstack-agents pipeline run` advances a run from its current harness state without invoking any model (#124): completed tasks are skipped, an active task with a builder contract is validated (which drives the retry policy), retryable failures are re-claimed through `sdlc_build_next`, and the loop stops the moment a human is needed — pending approval, `ask_user`, an exhausted retry budget awaiting a `guardrail-override`, a prepared builder packet awaiting agent execution, or `--max-steps`. `--dry-run` prints the exact next action and persists nothing (not even the rollup); `--json` emits the structured step report. Human-gate stops exit non-zero so CI can tell "needs a human" from "complete".
+
 ## Validation commands
 
 Run these after Harness changes:

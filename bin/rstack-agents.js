@@ -14,6 +14,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { listAgents, listSkills, listPlugins, addPlugin } from '../src/commands/list.js';
 import { loadPipelineStatus, formatPipelineStatus } from '../src/commands/pipeline.js';
+import { runPipeline, formatRunReport } from '../src/commands/pipeline-run.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
@@ -175,6 +176,36 @@ pipelineCmd
       } else {
         console.log(formatPipelineStatus(state));
       }
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+pipelineCmd
+  .command('run')
+  .description('Advance the run from current state: skip DONE work, re-enter retryable tasks, stop at human gates')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('-r, --run-id <runId>', 'run id (defaults to latest run)')
+  .option('--max-steps <n>', 'maximum backend steps before stopping', '5')
+  .option('--dry-run', 'show the next action without invoking tools or writing any state')
+  .option('--json', 'print the structured step report as JSON')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const report = await runPipeline(projectRoot, {
+        runId: opts.runId,
+        maxSteps: Math.max(1, Number(opts.maxSteps) || 5),
+        dryRun: opts.dryRun === true,
+      });
+      if (opts.json) {
+        process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+      } else {
+        console.log(formatRunReport(report));
+      }
+      // Human-gate stops exit non-zero so CI can distinguish "needs a human"
+      // from "complete"; dry-run and completion exit zero.
+      process.exit(['complete', 'dry_run', 'missing_contract', 'max_steps'].includes(report.stopped_on) ? 0 : 1);
     } catch (err) {
       log.error(err.message);
       process.exit(1);
