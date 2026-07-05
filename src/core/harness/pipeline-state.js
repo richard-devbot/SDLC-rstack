@@ -132,8 +132,16 @@ function deriveValidationStatus(stageId, evidenceEvents) {
   return 'UNKNOWN';
 }
 
+function eventType(event) {
+  return String(event.type || event.kind || event.event || '');
+}
+
 function isRetryEvent(event) {
-  return /retry/i.test(String(event.type || event.kind || event.event || ''));
+  // Matches legacy retry_* names plus the BLE-3 emitter contract
+  // (retry_decision, task_retry_scheduled, task_retry_exhausted).
+  // task_human_context_required has no "retry" in its name but is part of
+  // the retry loop, so it is included explicitly.
+  return /retry/i.test(eventType(event)) || eventType(event) === 'task_human_context_required';
 }
 
 function isGuardrailEvent(event) {
@@ -223,6 +231,36 @@ function buildApprovalBlockers(approvals) {
     }));
 }
 
+// A stage is 'retryable' while its most recent scheduled/exhausted retry
+// event says another attempt is coming, 'exhausted' once the retry budget is
+// spent (the task sits BLOCKED pending a guardrail-override), and null when
+// no retry loop has touched the stage's tasks.
+function deriveStageRetryState(stageId, stageTaskIds, events) {
+  const taskIds = new Set(stageTaskIds);
+  let latest = null;
+  for (const event of events) {
+    const type = eventType(event);
+    if (type !== 'task_retry_scheduled' && type !== 'task_retry_exhausted') continue;
+    if (eventStageId(event) !== stageId && !taskIds.has(event.task_id)) continue;
+    latest = type;
+  }
+  if (latest === 'task_retry_scheduled') return 'retryable';
+  if (latest === 'task_retry_exhausted') return 'exhausted';
+  return null;
+}
+
+function summarizeRetryEvents(events) {
+  const summary = summarizeEvents(events, isRetryEvent);
+  const counts = { scheduled: 0, exhausted: 0, human_required: 0 };
+  for (const event of events) {
+    const type = eventType(event);
+    if (type === 'task_retry_scheduled') counts.scheduled += 1;
+    else if (type === 'task_retry_exhausted') counts.exhausted += 1;
+    else if (type === 'task_human_context_required') counts.human_required += 1;
+  }
+  return { total: summary.total, ...counts, events: summary.events };
+}
+
 function summarizeEvents(events, predicate) {
   const items = events.filter(predicate).map((event) => ({
     ts: event.ts || event.timestamp || null,
@@ -251,6 +289,7 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
       .filter((event) => eventStageId(event) === stage.id)
       .map((event) => `evidence.jsonl#${event.task_id || stage.id}`);
 
+    const stageTaskIds = stageTasks.map((task) => task.id).filter(Boolean);
     stages.push({
       id: stage.id,
       title: stage.title,
@@ -258,7 +297,8 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
       artifact: stage.artifact,
       status: deriveStageStatus({ stageId: stage.id, metrics, events, stageTasks }),
       attempts: deriveAttempts(stage.id, events),
-      task_ids: stageTasks.map((task) => task.id).filter(Boolean),
+      retry_state: deriveStageRetryState(stage.id, stageTaskIds, events),
+      task_ids: stageTaskIds,
       validation_status: deriveValidationStatus(stage.id, evidenceEvents),
       elapsed_ms: metrics.stage_elapsed_ms?.[stage.id] ?? null,
       evidence_paths: [...new Set([...artifactPaths, ...evidencePaths])],
@@ -275,7 +315,7 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
     pipeline,
     current,
     stages,
-    retries: summarizeEvents(events, isRetryEvent),
+    retries: summarizeRetryEvents(events),
     guardrails: summarizeEvents(events, isGuardrailEvent),
     approval_blockers: buildApprovalBlockers(approvals),
     cost_context: buildCostContext(metrics),
