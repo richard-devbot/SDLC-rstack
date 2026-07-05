@@ -190,6 +190,23 @@ Tool-call and message budgets are checked at validation time from builder contra
 
 The extension also includes the guardrail summary in generated builder prompts so agents see the budgets they are held to.
 
+### Retry policy
+
+Post-validation task transitions are decided by `src/core/harness/retry-policy.js` (#123), not by prompts or inline attempt math. `classifyRetryDecision({ task, validation, events, guardrails })` is a pure function driven by the validator contract's `retry_recommendation`, bounded by the same attempt budgets as the claim gate (`maxTaskAttempts`, or `maxDestructiveTaskAttempts` for destructive tasks; attempts = recorded `task_started` events):
+
+| `retry_recommendation` | Condition | `action` | `next_status` |
+|---|---|---|---|
+| `none` | validation PASS | `complete` | `PASS` |
+| `retry_builder` | attempts < budget | `retry` | `FAIL` (re-claimable by `sdlc_build_next`) |
+| `retry_builder` | attempts >= budget | `exhausted` | `BLOCKED` (needs `guardrail-override:<task_id>` approval) |
+| `ask_user` | — | `human_context` | `NEEDS_CONTEXT` |
+| `block` | — | `block` | `BLOCKED` |
+| missing / unknown | conservative fallback | FAIL behaves as `retry_builder`, PASS as `none` | per row above |
+
+The function never throws on malformed input, and returns `{ action, next_status, attempt, max_attempts, reason, issues }` where `reason` is an operator-readable sentence and `issues` is a compact string array (validator issues mapped to `name: evidence`, ~120 chars each, max 5).
+
+On every FAIL validation `sdlc_validate` stamps `task.status = next_status` inside the locked write and appends a `retry_decision` event (task_id, stage_id, attempt, max_attempts, retry_recommendation, action, next_status, reason, issues — a pinned contract for downstream consumers), plus one action-specific event: `task_retry_scheduled` (with the legacy `validation_failed` kept for dashboards), `task_retry_exhausted` (with the legacy `guardrail_triggered` kept for the claim gate and dashboards), `task_human_context_required`, or `task_blocked_by_validator`.
+
 ### Validator sandbox
 
 Validators check work — they never modify it. `src/core/harness/validator-sandbox.js` enforces this in code, not just prompts (#119):
