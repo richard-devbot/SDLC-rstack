@@ -24,6 +24,8 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-05 | Validator sandbox: validator/reviewer/security contexts hard-blocked from writes/destructive shell/publish/secret paths via Pi tool_call hook (no override path), env-stamped by sdlc_delegate, read-only tool defaults; closes BLE-2 epic #117 | 1 | #119, PR #174 |
+| 2026-07-05 | Validator registry: stage-specific validator profiles for 06/07/08/12/13 with priority selection (security first), `.rstack/validators/registry.json` overrides (read_only unclampable), profile recorded in validation.json | 1 | #120, PR #173 |
 | 2026-07-05 | "RStack in 5 Minutes" quick-start: bare-terminal tour via the bridge, approval gate as the hero moment; packaged in npm, linked from README + Mintlify | 2 | #158, PR #171 |
 | 2026-07-05 | Reference SDLC agents (00/06/07/08/11) normalized to canonical stage paths + Task Contract sections; 07-code plan-task/stage-id conflation fixed; closes BLE-1 epic #112 | 4 | #116, PR #170 |
 | 2026-07-04 | Dashboard read-path auth: RSTACK_DASHBOARD_READ_TOKEN(_FILE) gates state/artifact/run-report + WS; foreign Origins always rejected on reads and WS upgrades; tokens session-scoped | 2 | #164, PR #168 (external audit) |
@@ -46,17 +48,16 @@ Pre-2026-06 history lives in CHANGELOG.md (v1.0 → v1.9.0-rc).
 
 Work top-down. File a GitHub issue before any branch (Richardson's rule: issues before PRs).
 
-1. **#119 / #120** — validator sandbox policy + validator registry (closes BLE-2 epic #117). Goal 1.
-2. **#123 / #124 / #125** — retry policy, resume-aware runner, retry trace (BLE-3 epic #121);
+1. **#123 / #124 / #125** — retry policy, resume-aware runner, retry trace (BLE-3 epic #121);
    prerequisite for brownfield feature mode. Goal 3.
-3. **#148** — brownfield `adopt` command: `--dry-run` stage-population plan, evidence harvesters,
+2. **#148** — brownfield `adopt` command: `--dry-run` stage-population plan, evidence harvesters,
    migration guide. Goal 3 (flagship gap for client use). Include #160 (specialist gap scan).
-4. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
+3. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
    do after the #95 page-module split. Goal 2.
-5. **#126–#129** — goal loop (BLE-4). Goal 1.
-6. **#134–#137** — cost/context/memory (BLE-6), incl. #83 persisted cost metrics. Goal 4.
-7. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
-8. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
+4. **#126–#129** — goal loop (BLE-4). Goal 1.
+5. **#134–#137** — cost/context/memory (BLE-6), incl. #83 persisted cost metrics. Goal 4.
+6. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
+7. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
     E2E tests, dark stages) + #159 parallel benchmark. Goal 2.
 
 UI ↔ backend alignment note (2026-07-04 review): the dashboard approve path writes run-level
@@ -78,6 +79,11 @@ Declined / out of scope (do not re-open without new context):
 - **After every merged PR**: add a Feature-ledger row (date, capability, goal number, refs) and
   remove/reorder the Next-steps entry it closes. Keep both lists honest — this file is the
   single at-a-glance answer to "where are we and what's next".
+- **After every merged PR (memory graph)**: sync the MAIN working tree to main (`git pull` at
+  /Users/richardsongunde/projects/SDLC-rstack — it goes stale; a stale tree caused the identity.md
+  audit drift) and re-index: `codebase-memory-mcp cli index_repository
+  '{"repo_path": "/Users/richardsongunde/projects/SDLC-rstack"}'`. When an architecture decision
+  changes, update the stored ADRs via `manage_adr`. Graph UI: http://localhost:9749/.
 - **After every review cycle**: record genuinely declined findings under "Declined / out of scope"
   with the rationale, so future sessions don't re-litigate them.
 - **At ship time**: CHANGELOG.md gets the user-facing entry (branch-scoped version bump per the
