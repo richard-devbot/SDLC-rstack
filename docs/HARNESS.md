@@ -173,6 +173,16 @@ Tool-call and message budgets are checked at validation time from builder contra
 
 The extension also includes the guardrail summary in generated builder prompts so agents see the budgets they are held to.
 
+### Validator sandbox
+
+Validators check work — they never modify it. `src/core/harness/validator-sandbox.js` enforces this in code, not just prompts (#119):
+
+- **Context signal**: when `sdlc_delegate` spawns a validator/reviewer/security-role agent (name or id matching `validator|review|qa|security|audit|tester`), it sets `RSTACK_VALIDATOR_CONTEXT=1` (plus `RSTACK_VALIDATOR_RUN_ID` for event routing) on the child Pi subprocess and scrubs both vars from builder-role children. The extension's `tool_call` hook reads the flag inside the child.
+- **Denied action classes**: write/edit-style tools; destructive shell commands (`rm`, `mv`, `chmod`, in-place `sed`, `tee`, ...); git mutations (`push`, `commit`, `reset`, `checkout`, ...); publish/deploy/force-push commands (`npm publish`, `terraform apply`, `kubectl delete`, `gh pr merge`, ...); destructive SQL; and shell redirects into protected secret paths (`.env`, key files, credentials).
+- **Read-only default tools**: validator-role delegations default to `read, grep, find, ls, bash` when the caller passes no explicit `tools` — bash stays available so validators can run tests, with mutating commands denied at command level.
+- **Events**: each blocked mutation appends a `validator_sandbox_denied` event (tool name + reason) to `events.jsonl`. Allowed reads are not logged unless `RSTACK_VALIDATOR_SANDBOX_DEBUG=1` opts in (`validator_sandbox_allowed_read`), so events.jsonl never floods.
+- **No escape hatch**: the sandbox is checked before the builder-oriented gates and is not bypassable via `RSTACK_ALLOW_DESTRUCTIVE` or destructive-action approvals. Builder contexts (env var unset) are completely unaffected. Human-approved exceptions are out of scope by design.
+
 ## Validation commands
 
 Run these after Harness changes:
