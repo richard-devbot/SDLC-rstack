@@ -25,7 +25,7 @@ import { withFileLock, writeJsonAtomic } from "../../core/harness/safe-write.js"
 import { resolveUserIdentity } from "../../core/harness/identity.js";
 import { appendApproval as appendApprovalRequest, approvalQueueId, assertManagerAllowed, resolveQueuedApprovalForArtifact } from "../../core/tracker/approvals.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../../memory/index.js";
-import { buildRunReport, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../../observability/collectors/reporter.js";
+import { buildRunReport, formatRetryTraceLine, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../../observability/collectors/reporter.js";
 import { notifyAll, hasConfiguredChannels, formatSlackStageMessage, formatSlackTaskReportMessage } from "../../notifications/index.js";
 
 const RSTACK_VERSION = "0.3.0";
@@ -2158,6 +2158,15 @@ export default function (pi: ExtensionAPI) {
           const currentVal = e.current_value ?? e.value ?? "?";
           const limitVal = e.limit_value != null ? ` / ${e.limit_value}` : "";
           lines.push(`  ├─ ⚠️  Guardrail Triggered: ${limitName} = ${currentVal}${limitVal}`);
+        }
+        if (e.type === "validation_failed") {
+          lines.push(`  ├─ ↻ Validation failed: attempt ${e.attempt ?? "?"}/${e.max_attempts ?? "?"}${e.reason ? ` — ${e.reason}` : ""}`);
+        }
+        // Retry-recovery events (BLE-3): render with attempt counter + reason
+        // so an operator understands the line without reading source.
+        const retryLine = formatRetryTraceLine(e);
+        if (retryLine) {
+          lines.push(`  ├─ ${retryLine}`);
         }
         if (e.type === "cost_recorded") {
           lines.push(`  ├─ 💵 Cost Recorded: $${e.cost}`);

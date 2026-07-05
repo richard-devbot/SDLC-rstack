@@ -55,6 +55,10 @@ function eventLevel(ev) {
   if (ev.type === 'guardrail_triggered') return 'warn';
   if (ev.type === 'guardrail_overridden') return 'pass';
   if (ev.type === 'dor_gate_blocked') return 'blocked';
+  if (ev.type === 'task_retry_scheduled') return 'warn';
+  if (ev.type === 'task_retry_exhausted') return 'fail';
+  if (ev.type === 'task_human_context_required') return 'blocked';
+  if (ev.type === 'task_blocked_by_validator') return 'blocked';
   if (/^retry_/.test(String(ev.type ?? ''))) return 'warn';
   if (ev.type === 'approval_gate_blocked') return 'blocked';
   if (ev.type === 'approval_gate') return 'pass';

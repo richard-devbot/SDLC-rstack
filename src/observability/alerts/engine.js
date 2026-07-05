@@ -146,6 +146,14 @@ export function plainLanguageSummary(event) {
       return `🛡 Guardrail override consumed — ${event.task_id ?? 'task'} granted exactly one more attempt (${event.artifact ?? 'override'})`;
     case 'validation_failed':
       return `↻ Validation failed — attempt ${event.attempt ?? '?'}/${event.max_attempts ?? '?'} for ${event.task_id ?? 'task'}`;
+    case 'task_retry_scheduled':
+      return `↻ Retry ${event.attempt ?? '?'}/${event.max_attempts ?? '?'} scheduled — ${event.task_id ?? 'task'}: ${event.reason ?? 'validator requested another attempt'}`;
+    case 'task_retry_exhausted':
+      return `⛔ Retries exhausted (${event.attempt ?? '?'}/${event.max_attempts ?? '?'}) — ${event.task_id ?? 'task'} blocked pending guardrail-override${event.reason ? ` (${event.reason})` : ''}`;
+    case 'task_human_context_required':
+      return `⏸ Human context required — ${event.task_id ?? 'task'} paused after attempt ${event.attempt ?? '?'}/${event.max_attempts ?? '?'}: ${event.reason ?? 'validator needs more information'}`;
+    case 'task_blocked_by_validator':
+      return `⛔ Blocked by validator — ${event.task_id ?? 'task'}: ${event.reason ?? 'validation cannot proceed'}`;
     case 'dor_gate_blocked':
       return `Definition-of-Ready blocked ${event.task_id ?? 'task'} — pending: ${(event.pending_required ?? []).join(', ') || 'required decisions'}`;
     case 'memory_recalled':

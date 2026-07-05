@@ -34,7 +34,17 @@ export function recommendPipelineAction(state) {
 
   const failed = state.stages.filter((stage) => FAILED_STATUSES.has(stage.status));
   if (failed.length) {
-    return `Inspect or retry failed stage ${failed[0].id} (${failed[0].attempts ?? 0} attempt(s) recorded).`;
+    const stage = failed[0];
+    const attempts = `${stage.attempts ?? 0} attempt(s) recorded`;
+    // retry_state refines the failed-stage TEXT only; the deterministic
+    // priority order (approvals → failed → active → pending → complete) is unchanged.
+    if (stage.retry_state === 'exhausted') {
+      return `Stage ${stage.id} exhausted its retry budget (${attempts}) — approve the guardrail-override for its blocked task via sdlc_approve or the Business Hub, or inspect the run artifacts first.`;
+    }
+    if (stage.retry_state === 'retryable') {
+      return `Re-run the builder for failed stage ${stage.id} — a retry is scheduled (${attempts}).`;
+    }
+    return `Inspect or retry failed stage ${stage.id} (${attempts}).`;
   }
 
   if (state.current?.stage_id) {
@@ -84,7 +94,15 @@ export function formatPipelineStatus(state) {
     lines.push(`Failed stages: ${failed.map((stage) => `${stage.id} (${stage.attempts ?? 0} attempt(s))`).join(', ')}`);
   }
 
-  lines.push(`Retries: ${state.retries?.total ?? 0} | Guardrail events: ${state.guardrails?.total ?? 0}`);
+  const retries = state.retries || {};
+  const retryBreakdown = [];
+  if (retries.scheduled) retryBreakdown.push(`${retries.scheduled} scheduled`);
+  if (retries.exhausted) retryBreakdown.push(`${retries.exhausted} exhausted`);
+  if (retries.human_required) retryBreakdown.push(`${retries.human_required} awaiting human context`);
+  const retryText = retryBreakdown.length
+    ? `${retries.total ?? 0} (${retryBreakdown.join(', ')})`
+    : `${retries.total ?? 0}`;
+  lines.push(`Retries: ${retryText} | Guardrail events: ${state.guardrails?.total ?? 0}`);
 
   const blockers = state.approval_blockers || [];
   if (blockers.length) {
