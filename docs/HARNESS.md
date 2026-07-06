@@ -329,6 +329,16 @@ surfaced on the evaluation as `agent_goal_evaluation: { present, consumed, rejec
 and the harness still never calls a model — agent 11 recommends with evidence; `goal-check.js`
 decides.
 
+**Stage-11 validation gate (#196).** The same shape check is enforced at validation time, not just
+at loop time: `validateStageGoalEvaluation` (goal-check.js) runs inside `sdlc_validate` — which the
+model-free `pipeline run`/`pipeline loop` bridge also drives. When a goal is active for the run — a
+`goal.json` in the run dir, or pinned loop events (`loop_iteration_started`/`goal_evaluated`)
+proving a `pipeline loop --goal <recipe>` context — a task targeting `11-feedback-loop` FAILs
+validation when feedback.json is missing or its `goal_evaluation` section is malformed, with the
+named checks recorded in validation.json instead of a silent ASK_USER later. Runs with no active
+goal keep the section optional (a single informational `goal_evaluation_not_required` PASS), and
+tasks that never target stage 11 see no goal checks at all.
+
 **Evaluator.** `evaluateGoal(projectRoot, runId, options)` builds the rollup in memory (persists
 nothing), reads only structured JSON (never prose), always layers harness checks over the criteria
 (pending approvals, pending decisions, NEEDS_CONTEXT tasks, guardrail-BLOCKED tasks, unfinished

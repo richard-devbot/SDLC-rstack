@@ -475,10 +475,14 @@ export function goalVerdictsFromFeedback(feedback, { runDir, projectRoot, iterat
 
 // ── Evidence gathering ───────────────────────────────────────────────────────
 
+function feedbackArtifactPath(runDir) {
+  const canonical = join(runDir, 'artifacts', 'stages', FEEDBACK_STAGE_ID, 'feedback.json');
+  const legacy = join(runDir, 'artifacts', 'feedback', 'consistency_report.json');
+  return existsSync(canonical) ? canonical : existsSync(legacy) ? legacy : null;
+}
+
 export async function readGoalEvidence(runDir) {
-  const feedbackCanonical = join(runDir, 'artifacts', 'stages', FEEDBACK_STAGE_ID, 'feedback.json');
-  const feedbackLegacy = join(runDir, 'artifacts', 'feedback', 'consistency_report.json');
-  const feedbackPath = existsSync(feedbackCanonical) ? feedbackCanonical : existsSync(feedbackLegacy) ? feedbackLegacy : null;
+  const feedbackPath = feedbackArtifactPath(runDir);
 
   return {
     goal: await readJsonIfPresent(join(runDir, GOAL_DEFINITION_FILE)),
@@ -493,6 +497,75 @@ export async function readGoalEvidence(runDir) {
     events: await readJsonlIfPresent(join(runDir, 'events.jsonl')),
     metrics: await readJsonIfPresent(join(runDir, 'metrics.json'), {}),
   };
+}
+
+// ── Stage-11 validation gate (#196) ──────────────────────────────────────────
+//
+// Runtime enforcement of the goal contract: prompt text alone must never be
+// the only thing standing between a goal-driven run and a feedback artifact
+// with no usable goal_evaluation. The stage-11 validation path calls this
+// gate; on a goal-driven run a missing or malformed section FAILs validation
+// with the shape checks recorded in validation.json — instead of silently
+// degrading to ASK_USER at loop time. Runs with no active goal keep the
+// section optional (a single informational PASS), and tasks that do not
+// target 11-feedback-loop contribute no checks at all.
+
+// Pinned loop event types that prove a `pipeline loop --goal <recipe>` drove
+// this run — the recipe file lives outside the run dir, so a missing
+// goal.json alone does not mean "no goal". Mirrors goal-loop.js
+// LOOP_EVENT_TYPES (not imported: goal-loop.js already imports from here).
+const GOAL_ACTIVE_LOOP_EVENT_TYPES = new Set(['loop_iteration_started', 'goal_evaluated']);
+
+async function activeGoalContext(runDir) {
+  if (existsSync(join(runDir, GOAL_DEFINITION_FILE))) {
+    return { active: true, source: GOAL_DEFINITION_FILE };
+  }
+  const events = await readJsonlIfPresent(join(runDir, 'events.jsonl'));
+  const loopEvent = events.find((event) => GOAL_ACTIVE_LOOP_EVENT_TYPES.has(event?.type));
+  if (loopEvent) return { active: true, source: `loop event ${loopEvent.type}` };
+  return { active: false, source: null };
+}
+
+export async function validateStageGoalEvaluation({ runDir, stageIds = [] } = {}) {
+  const summarize = (checks, extra) => ({
+    ok: checks.every((check) => check.status === 'PASS'),
+    checks,
+    issues: checks.filter((check) => check.status === 'FAIL'),
+    ...extra,
+  });
+  const targetsFeedbackStage = (Array.isArray(stageIds) ? stageIds : []).includes(FEEDBACK_STAGE_ID);
+  if (!runDir || !targetsFeedbackStage) {
+    return summarize([], { goal_active: false, goal_source: null });
+  }
+  const goalContext = await activeGoalContext(runDir);
+  if (!goalContext.active) {
+    return summarize([{
+      name: 'goal_evaluation_not_required',
+      status: 'PASS',
+      evidence: 'no active goal for this run — goal_evaluation stays optional',
+    }], { goal_active: false, goal_source: null });
+  }
+  const extra = { goal_active: true, goal_source: goalContext.source };
+  const feedbackPath = feedbackArtifactPath(runDir);
+  const feedback = feedbackPath ? await readJsonIfPresent(feedbackPath) : null;
+  if (!isPlainObject(feedback)) {
+    return summarize([{
+      name: 'goal_evaluation_feedback_artifact',
+      status: 'FAIL',
+      evidence: feedbackPath
+        ? `${relative(runDir, feedbackPath)} is not a JSON object — stage 11 must emit structured feedback carrying goal_evaluation (active goal: ${goalContext.source})`
+        : `feedback artifact missing — stage 11 must write artifacts/stages/${FEEDBACK_STAGE_ID}/feedback.json with a goal_evaluation section (active goal: ${goalContext.source})`,
+    }], extra);
+  }
+  const section = validateGoalEvaluation(feedback.goal_evaluation);
+  return summarize([
+    {
+      name: 'goal_evaluation_feedback_artifact',
+      status: 'PASS',
+      evidence: `${relative(runDir, feedbackPath)} (active goal: ${goalContext.source})`,
+    },
+    ...section.checks,
+  ], extra);
 }
 
 // ── Criterion evaluation ─────────────────────────────────────────────────────

@@ -11,6 +11,8 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
 import { validateBuilderContract, validateBuilderCompleteness } from "../../core/harness/contracts.js";
+import { validateStageGoalEvaluation } from "../../core/harness/goal-check.js";
+import { taskStageIds } from "../../core/harness/pipeline-state.js";
 import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
@@ -1697,6 +1699,19 @@ export default function (pi: ExtensionAPI) {
           status: "PASS",
           evidence: `${validatorProfile.validator} (stage: ${validatorProfile.stage_id ?? "generic"}, model_hint: ${validatorProfile.model_hint})`,
         });
+        // Goal-contract gate (#196): on a goal-driven run (goal.json in the
+        // run dir, or pinned loop events from a --goal recipe) a task that
+        // targets 11-feedback-loop must ship a well-formed goal_evaluation.
+        // Enforced here at validation time — a missing or malformed section
+        // FAILs validation.json with the named checks, instead of silently
+        // degrading to ASK_USER at loop time. Tasks that never target stage
+        // 11, and runs with no active goal, are untouched.
+        const goalGate = await validateStageGoalEvaluation({
+          runDir: join(runsDir(projectRoot), manifest.run_id),
+          stageIds: taskStageIds(task),
+        });
+        checks.push(...goalGate.checks);
+        if (!goalGate.ok) status = "FAIL";
         const validation = {
           task_id: task.id,
           validator: "rstack-pi-extension",
