@@ -475,7 +475,7 @@ async function defaultRunCommand(command, { cwd, timeoutMs }) {
   }
 }
 
-async function evaluateCriterion(criterion, { projectRoot, runDir, state, evidence, verdicts, agentRejections, iteration, runCommand, judgeCriteriaCount }) {
+async function evaluateCriterion(criterion, { projectRoot, runDir, state, evidence, explicitVerdicts, agentVerdicts, agentRejections, iteration, runCommand, judgeCriteriaCount }) {
   const result = { id: criterion.id, kind: criterion.kind, status: 'FAIL', detail: '', rerun_stages: criterion.rerun_stages };
 
   if (criterion.kind === 'invalid') {
@@ -541,7 +541,15 @@ async function evaluateCriterion(criterion, { projectRoot, runDir, state, eviden
 
   // judge — model-free: consume the verdict protocol (goal-verdict.json, or an
   // evidence-backed agent-11 goal_evaluation entry) or report PENDING.
-  const verdict = findVerdict(verdicts, criterion, judgeCriteriaCount, iteration);
+  //
+  // The explicit goal-verdict.json pool is consumed FULLY first — including
+  // the documented id-less single-judge shorthand {"verdict":"FAIL"} — before
+  // any agent-11 verdict is considered. Agent entries always carry
+  // criterion_ids, so a single merged pool would let an agent claim outrank a
+  // shorthand human verdict by winning the id match. A human/host verdict
+  // must always win.
+  const verdict = findVerdict(explicitVerdicts, criterion, judgeCriteriaCount, iteration)
+    ?? findVerdict(agentVerdicts, criterion, judgeCriteriaCount, iteration);
   if (!verdict || !verdict.verdict) {
     const rejection = agentRejections.find((item) => item.criterion_id === criterion.id);
     return {
@@ -601,18 +609,20 @@ export async function evaluateGoal(projectRoot, runId, options = {}) {
   const iteration = Number.isInteger(options.iteration) ? options.iteration : null;
   const runCommand = options.runCommand ?? defaultRunCommand;
 
-  // Agent-11 writer path (#128): evidence-backed goal_evaluation entries join
-  // the verdict pool through the same protocol. Explicit goal-verdict.json
-  // entries come first, so a human/host verdict outranks the agent's for the
-  // same criterion.
+  // Agent-11 writer path (#128): evidence-backed goal_evaluation entries speak
+  // the same verdict protocol but stay a SEPARATE pool, consumed only when the
+  // explicit goal-verdict.json pool yields nothing for a criterion — a
+  // human/host verdict (id-matched OR the id-less shorthand) always outranks
+  // the agent's.
   const agentGoal = goalVerdictsFromFeedback(evidence.feedback, { runDir, projectRoot });
-  const verdicts = [...evidence.verdicts, ...agentGoal.verdicts];
 
   const judgeCriteriaCount = goal.criteria.filter((criterion) => criterion.kind === 'judge').length;
   const criteria = [];
   for (const criterion of goal.criteria) {
     criteria.push(await evaluateCriterion(criterion, {
-      projectRoot, runDir, state, evidence, verdicts, agentRejections: agentGoal.rejected, iteration, runCommand, judgeCriteriaCount,
+      projectRoot, runDir, state, evidence,
+      explicitVerdicts: evidence.verdicts, agentVerdicts: agentGoal.verdicts,
+      agentRejections: agentGoal.rejected, iteration, runCommand, judgeCriteriaCount,
     }));
   }
 

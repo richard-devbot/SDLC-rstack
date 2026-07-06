@@ -496,6 +496,44 @@ test('stale agent-11 evaluation (older or missing iteration stamp) is ignored in
   assert.equal((await evaluateGoal(projectRoot, 'run-a')).status, 'PASS');
 });
 
+test('an id-less shorthand human verdict outranks an id-matched agent-11 claim (single-judge goal)', async () => {
+  // The documented shorthand {"verdict":"FAIL"} carries no criterion_id. In a
+  // merged pool the agent's id-matched claim would win the byId lookup and
+  // invert precedence — the explicit pool must be consumed fully first.
+  const failRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
+  const failRunDir = seedRun(failRoot, 'run-a', {
+    tasks: [task('001', 'PASS')],
+    goal: judgedGoal,
+    verdict: { verdict: 'FAIL', judge: 'human', reasoning: 'design rejected' },
+  });
+  const failEvidence = seedDesignArtifact(failRunDir);
+  const failStageDir = path.join(failRunDir, 'artifacts', 'stages', '11-feedback-loop');
+  mkdirSync(failStageDir, { recursive: true });
+  writeFileSync(path.join(failStageDir, 'feedback.json'), JSON.stringify(feedbackWithGoalEvaluation([
+    { criterion_id: 'design-review', result: 'met', evidence: [failEvidence] },
+  ])));
+  const failEval = await evaluateGoal(failRoot, 'run-a');
+  assert.equal(failEval.status, 'RETRY', 'the shorthand human FAIL wins over the agent met claim');
+  assert.match(failEval.criteria[0].detail, /judge human/);
+
+  // And the reverse: a shorthand human PASS wins over an agent not_met claim.
+  const passRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
+  const passRunDir = seedRun(passRoot, 'run-a', {
+    tasks: [task('001', 'PASS')],
+    goal: judgedGoal,
+    verdict: { verdict: 'PASS', judge: 'human', reasoning: 'design approved' },
+  });
+  const passEvidence = seedDesignArtifact(passRunDir);
+  const passStageDir = path.join(passRunDir, 'artifacts', 'stages', '11-feedback-loop');
+  mkdirSync(passStageDir, { recursive: true });
+  writeFileSync(path.join(passStageDir, 'feedback.json'), JSON.stringify(feedbackWithGoalEvaluation([
+    { criterion_id: 'design-review', result: 'not_met', evidence: [passEvidence] },
+  ], { status: 'RETRY' })));
+  const passEval = await evaluateGoal(passRoot, 'run-a');
+  assert.equal(passEval.status, 'PASS', 'the shorthand human PASS wins over the agent not_met claim');
+  assert.match(passEval.criteria[0].detail, /judge human/);
+});
+
 test('an explicit goal-verdict.json outranks the agent-11 evaluation for the same criterion', async () => {
   const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
   const runDir = seedRun(projectRoot, 'run-a', {
