@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { deriveRunTotals, persistedTokenTotals, resolveRunTotals } from '../src/observability/metrics/derive.js';
+import { deriveRunTotals, persistedTokenTotals, resolveRunTotals, hasMetricsWriteDrift } from '../src/observability/metrics/derive.js';
 import { entryFromRun } from '../src/observability/dashboard/state/rollup-index.js';
 import { toClientState } from '../src/observability/dashboard/state/client-state.js';
 import { buildRunReport } from '../src/observability/collectors/reporter.js';
@@ -44,6 +44,24 @@ test('resolveRunTotals prefers persisted cumulative metrics over event recompute
   assert.equal(totals.tokens, 50000);
   // Event-derived dimensions are untouched.
   assert.equal(totals.duration_ms, 2 * 60 * 1000);
+});
+
+test('resolveRunTotals falls back to events when a metrics_write_failed drift event exists (F2)', () => {
+  // Persisted totals say $0.90 but a write failed after the last cost_recorded
+  // landed — the persisted number is known-stale, so we recompute from events.
+  const eventsWithDrift = [
+    ...COST_EVENTS,
+    { type: 'metrics_write_failed', operation: 'telemetry_increment', ts: '2026-07-01T05:03:00.000Z' },
+  ];
+  assert.equal(hasMetricsWriteDrift(eventsWithDrift), true);
+  assert.equal(hasMetricsWriteDrift(COST_EVENTS), false);
+  const totals = resolveRunTotals(eventsWithDrift, {
+    cumulative_cost_usd: 0.9,
+    cumulative_tokens: { input: 40000, output: 10000, total: 50000 },
+  });
+  // Ignores the stale persisted marker; recomputes 0.25 + 0.15 = 0.40 from events.
+  assert.equal(totals.cost_usd, 0.4);
+  assert.equal(totals.tokens, 20000);
 });
 
 test('resolveRunTotals falls back to event recompute for legacy runs', () => {

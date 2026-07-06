@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { createConnection } from "node:net";
 import { existsSync, openSync } from "node:fs";
-import { mkdir, readFile, readdir, writeFile, appendFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile, appendFile, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -17,7 +17,8 @@ import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/mig
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
-import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate } from "../../core/harness/telemetry.js";
+import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate, builderContractKey } from "../../core/harness/telemetry.js";
+import { deriveRunTotals } from "../../observability/metrics/derive.js";
 import { VALIDATOR_CONTEXT_ENV, VALIDATOR_RUN_ID_ENV, VALIDATOR_READ_ONLY_TOOLS, evaluateValidatorAction, isValidatorContext, isValidatorRole, isValidatorSandboxDebug } from "../../core/harness/validator-sandbox.js";
 import { loadValidatorRegistry, resolveValidatorProfile } from "../../core/harness/validator-registry.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
@@ -1525,6 +1526,16 @@ export default function (pi: ExtensionAPI) {
             await writeJsonAtomic(approvalsFile, approvals);
           });
         }
+        // Clear any stale builder.json from a prior attempt before granting the
+        // new one (#83 replay guard). If a re-claimed FAIL/BLOCKED task starts a
+        // fresh attempt but the builder crashes before rewriting builder.json,
+        // sdlc_validate would otherwise re-validate — and re-cost — the previous
+        // attempt's contract. Removing it in-lock at the transition means the
+        // next validation sees no contract (FAIL: builder_contract_exists)
+        // instead of silently replaying the old one's spend.
+        try {
+          await rm(join(projectRoot, task.output_dir, "builder.json"), { force: true });
+        } catch { /* best-effort; a missing file is the expected case */ }
         task.status = "IN_PROGRESS";
         task._started_at = Date.now();
         // Real attribution: stamp the routed pipeline agent so builder.json and
@@ -1770,19 +1781,56 @@ export default function (pi: ExtensionAPI) {
       if (builderContract) {
         // Cost/context telemetry (#83/#135): shared extraction from the builder
         // contract's structured cost/context fields, pinned cost_recorded /
-        // context_recorded events, and incremental metrics.json accumulation —
-        // recorded on every validation (retries cost money too), so totals stop
-        // being re-derived O(events) on each dashboard poll.
+        // context_recorded events, and incremental metrics.json accumulation.
+        // Recorded on every validation (retries cost money too), but the
+        // metrics increment is keyed on the builder-contract content hash so
+        // re-validating the SAME contract (a retry that didn't re-run the
+        // builder, or a goal-loop reset replaying a stale builder.json) never
+        // double-counts — while a genuine re-run (new contract content → new
+        // key) still counts.
+        const runDir = join(runsDir(projectRoot), manifest.run_id);
         const telemetry = extractBuilderTelemetry(builderContract);
+        const idempotencyKey = builderContractKey(builderContract);
+        // Seed from pre-existing events BEFORE we append this validation's
+        // cost_recorded event, so a mid-run upgrade (legacy cost_recorded
+        // history + first new-style validation) folds the prior history into
+        // the persisted totals instead of dropping it. Only used when the
+        // marker (cumulative_tokens) isn't present yet; updateRunMetrics guards
+        // that in-lock.
+        let seed: { cost_usd: number; tokens: { input: number; output: number; total: number } } | undefined;
+        try {
+          const existingMetricsPath = join(runDir, "metrics.json");
+          const hasMarker = existsSync(existingMetricsPath)
+            && !!JSON.parse(await readFile(existingMetricsPath, "utf8"))?.cumulative_tokens;
+          if (!hasMarker) {
+            const priorTotals = deriveRunTotals(await readJsonl(join(runDir, "events.jsonl")));
+            if (priorTotals.cost_usd > 0 || priorTotals.tokens > 0) {
+              seed = { cost_usd: priorTotals.cost_usd, tokens: { input: 0, output: 0, total: priorTotals.tokens } };
+            }
+          }
+        } catch {
+          // Best-effort seeding; a read failure just skips the fold-in.
+        }
         for (const telemetryEvent of builderTelemetryEvents(task.id, telemetry)) {
           await appendEvent(projectRoot, manifest.run_id, telemetryEvent);
         }
-        const metricsUpdate = telemetryMetricsUpdate(telemetry, canonicalStageIds);
+        const metricsUpdate = telemetryMetricsUpdate(telemetry, canonicalStageIds, idempotencyKey);
         if (metricsUpdate) {
+          if (seed) (metricsUpdate as any).seed = seed;
           try {
-            await updateRunMetrics(join(runsDir(projectRoot), manifest.run_id), metricsUpdate);
+            await updateRunMetrics(runDir, metricsUpdate);
           } catch (metricsError) {
+            // F2: a swallowed write failure permanently diverges the persisted
+            // totals from the events that recorded the cost. Emit a pinned
+            // metrics_write_failed event so the drift is visible and readers
+            // can reconcile (derive.js falls back to event recompute).
             console.error("Failed to persist cost/context metrics:", metricsError);
+            await appendEvent(projectRoot, manifest.run_id, {
+              type: "metrics_write_failed",
+              task_id: task.id,
+              operation: "telemetry_increment",
+              error: String((metricsError as any)?.message ?? metricsError),
+            }).catch(() => {});
           }
         }
       }

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate } from '../src/core/harness/telemetry.js';
+import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate, builderContractKey } from '../src/core/harness/telemetry.js';
 import { updateRunMetrics } from '../src/core/harness/run-state.js';
 
 // owner: RStack developed by Richardson Gunde
@@ -56,8 +56,8 @@ test('extractBuilderTelemetry ignores non-numeric cost and token values', () => 
 });
 
 test('extractBuilderTelemetry returns nulls for missing or malformed contracts', () => {
-  assert.deepEqual(extractBuilderTelemetry(null), { cost: null, tokens: null, tools_used_count: null, context: null });
-  assert.deepEqual(extractBuilderTelemetry({}), { cost: null, tokens: null, tools_used_count: null, context: null });
+  assert.deepEqual(extractBuilderTelemetry(null), { cost: null, tokens: null, tools_used_count: null, tool_calls: null, context: null });
+  assert.deepEqual(extractBuilderTelemetry({}), { cost: null, tokens: null, tools_used_count: null, tool_calls: null, context: null });
   assert.deepEqual(extractBuilderTelemetry({ cost: [], context: 'nope' }).cost, null);
 });
 
@@ -217,6 +217,151 @@ test('updateRunMetrics keeps overwrite semantics for cumulative fields and never
     const overwritten = await updateRunMetrics(runDir, { cumulative_cost_usd: 0.5, cumulative_tokens: { input: 10, output: 5 } });
     assert.equal(overwritten.cumulative_cost_usd, 0.5);
     assert.deepEqual(overwritten.cumulative_tokens, { input: 10, output: 5, total: 15 });
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+// ── extractBuilderTelemetry tool_calls (F4) ──────────────────────────────────
+
+test('extractBuilderTelemetry reads execution.tool_calls as the invocation count', () => {
+  const telemetry = extractBuilderTelemetry({
+    execution: { tools_used: ['read_file', 'patch'], tool_calls: 17 },
+  });
+  // tools_used_count is distinct tool NAMES; tool_calls is total invocations.
+  assert.equal(telemetry.tools_used_count, 2);
+  assert.equal(telemetry.tool_calls, 17);
+});
+
+test('extractBuilderTelemetry leaves tool_calls null when execution has no count', () => {
+  assert.equal(extractBuilderTelemetry({ execution: { tools_used: ['a'] } }).tool_calls, null);
+  assert.equal(extractBuilderTelemetry({}).tool_calls, null);
+});
+
+test('telemetryMetricsUpdate carries tool_calls into the increment', () => {
+  const update = telemetryMetricsUpdate(extractBuilderTelemetry({ execution: { tool_calls: 9 } }), []);
+  assert.equal(update.increment.tool_calls, 9);
+});
+
+// ── builderContractKey (F1 idempotency) ──────────────────────────────────────
+
+test('builderContractKey is stable across key ordering and differs on content', () => {
+  const a = builderContractKey({ task_id: 't', status: 'PASS', cost: { actual_usd: 1 } });
+  const b = builderContractKey({ cost: { actual_usd: 1 }, status: 'PASS', task_id: 't' });
+  assert.equal(a, b, 'reordered keys hash the same');
+  const c = builderContractKey({ task_id: 't', status: 'PASS', cost: { actual_usd: 2 } });
+  assert.notEqual(a, c, 'different content hashes differently');
+  assert.equal(builderContractKey(null), null);
+});
+
+test('telemetryMetricsUpdate stamps the idempotency key when supplied', () => {
+  const update = telemetryMetricsUpdate(extractBuilderTelemetry({ cost: { actual_usd: 0.3 } }), [], 'abc123');
+  assert.equal(update.increment.idempotency_key, 'abc123');
+  const noKey = telemetryMetricsUpdate(extractBuilderTelemetry({ cost: { actual_usd: 0.3 } }), []);
+  assert.equal('idempotency_key' in noKey.increment, false);
+});
+
+// ── updateRunMetrics idempotency (F1) ────────────────────────────────────────
+
+test('the same contract validated 2×/3× is counted once', async () => {
+  const runDir = mkdtempSync(join(tmpdir(), 'rstack-metrics-idem-'));
+  try {
+    const builder = { task_id: '07-code', status: 'PASS', cost: { actual_usd: 1.0, input_tokens: 1000, output_tokens: 200 } };
+    const key = builderContractKey(builder);
+    const telemetry = extractBuilderTelemetry(builder);
+    const update = telemetryMetricsUpdate(telemetry, ['07-code'], key);
+
+    for (let i = 0; i < 3; i++) {
+      await updateRunMetrics(runDir, update);
+    }
+    const persisted = JSON.parse(readFileSync(join(runDir, 'metrics.json'), 'utf8'));
+    assert.equal(persisted.cumulative_cost_usd, 1.0, 'a 3× loop over a $1.00 stage persists $1.00, not $3.00');
+    assert.deepEqual(persisted.cumulative_tokens, { input: 1000, output: 200, total: 1200 });
+    assert.deepEqual(persisted.applied_telemetry_keys, [key]);
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test('a new contract after a genuine retry counts again', async () => {
+  const runDir = mkdtempSync(join(tmpdir(), 'rstack-metrics-rerun-'));
+  try {
+    const first = { task_id: '07-code', status: 'FAIL', summary: 'attempt 1', cost: { actual_usd: 1.0 } };
+    const second = { task_id: '07-code', status: 'PASS', summary: 'attempt 2 re-ran the builder', cost: { actual_usd: 1.0 } };
+    await updateRunMetrics(runDir, telemetryMetricsUpdate(extractBuilderTelemetry(first), ['07-code'], builderContractKey(first)));
+    await updateRunMetrics(runDir, telemetryMetricsUpdate(extractBuilderTelemetry(second), ['07-code'], builderContractKey(second)));
+    const persisted = JSON.parse(readFileSync(join(runDir, 'metrics.json'), 'utf8'));
+    // Two genuinely different attempts (different content → different keys) = real re-spend.
+    assert.equal(persisted.cumulative_cost_usd, 2.0);
+    assert.equal(persisted.applied_telemetry_keys.length, 2);
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test('idempotency guard holds under concurrent replays of the same key', async () => {
+  const runDir = mkdtempSync(join(tmpdir(), 'rstack-metrics-idem-race-'));
+  try {
+    const builder = { task_id: '07-code', cost: { actual_usd: 0.5 } };
+    const update = telemetryMetricsUpdate(extractBuilderTelemetry(builder), ['07-code'], builderContractKey(builder));
+    await Promise.all([
+      updateRunMetrics(runDir, update),
+      updateRunMetrics(runDir, update),
+      updateRunMetrics(runDir, update),
+    ]);
+    const persisted = JSON.parse(readFileSync(join(runDir, 'metrics.json'), 'utf8'));
+    assert.equal(persisted.cumulative_cost_usd, 0.5);
+    assert.equal(persisted.applied_telemetry_keys.length, 1);
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+// ── mid-run upgrade seeding (F3) ─────────────────────────────────────────────
+
+test('first new-style increment on a run with prior events seeds from history', async () => {
+  const runDir = mkdtempSync(join(tmpdir(), 'rstack-metrics-seed-'));
+  try {
+    // Realistic legacy metrics.json: pre-#83, cost/tokens lived ONLY in
+    // cost_recorded events — metrics.json carried no cumulative_cost_usd
+    // accrual and no cumulative_tokens marker. The read path recomputed both.
+    writeFileSync(join(runDir, 'metrics.json'), JSON.stringify({
+      cumulative_duration_ms: 0,
+      cumulative_cost_usd: 0,
+      cumulative_tool_calls: 0,
+      stage_elapsed_ms: {},
+      stage_status: {},
+    }));
+    const builder = { task_id: '07-code', cost: { actual_usd: 0.1, input_tokens: 100, output_tokens: 20 } };
+    const update = telemetryMetricsUpdate(extractBuilderTelemetry(builder), ['07-code'], builderContractKey(builder));
+    // Caller recomputes the pre-upgrade history from events ($5.00, 900 tokens)
+    // and passes it as the seed so no history is dropped.
+    update.seed = { cost_usd: 5.0, tokens: { input: 0, output: 0, total: 900 } };
+    const after = await updateRunMetrics(runDir, update);
+    // Cost: seeded $5.00 + this validation's $0.10 = $5.10 (not $0.10 — F3 bug).
+    assert.equal(after.cumulative_cost_usd, 5.1);
+    // Tokens: seeded 900 + this validation's 120.
+    assert.equal(after.cumulative_tokens.total, 1020);
+    // A second increment must not re-seed (marker now present).
+    const again = await updateRunMetrics(runDir, { increment: { tokens: { input: 0, output: 0, total: 5 }, idempotency_key: 'other' } });
+    assert.equal(again.cumulative_cost_usd, 5.1);
+    assert.equal(again.cumulative_tokens.total, 1025);
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test('seeding does not fire once the cumulative_tokens marker exists', async () => {
+  const runDir = mkdtempSync(join(tmpdir(), 'rstack-metrics-noseed-'));
+  try {
+    await updateRunMetrics(runDir, { increment: { tokens: { input: 10, output: 5, total: 15 }, idempotency_key: 'k1' } });
+    // Marker now present; a later increment carrying a seed must ignore it.
+    const after = await updateRunMetrics(runDir, {
+      increment: { cost_usd: 0.1, idempotency_key: 'k2' },
+      seed: { cost_usd: 99, tokens: { input: 0, output: 0, total: 99999 } },
+    });
+    assert.equal(after.cumulative_tokens.total, 15, 'seed ignored — marker already present');
+    assert.equal(after.cumulative_cost_usd, 0.1);
   } finally {
     rmSync(runDir, { recursive: true, force: true });
   }

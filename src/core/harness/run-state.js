@@ -67,8 +67,26 @@ function roundUsd(value) {
 // (which overwrite), `increment` ADDS to the running totals — the whole
 // read-modify-write already runs inside the file lock, so concurrent
 // increments from parallel validations both land.
+//
+// Idempotency (#83 double-count fix): when the increment carries an
+// `idempotency_key` (the builder-contract content hash), the whole increment
+// is applied at most once. The consumed keys are recorded in
+// `applied_telemetry_keys` on the metrics object, checked and appended inside
+// the same lock as the totals — so a retry or goal-loop reset that re-validates
+// the SAME builder.json (identical content → identical key) never counts twice,
+// while a genuine re-run of the builder (new content → new key) still counts.
+// Returns true when the increment was applied, false when skipped as a replay.
 function applyMetricsIncrement(merged, increment) {
-  if (!increment || typeof increment !== 'object') return;
+  if (!increment || typeof increment !== 'object') return false;
+
+  const key = typeof increment.idempotency_key === 'string' && increment.idempotency_key
+    ? increment.idempotency_key
+    : null;
+  if (key) {
+    const applied = Array.isArray(merged.applied_telemetry_keys) ? merged.applied_telemetry_keys : [];
+    if (applied.includes(key)) return false; // already counted — no-op replay
+    merged.applied_telemetry_keys = [...applied, key];
+  }
 
   const cost = Number(increment.cost_usd);
   if (Number.isFinite(cost)) {
@@ -102,6 +120,8 @@ function applyMetricsIncrement(merged, increment) {
     }
     merged.stage_tokens = stageTokens;
   }
+
+  return true;
 }
 
 export async function updateRunMetrics(runDir, metricsUpdate = {}) {
@@ -124,7 +144,25 @@ export async function updateRunMetrics(runDir, metricsUpdate = {}) {
       } catch { current = {}; }
     }
 
-    const { increment, ...update } = metricsUpdate;
+    const { increment, seed, ...update } = metricsUpdate;
+
+    // Mid-run upgrade seeding (#83): the first increment to materialize the
+    // `cumulative_tokens` marker on a run that already has pre-upgrade cost
+    // history (legacy cost_recorded events) must fold that history in, or a
+    // $5.00 run that logs one $0.10 new validation would report $0.10. The
+    // caller (which can see events) passes `seed` = event-recomputed totals;
+    // we apply it exactly once — only when the marker isn't present yet and we
+    // are about to create it — so subsequent increments don't re-seed.
+    const willMaterializeMarker =
+      current.cumulative_tokens === undefined && update.cumulative_tokens === undefined &&
+      increment && typeof increment === 'object';
+    if (willMaterializeMarker && seed && typeof seed === 'object') {
+      const seedCost = Number(seed.cost_usd);
+      if (Number.isFinite(seedCost)) current.cumulative_cost_usd = roundUsd((Number(current.cumulative_cost_usd) || 0) + seedCost);
+      if (seed.tokens && typeof seed.tokens === 'object') {
+        current.cumulative_tokens = addTokenCounts(current.cumulative_tokens, seed.tokens);
+      }
+    }
 
     const merged = {
       ...current,

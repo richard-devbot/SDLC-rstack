@@ -159,16 +159,36 @@ export function persistedTokenTotals(metrics) {
 }
 
 /**
+ * True when the event stream records a metrics write failure (F2). A
+ * `metrics_write_failed` event means a cost_recorded event landed but its
+ * matching persisted increment did NOT, so the persisted cumulative totals are
+ * known to be behind the events. When this has happened, event recompute is the
+ * safe source of truth for cost/tokens (cost_recorded is always appended before
+ * the increment is attempted), so resolveRunTotals ignores the stale persisted
+ * marker and recomputes.
+ */
+export function hasMetricsWriteDrift(events) {
+  for (const ev of events ?? []) {
+    if (ev?.type === 'metrics_write_failed') return true;
+  }
+  return false;
+}
+
+/**
  * Run totals, preferring persisted cumulative metrics (#83): when metrics.json
  * carries incremental cost/token totals they are authoritative — O(1) instead
  * of re-parsing the event stream, and they survive event rotation/archival.
  * Legacy runs (no persisted totals) recompute from events exactly as before.
  * Duration, task outcomes, guardrails, and quality always come from events.
+ *
+ * Exception (F2): if a `metrics_write_failed` event is present the persisted
+ * totals are known to lag the events, so we fall back to the event recompute
+ * rather than report a total we know is stale.
  */
 export function resolveRunTotals(events, metrics = {}) {
   const totals = deriveRunTotals(events);
   const persisted = persistedTokenTotals(metrics);
-  if (persisted) {
+  if (persisted && !hasMetricsWriteDrift(events)) {
     totals.tokens = persisted.total;
     totals.cost_usd = Math.round((Number(metrics.cumulative_cost_usd) || 0) * 10000) / 10000;
   }

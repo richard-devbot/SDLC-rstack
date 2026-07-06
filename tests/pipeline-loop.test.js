@@ -141,6 +141,33 @@ test('resetStagesForRetry only overrides stage_status for stages where a task wa
   assert.equal(metrics.stage_status['06-architecture'], 'FAILED', 'a stage with only gated tasks keeps its real status');
 });
 
+test('resetStagesForRetry clears the reset task\'s stale builder.json so it cannot be replayed (#83)', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-loop-'));
+  const outputDir = path.join('runs', 'run-a', 'tasks', '002');
+  const absOutputDir = path.join(projectRoot, outputDir);
+  mkdirSync(absOutputDir, { recursive: true });
+  const builderPath = path.join(absOutputDir, 'builder.json');
+  // A prior attempt's contract with real cost sitting in the task dir.
+  writeFileSync(builderPath, JSON.stringify({ task_id: '002', status: 'FAIL', cost: { actual_usd: 1.0 } }));
+
+  const runDir = seedRun(projectRoot, 'run-a', {
+    tasks: [
+      { id: '001', title: '001', status: 'PASS', stage_artifacts: [{ stage_id: '06-architecture' }] },
+      { id: '002', title: '002', status: 'FAIL', stage_artifacts: [{ stage_id: '07-code' }], output_dir: outputDir },
+    ],
+    metrics: null,
+  });
+  assert.equal(existsSync(builderPath), true, 'precondition: stale contract present');
+
+  const reset = await resetStagesForRetry(projectRoot, 'run-a', ['07-code']);
+  assert.deepEqual(reset, ['002']);
+  assert.equal(existsSync(builderPath), false, 'stale builder.json removed at reset so validation cannot re-cost it');
+  // The un-reset task in another stage keeps its dir untouched (nothing to prove
+  // beyond: reset only cleans what it resets).
+  const tasks = JSON.parse(readFileSync(path.join(runDir, 'tasks.json'), 'utf8')).tasks;
+  assert.equal(tasks.find((item) => item.id === '002').status, 'PENDING');
+});
+
 // ── The loop ─────────────────────────────────────────────────────────────────
 
 test('retry then pass: loop resets the recommended stage, reruns it, and completes with the full event trail', async () => {

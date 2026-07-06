@@ -15,6 +15,8 @@
 // builder_v2_cost_values_are_numeric check) is what fails validation on
 // non-numeric cost telemetry.
 
+import { createHash } from 'node:crypto';
+
 function finiteNumber(value) {
   if (value === null || value === undefined || value === '') return null;
   const num = Number(value);
@@ -41,13 +43,15 @@ function plainObject(value) {
  *   `builder.cost` is a bare number are treated as actual spend.
  * - tokens: { input, output, total } from optional cost.input_tokens /
  *   cost.output_tokens / cost.total_tokens (cost.tokens accepted as total).
- * - tools_used_count: length of execution.tools_used (distinct tools, not
- *   call counts — execution.tool_calls stays the guardrail-budget signal).
+ * - tools_used_count: length of execution.tools_used (distinct tool NAMES, not
+ *   call counts).
+ * - tool_calls: execution.tool_calls (total tool INVOCATIONS) — the
+ *   guardrail-budget signal and what feeds cumulative_tool_calls.
  * - context: { profile, workflow, injected_source_count, tokens_used,
  *   tokens_available } — the token gauges are the context-pressure hook (#136).
  */
 export function extractBuilderTelemetry(builder) {
-  const telemetry = { cost: null, tokens: null, tools_used_count: null, context: null };
+  const telemetry = { cost: null, tokens: null, tools_used_count: null, tool_calls: null, context: null };
   if (!plainObject(builder)) return telemetry;
 
   const rawCost = builder.cost;
@@ -80,6 +84,12 @@ export function extractBuilderTelemetry(builder) {
   if (Array.isArray(builder.execution?.tools_used)) {
     telemetry.tools_used_count = builder.execution.tools_used.length;
   }
+  // execution.tool_calls is the guardrail-budget signal: the total number of
+  // tool INVOCATIONS in the attempt (distinct from tools_used_count, which is
+  // the count of distinct tool NAMES). This is what feeds cumulative_tool_calls
+  // — a real call count, not a name count.
+  const toolCalls = finiteNumber(builder.execution?.tool_calls);
+  if (toolCalls !== null) telemetry.tool_calls = toolCalls;
 
   const rawContext = plainObject(builder.context);
   if (rawContext) {
@@ -102,6 +112,42 @@ export function extractBuilderTelemetry(builder) {
   }
 
   return telemetry;
+}
+
+/**
+ * Stable idempotency key for a builder contract (#83 double-count fix).
+ *
+ * The key is a SHA-256 of the CANONICAL contract content — object keys sorted
+ * recursively so semantically-identical JSON always hashes the same. This is
+ * what makes the cost increment idempotent: the SAME builder.json validated
+ * twice (an automated retry that re-runs validation without re-running the
+ * builder, or a goal-loop stage reset that replays a stale contract) produces
+ * the SAME key and must count only once.
+ *
+ * A LEGITIMATE re-spend — a genuine retry that actually re-runs the builder —
+ * writes a NEW builder.json (different summary, files_modified, tests_run,
+ * cost, or any other field), which hashes to a NEW key and correctly counts
+ * again. We key on content, not on a timestamp, precisely so that a builder
+ * that re-does real work is never mistaken for a replay; two attempts that
+ * produced byte-identical contracts genuinely represent the same spend and are
+ * collapsed on purpose.
+ *
+ * Returns null for a non-object contract (nothing to key on).
+ */
+export function builderContractKey(builder) {
+  if (!plainObject(builder)) return null;
+  return createHash('sha256').update(canonicalJson(builder)).digest('hex');
+}
+
+// Deterministic JSON: object keys sorted at every level so key ordering never
+// changes the hash. Arrays keep their order (order is meaningful there).
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value === undefined ? null : value);
 }
 
 /**
@@ -156,8 +202,14 @@ export function builderTelemetryEvents(taskId, telemetry) {
  * across the task's canonical stages, mirroring deriveStageElapsed's
  * multi-stage normalization so nothing is double-counted. Context token
  * gauges are point-in-time values, not counters, so they overwrite.
+ *
+ * When `idempotencyKey` is supplied (the builder-contract hash from
+ * builderContractKey), it is stamped on the increment so updateRunMetrics can
+ * make the whole increment a no-op if that key was already applied — this is
+ * the double-count guard for retries and loop resets that re-validate the same
+ * contract (#83).
  */
-export function telemetryMetricsUpdate(telemetry, stageIds = []) {
+export function telemetryMetricsUpdate(telemetry, stageIds = [], idempotencyKey = null) {
   const ids = (Array.isArray(stageIds) ? stageIds : []).filter((id) => typeof id === 'string' && id);
   const increment = {};
 
@@ -181,8 +233,15 @@ export function telemetryMetricsUpdate(telemetry, stageIds = []) {
     }
   }
 
+  if (telemetry?.tool_calls !== null && telemetry?.tool_calls !== undefined) {
+    increment.tool_calls = telemetry.tool_calls;
+  }
+
   const update = {};
-  if (Object.keys(increment).length > 0) update.increment = increment;
+  if (Object.keys(increment).length > 0) {
+    if (typeof idempotencyKey === 'string' && idempotencyKey) increment.idempotency_key = idempotencyKey;
+    update.increment = increment;
+  }
   if (telemetry?.context?.tokens_used !== null && telemetry?.context?.tokens_used !== undefined) {
     update.context_tokens_used = telemetry.context.tokens_used;
   }
