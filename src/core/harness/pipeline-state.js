@@ -280,7 +280,12 @@ function summarizeGoalLoopEvents(events) {
     if (!type.startsWith('loop_') && type !== 'goal_evaluated') continue;
     total += 1;
     if (type === 'loop_iteration_started') {
-      iterations = Math.max(iterations, Number(event.iteration) || 0);
+      // Scope the counter to the most recent loop invocation: every
+      // invocation restarts at iteration 1, so a non-increasing iteration
+      // number marks a fresh loop — a historical max across old runs would
+      // report "iteration 3" for a loop that just started at 1.
+      const iteration = Number(event.iteration) || 0;
+      iterations = iteration <= 1 ? iteration : Math.max(iterations, iteration);
       stoppedOn = null; // a new iteration supersedes an earlier terminal event
     } else if (type === 'goal_evaluated') {
       lastEvaluation = {

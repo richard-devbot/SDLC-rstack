@@ -295,6 +295,12 @@ test('loop events are visible in pipeline status: goal_loop rollup + status line
   const runDir = seedRun(projectRoot, 'run-a', {
     tasks: [task('001', 'PASS', '07-code')],
     goal: { goal_id: 'never-met', criteria: [{ id: 'ghost', kind: 'file_exists', path: 'never.md', rerun_stages: ['07-code'] }] },
+    // A prior invocation reached iteration 3 — the rollup must scope the
+    // counter to the LATEST invocation, not report a historical max.
+    events: [
+      { ts: '2026-07-01T00:00:00.000Z', type: 'loop_iteration_started', iteration: 3, max_iterations: 3, goal_id: 'never-met' },
+      { ts: '2026-07-01T00:00:01.000Z', type: 'loop_blocked', iteration: 3, max_iterations: 3, goal_id: 'never-met', stopped_on: 'max_iterations' },
+    ],
   });
   const invokeTool = async (tool) => {
     if (tool !== 'sdlc_build_next') return;
@@ -305,7 +311,7 @@ test('loop events are visible in pipeline status: goal_loop rollup + status line
   const { buildPipelineState } = await import('../src/core/harness/pipeline-state.js');
   const state = await buildPipelineState(projectRoot, 'run-a');
   assert.ok(state.goal_loop.total > 0, 'rollup carries a goal_loop summary');
-  assert.equal(state.goal_loop.iterations, 2);
+  assert.equal(state.goal_loop.iterations, 2, 'iteration counter is scoped to the latest invocation, not a historical max');
   assert.equal(state.goal_loop.last_evaluation.status, 'RETRY');
   assert.equal(state.goal_loop.stopped_on, 'max_iterations');
   assert.equal(state.retries.total, 0, 'goal-loop events must not inflate the task-retry counts');
