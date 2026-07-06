@@ -6,9 +6,12 @@ import { join } from 'node:path';
 import {
   appendEpisode,
   appendLearning,
+  calculateEpisodeSignature,
   episodeFromValidation,
+  evaluateWritePolicy,
   formatEpisodesForPrompt,
   projectMemoryDir,
+  readEpisodes,
   recallEpisodes,
   retractEpisode,
   sanitizeMemoryText,
@@ -231,6 +234,133 @@ test('decay scoring and fusion weighting with redistribution works correctly', a
     assert.ok(matches.length > 0);
     assert.ok(matches[0].fusedScore > 0);
     assert.ok(matches[0].decay_score > 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- #137 write-policy enforcement -------------------------------------------
+
+function signed(episode) {
+  const ep = { ...episode };
+  ep.signature = calculateEpisodeSignature(ep);
+  return ep;
+}
+
+test('evaluateWritePolicy trusts only integrity-clean PASS validations', () => {
+  const pass = signed(baseEpisode());
+  const decision = evaluateWritePolicy(pass, { writePolicy: 'validator-approved-only' });
+  assert.deepEqual({ write: decision.write, trusted: decision.trusted }, { write: true, trusted: true });
+});
+
+test('evaluateWritePolicy skips FAILED validations under validator-approved-only', () => {
+  const fail = signed(baseEpisode({ validator_status: 'FAIL', outcome: 'FAIL', quality_score: 0.2 }));
+  const decision = evaluateWritePolicy(fail, { writePolicy: 'validator-approved-only' });
+  assert.equal(decision.write, false);
+  assert.equal(decision.trusted, false);
+  assert.equal(decision.reason, 'not-validator-approved');
+});
+
+test('evaluateWritePolicy stores FAILED validations untrusted under validation-attempts', () => {
+  const fail = signed(baseEpisode({ validator_status: 'FAIL', outcome: 'FAIL', quality_score: 0.2 }));
+  const decision = evaluateWritePolicy(fail, { writePolicy: 'validation-attempts' });
+  assert.equal(decision.write, true);
+  assert.equal(decision.trusted, false);
+});
+
+test('evaluateWritePolicy demotes PASS with missing evidence, tampered signature, or bad score', () => {
+  const noEvidence = signed(baseEpisode({ evidence_paths: [] }));
+  assert.deepEqual(evaluateWritePolicy(noEvidence, { writePolicy: 'validation-attempts' }).trusted, false);
+  assert.equal(evaluateWritePolicy(noEvidence, { writePolicy: 'validator-approved-only' }).write, false);
+
+  const tampered = { ...signed(baseEpisode()), signature: 'deadbeef' };
+  assert.equal(evaluateWritePolicy(tampered, { writePolicy: 'validator-approved-only' }).write, false);
+
+  const badScore = signed(baseEpisode({ quality_score: 5 }));
+  assert.equal(evaluateWritePolicy(badScore, { writePolicy: 'validator-approved-only' }).write, false);
+});
+
+test('appendEpisode skips FAILED episodes by default and returns a skip decision', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rstack-writepolicy-'));
+  try {
+    const result = await appendEpisode(dir, baseEpisode({
+      episode_id: 'ep_fail',
+      validator_status: 'FAIL',
+      outcome: 'FAIL',
+      quality_score: 0.2,
+      trusted: true, // caller lies — enforcement must ignore this
+    }));
+    assert.equal(result.written, false);
+    assert.equal(result.path, null);
+    assert.equal(result.decision.reason, 'not-validator-approved');
+    // Nothing was persisted, so nothing can be recalled.
+    assert.equal((await readEpisodes(dir)).length, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('appendEpisode writes FAILED episodes as trusted:false under validation-attempts', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rstack-writepolicy-attempts-'));
+  try {
+    const result = await appendEpisode(dir, baseEpisode({
+      episode_id: 'ep_fail_attempt',
+      validator_status: 'FAIL',
+      outcome: 'FAIL',
+      quality_score: 0.2,
+      trusted: true, // caller lies — must be coerced to false
+    }), { writePolicy: 'validation-attempts' });
+    assert.equal(result.written, true);
+    assert.equal(result.trusted, false);
+
+    const persisted = await readEpisodes(dir);
+    assert.equal(persisted.length, 1);
+    assert.equal(persisted[0].trusted, false);
+
+    // A default recall (trusted-only) must not surface it.
+    const defaultRecall = await recallEpisodes(dir, {
+      query: 'validator harness contracts evidence',
+      config: { topK: 5, minScore: 0 },
+    });
+    assert.equal(defaultRecall.some((ep) => ep.episode_id === 'ep_fail_attempt'), false);
+
+    // Only an explicit includeUntrusted recall can reach it.
+    const untrustedRecall = await recallEpisodes(dir, {
+      query: 'validator harness contracts evidence',
+      includeUntrusted: true,
+      config: { topK: 5, minScore: 0 },
+    });
+    assert.equal(untrustedRecall.some((ep) => ep.episode_id === 'ep_fail_attempt'), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('appendEpisode cannot be tricked into trusting a FAILED episode via the trusted flag', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rstack-writepolicy-launder-'));
+  try {
+    const result = await appendEpisode(dir, baseEpisode({
+      episode_id: 'ep_launder',
+      validator_status: 'FAIL',
+      outcome: 'FAIL',
+      quality_score: 0.9, // inflated score, still a FAIL
+      trusted: true,
+    }), { writePolicy: 'validation-attempts' });
+    assert.equal(result.trusted, false);
+    const persisted = await readEpisodes(dir);
+    assert.equal(persisted[0].trusted, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('appendEpisode still throws on schema-invalid episodes (missing provenance)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rstack-writepolicy-invalid-'));
+  try {
+    await assert.rejects(
+      () => appendEpisode(dir, { task: 'no provenance fields' }),
+      /Invalid episode memory/,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
