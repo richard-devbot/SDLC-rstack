@@ -30,7 +30,9 @@ import { getRunsForRoot } from './runs.js';
 import { safeJson } from './files.js';
 import { persistedTokenTotals } from '../../metrics/derive.js';
 
-export const INDEX_VERSION = 1;
+// v2 (#97): entries persist stage_reports so index-served (completed) runs
+// keep their produced-stage list; the bump forces one self-healing rebuild.
+export const INDEX_VERSION = 2;
 export const DEFAULT_RETENTION_DAYS = 90;
 
 const STALL_MS = 30 * 60 * 1000;
@@ -112,6 +114,9 @@ export function entryFromRun(run, sig = null) {
     started_by: run.manifest?.started_by ?? null,
     has_plan: run.hasPlan ?? false,
     brief: (run.brief ?? '').slice(0, 300),
+    // Which stages produced an artifact (#97) — without this, every
+    // index-served run rendered as if no stage had reported.
+    stage_reports: run.stageReports ?? [],
     metrics: {
       cumulative_cost_usd: metricCost,
       cumulative_tokens: run.metrics?.cumulative_tokens ?? metricTokens,
@@ -177,7 +182,7 @@ export function liteRunFromEntry(projectRoot, entry, now = Date.now()) {
     evidence: [],
     approvals: [],
     artifactIndex: [],
-    stageReports: [],
+    stageReports: entry.stage_reports ?? [],
     activityTimeline: [],
     timeline: [],
     totals: entry.totals ?? null,

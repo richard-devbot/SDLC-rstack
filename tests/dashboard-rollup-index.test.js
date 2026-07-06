@@ -6,7 +6,7 @@ import { stat as statAsync } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildFullState } from '../src/observability/dashboard/state/index.js';
-import { resolveRetentionDays, statusFromEntry } from '../src/observability/dashboard/state/rollup-index.js';
+import { INDEX_VERSION, resolveRetentionDays, statusFromEntry } from '../src/observability/dashboard/state/rollup-index.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -61,7 +61,7 @@ test('rollup index is created and self-heals when deleted', async () => {
 
     const index = JSON.parse(await readFile(indexPath, 'utf8'));
     assert.equal(Object.keys(index.runs).length, 2);
-    assert.equal(index.version, 1);
+    assert.equal(index.version, INDEX_VERSION);
     assert.equal(state.runs.length, 2);
     assert.equal(state.totalCost, 1);
   } finally {

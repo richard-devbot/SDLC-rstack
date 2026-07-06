@@ -408,6 +408,24 @@ test('projects-runs stage strip stays honest for runs without dark-stage artifac
   assert.doesNotMatch(table, /Brief|Docs|Feedback/);
 });
 
+// ── #97: index-served runs keep their produced-stage list ──
+
+test('rollup index entries persist stageReports through the lite-run roundtrip', async () => {
+  const { entryFromRun, liteRunFromEntry } = await import('../src/observability/dashboard/state/rollup-index.js');
+  const entry = entryFromRun({
+    runId: 'run-idx-1',
+    manifest: { goal: 'g', completed_at: '2026-07-06T12:00:00Z' },
+    stageReports: ['01-transcript', '11-feedback-loop'],
+    tasks: [], events: [], metrics: {},
+  });
+  assert.deepEqual(entry.stage_reports, ['01-transcript', '11-feedback-loop']);
+  const lite = liteRunFromEntry('/p', entry);
+  assert.deepEqual(lite.stageReports, ['01-transcript', '11-feedback-loop'], 'index-served runs keep produced stages');
+  // Pre-v2 entries without the field degrade to [] instead of crashing.
+  delete entry.stage_reports;
+  assert.deepEqual(liteRunFromEntry('/p', entry).stageReports, []);
+});
+
 // ── bundle safety: the assembled client still compiles with the wave changes ──
 
 test('assembled client bundle compiles with the quality-wave page modules', () => {
