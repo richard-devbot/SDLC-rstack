@@ -538,3 +538,40 @@ npm run lint
 ## Safety notes
 
 The Harness foundation does not add auth, payment processing, PII storage, public APIs, deploy automation, or npm publishing. Publishing, deployment, force-push, and destructive cleanup still require explicit user approval.
+
+## Destructive-action classification (#131, BLE-5.1)
+
+`src/core/harness/destructive-actions.js` is the centralized, I/O-free source of truth for
+what makes a command or write destructive. It replaces scattered, context-private checks with
+one classifier both builder-side and validator-context callers can consume.
+
+`classifyDestructiveAction(command | { command } | { toolName, input } | string)` returns a
+stable frozen verdict `{ destructive, category, reason, matched }`. Categories
+(`DESTRUCTIVE_CATEGORIES`):
+
+- `broad-delete` — recursive/forced `rm`, `rmdir`, `shred`, `mkfs`, `dd of=`, `find -delete`
+  (a single-target `rm file.txt` is NOT flagged — recursion/force is what escalates)
+- `git-force` — `git push --force`/`-f`/`--force-with-lease`/`+ref`, `git reset --hard`
+- `publish` — `npm/yarn/pnpm publish`, `npm unpublish`, `cargo publish`, `gem push`,
+  `twine upload`, `gh release create/delete`
+- `deploy` — `terraform apply/destroy`, `pulumi up/destroy`, `kubectl apply/delete/...`,
+  `helm ...`, `docker push`, CloudFormation stack ops, `firebase/vercel/netlify/fly/serverless
+  deploy`, `ansible-playbook`
+- `secret-write` — shell redirect/`tee` into `.env`/keys/credentials; write-tool targets on
+  secret/credential/key paths
+- `protected-config-write` — write-tool targets on `.git`, CI workflows, Dockerfiles,
+  lockfiles, `.tf`/`.tfvars`, `.rstack`
+- `db-destroy` — `DROP TABLE/DATABASE/SCHEMA`, `DELETE FROM`, `TRUNCATE`
+
+Destructive actions are **gateable, not denied outright**: they require an explicit approval
+artifact. `requireApprovalForDestructiveAction({ action, taskId, approvedArtifacts })` (pure) and
+`guardrails.evaluateDestructiveAction({ action, taskId, approvals, expectedRunId })` (wired to the
+audited approval path, #133) resolve a per-task `destructive-action:<taskId>` artifact through the
+same `trustedApprovedArtifacts` audit used by the required-approval and guardrail-override gates —
+one audit, no drift; a foreign-run or malformed record cannot unblock. `guardrails.isDestructiveTaskOrAction(task, action)`
+combines the declared task flag with content classification.
+
+This is distinct from and does not replace the validator sandbox (`validator-sandbox.js`, #119),
+which stays the stricter authority for validator/reviewer/security contexts (any mutation denied,
+no approval path). Refactoring the sandbox to consume this classifier is a deliberate follow-up —
+the two encode different policies (gate-with-approval vs deny-outright).
