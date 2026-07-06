@@ -376,7 +376,7 @@ export function validateGoalEvaluation(raw) {
 // Evidence-or-nothing: every listed path must exist (relative paths resolve
 // against the run dir first, then the project root). Rejections are returned
 // with reasons so ASK_USER can say WHY the agent's claim was not consumed.
-export function goalVerdictsFromFeedback(feedback, { runDir, projectRoot } = {}) {
+export function goalVerdictsFromFeedback(feedback, { runDir, projectRoot, iteration = null } = {}) {
   const section = normalizeGoalEvaluation(feedback?.goal_evaluation);
   const verdicts = [];
   const rejected = [];
@@ -389,6 +389,18 @@ export function goalVerdictsFromFeedback(feedback, { runDir, projectRoot } = {})
   for (const criterion of section.criteria) {
     if (criterion.result === 'unknown') {
       rejected.push({ criterion_id: criterion.criterion_id, reason: 'result is "unknown" — a host framework or human must judge' });
+      continue;
+    }
+    // Anti-over-stamping (model-written artifact, unlike the trusted
+    // goal-verdict.json writer): the prompt tells agent 11 to copy the CURRENT
+    // loop_iteration_started value, so an honest agent never stamps ahead. A
+    // stamp greater than the current iteration would stay ">= minIteration"
+    // fresh forever and defeat the freshness filter — reject it as malformed.
+    if (iteration != null && criterion.iteration != null && criterion.iteration > iteration) {
+      rejected.push({
+        criterion_id: criterion.criterion_id,
+        reason: `iteration stamp ${criterion.iteration} is ahead of the current iteration ${iteration} — over-stamped evaluations are malformed, re-run 11-feedback-loop`,
+      });
       continue;
     }
     if (!criterion.evidence.length) {
@@ -614,7 +626,7 @@ export async function evaluateGoal(projectRoot, runId, options = {}) {
   // explicit goal-verdict.json pool yields nothing for a criterion — a
   // human/host verdict (id-matched OR the id-less shorthand) always outranks
   // the agent's.
-  const agentGoal = goalVerdictsFromFeedback(evidence.feedback, { runDir, projectRoot });
+  const agentGoal = goalVerdictsFromFeedback(evidence.feedback, { runDir, projectRoot, iteration });
 
   const judgeCriteriaCount = goal.criteria.filter((criterion) => criterion.kind === 'judge').length;
   const criteria = [];

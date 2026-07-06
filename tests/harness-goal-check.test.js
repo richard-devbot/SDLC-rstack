@@ -496,6 +496,32 @@ test('stale agent-11 evaluation (older or missing iteration stamp) is ignored in
   assert.equal((await evaluateGoal(projectRoot, 'run-a')).status, 'PASS');
 });
 
+test('over-stamped agent-11 evaluation (iteration ahead of the current one) is rejected as malformed', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
+  const runDir = seedRun(projectRoot, 'run-a', { tasks: [task('001', 'PASS')], goal: judgedGoal });
+  const evidencePath = seedDesignArtifact(runDir);
+  const stageDir = path.join(runDir, 'artifacts', 'stages', '11-feedback-loop');
+  mkdirSync(stageDir, { recursive: true });
+  // A write-once iteration: 99 would satisfy ">= minIteration" on every later
+  // iteration and defeat the freshness filter forever. For the agent path a
+  // stamp ahead of the current iteration is malformed, never fresh.
+  writeFileSync(path.join(stageDir, 'feedback.json'), JSON.stringify(feedbackWithGoalEvaluation([
+    { criterion_id: 'design-review', result: 'met', evidence: [evidencePath] },
+  ], { iteration: 99 })));
+
+  const evaluation = await evaluateGoal(projectRoot, 'run-a', { iteration: 2 });
+  assert.equal(evaluation.status, 'ASK_USER');
+  assert.match(evaluation.reason, /iteration stamp 99 is ahead of the current iteration 2/);
+  assert.equal(evaluation.agent_goal_evaluation.rejected.length, 1);
+  assert.deepEqual(evaluation.agent_goal_evaluation.consumed, []);
+
+  // An exact current stamp is fine — the honest case keeps working.
+  writeFileSync(path.join(stageDir, 'feedback.json'), JSON.stringify(feedbackWithGoalEvaluation([
+    { criterion_id: 'design-review', result: 'met', evidence: [evidencePath] },
+  ], { iteration: 2 })));
+  assert.equal((await evaluateGoal(projectRoot, 'run-a', { iteration: 2 })).status, 'PASS');
+});
+
 test('an id-less shorthand human verdict outranks an id-matched agent-11 claim (single-judge goal)', async () => {
   // The documented shorthand {"verdict":"FAIL"} carries no criterion_id. In a
   // merged pool the agent's id-matched claim would win the byId lookup and
