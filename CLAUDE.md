@@ -24,6 +24,7 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-06 | **Agent-11 goal contract**: `goal_evaluation` in feedback.json feeds the goal evaluator as an evidenced judge-verdict writer — explicit human/host verdicts always consumed first (id-less shorthand included), agent stamps ahead of the current iteration rejected, evidence must resolve to a real file inside runDir/projectRoot (existence-not-relevance documented honestly), conflicting duplicate criteria consumed by neither, agent rerun recommendations UNION the recipe's stages so the loop self-sustains; closes BLE-4 — **all six BLE epics done** | 1 | #128 #126, PR #195 (adversarial review: 5 findings fixed pre-merge, runtime wiring → #196) |
 | 2026-07-06 | **BLE-4 goal loop (core)**: model-free goal evaluator (`goal-check.js` — verifiable criteria evaluated by the harness; judge criteria close via iteration-stamped `goal-verdict.json`, unstamped = stale in loop context), bounded budget-capped `rstack-agents pipeline loop` (default 3 iterations, hard cap 20 no config can exceed, no-progress stop, budget checked pre-iteration), in-lock stage resets that can't launder attempt budgets, five pinned loop events in status/feed, `docs/loop-recipes.md` (recipes tagged with maintenance taxonomy) | 1 | #127 #129, PR #193 |
 | 2026-07-06 | **Adopt-aware agents**: run-modes contract (greenfield/brownfield/feature) in OPERATING-STANDARD §8 + SOUL, "Adopted-Run Behavior" in ALL 15 stage agents (detection recipe with `RUN_BASE` fallback, refine-never-regenerate, study-before-modify per Stephens Ch11 p243), markers verified against `harvest.js`; completes the #148 flagship end-to-end | 3 | #183, PRs #192 #189 #190 #191 |
 | 2026-07-06 | **Stephens book alignment**: 02-requirements Ch4 quality gates (clear/unambiguous/consistent/prioritized/verifiable, words-to-avoid, FURPS+, five Ws, MoSCoW, changes via Decision Queue); 08-testing five-level taxonomy + black/white/gray-box; 09-deployment deliberate cutover strategy (`cutover` block required) + canonical-then-legacy write path; 10-summary defect analysis from real BLE-3 events + Ishikawa grouping + honest nulls; 11-feedback-loop maintenance taxonomy (perfective/adaptive/corrective/preventive) + bug-swarm rule | 1, 4 | #184 #185 #186 #187, PRs #189 #190 #191 |
@@ -56,9 +57,9 @@ Pre-2026-06 history lives in CHANGELOG.md (v1.0 → v1.9.0-rc).
 
 Work top-down. File a GitHub issue before any branch (Richardson's rule: issues before PRs).
 
-1. **#128** — agent-11 goal contract (`goal_evaluation` in feedback.json feeding the #193
-   evaluator as an evidenced verdict writer; folds in the #186 maintenance taxonomy). Last item
-   of BLE-4 — closes epic #126. In flight 2026-07-06 (feat/goal-contract-128). Goal 1.
+1. **#196** — wire `validateGoalEvaluation` into the stage-11 validation path (runtime
+   enforcement of the goal contract; today it's prompt-text-only, which goal 1 forbids).
+   Small, well-scoped — from PR #195's adversarial review. Goal 1.
 2. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
    do after the #95 page-module split. Goal 2.
 3. **#134–#137** — cost/context/memory (BLE-6), incl. #83 persisted cost metrics. Goal 4.
