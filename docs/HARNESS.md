@@ -92,6 +92,50 @@ Raw runtime events are appended to `events.jsonl`. Validator-grounded task evide
 
 `src/core/harness/evidence.js` rejects missing `task_id`, `kind`, `status`, or `evidence` fields.
 
+## Run metrics (metrics.json)
+
+`<run_dir>/metrics.json` is the persisted cost/duration/token rollup for a run (#83, #135). It is written by `updateRunMetrics` (`src/core/harness/run-state.js`) under a file lock with atomic tmp+rename, so concurrent writers both land. Full schema:
+
+```json
+{
+  "cumulative_duration_ms": 0,
+  "cumulative_cost_usd": 0,
+  "cumulative_tool_calls": 0,
+  "cumulative_tokens": { "input": 0, "output": 0, "total": 0 },
+  "stage_elapsed_ms": { "07-code": 900 },
+  "stage_status": { "07-code": "PASS" },
+  "stage_cost_usd": { "07-code": 0.42 },
+  "stage_tokens": { "07-code": { "input": 12000, "output": 3000, "total": 15000 } },
+  "context_tokens_used": null,
+  "context_tokens_available": null,
+  "applied_telemetry_keys": ["<sha256 of the builder contract that was counted>"]
+}
+```
+
+All fields are additive-tolerant — readers default anything missing, so legacy files need no migration and the file carries no `schema_version`. `cumulative_tokens` doubles as the marker that the run was written by the incremental telemetry path: readers (`resolveRunTotals` in `src/observability/metrics/derive.js`, the reporter's cost summary) treat persisted totals as authoritative when the object is present and recompute from `cost_recorded` events otherwise, so legacy runs still render. Unrelated metrics updates never materialize the marker on legacy files.
+
+Write semantics:
+
+- Top-level `cumulative_*` values and the stage maps passed directly to `updateRunMetrics` **overwrite/merge-per-key** (pre-#83 behavior, unchanged).
+- An `increment` block **adds** deltas atomically in-lock: `cost_usd`, `tool_calls`, `tokens {input, output, total}`, and per-stage `stage_cost_usd` / `stage_tokens` maps. This is how `cost_recorded` telemetry updates totals incrementally instead of being re-derived O(events) per dashboard poll.
+- `context_tokens_used` / `context_tokens_available` are point-in-time gauges (the context-pressure hook for BLE-6.2), so they overwrite.
+
+Idempotency (double-count guard): an `increment` may carry an `idempotency_key` (a SHA-256 of the canonical builder-contract content, from `builderContractKey`). The whole increment is applied **at most once** per key — consumed keys are recorded in `applied_telemetry_keys` and checked/appended inside the same lock as the totals. This is what stops one real builder execution being persisted 2–3× through the automated retry path (#123) and the goal loop's stage resets (#129): re-validating the *same* `builder.json` (identical content → identical key) is a no-op, while a genuine retry that actually re-runs the builder writes a *new* contract (different content → new key) and correctly counts again. The guard is content-based, not timestamp-based, precisely so a real re-run is never mistaken for a replay; two attempts with byte-identical contracts represent the same spend and are collapsed on purpose. Belt-and-braces, the stale `builder.json` is also removed at re-claim (`sdlc_build_next`) and at goal-loop reset (`resetStagesForRetry`), so a reset stage cannot replay the prior attempt's contract at all — it must produce a fresh one to be validated.
+
+Mid-run upgrade seeding: the first increment to materialize the `cumulative_tokens` marker on a run that already has pre-upgrade `cost_recorded` history seeds the persisted totals from an event recompute (passed as `seed` to `updateRunMetrics`, applied once and only when the marker is being created). Without this, an in-flight run upgrading to the persisted-metrics format mid-run would drop all prior history (e.g. `$5.00` of legacy events + one `$0.10` new validation would report `$0.10`).
+
+`cumulative_tool_calls`: fed by `increment.tool_calls`, sourced from the builder contract's `execution.tool_calls` (total tool **invocations** in the attempt — the guardrail-budget signal). This is distinct from `tools_used_count` (`execution.tools_used.length`, the count of distinct tool **names**); a contract with no `execution.tool_calls` contributes nothing to the counter.
+
+Telemetry source: at validate time `sdlc_validate` extracts the builder contract's structured `cost` / `context` / `execution` fields via `extractBuilderTelemetry` (`src/core/harness/telemetry.js`), on **every** validation — retries cost money too, and the idempotency key (above) is what prevents re-validation of the same contract from double-counting. Non-numeric cost values are ignored by extraction; the contract gate's `builder_v2_cost_values_are_numeric` check is what fails validation on them. Cost and tokens are split evenly across the task's canonical stages (the same normalization as stage elapsed), so multi-stage tasks are never double-counted.
+
+Events (pinned contract, same rules as `retry_decision` — downstream consumers key on these exact shapes):
+
+- `cost_recorded` — `task_id`, `usd` (effective spend: `actual_usd` wins over `estimated_usd`; `cost` kept as a legacy alias), `estimated_usd`, `actual_usd`, `currency`, `tokens`, `input_tokens`, `output_tokens`, `source: "builder_contract"`.
+- `context_recorded` — `task_id`, `profile`, `workflow`, `injected_sources` (count), `tokens_used`, `tokens_available`, `source: "builder_contract"`.
+- `metrics_write_failed` — `task_id`, `operation` (e.g. `"telemetry_increment"`), `error`. Emitted when a `cost_recorded` event landed but its matching persisted increment failed to write. It marks the persisted totals as behind the events; `resolveRunTotals` detects the event (via `hasMetricsWriteDrift`) and falls back to event recompute rather than reporting a total it knows is stale.
+
+Rollups: the pipeline-state `cost_context` block carries `cumulative_tokens` alongside the existing cost/duration/tool-call totals, and each stage entry carries its `cost_usd` / `tokens` share (`null` when never recorded). `rstack-agents pipeline status` prints the token total; `--json` exposes the full structure.
+
 ## Agent episodic memory
 
 Validator-approved tasks are written to an agent/stage scoped episodic memory store by `src/memory/index.js`.

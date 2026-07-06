@@ -140,6 +140,16 @@ export function plainLanguageSummary(event) {
       const cost = Number(rawCost);
       return `Cost recorded: $${Number.isFinite(cost) ? cost.toFixed(4) : '0.0000'}`;
     }
+    case 'context_recorded': {
+      const parts = [];
+      if (event.profile) parts.push(`profile ${event.profile}`);
+      if (event.workflow) parts.push(`workflow ${event.workflow}`);
+      parts.push(`${Number(event.injected_sources) || 0} injected source(s)`);
+      if (event.tokens_used != null) {
+        parts.push(`${event.tokens_used}${event.tokens_available != null ? `/${event.tokens_available}` : ''} context tokens`);
+      }
+      return `Context recorded — ${parts.join(', ')}`;
+    }
     case 'guardrail_triggered':
       return `🛡 Guardrail blocked ${event.task_id ?? 'task'} — ${event.reason ?? event.limit_name ?? event.limit ?? 'budget exceeded'}`;
     case 'guardrail_overridden':

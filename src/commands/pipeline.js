@@ -143,6 +143,10 @@ export function formatPipelineStatus(state) {
     `cost $${Number(cost.cumulative_cost_usd ?? 0).toFixed(2)}`,
     `tool calls ${cost.cumulative_tool_calls ?? 0}`,
   ];
+  const tokenTotal = Number(cost.cumulative_tokens?.total);
+  if (Number.isFinite(tokenTotal) && tokenTotal > 0) {
+    totals.push(`tokens ${tokenTotal}`);
+  }
   if (cost.context_tokens_used != null) {
     totals.push(`context ${cost.context_tokens_used}${cost.context_tokens_available != null ? `/${cost.context_tokens_available}` : ''} tokens`);
   }

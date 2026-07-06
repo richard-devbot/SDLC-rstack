@@ -18,6 +18,10 @@ export function toClientState(state) {
       timeline: (run.timeline ?? []).slice(0, 120),
       totals: run.totals ?? null,
       stageElapsed: run.stageElapsed ?? {},
+      // Per-stage cost/token telemetry (#83/#135): the data flows to Run
+      // Analytics now; dedicated UI rendering is follow-up work.
+      stageCost: run.metrics?.stage_cost_usd ?? {},
+      stageTokens: run.metrics?.stage_tokens ?? {},
       approvals: (run.approvals ?? []).slice(0, 40).map((approval) => ({
         artifact: approval.artifact,
         status: approval.status,

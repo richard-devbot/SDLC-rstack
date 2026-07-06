@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { createConnection } from "node:net";
 import { existsSync, openSync } from "node:fs";
-import { mkdir, readFile, readdir, writeFile, appendFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile, appendFile, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -18,6 +18,8 @@ import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
 import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedApprovedArtifacts } from "../../core/harness/approval-audit.js";
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
+import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate, builderContractKey } from "../../core/harness/telemetry.js";
+import { deriveRunTotals } from "../../observability/metrics/derive.js";
 import { VALIDATOR_CONTEXT_ENV, VALIDATOR_RUN_ID_ENV, VALIDATOR_READ_ONLY_TOOLS, evaluateValidatorAction, isValidatorContext, isValidatorRole, isValidatorSandboxDebug } from "../../core/harness/validator-sandbox.js";
 import { loadValidatorRegistry, resolveValidatorProfile } from "../../core/harness/validator-registry.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
@@ -1557,6 +1559,16 @@ export default function (pi: ExtensionAPI) {
             await writeJsonAtomic(approvalsFile, approvals);
           });
         }
+        // Clear any stale builder.json from a prior attempt before granting the
+        // new one (#83 replay guard). If a re-claimed FAIL/BLOCKED task starts a
+        // fresh attempt but the builder crashes before rewriting builder.json,
+        // sdlc_validate would otherwise re-validate — and re-cost — the previous
+        // attempt's contract. Removing it in-lock at the transition means the
+        // next validation sees no contract (FAIL: builder_contract_exists)
+        // instead of silently replaying the old one's spend.
+        try {
+          await rm(join(projectRoot, task.output_dir, "builder.json"), { force: true });
+        } catch { /* best-effort; a missing file is the expected case */ }
         task.status = "IN_PROGRESS";
         task._started_at = Date.now();
         // Real attribution: stamp the routed pipeline agent so builder.json and
@@ -1815,26 +1827,79 @@ export default function (pi: ExtensionAPI) {
       const passChecks = checks.filter((c: any) => c.status === "PASS").length;
       const qualityScore = checks.length > 0 ? Math.round((passChecks / checks.length) * 100) / 100 : (status === "PASS" ? 0.9 : 0.25);
 
+      // Attribute telemetry and completion to the task's canonical stage(s).
+      // Task ids (e.g. "007-documentation") are plan ids, not canonical stage
+      // ids — consumers (reporter stage aggregation, alerts, stage matrix,
+      // per-stage cost maps) key by canonical stage.
+      const canonicalStageIds = [...new Set(
+        (task.stage_artifacts ?? [])
+          .map((artifact: any) => artifact?.stage_id)
+          .filter((id: any) => typeof id === "string" && getCanonicalStage(id)),
+      )];
+      if (canonicalStageIds.length === 0 && getCanonicalStage(task.id)) canonicalStageIds.push(task.id);
+
       await appendEvent(projectRoot, manifest.run_id, { type: "task_validated", task_id: task.id, status });
       for (const violation of telemetryViolations) {
         await appendEvent(projectRoot, manifest.run_id, guardrailEvent(task.id, violation));
       }
       if (builderContract) {
-        if (builderContract.cost) {
-          await appendEvent(projectRoot, manifest.run_id, { type: "cost_recorded", task_id: task.id, usd: builderContract.cost, cost: builderContract.cost });
+        // Cost/context telemetry (#83/#135): shared extraction from the builder
+        // contract's structured cost/context fields, pinned cost_recorded /
+        // context_recorded events, and incremental metrics.json accumulation.
+        // Recorded on every validation (retries cost money too), but the
+        // metrics increment is keyed on the builder-contract content hash so
+        // re-validating the SAME contract (a retry that didn't re-run the
+        // builder, or a goal-loop reset replaying a stale builder.json) never
+        // double-counts — while a genuine re-run (new contract content → new
+        // key) still counts.
+        const runDir = join(runsDir(projectRoot), manifest.run_id);
+        const telemetry = extractBuilderTelemetry(builderContract);
+        const idempotencyKey = builderContractKey(builderContract);
+        // Seed from pre-existing events BEFORE we append this validation's
+        // cost_recorded event, so a mid-run upgrade (legacy cost_recorded
+        // history + first new-style validation) folds the prior history into
+        // the persisted totals instead of dropping it. Only used when the
+        // marker (cumulative_tokens) isn't present yet; updateRunMetrics guards
+        // that in-lock.
+        let seed: { cost_usd: number; tokens: { input: number; output: number; total: number } } | undefined;
+        try {
+          const existingMetricsPath = join(runDir, "metrics.json");
+          const hasMarker = existsSync(existingMetricsPath)
+            && !!JSON.parse(await readFile(existingMetricsPath, "utf8"))?.cumulative_tokens;
+          if (!hasMarker) {
+            const priorTotals = deriveRunTotals(await readJsonl(join(runDir, "events.jsonl")));
+            if (priorTotals.cost_usd > 0 || priorTotals.tokens > 0) {
+              seed = { cost_usd: priorTotals.cost_usd, tokens: { input: 0, output: 0, total: priorTotals.tokens } };
+            }
+          }
+        } catch {
+          // Best-effort seeding; a read failure just skips the fold-in.
+        }
+        for (const telemetryEvent of builderTelemetryEvents(task.id, telemetry)) {
+          await appendEvent(projectRoot, manifest.run_id, telemetryEvent);
+        }
+        const metricsUpdate = telemetryMetricsUpdate(telemetry, canonicalStageIds, idempotencyKey);
+        if (metricsUpdate) {
+          if (seed) (metricsUpdate as any).seed = seed;
+          try {
+            await updateRunMetrics(runDir, metricsUpdate);
+          } catch (metricsError) {
+            // F2: a swallowed write failure permanently diverges the persisted
+            // totals from the events that recorded the cost. Emit a pinned
+            // metrics_write_failed event so the drift is visible and readers
+            // can reconcile (derive.js falls back to event recompute).
+            console.error("Failed to persist cost/context metrics:", metricsError);
+            await appendEvent(projectRoot, manifest.run_id, {
+              type: "metrics_write_failed",
+              task_id: task.id,
+              operation: "telemetry_increment",
+              error: String((metricsError as any)?.message ?? metricsError),
+            }).catch(() => {});
+          }
         }
       }
       await appendEvent(projectRoot, manifest.run_id, { type: "quality_score_recorded", task_id: task.id, score: qualityScore, pass_checks: passChecks, total_checks: checks.length });
       if (status === "PASS") {
-        // Attribute completion to the task's canonical stage(s). Task ids (e.g.
-        // "007-documentation") are plan ids, not canonical stage ids — consumers
-        // (reporter stage aggregation, alerts, stage matrix) key by canonical stage.
-        const canonicalStageIds = [...new Set(
-          (task.stage_artifacts ?? [])
-            .map((artifact: any) => artifact?.stage_id)
-            .filter((id: any) => typeof id === "string" && getCanonicalStage(id)),
-        )];
-        if (canonicalStageIds.length === 0 && getCanonicalStage(task.id)) canonicalStageIds.push(task.id);
         if (canonicalStageIds.length === 0) {
           // No canonical mapping — keep the timing signal but never invent a stage id.
           await appendEvent(projectRoot, manifest.run_id, { type: "stage_completed", stage_id: null, task_id: task.id, elapsed_ms: elapsedMs });

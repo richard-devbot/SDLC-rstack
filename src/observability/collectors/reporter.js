@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { persistedTokenTotals } from '../metrics/derive.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -8,7 +9,7 @@ import { join } from 'node:path';
 const KNOWN_EVENT_TYPES = [
   'run_started', 'task_started', 'builder_task_prepared', 'task_validated',
   'stage_completed', 'approval_gate', 'approval_gate_blocked', 'guardrail_triggered',
-  'tool_call', 'tool_result', 'cost_recorded', 'quality_score_recorded',
+  'tool_call', 'tool_result', 'cost_recorded', 'context_recorded', 'quality_score_recorded',
   'memory_recalled', 'memory_pruned', 'episode_memory_written', 'episode_memory_write_failed',
   'session_shutdown', 'clarification_requested', 'clarification_answers_added', 'plan_created',
   'validation_failed',
@@ -153,13 +154,24 @@ export async function buildRunReport(runDir) {
     guardrailSummary[k] = (guardrailSummary[k] ?? 0) + 1;
   }
 
-  // Cost summary
+  // Cost summary — persisted cumulative metrics win (#83): O(1), and they
+  // survive event rotation. Legacy runs recompute from cost_recorded events.
+  const metrics = await readJson(join(runDir, 'metrics.json'), {});
   const costEvents = events.filter((ev) => ev.type === 'cost_recorded');
-  const costSummary = {
-    total_usd: costEvents.reduce((s, ev) => s + (Number(ev.usd ?? ev.cost ?? 0) || 0), 0),
-    total_tokens: costEvents.reduce((s, ev) => s + (Number(ev.tokens) || 0), 0),
-    entries: costEvents,
-  };
+  const persistedTokens = persistedTokenTotals(metrics);
+  const costSummary = persistedTokens
+    ? {
+      total_usd: Number(metrics.cumulative_cost_usd) || 0,
+      total_tokens: persistedTokens.total,
+      source: 'metrics',
+      entries: costEvents,
+    }
+    : {
+      total_usd: costEvents.reduce((s, ev) => s + (Number(ev.usd ?? ev.cost ?? 0) || 0), 0),
+      total_tokens: costEvents.reduce((s, ev) => s + (Number(ev.tokens) || 0), 0),
+      source: 'events',
+      entries: costEvents,
+    };
 
   // Duration from first/last event timestamps
   let durationMs = 0;

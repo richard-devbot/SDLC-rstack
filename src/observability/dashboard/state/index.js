@@ -9,7 +9,7 @@ import { buildAgentGroups, buildAgentWork } from './agent-work.js';
 import { buildTraceMap } from './traceability.js';
 import { buildProjectSummaries } from './projects.js';
 import { buildDiagnostics, buildLayerSummaries } from './layers.js';
-import { buildStageTrends } from '../../metrics/derive.js';
+import { buildStageTrends, persistedTokenTotals } from '../../metrics/derive.js';
 import { buildPeople, buildPresence } from './people.js';
 import { buildBusinessFlexState } from './business-flex.js';
 import { buildDecisionState } from './decisions.js';
@@ -33,9 +33,13 @@ export async function buildFullState(projectRoot, options = {}) {
     getAllApprovals(roots),
   ]);
 
-  // Prefer event-derived totals (single source of truth); fall back to metrics.json.
+  // run.totals already prefers persisted cumulative metrics (#83) and falls
+  // back to event recompute for legacy runs; the metrics.json chain here is
+  // the last resort for index entries without totals.
   const totalCost = runs.reduce((sum, run) => sum + (run.totals?.cost_usd || run.metrics?.cumulative_cost_usd || 0), 0);
-  const tokenTotal = runs.reduce((sum, run) => sum + (run.totals?.tokens || Number(run.metrics?.cumulative_tokens ?? run.metrics?.total_tokens ?? 0)), 0);
+  const tokenTotal = runs.reduce((sum, run) => sum + (run.totals?.tokens
+    || persistedTokenTotals(run.metrics)?.total
+    || Number(run.metrics?.cumulative_tokens ?? run.metrics?.total_tokens ?? 0) || 0), 0);
   const activeRuns = runs.filter((run) => run.derivedStatus === 'active');
   const today = new Date().toISOString().slice(0, 10);
   const todayRuns = runs.filter((run) => run.manifest?.created_at?.startsWith(today));

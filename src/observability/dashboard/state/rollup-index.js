@@ -28,13 +28,14 @@ import { join } from 'node:path';
 import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import { getRunsForRoot } from './runs.js';
 import { safeJson } from './files.js';
+import { persistedTokenTotals } from '../../metrics/derive.js';
 
 export const INDEX_VERSION = 1;
 export const DEFAULT_RETENTION_DAYS = 90;
 
 const STALL_MS = 30 * 60 * 1000;
 // High-volume event types excluded from the per-run notable_events rollup.
-const NOTABLE_EXCLUDE = new Set(['tool_call', 'tool_result', 'cost_recorded']);
+const NOTABLE_EXCLUDE = new Set(['tool_call', 'tool_result', 'cost_recorded', 'context_recorded']);
 const NOTABLE_CAP = 200;
 
 function defaultIo() {
@@ -94,7 +95,10 @@ export function entryFromRun(run, sig = null) {
     if (stageId) stageStatuses[stageId] = task.status ?? 'READY';
   }
   const metricCost = run.metrics?.cumulative_cost_usd ?? 0;
-  const metricTokens = Number(run.metrics?.cumulative_tokens ?? run.metrics?.total_tokens ?? 0) || 0;
+  // cumulative_tokens is an { input, output, total } object on runs written by
+  // the incremental telemetry path (#83); tolerate the legacy bare number too.
+  const metricTokens = persistedTokenTotals(run.metrics)?.total
+    ?? (Number(run.metrics?.cumulative_tokens ?? run.metrics?.total_tokens ?? 0) || 0);
   return {
     runId: run.runId,
     status: run.derivedStatus ?? 'idle',
@@ -108,7 +112,14 @@ export function entryFromRun(run, sig = null) {
     started_by: run.manifest?.started_by ?? null,
     has_plan: run.hasPlan ?? false,
     brief: (run.brief ?? '').slice(0, 300),
-    metrics: { cumulative_cost_usd: metricCost, cumulative_tokens: metricTokens },
+    metrics: {
+      cumulative_cost_usd: metricCost,
+      cumulative_tokens: run.metrics?.cumulative_tokens ?? metricTokens,
+      // Per-stage telemetry maps (#83/#135) survive into index-served lite
+      // runs so Run Analytics keeps its data without a full re-parse.
+      stage_cost_usd: run.metrics?.stage_cost_usd ?? {},
+      stage_tokens: run.metrics?.stage_tokens ?? {},
+    },
     totals: run.totals ?? null,
     cost_usd: run.totals?.cost_usd || metricCost || 0,
     tokens: run.totals?.tokens || metricTokens || 0,

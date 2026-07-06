@@ -10,7 +10,7 @@
 // goal_evaluated, loop_iteration_retrying_stages, loop_completed,
 // loop_blocked) so trace/status/feed render the loop without reading source.
 
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -252,6 +252,14 @@ export async function resetStagesForRetry(projectRoot, runId, stageIds) {
       const matched = taskStageIds(task).filter((stageId) => stageSet.has(stageId));
       if (!matched.length) continue;
       task.status = 'PENDING';
+      // Clear the prior attempt's builder.json so the next iteration cannot
+      // replay — and re-cost — a stale contract through validation (#83). The
+      // telemetry increment is also idempotency-keyed on contract content, so
+      // this is defence in depth: the reset stage starts with no contract and
+      // must produce a fresh one to be validated.
+      if (typeof task.output_dir === 'string' && task.output_dir) {
+        await rm(join(projectRoot, task.output_dir, 'builder.json'), { force: true }).catch(() => {});
+      }
       resetTaskIds.push(task.id);
       for (const stageId of matched) resetStageIds.add(stageId);
     }
