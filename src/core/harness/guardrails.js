@@ -3,6 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { trustedApprovedArtifacts } from './approval-audit.js';
+import {
+  classifyDestructiveAction,
+  destructiveApprovalArtifact,
+  requireApprovalForDestructiveAction,
+} from './destructive-actions.js';
 
 export const DEFAULT_HARNESS_GUARDRAILS = Object.freeze({
   maxTaskAttempts: 2,
@@ -62,6 +67,30 @@ export async function loadProjectGuardrails(projectRoot) {
 export function isDestructiveTask(task) {
   return Boolean(task && (task.destructive === true || task.risk_level === 'destructive'));
 }
+
+// Content-aware destructive check (#131): a task is destructive if it declares
+// itself so (the historical flag check above) OR if the concrete action it
+// carries classifies as destructive via the centralized classifier. `action`
+// is a command string, a { command } / { toolName, input } tool_call shape, or
+// omitted (flag-only, preserving legacy behavior).
+export function isDestructiveTaskOrAction(task, action) {
+  if (isDestructiveTask(task)) return true;
+  if (action === undefined || action === null) return false;
+  return classifyDestructiveAction(action).destructive;
+}
+
+// Gate a concrete destructive action against the run's audited approvals.
+// Reuses the SAME trusted-approval path as the required-approval and
+// guardrail-override gates (#133) — one audit, no drift — keyed to a per-task
+// `destructive-action:<taskId>` artifact. `approvals` is the raw run
+// approvals.json array; `expectedRunId` binds the record to this run.
+export function evaluateDestructiveAction({ action, taskId, approvals = [], expectedRunId } = {}) {
+  const approved = trustedApprovedArtifacts(approvals, { expectedRunId });
+  return requireApprovalForDestructiveAction({ action, taskId, approvedArtifacts: approved });
+}
+
+// Re-export so callers wiring the guardrail path have one import surface.
+export { classifyDestructiveAction, destructiveApprovalArtifact, requireApprovalForDestructiveAction };
 
 export function countTaskAttempts(events = [], taskId) {
   return events.filter((event) => event?.task_id === taskId && String(event.type || '') === 'task_started').length;

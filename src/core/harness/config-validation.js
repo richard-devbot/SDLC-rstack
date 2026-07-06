@@ -17,6 +17,8 @@ import { rstackStateDir } from './runs.js';
 // #136 (BLE-6.2): context-pressure thresholds live in rstack.config.json under
 // `context_pressure`; validated field-by-field like every other block.
 import { validateContextPressureConfig } from './context-pressure.js';
+// #159: parallel-groups config validation (data-independence + gate target).
+import { validateParallelGroupsConfig } from './parallel-benchmark.js';
 
 const KNOWN_PROFILES = ['business-flex', 'enterprise-webapp', 'lean-mvp'];
 const KNOWN_CHANNELS = ['slack', 'teams', 'discord', 'telegram', 'whatsapp'];
@@ -102,6 +104,12 @@ export function validateRstackConfig(parsed) {
   // defaults they guard.
   if (parsed.context_pressure != null) {
     issues.push(...validateContextPressureConfig(parsed.context_pressure));
+  }
+  // #159: parallel_groups block — data-independence of each group + gate target.
+  if (parsed.parallel_groups != null) {
+    for (const found of validateParallelGroupsConfig(parsed.parallel_groups)) {
+      issues.push(found);
+    }
   }
   return issues;
 }

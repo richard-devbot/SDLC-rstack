@@ -208,6 +208,31 @@ Every builder prompt asks agents to add compact summary fields to `builder.json`
 
 This is the context-reduction path. Later agents receive durable decisions, evidence, and handoff hints instead of full transcripts or raw logs.
 
+### Write policy (enforced in code, #137)
+
+Memory is only useful if it is trustworthy and bounded, so the trust level of every episode is decided by `appendEpisode` in `src/memory/index.js` (via `evaluateWritePolicy`) — never by trusting the caller's `trusted` flag and never by prompt text. A caller cannot launder a failed or unsafe episode into trusted memory: `appendEpisode` overwrites `trusted` with the policy decision before writing.
+
+Two policies (`writePolicy` in `memory-config.json`, default `validator-approved-only`):
+
+- **`validator-approved-only`** — only `validator_status: "PASS"` episodes are stored, and only as `trusted: true`. A non-PASS episode is **skipped** (nothing is persisted, so it can never be recalled and cannot resurrect the behavior it records).
+- **`validation-attempts`** — non-PASS episodes **are** stored, but always `trusted: false`. They surface only when a recall explicitly opts into untrusted memory (`recallEpisodes(..., { includeUntrusted: true })`); default recalls skip them.
+
+Before an episode may be trusted, three integrity checks must also hold (a PASS that fails any of them is demoted to `trusted: false` under `validation-attempts`, or skipped under `validator-approved-only`):
+
+1. **signature** — `verifyEpisodeSignature` matches (tampered records are never trusted; `readEpisodes` also drops them on read),
+2. **evidence_paths** — a non-empty array of non-blank strings,
+3. **quality_score** — a finite value in `[0, 1]`.
+
+`appendEpisode` returns `{ path, written, trusted, decision }` so the call site can emit the matching ledger event. Retracted episodes (`retractEpisode`) are filtered by `readEpisodes`/`recallEpisodes` and are never served.
+
+**Events (pinned contract — `sdlc_validate` appends one per write decision to `events.jsonl`):**
+
+- `episode_memory_written` — `task_id`, `episode_id`, `trusted`, `write_policy`. The episode was stored at the stated trust level.
+- `episode_memory_skipped_untrusted` — `task_id`, `episode_id`, `reason` (e.g. `not-validator-approved`, `integrity-failed:signature`), `write_policy`. The write policy refused to store the episode; nothing was persisted.
+- `episode_memory_write_failed` — `task_id`, `error`. An unexpected error (I/O, schema-invalid episode) prevented the write.
+
+Memory is **historical context only**: it is injected into builder prompts as bounded, non-authoritative observations and cannot override the current task, user approvals, tool safety, or validator gates. The injected block says so explicitly (`formatEpisodesForPrompt`), and trusted recall cannot reach a failed or unsafe episode unless the run is explicitly configured to store validation attempts as untrusted memory and the recall explicitly asks for untrusted memory.
+
 ## Guardrails
 
 Guardrail defaults live in `src/core/harness/guardrails.js`:
@@ -445,6 +470,69 @@ at claim, `stage_checkpoint_after_saved` (same fields) after a PASS validation, 
 only ones the `checkpoints` rollup in `pipeline-state.json` (and `rstack-agents pipeline status`)
 counts.
 
+## Parallel-execution benchmark (#159)
+
+Builder/validator round-trips dominate wall clock. Some stages are
+*data-independent* — none reads another's output artifact — so they can run in
+a parallel group. Parallel groups are enabled **from evidence, not vibes**: a
+benchmark measures sequential vs parallel wall clock, and the config gate only
+flips them on when the measured improvement clears a target (default **≥ 40%**).
+
+**Decision logic** lives in `src/core/harness/parallel-benchmark.js` (pure, no
+clock reads — timings are inputs, so the gate is deterministic and tested):
+
+- `checkDataIndependence(members)` — a group is parallel-safe only if every
+  member is a canonical stage id, ids are unique, no member reads an artifact
+  produced by another member, and the group is within `PARALLEL_GROUP_HARD_CAP`
+  (6). An oversized group is **rejected, not silently truncated**.
+- `aggregateSequentialTime` / `aggregateParallelTime` — sequential = sum of
+  durations; parallel = the slowest member per group (groups run in series),
+  plus any solo stages.
+- `evaluateParallelGate({ seqTimeMs, parTimeMs, target })` — improvement =
+  `(seq − par) / seq`; `enable` is true iff `improvement ≥ target` (inclusive).
+- `buildBenchmarkArtifact(...)` — the run-artifact shape.
+
+**Runner:** `node scripts/bench-parallel.mjs [--target 0.4] [--out <path>]
+[--run-id <id>] [--timings '{"12-...":900}']`. By default it benchmarks the
+data-independent group **12 (security) / 13 (compliance) / 14 (cost)** — each
+reads upstream artifacts (requirements, architecture, code) and writes its own
+distinct output, so none reads another's artifact.
+
+**Honesty — mock vs real:** the runner defaults to `mode: "mock"`. It does
+**not** launch live builder/validator agents; it runs a synthetic sleep
+workload per stage (durations modelling round-trip wall clock) timed with the
+real clock, and gates on the modelled sum-vs-slowest numbers so CI is not flaky
+on scheduler jitter. The artifact is stamped `"mode": "mock"` with a
+`measurement` note. Feed real per-stage durations via `--timings` to gate
+against measured numbers; live-agent capture (`mode: "real"`) is future work.
+
+**Artifact → Business Hub:** the result is written to
+`.rstack/runs/<run_id>/artifacts/parallel-benchmark.json`. The dashboard run
+indexer (`state/runs.js → indexArtifacts`) picks up any top-level file under a
+run's `artifacts/` as a run-scoped deliverable, so the data reaches the Hub
+artifact index with no extra wiring. A dedicated Hub panel is a later,
+presentational step — the data flows now.
+
+**Config gate** (`.rstack/rstack.config.json`, validated on load by
+`config-validation.js`):
+
+```json
+"parallel_groups": {
+  "enabled": false,
+  "target": 0.40,
+  "require_benchmark": true,
+  "groups": [["12-security-threat-model", "13-compliance-checker", "14-cost-estimation"]]
+}
+```
+
+`enabled` should only be set `true` once a benchmark artifact shows the group
+clears `target`. Config validation flags non-data-independent groups, an
+out-of-range `target`, unknown keys, and `enabled: true` with no groups.
+`require_benchmark` is **declared intent, not yet enforced** — its type is
+validated, but nothing today blocks `enabled: true` without a benchmark artifact
+because the runner is still sequential (the gate is a recommendation). Enforcing
+it belongs with the parallel-execution wiring (#208).
+
 ## Validation commands
 
 Run these after Harness changes:
@@ -464,3 +552,40 @@ npm run lint
 ## Safety notes
 
 The Harness foundation does not add auth, payment processing, PII storage, public APIs, deploy automation, or npm publishing. Publishing, deployment, force-push, and destructive cleanup still require explicit user approval.
+
+## Destructive-action classification (#131, BLE-5.1)
+
+`src/core/harness/destructive-actions.js` is the centralized, I/O-free source of truth for
+what makes a command or write destructive. It replaces scattered, context-private checks with
+one classifier both builder-side and validator-context callers can consume.
+
+`classifyDestructiveAction(command | { command } | { toolName, input } | string)` returns a
+stable frozen verdict `{ destructive, category, reason, matched }`. Categories
+(`DESTRUCTIVE_CATEGORIES`):
+
+- `broad-delete` — recursive/forced `rm`, `rmdir`, `shred`, `mkfs`, `dd of=`, `find -delete`
+  (a single-target `rm file.txt` is NOT flagged — recursion/force is what escalates)
+- `git-force` — `git push --force`/`-f`/`--force-with-lease`/`+ref`, `git reset --hard`
+- `publish` — `npm/yarn/pnpm publish`, `npm unpublish`, `cargo publish`, `gem push`,
+  `twine upload`, `gh release create/delete`
+- `deploy` — `terraform apply/destroy`, `pulumi up/destroy`, `kubectl apply/delete/...`,
+  `helm ...`, `docker push`, CloudFormation stack ops, `firebase/vercel/netlify/fly/serverless
+  deploy`, `ansible-playbook`
+- `secret-write` — shell redirect/`tee` into `.env`/keys/credentials; write-tool targets on
+  secret/credential/key paths
+- `protected-config-write` — write-tool targets on `.git`, CI workflows, Dockerfiles,
+  lockfiles, `.tf`/`.tfvars`, `.rstack`
+- `db-destroy` — `DROP TABLE/DATABASE/SCHEMA`, `DELETE FROM`, `TRUNCATE`
+
+Destructive actions are **gateable, not denied outright**: they require an explicit approval
+artifact. `requireApprovalForDestructiveAction({ action, taskId, approvedArtifacts })` (pure) and
+`guardrails.evaluateDestructiveAction({ action, taskId, approvals, expectedRunId })` (wired to the
+audited approval path, #133) resolve a per-task `destructive-action:<taskId>` artifact through the
+same `trustedApprovedArtifacts` audit used by the required-approval and guardrail-override gates —
+one audit, no drift; a foreign-run or malformed record cannot unblock. `guardrails.isDestructiveTaskOrAction(task, action)`
+combines the declared task flag with content classification.
+
+This is distinct from and does not replace the validator sandbox (`validator-sandbox.js`, #119),
+which stays the stricter authority for validator/reviewer/security contexts (any mutation denied,
+no approval path). Refactoring the sandbox to consume this classifier is a deliberate follow-up —
+the two encode different policies (gate-with-approval vs deny-outright).
