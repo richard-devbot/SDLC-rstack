@@ -1270,6 +1270,19 @@ tr.clickable:hover td { background: #f8fbff; }
 
 @media (max-width: 900px) { .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
+/* [wave:quality] Requirements & Traceability, Security registry, Stephens report cards, dark-stage chips */
+.cutover-block { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.req-note { font-size: 11px; color: var(--muted); }
+.heat.crit { background: #fef2f2; border-color: #f87171; color: #991b1b; }
+.heatmap.heatmap-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stride-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+@media (max-width: 900px) { .heatmap.heatmap-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.wont-have-item { font-size: 12px; color: var(--muted); padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.wont-have-item:last-child { border-bottom: none; }
+.wont-have-item .mono { color: var(--faint); }
+.run-stage-strip { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.run-stage-strip .chip { font-size: 10px; padding: 1px 6px; }
+
 /* [wave:money] Cost & Budget / Run Analytics money panels (#92, #215) */
 .stage-bar-fill.money { background: var(--amber); }
 .stage-bar-fill.bench-seq { background: var(--muted); }
