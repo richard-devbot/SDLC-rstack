@@ -15,6 +15,7 @@ import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/mig
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
+import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate } from "../../core/harness/telemetry.js";
 import { VALIDATOR_CONTEXT_ENV, VALIDATOR_RUN_ID_ENV, VALIDATOR_READ_ONLY_TOOLS, evaluateValidatorAction, isValidatorContext, isValidatorRole, isValidatorSandboxDebug } from "../../core/harness/validator-sandbox.js";
 import { loadValidatorRegistry, resolveValidatorProfile } from "../../core/harness/validator-registry.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
@@ -1736,26 +1737,42 @@ export default function (pi: ExtensionAPI) {
       const passChecks = checks.filter((c: any) => c.status === "PASS").length;
       const qualityScore = checks.length > 0 ? Math.round((passChecks / checks.length) * 100) / 100 : (status === "PASS" ? 0.9 : 0.25);
 
+      // Attribute telemetry and completion to the task's canonical stage(s).
+      // Task ids (e.g. "007-documentation") are plan ids, not canonical stage
+      // ids — consumers (reporter stage aggregation, alerts, stage matrix,
+      // per-stage cost maps) key by canonical stage.
+      const canonicalStageIds = [...new Set(
+        (task.stage_artifacts ?? [])
+          .map((artifact: any) => artifact?.stage_id)
+          .filter((id: any) => typeof id === "string" && getCanonicalStage(id)),
+      )];
+      if (canonicalStageIds.length === 0 && getCanonicalStage(task.id)) canonicalStageIds.push(task.id);
+
       await appendEvent(projectRoot, manifest.run_id, { type: "task_validated", task_id: task.id, status });
       for (const violation of telemetryViolations) {
         await appendEvent(projectRoot, manifest.run_id, guardrailEvent(task.id, violation));
       }
       if (builderContract) {
-        if (builderContract.cost) {
-          await appendEvent(projectRoot, manifest.run_id, { type: "cost_recorded", task_id: task.id, usd: builderContract.cost, cost: builderContract.cost });
+        // Cost/context telemetry (#83/#135): shared extraction from the builder
+        // contract's structured cost/context fields, pinned cost_recorded /
+        // context_recorded events, and incremental metrics.json accumulation —
+        // recorded on every validation (retries cost money too), so totals stop
+        // being re-derived O(events) on each dashboard poll.
+        const telemetry = extractBuilderTelemetry(builderContract);
+        for (const telemetryEvent of builderTelemetryEvents(task.id, telemetry)) {
+          await appendEvent(projectRoot, manifest.run_id, telemetryEvent);
+        }
+        const metricsUpdate = telemetryMetricsUpdate(telemetry, canonicalStageIds);
+        if (metricsUpdate) {
+          try {
+            await updateRunMetrics(join(runsDir(projectRoot), manifest.run_id), metricsUpdate);
+          } catch (metricsError) {
+            console.error("Failed to persist cost/context metrics:", metricsError);
+          }
         }
       }
       await appendEvent(projectRoot, manifest.run_id, { type: "quality_score_recorded", task_id: task.id, score: qualityScore, pass_checks: passChecks, total_checks: checks.length });
       if (status === "PASS") {
-        // Attribute completion to the task's canonical stage(s). Task ids (e.g.
-        // "007-documentation") are plan ids, not canonical stage ids — consumers
-        // (reporter stage aggregation, alerts, stage matrix) key by canonical stage.
-        const canonicalStageIds = [...new Set(
-          (task.stage_artifacts ?? [])
-            .map((artifact: any) => artifact?.stage_id)
-            .filter((id: any) => typeof id === "string" && getCanonicalStage(id)),
-        )];
-        if (canonicalStageIds.length === 0 && getCanonicalStage(task.id)) canonicalStageIds.push(task.id);
         if (canonicalStageIds.length === 0) {
           // No canonical mapping — keep the timing signal but never invent a stage id.
           await appendEvent(projectRoot, manifest.run_id, { type: "stage_completed", stage_id: null, task_id: task.id, elapsed_ms: elapsedMs });

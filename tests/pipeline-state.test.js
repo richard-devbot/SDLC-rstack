@@ -63,6 +63,7 @@ test('buildPipelineState derives status from canonical run files', async () => {
     cumulative_duration_ms: 1200,
     cumulative_cost_usd: 0.42,
     cumulative_tool_calls: 7,
+    cumulative_tokens: { input: 12000, output: 3000, total: 15000 },
     context_tokens_used: 1000,
     context_tokens_available: 3000,
     stage_status: {
@@ -71,6 +72,12 @@ test('buildPipelineState derives status from canonical run files', async () => {
     },
     stage_elapsed_ms: {
       '07-code': 900,
+    },
+    stage_cost_usd: {
+      '07-code': 0.3,
+    },
+    stage_tokens: {
+      '07-code': { input: 8000, output: 2000, total: 10000 },
     },
   });
   await writeJson(path.join(dir, 'approvals.json'), [
@@ -116,9 +123,14 @@ test('buildPipelineState derives status from canonical run files', async () => {
     cumulative_duration_ms: 1200,
     cumulative_cost_usd: 0.42,
     cumulative_tool_calls: 7,
+    cumulative_tokens: { input: 12000, output: 3000, total: 15000 },
     context_tokens_used: 1000,
     context_tokens_available: 3000,
   });
+  assert.equal(codeStage.cost_usd, 0.3);
+  assert.deepEqual(codeStage.tokens, { input: 8000, output: 2000, total: 10000 });
+  assert.equal(state.stages.find((stage) => stage.id === '08-testing').cost_usd, null);
+  assert.equal(state.stages.find((stage) => stage.id === '08-testing').tokens, null);
 
   assert.deepEqual(summarizePipelineState(state), {
     run_id: runId,

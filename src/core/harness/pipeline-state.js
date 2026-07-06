@@ -213,11 +213,28 @@ function buildPipelineStatus(manifest, stages) {
   };
 }
 
+function normalizeTokenTotals(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const input = Number(source.input);
+  const output = Number(source.output);
+  const total = Number(source.total);
+  const safeInput = Number.isFinite(input) ? input : 0;
+  const safeOutput = Number.isFinite(output) ? output : 0;
+  return {
+    input: safeInput,
+    output: safeOutput,
+    total: Number.isFinite(total) ? total : safeInput + safeOutput,
+  };
+}
+
 function buildCostContext(metrics) {
   return {
     cumulative_duration_ms: metrics.cumulative_duration_ms ?? 0,
     cumulative_cost_usd: metrics.cumulative_cost_usd ?? 0,
     cumulative_tool_calls: metrics.cumulative_tool_calls ?? 0,
+    // Persisted token totals (#83/#135): accumulated incrementally at validate
+    // time in metrics.json — zeros for legacy runs that never recorded them.
+    cumulative_tokens: normalizeTokenTotals(metrics.cumulative_tokens),
     context_tokens_used: metrics.context_tokens_used ?? null,
     context_tokens_available: metrics.context_tokens_available ?? null,
   };
@@ -343,6 +360,9 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
       task_ids: stageTaskIds,
       validation_status: deriveValidationStatus(stage.id, evidenceEvents),
       elapsed_ms: metrics.stage_elapsed_ms?.[stage.id] ?? null,
+      // Per-stage cost/token telemetry (#83/#135) — null when never recorded.
+      cost_usd: metrics.stage_cost_usd?.[stage.id] ?? null,
+      tokens: metrics.stage_tokens?.[stage.id] ?? null,
       evidence_paths: [...new Set([...artifactPaths, ...evidencePaths])],
     });
   }
