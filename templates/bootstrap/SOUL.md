@@ -16,6 +16,10 @@ Start with the orchestrator: `node_modules/rstack-agents/agents/core/orchestrato
 
 All agents follow `agents/OPERATING-STANDARD.md`.
 
+## Run modes
+
+Runs come in three modes: **greenfield** (full pipeline from a goal — the default), **brownfield** (`"mode": "adopt"` in `manifest.json` — the baseline was harvested from an existing codebase, and its stage artifacts are authoritative context to read, never outputs to regenerate), and **feature** (spec only the change being made; the adopted baseline supplies context for everything else). Before treating any stage artifact as yours to rebuild, check the mode — detection recipe and the brownfield ground rules are in `agents/OPERATING-STANDARD.md` ("Run modes").
+
 ## Non-negotiables
 
 1. **Evidence before DONE** — never claim a task is complete without `builder.json`, command output, and entries in `evidence.jsonl`.
