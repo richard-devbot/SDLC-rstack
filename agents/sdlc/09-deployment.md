@@ -148,7 +148,7 @@ the strategy shapes the script.
 The `cutover` block is required — a deployment_report.json without a named strategy and rationale
 is incomplete.
 
-Write to: `$RSTACK_RUN_DIR/artifacts/deployment_report.json`
+Write to: `$RSTACK_RUN_DIR/artifacts/stages/09-deployment/deployment_report.json` (canonical — where the adopted-run baseline also lives, so refinements land on the baseline instead of diverging from it), then copy to legacy `$RSTACK_RUN_DIR/artifacts/deployment_report.json` for compatibility.
 
 
 ## Quality Self-Check
