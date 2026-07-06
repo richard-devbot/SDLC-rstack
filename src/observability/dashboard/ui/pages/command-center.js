@@ -253,7 +253,21 @@ function renderCommandNextAction(s) {
       '</div>' +
       '<button class="tb-chip ' + esc(chipInfo.cls) + '" data-page="' + esc(chipInfo.page) + '" onclick="showPageFromChip(this)">' + esc(chipInfo.label) + '</button>' +
     '</div>' +
-    '<div class="next-action-source">Same recommendation the rstack-agents pipeline status CLI computes.</div>');
+    nextActionSourceHtml(rollup));
+}
+
+// The hero states ITS OWN freshness, not the page's global "updated" chip: a
+// persisted pipeline-state.json that lags the live event stream must not be
+// presented as the current recommendation (#218 review — never let stale data
+// look live). Fresh → CLI-parity line; stale → an honest regenerate hint.
+function nextActionSourceHtml(rollup) {
+  if (rollup && rollup.stale) {
+    var behind = rollup.events_behind || 0;
+    return '<div class="next-action-source stale">&#9888; From the last saved pipeline-state.json — ' +
+      behind + ' newer event' + (behind === 1 ? '' : 's') + ' since it was computed. ' +
+      'Run "rstack-agents pipeline status --regenerate" for the live recommendation.</div>';
+  }
+  return '<div class="next-action-source">Same recommendation the rstack-agents pipeline status CLI computes.</div>';
 }
 // ── end [wave:command] ────────────────────────────────────────────
 

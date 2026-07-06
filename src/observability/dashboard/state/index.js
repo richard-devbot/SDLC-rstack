@@ -222,12 +222,25 @@ function compactPipelineRollup(state, events) {
   const lastGoalEvent = [...(events ?? [])].reverse()
     .find((event) => String(event?.type ?? event?.kind ?? '') === 'goal_evaluated') ?? null;
   const lastVerdict = loop.last_evaluation?.status ?? lastGoalEvent?.status ?? lastGoalEvent?.recommendation ?? null;
+  // Freshness (#218 review): a persisted pipeline-state.json can lag the live
+  // event stream on an active run. `generated_at` stamps when the state was
+  // computed; any event newer than it means the next-action below is behind
+  // live data. Detected from data already in the snapshot — no extra read —
+  // so the hero card can say so rather than present a stale recommendation as
+  // live ("never let stale data look live").
+  const generatedAt = state.generated_at ?? null;
+  const eventsBehind = generatedAt
+    ? (events ?? []).filter((event) => String(event?.ts ?? event?.timestamp ?? '') > String(generatedAt)).length
+    : 0;
   return {
     schema_version: state.schema_version ?? null,
     status: state.pipeline?.status ?? 'UNKNOWN',
     stages_total: state.pipeline?.stages_total ?? 0,
     stages_passed: state.pipeline?.stages_passed ?? 0,
     stages_failed: state.pipeline?.stages_failed ?? 0,
+    generated_at: generatedAt,
+    stale: eventsBehind > 0,
+    events_behind: eventsBehind,
     next_action: { ...next, text: recommendPipelineAction(state) },
     approval_blockers: (state.approval_blockers ?? []).length,
     retries: {

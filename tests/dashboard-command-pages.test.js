@@ -25,7 +25,7 @@ import { join } from 'node:path';
 
 import { buildFullState, toClientState } from '../src/observability/dashboard/state/index.js';
 import { recommendPipelineAction } from '../src/commands/pipeline.js';
-import { readPipelineState } from '../src/core/harness/pipeline-state.js';
+import { readPipelineState, writePipelineState } from '../src/core/harness/pipeline-state.js';
 import { clientScript } from '../src/observability/dashboard/ui/client.js';
 import { commandCenterScript } from '../src/observability/dashboard/ui/pages/command-center.js';
 import { decisionsScript } from '../src/observability/dashboard/ui/pages/decisions.js';
@@ -124,6 +124,27 @@ test('runs carry a pipelineRollup whose next-action text IS the CLI recommendati
   assert.equal(clientRun.pipelineRollup.next_action.text, rollup.next_action.text);
 });
 
+test('the next-action rollup flags itself stale when live events outrun the saved pipeline-state.json', async () => {
+  const projectRoot = seedProject();
+  // Operator ran `pipeline status` at 12:20; the run has emitted events since
+  // (12:31, 12:35:01, 12:40). The saved recommendation is behind live data.
+  await writePipelineState(projectRoot, RUN_ID, { generatedAt: '2026-07-06T12:20:00.000Z' });
+  const stale = (await buildFullState(projectRoot, { includeRegistry: false }))
+    .runs.find((entry) => entry.runId === RUN_ID).pipelineRollup;
+  assert.equal(stale.generated_at, '2026-07-06T12:20:00.000Z');
+  assert.equal(stale.stale, true, 'three events postdate the saved state');
+  assert.equal(stale.events_behind, 3);
+
+  // Re-saving AFTER the newest event makes it fresh again — no false alarm.
+  // (Writing the file changes the run-dir signature, forcing a re-parse, so
+  // the second snapshot reads the new state rather than the cached lite run.)
+  await writePipelineState(projectRoot, RUN_ID, { generatedAt: '2026-07-06T13:00:00.000Z' });
+  const fresh = (await buildFullState(projectRoot, { includeRegistry: false }))
+    .runs.find((entry) => entry.runId === RUN_ID).pipelineRollup;
+  assert.equal(fresh.stale, false);
+  assert.equal(fresh.events_behind, 0);
+});
+
 test('a pending approval outranks everything in the next-action classification', async () => {
   const projectRoot = seedProject();
   const runDir = join(projectRoot, '.rstack', 'runs', RUN_ID);
@@ -194,6 +215,11 @@ test('command-center module renders next-action card, exec rollup and new attent
   assert.match(commandCenterScript, /No pipeline state recorded for this run/);
   assert.match(commandCenterScript, /pipeline status --regenerate/);
   assert.match(commandCenterScript, /No runs loaded yet/);
+  // Freshness honesty (#218 review): the hero states its OWN staleness rather
+  // than inheriting the page's global "updated" chip.
+  assert.match(commandCenterScript, /nextActionSourceHtml/);
+  assert.match(commandCenterScript, /From the last saved pipeline-state\.json/);
+  assert.match(commandCenterScript, /newer event/);
 });
 
 test('decisions module renders the resolved/waived Decision Log with who/when/impact', () => {

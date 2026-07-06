@@ -1281,6 +1281,7 @@ tr.clickable:hover td { background: #f8fbff; }
 .next-action-icon.info { background: #eff6ff; color: var(--blue); }
 .next-action-text { font-weight: 700; line-height: 1.4; }
 .next-action-source { margin-top: 10px; font-size: 11px; color: var(--faint); font-style: italic; }
+.next-action-source.stale { color: var(--amber, #b7791f); font-style: normal; font-weight: 600; }
 .exec-rollup-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .exec-stat { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 10px 12px; }
 .exec-stat-v { font-size: 22px; font-weight: 800; line-height: 1.2; }
