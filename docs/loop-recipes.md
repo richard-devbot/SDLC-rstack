@@ -24,6 +24,10 @@ hard cap of 20 that no config can exceed, a no-progress stop, and the `.rstack/b
 - Set `run_budget_usd` in `.rstack/budget.json` before scheduling any unattended loop. An
   unattended loop without a cost cap is a bug, not a recipe.
 - Start with `--dry-run`: it evaluates the goal, prints the decision, and persists nothing.
+  Be aware that `command` criteria still **execute** during `--dry-run` — only persistence is
+  skipped — so criterion commands must be read-only checks. And a goal file executes shell with
+  the operator's privileges: treat it with the same trust you give npm scripts, and never run a
+  goal definition you have not read.
 
 The harness never calls a model. Judge-kind criteria close through a `goal-verdict.json` written by
 a host framework or a human between iterations; the loop stops (`ASK_USER`) until the verdict
@@ -151,8 +155,9 @@ The reviewer answers by writing `.rstack/runs/<run_id>/goal-verdict.json`:
 }
 ```
 
-Then run `pipeline loop` again: the harness consumes the verdict (a verdict whose `iteration` is
-older than the current one is stale and ignored), resets the named stages, and re-evaluates after
+Then run `pipeline loop` again: the harness consumes the verdict (inside a loop iteration a
+verdict whose `iteration` stamp is older than the current one — or missing — is stale and
+ignored), resets the named stages, and re-evaluates after
 the next pass. A verdict with `"recommendation": "block"` stops the loop for a human instead of
 retrying. The judge's *reasoning* lives in the verdict file; the harness itself never calls a
 model and never parses prose.
