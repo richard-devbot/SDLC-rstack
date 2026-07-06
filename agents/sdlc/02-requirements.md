@@ -43,11 +43,15 @@ cat $RSTACK_RUN_DIR/artifacts/requirement_spec.json 2>/dev/null | python3 -m jso
 ```
 If `requirement_spec.json` already exists with `"status": "PASS"`, report it and ask whether to use the existing output or re-draft requirements.
 
-**Adopted runs (brownfield):** if the run has an adoption baseline — `manifest.mode` is `"adopt"`, `artifacts/adoption_report.json` exists, or `requirement_spec.json` is stamped `"source": "brownfield-adoption"` — the adopt scanner already harvested this stage as DONE-with-evidence: the baseline spec lists `requirement_sources` (the existing project docs). Do NOT re-spec the whole system, and do NOT regenerate the harvested baseline. Refine it: spec ONLY the change being made in this run, citing `requirement_sources` for baseline behavior. Every quality gate below still applies in full to the new requirements you write.
+## Adopted-Run Behavior (brownfield)
+
+If this run was created by `rstack-agents adopt`, a harvested requirements baseline already exists. Detect it:
 ```bash
-cat $RSTACK_RUN_DIR/manifest.json 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('mode',''))" 2>/dev/null
-cat $RSTACK_RUN_DIR/artifacts/adoption_report.json 2>/dev/null | python3 -m json.tool 2>/dev/null | head -20
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+grep -l '"source": "brownfield-adoption"' "$RUN_BASE/artifacts/stages/02-requirements/requirement_spec.json" 2>/dev/null
 ```
+On a hit: the adopt scanner already harvested this stage as DONE-with-evidence — the baseline spec at `artifacts/stages/02-requirements/requirement_spec.json` lists `requirement_sources` (the existing project docs). Do NOT re-spec the whole system, and do NOT regenerate the harvested baseline. Refine it: spec ONLY the change being made in this run, citing `requirement_sources` for baseline behavior. Every quality gate below still applies in full to the new requirements you write. Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
 
 ## Workflow
 
@@ -85,7 +89,7 @@ Unanswered questions become flagged ambiguities, not guesses.
 - `could` — desirable if capacity allows
 - `wont` — explicitly deferred this iteration (record it; a written won't-have prevents a hallway "I thought that was included")
 
-MoSCoW feeds 04-planning's sequencing and the Definition-of-Ready gate (`sdlc_dor_check`) — an unprioritized requirement cannot be planned.
+MoSCoW feeds 04-planning's sequencing and the Definition-of-Ready gate (`sdlc_dor_check` checks the spec artifact exists; priority completeness is YOUR gate here) — do not hand 04-planning an unprioritized requirement.
 
 **Verification** — one sentence stating HOW a validator proves this requirement with evidence: the test command, the measurable check, the observable behavior. **A requirement no validator could test with evidence is not done** — that is the rstack contract: builder claims map to validator checks, and an unverifiable requirement produces an unverifiable claim.
 
