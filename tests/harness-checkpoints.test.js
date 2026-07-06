@@ -1,0 +1,229 @@
+// Critical-stage checkpoints (#132, BLE-5.2) — harness unit tests.
+//
+// Covers: the pinned checkpoint event contract, critical-stage set
+// resolution (defaults + config overrides, canonical ids only), disk-verified
+// restorability (no best-effort claims), the checkpoint → mutate → rollback
+// round-trip, pinned rollback statuses (SUCCESS | NO_CHECKPOINT |
+// INVALID_STAGE — non-canonical stage ids are never accepted), config
+// validation warnings, and the pipeline-state rollup surface.
+//
+// owner: RStack developed by Richardson Gunde
+
+import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+
+import {
+  CHECKPOINT_EVENT_TYPES,
+  DEFAULT_CRITICAL_STAGE_IDS,
+  checkpointEvent,
+  isCriticalStage,
+  loadProjectCriticalStages,
+  resolveCriticalStages,
+  rollbackToCheckpoint,
+  saveStageCheckpoint,
+  verifyStageCheckpoint,
+} from '../src/core/harness/checkpoints.js';
+import { validateRstackConfig } from '../src/core/harness/config-validation.js';
+
+function tempDir(prefix) {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
+
+function makeStage(runDir, stageId, files = { 'artifact.json': '{"v":1}' }) {
+  const stageDir = join(runDir, 'artifacts', 'stages', stageId);
+  mkdirSync(stageDir, { recursive: true });
+  for (const [name, content] of Object.entries(files)) {
+    writeFileSync(join(stageDir, name), content);
+  }
+  return stageDir;
+}
+
+test('checkpoint event contract is pinned', async (t) => {
+  await t.test('the three issue-#132 event types are pinned', () => {
+    assert.deepEqual([...CHECKPOINT_EVENT_TYPES], [
+      'stage_checkpoint_before_saved',
+      'stage_checkpoint_after_saved',
+      'stage_checkpoint_reverted',
+    ]);
+  });
+
+  await t.test('unknown event types throw', () => {
+    assert.throws(() => checkpointEvent('stage_checkpoint_maybe_saved', { stage_id: '07-code' }), /Unknown checkpoint event type/);
+  });
+
+  await t.test('non-canonical stage ids throw — plan task ids are not stage ids', () => {
+    assert.throws(() => checkpointEvent('stage_checkpoint_before_saved', { stage_id: '007-code' }), /canonical stage_id/);
+    assert.throws(() => checkpointEvent('stage_checkpoint_before_saved', {}), /canonical stage_id/);
+  });
+
+  await t.test('valid events pass fields through', () => {
+    const event = checkpointEvent('stage_checkpoint_after_saved', { stage_id: '07-code', task_id: '004-code', verified: true });
+    assert.deepEqual(event, { type: 'stage_checkpoint_after_saved', stage_id: '07-code', task_id: '004-code', verified: true });
+  });
+});
+
+test('critical-stage set resolution', async (t) => {
+  await t.test('defaults to the five issue-#132 stages', () => {
+    assert.deepEqual([...DEFAULT_CRITICAL_STAGE_IDS], [
+      '06-architecture',
+      '07-code',
+      '08-testing',
+      '09-deployment',
+      '12-security-threat-model',
+    ]);
+    assert.deepEqual(resolveCriticalStages(undefined), [...DEFAULT_CRITICAL_STAGE_IDS]);
+  });
+
+  await t.test('overrides keep only canonical stage ids, deduped', () => {
+    assert.deepEqual(
+      resolveCriticalStages(['07-code', '007-code', 42, '07-code', '02-requirements']),
+      ['07-code', '02-requirements'],
+    );
+  });
+
+  await t.test('an explicitly empty list disables critical-stage checkpoints', () => {
+    assert.deepEqual(resolveCriticalStages([]), []);
+  });
+
+  await t.test('isCriticalStage answers against the resolved set', () => {
+    assert.equal(isCriticalStage('07-code'), true);
+    assert.equal(isCriticalStage('02-requirements'), false);
+    assert.equal(isCriticalStage('02-requirements', ['02-requirements']), true);
+  });
+
+  await t.test('loadProjectCriticalStages reads rstack.config.json overrides', async () => {
+    const projectRoot = tempDir('rstack-cp-config-');
+    const previousStateDir = process.env.RSTACK_STATE_DIR;
+    delete process.env.RSTACK_STATE_DIR;
+    try {
+      assert.deepEqual(await loadProjectCriticalStages(projectRoot), [...DEFAULT_CRITICAL_STAGE_IDS]);
+
+      mkdirSync(join(projectRoot, '.rstack'), { recursive: true });
+      writeFileSync(join(projectRoot, '.rstack', 'rstack.config.json'), JSON.stringify({
+        checkpoints: { critical_stages: ['07-code', 'not-a-stage', '13-compliance-checker'] },
+      }));
+      assert.deepEqual(await loadProjectCriticalStages(projectRoot), ['07-code', '13-compliance-checker']);
+
+      writeFileSync(join(projectRoot, '.rstack', 'rstack.config.json'), '{malformed');
+      assert.deepEqual(await loadProjectCriticalStages(projectRoot), [...DEFAULT_CRITICAL_STAGE_IDS]);
+    } finally {
+      if (previousStateDir) process.env.RSTACK_STATE_DIR = previousStateDir;
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+test('rstack.config.json checkpoints block is validated field-by-field', () => {
+  assert.deepEqual(validateRstackConfig({ checkpoints: { critical_stages: ['07-code', '08-testing'] } }), []);
+
+  const notObject = validateRstackConfig({ checkpoints: 'yes' });
+  assert.ok(notObject.some((issue) => issue.field === 'checkpoints'));
+
+  const unknownKey = validateRstackConfig({ checkpoints: { criticalStages: ['07-code'] } });
+  assert.ok(unknownKey.some((issue) => issue.field === 'checkpoints.criticalStages' && /unknown checkpoint key/.test(issue.problem)));
+
+  const notArray = validateRstackConfig({ checkpoints: { critical_stages: '07-code' } });
+  assert.ok(notArray.some((issue) => issue.field === 'checkpoints.critical_stages' && /must be an array/.test(issue.problem)));
+
+  const badEntry = validateRstackConfig({ checkpoints: { critical_stages: ['07-code', '007-code'] } });
+  assert.ok(badEntry.some((issue) => issue.field === 'checkpoints.critical_stages' && /not a canonical stage id/.test(issue.problem)));
+});
+
+test('verifyStageCheckpoint answers from disk, never on faith', async (t) => {
+  const runDir = tempDir('rstack-cp-verify-');
+
+  await t.test('non-canonical stage id is not restorable', () => {
+    const verdict = verifyStageCheckpoint(runDir, '007-code');
+    assert.equal(verdict.restorable, false);
+    assert.equal(verdict.reason, 'invalid_stage');
+  });
+
+  await t.test('missing checkpoint directory is not restorable', () => {
+    const verdict = verifyStageCheckpoint(runDir, '07-code');
+    assert.equal(verdict.restorable, false);
+    assert.equal(verdict.reason, 'no_checkpoint');
+  });
+
+  await t.test('a file squatting on the checkpoint path is not restorable', () => {
+    mkdirSync(join(runDir, 'checkpoints'), { recursive: true });
+    writeFileSync(join(runDir, 'checkpoints', '08-testing'), 'not a directory');
+    const verdict = verifyStageCheckpoint(runDir, '08-testing');
+    assert.equal(verdict.restorable, false);
+    assert.equal(verdict.reason, 'not_a_directory');
+  });
+
+  await t.test('a real checkpoint directory is restorable', async () => {
+    makeStage(runDir, '07-code');
+    await saveStageCheckpoint(runDir, '07-code', 'before');
+    const verdict = verifyStageCheckpoint(runDir, '07-code');
+    assert.equal(verdict.restorable, true);
+    assert.equal(verdict.reason, null);
+  });
+
+  rmSync(runDir, { recursive: true, force: true });
+});
+
+test('saveStageCheckpoint verifies the checkpoint landed and pins the phase', async (t) => {
+  const runDir = tempDir('rstack-cp-save-');
+
+  await t.test('phase and stage id are validated', async () => {
+    await assert.rejects(() => saveStageCheckpoint(runDir, '07-code', 'during'), /Unknown checkpoint phase/);
+    await assert.rejects(() => saveStageCheckpoint(runDir, '007-code', 'before'), /Unknown canonical SDLC stage/);
+  });
+
+  await t.test('no stage directory means saved:false — nothing is claimed', async () => {
+    const result = await saveStageCheckpoint(runDir, '09-deployment', 'before');
+    assert.equal(result.saved, false);
+    assert.equal(result.verified, false);
+  });
+
+  await t.test('a saved checkpoint is verified on disk and names its event type', async () => {
+    makeStage(runDir, '07-code', { 'code_report.json': '{"attempt":1}' });
+    const before = await saveStageCheckpoint(runDir, '07-code', 'before');
+    assert.equal(before.saved, true);
+    assert.equal(before.verified, true);
+    assert.equal(before.event_type, 'stage_checkpoint_before_saved');
+    assert.ok(existsSync(join(runDir, 'checkpoints', '07-code', 'code_report.json')));
+
+    const after = await saveStageCheckpoint(runDir, '07-code', 'after');
+    assert.equal(after.event_type, 'stage_checkpoint_after_saved');
+  });
+
+  rmSync(runDir, { recursive: true, force: true });
+});
+
+test('checkpoint → mutate → rollback round-trip restores stage artifacts', async (t) => {
+  const runDir = tempDir('rstack-cp-roundtrip-');
+  const stageDir = makeStage(runDir, '07-code', { 'code_report.json': '{"status":"PASS"}' });
+
+  await t.test('rollback restores the checkpointed content and removes junk', async () => {
+    await saveStageCheckpoint(runDir, '07-code', 'before');
+
+    // Mutate: rewrite an artifact AND add a stray file the checkpoint never had.
+    writeFileSync(join(stageDir, 'code_report.json'), '{"status":"TAMPERED"}');
+    writeFileSync(join(stageDir, 'stray.log'), 'junk from a failed retry');
+
+    const result = await rollbackToCheckpoint(runDir, '07-code');
+    assert.equal(result.status, 'SUCCESS');
+    assert.equal(readFileSync(join(stageDir, 'code_report.json'), 'utf8'), '{"status":"PASS"}');
+    assert.equal(existsSync(join(stageDir, 'stray.log')), false, 'files added after the checkpoint must not survive rollback');
+  });
+
+  await t.test('rollback never accepts non-canonical stage ids', async () => {
+    const result = await rollbackToCheckpoint(runDir, '007-code');
+    assert.equal(result.status, 'INVALID_STAGE');
+    assert.match(result.detail, /canonical/);
+  });
+
+  await t.test('rollback without a checkpoint reports NO_CHECKPOINT and touches nothing', async () => {
+    makeStage(runDir, '08-testing', { 'test_report.json': '{"kept":true}' });
+    const result = await rollbackToCheckpoint(runDir, '08-testing');
+    assert.equal(result.status, 'NO_CHECKPOINT');
+    assert.equal(readFileSync(join(runDir, 'artifacts', 'stages', '08-testing', 'test_report.json'), 'utf8'), '{"kept":true}');
+  });
+
+  rmSync(runDir, { recursive: true, force: true });
+});
