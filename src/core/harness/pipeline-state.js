@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { CANONICAL_SDLC_STAGES } from './stages.js';
+import { verifyStageCheckpoint } from './checkpoints.js';
 import { runDirectory } from './runs.js';
 import { withFileLock, writeJsonAtomic } from './safe-write.js';
 
@@ -320,6 +321,24 @@ function summarizeGoalLoopEvents(events) {
   return { total, iterations, last_evaluation: lastEvaluation, stopped_on: stoppedOn };
 }
 
+// Checkpoint rollup (#132, BLE-5.2): counts the pinned checkpoint events
+// (stage_checkpoint_before_saved / stage_checkpoint_after_saved /
+// stage_checkpoint_reverted) so `pipeline status` answers "which critical
+// stages have restore points?" without reading events.jsonl. Restorability
+// itself is NEVER derived from these events — each stage's
+// checkpoint_restorable flag is verified against the checkpoint directory
+// on disk at rollup time.
+function summarizeCheckpointEvents(events) {
+  const counts = { before_saved: 0, after_saved: 0, reverted: 0 };
+  for (const event of events) {
+    const type = eventType(event);
+    if (type === 'stage_checkpoint_before_saved') counts.before_saved += 1;
+    else if (type === 'stage_checkpoint_after_saved') counts.after_saved += 1;
+    else if (type === 'stage_checkpoint_reverted') counts.reverted += 1;
+  }
+  return { total: counts.before_saved + counts.after_saved + counts.reverted, ...counts };
+}
+
 function summarizeEvents(events, predicate) {
   const items = events.filter(predicate).map((event) => ({
     ts: event.ts || event.timestamp || null,
@@ -364,6 +383,9 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
       cost_usd: metrics.stage_cost_usd?.[stage.id] ?? null,
       tokens: metrics.stage_tokens?.[stage.id] ?? null,
       evidence_paths: [...new Set([...artifactPaths, ...evidencePaths])],
+      // Verified on disk, never inferred from events: true only when the
+      // checkpoint directory actually exists right now (#132).
+      checkpoint_restorable: verifyStageCheckpoint(dir, stage.id).restorable,
     });
   }
 
@@ -379,6 +401,7 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
     stages,
     retries: summarizeRetryEvents(events),
     goal_loop: summarizeGoalLoopEvents(events),
+    checkpoints: summarizeCheckpointEvents(events),
     guardrails: summarizeEvents(events, isGuardrailEvent),
     approval_blockers: buildApprovalBlockers(approvals),
     cost_context: buildCostContext(metrics),

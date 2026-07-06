@@ -20,6 +20,7 @@ export { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from './core/harness/gua
 export { validateApprovalRecord, auditRunApprovals, trustedApprovedArtifacts, approvalAuditEvent, isSafeRunId, isSafeArtifactName, RUN_APPROVAL_STATUSES, QUEUE_APPROVAL_STATUSES, DASHBOARD_APPROVAL_SOURCES } from './core/harness/approval-audit.js';
 export { updateRunMetrics, createStageCheckpoint, rollbackStage, prepareRunState } from './core/harness/run-state.js';
 export { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate } from './core/harness/telemetry.js';
+export { DEFAULT_CRITICAL_STAGE_IDS, CHECKPOINT_EVENT_TYPES, CHECKPOINT_PHASES, CHECKPOINT_MANIFEST_SCHEMA_VERSION, ROLLBACK_STATUSES, checkpointEvent, resolveCriticalStages, loadProjectCriticalStages, isCriticalStage, saveStageCheckpoint, verifyStageCheckpoint, rollbackToCheckpoint, stageCheckpointDir, stageCheckpointManifestPath } from './core/harness/checkpoints.js';
 export { buildPipelineState, readPipelineState, summarizePipelineState, writePipelineState } from './core/harness/pipeline-state.js';
 export { addDecision, decide, readDecisions, summarizeDecisions, writeDecisions } from './core/harness/decisions.js';
 export { assertReadyForStage, dorCheck, readinessModeForProfile } from './core/harness/readiness.js';
