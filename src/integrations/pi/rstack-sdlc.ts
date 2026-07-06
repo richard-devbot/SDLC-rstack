@@ -18,7 +18,8 @@ import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
 import { VALIDATOR_CONTEXT_ENV, VALIDATOR_RUN_ID_ENV, VALIDATOR_READ_ONLY_TOOLS, evaluateValidatorAction, isValidatorContext, isValidatorRole, isValidatorSandboxDebug } from "../../core/harness/validator-sandbox.js";
 import { loadValidatorRegistry, resolveValidatorProfile } from "../../core/harness/validator-registry.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
-import { prepareRunState, prepareStageFolders, createStageCheckpoint, rollbackStage, updateRunMetrics } from "../../core/harness/run-state.js";
+import { prepareRunState, prepareStageFolders, updateRunMetrics } from "../../core/harness/run-state.js";
+import { checkpointEvent, isCriticalStage, loadProjectCriticalStages, rollbackToCheckpoint, saveStageCheckpoint } from "../../core/harness/checkpoints.js";
 import { addDecision, decide, readDecisions, summarizeDecisions } from "../../core/harness/decisions.js";
 import { assertReadyForStage, dorCheck, latestStageId } from "../../core/harness/readiness.js";
 import { withFileLock, writeJsonAtomic } from "../../core/harness/safe-write.js";
@@ -1614,6 +1615,32 @@ export default function (pi: ExtensionAPI) {
         };
       }
       await appendEvent(projectRoot, manifest.run_id, { type: "task_started", task_id: task.id, agent: task.agent ?? null, ts: new Date().toISOString() });
+      // Pre-stage checkpoint (#132, BLE-5.2): critical stages get a verified
+      // restore point BEFORE the builder mutates their artifacts — loop
+      // retries re-enter through this claim, so this is the state a failed
+      // attempt rolls back to. Stage ids are derived exactly like the
+      // validate path (canonical ids only, never plan task ids), and the
+      // event is emitted only after the checkpoint directory is verified on
+      // disk — no best-effort claims.
+      try {
+        const criticalStages = await loadProjectCriticalStages(projectRoot);
+        const claimedStageIds = [...new Set(
+          (task.stage_artifacts ?? [])
+            .map((artifact: any) => artifact?.stage_id)
+            .filter((id: any) => typeof id === "string" && getCanonicalStage(id)),
+        )];
+        if (claimedStageIds.length === 0 && getCanonicalStage(task.id)) claimedStageIds.push(task.id);
+        const checkpointRunDir = join(runsDir(projectRoot), manifest.run_id);
+        for (const stageId of claimedStageIds) {
+          if (!isCriticalStage(stageId, criticalStages)) continue;
+          const checkpoint = await saveStageCheckpoint(checkpointRunDir, stageId, "before");
+          if (checkpoint.saved && checkpoint.verified) {
+            await appendEvent(projectRoot, manifest.run_id, checkpointEvent("stage_checkpoint_before_saved", { stage_id: stageId, task_id: task.id, verified: true }));
+          }
+        }
+      } catch (cpError) {
+        console.error("Failed to save pre-stage checkpoint:", cpError);
+      }
       if (guardrailCheck?.overridden) {
         // Consumption already happened inside the claim critical section
         // (fail-closed); this is the audit trail entry.
@@ -1787,19 +1814,31 @@ export default function (pi: ExtensionAPI) {
         } catch (metricsError) {
           console.error("Failed to update run metrics:", metricsError);
         }
-        // Checkpoint each canonical stage the task produced. createStageCheckpoint
+        // Checkpoint each canonical stage the task produced. saveStageCheckpoint
         // requires a canonical stage id — passing task.id threw on every plan task,
         // so no checkpoint was ever saved and sdlc_rollback had nothing to restore.
-        for (const stageId of canonicalStageIds) {
-          try {
-            const runDir = join(runsDir(projectRoot), manifest.run_id);
-            const checkpointSaved = await createStageCheckpoint(runDir, stageId);
-            if (checkpointSaved) {
-              await appendEvent(projectRoot, manifest.run_id, { type: "stage_checkpoint_saved", stage_id: stageId, task_id: task.id });
+        // Critical stages (#132, BLE-5.2) additionally emit the pinned
+        // stage_checkpoint_after_saved event, and only once the checkpoint
+        // directory is verified on disk — an event in the ledger always
+        // corresponds to a restorable checkpoint.
+        try {
+          const criticalStages = await loadProjectCriticalStages(projectRoot);
+          const checkpointRunDir = join(runsDir(projectRoot), manifest.run_id);
+          for (const stageId of canonicalStageIds) {
+            try {
+              const checkpoint = await saveStageCheckpoint(checkpointRunDir, stageId, "after");
+              if (checkpoint.saved) {
+                await appendEvent(projectRoot, manifest.run_id, { type: "stage_checkpoint_saved", stage_id: stageId, task_id: task.id });
+                if (isCriticalStage(stageId, criticalStages) && checkpoint.verified) {
+                  await appendEvent(projectRoot, manifest.run_id, checkpointEvent("stage_checkpoint_after_saved", { stage_id: stageId, task_id: task.id, verified: true }));
+                }
+              }
+            } catch (cpError) {
+              console.error(`Failed to save stage checkpoint for ${stageId}:`, cpError);
             }
-          } catch (cpError) {
-            console.error(`Failed to save stage checkpoint for ${stageId}:`, cpError);
           }
+        } catch (cpError) {
+          console.error("Failed to resolve critical stages for checkpointing:", cpError);
         }
       } else if (retryDecision) {
         // Retry policy events (#123). `retry_decision` is a pinned contract —
@@ -2232,20 +2271,24 @@ export default function (pi: ExtensionAPI) {
       if (!runId) throw new Error("No RStack run found.");
 
       const runDir = join(runsDir(projectRoot), runId);
-      const reverted = await rollbackStage(runDir, params.stage_id);
+      // Pinned rollback statuses (#132, BLE-5.2): SUCCESS | NO_CHECKPOINT |
+      // INVALID_STAGE. Non-canonical stage ids (plan task ids like "007-code")
+      // are rejected before touching disk, and the checkpoint directory is
+      // verified to exist before any restore is attempted — rollback support
+      // is never claimed without a checkpoint that is really on disk.
+      const result = await rollbackToCheckpoint(runDir, params.stage_id);
 
-      if (reverted) {
-        await appendEvent(projectRoot, runId, { type: "stage_checkpoint_reverted", stage_id: params.stage_id });
+      if (result.status === "SUCCESS") {
+        await appendEvent(projectRoot, runId, checkpointEvent("stage_checkpoint_reverted", { stage_id: params.stage_id }));
         return {
           content: [{ type: "text", text: `Successfully rolled back stage ${params.stage_id} for run ${runId} to its last checkpoint.` }],
           details: { run_id: runId, stage_id: params.stage_id, status: "SUCCESS" }
         };
-      } else {
-        return {
-          content: [{ type: "text", text: `Failed to rollback stage ${params.stage_id}. No checkpoint found.` }],
-          details: { run_id: runId, stage_id: params.stage_id, status: "NO_CHECKPOINT" }
-        };
       }
+      return {
+        content: [{ type: "text", text: `Rollback of stage ${params.stage_id} for run ${runId}: ${result.status}. ${result.detail}` }],
+        details: { run_id: runId, stage_id: params.stage_id, status: result.status }
+      };
     },
   });
 
