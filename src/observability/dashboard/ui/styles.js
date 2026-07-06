@@ -1272,4 +1272,8 @@ tr.clickable:hover td { background: #f8fbff; }
 
 /* [wave:quality] Requirements & Traceability, Security registry, Stephens report cards, dark-stage chips */
 .cutover-block { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.req-note { font-size: 11px; color: var(--muted); }
+.wont-have-item { font-size: 12px; color: var(--muted); padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.wont-have-item:last-child { border-bottom: none; }
+.wont-have-item .mono { color: var(--faint); }
 `;
