@@ -66,8 +66,11 @@ const COMMAND_RULES = Object.freeze([
   }),
   Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.DB_DESTROY,
-    pattern: /\b(DROP\s+(TABLE|DATABASE|SCHEMA)|DELETE\s+FROM|TRUNCATE\s+(TABLE\s+)?)\b/i,
-    reason: 'destructive SQL statement (drop/delete/truncate)',
+    // SQL forms plus the specific, unambiguous ORM/driver/CLI equivalents the
+    // issue names. Deliberately NOT bare `.drop(`/`.remove(` — those match too
+    // much ordinary code (DOM `el.remove()`, list ops) and would false-positive.
+    pattern: /\b(DROP\s+(TABLE|DATABASE|SCHEMA)|DELETE\s+FROM|TRUNCATE\s+(TABLE\s+)?)\b|\.dropDatabase\s*\(|\.deleteMany\s*\(|\bdropdb\b|\bmongo(sh)?\s+\S*\s*--eval\b|\bprisma\s+migrate\s+reset\b|\bsequelize\s+db:drop\b/i,
+    reason: 'destructive database statement (SQL drop/delete/truncate, or ORM/CLI drop/reset)',
   }),
   Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.SECRET_WRITE,

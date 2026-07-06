@@ -54,6 +54,22 @@ test('db-destroy: destructive SQL', () => {
   }
 });
 
+test('db-destroy: ORM / driver / CLI equivalents (non-SQL forms)', () => {
+  // These previously classified safe and FAILED OPEN (#131 review finding 2).
+  for (const cmd of [
+    'mongosh --eval "db.dropDatabase()"',
+    'db.users.deleteMany({})',
+    'await prisma.user.deleteMany()',
+    'dropdb production',
+    'prisma migrate reset --force',
+    'sequelize db:drop',
+  ]) {
+    const v = classifyCommand(cmd);
+    assert.equal(v.destructive, true, `expected destructive: ${cmd}`);
+    assert.equal(v.category, DESTRUCTIVE_CATEGORIES.DB_DESTROY, `category for: ${cmd}`);
+  }
+});
+
 test('secret-write: shell redirect/tee into secret paths', () => {
   for (const cmd of ['echo TOKEN=x >> .env', 'cat k > config/.env.production', 'echo x > id_rsa', 'echo pw > server.pem', 'echo x | tee credentials.json']) {
     const v = classifyCommand(cmd);
