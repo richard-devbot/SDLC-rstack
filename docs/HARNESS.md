@@ -354,8 +354,13 @@ tasks.json).
 disk (`verifyStageCheckpoint`), never inferred from events or memory: checkpoint events are only
 emitted after the directory is verified to exist, the per-stage `checkpoint_restorable` flag in
 `pipeline-state.json` is re-checked at rollup time, and `sdlc_rollback` returns a pinned status —
-`SUCCESS` (restored), `NO_CHECKPOINT` (nothing on disk, nothing modified), or `INVALID_STAGE`
-(non-canonical stage id, rejected before touching disk).
+`SUCCESS` (restored), `NO_CHECKPOINT` (nothing on disk, nothing modified), `INVALID_STAGE`
+(non-canonical stage id, rejected before touching disk), or `CORRUPT` (a checkpoint exists but
+fails its integrity manifest — a deep sha-256 content check — so nothing is restored and the live
+stage is left untouched). Note the `pipeline-state.json` `checkpoint_restorable` rollup flag is a
+lighter (size-only) check for status display; `sdlc_rollback` always runs the full deep-hash
+verification before restoring, so a same-size-tampered slot can read restorable in `status` yet
+correctly return `CORRUPT` on an actual rollback — the action fails closed.
 
 **Events (pinned contract):** `stage_checkpoint_before_saved` (`stage_id`, `task_id`, `verified`)
 at claim, `stage_checkpoint_after_saved` (same fields) after a PASS validation, and
