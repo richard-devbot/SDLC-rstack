@@ -2042,7 +2042,13 @@ export default function (pi: ExtensionAPI) {
         const registry = await loadRegistry(projectRoot);
         const selected = registry.filter((item) => task.specialists?.includes(item.id));
         const memoryConfig = await readMemoryConfig(projectRoot);
-        if (memoryConfig.writePolicy === "validation-attempts" || status === "PASS") {
+        {
+          // The write policy is enforced in code by appendEpisode (#137), not by
+          // this call site. We always build the episode and hand it to the
+          // harness, then emit the ledger event that matches its decision:
+          // a stored episode → episode_memory_written; a policy-skipped one
+          // (e.g. a FAILED validation under validator-approved-only) →
+          // episode_memory_skipped_untrusted.
           const memoryDirPath = projectMemoryDir(projectRoot, memoryConfig);
           const episode = episodeFromValidation({
             projectRoot,
@@ -2053,8 +2059,12 @@ export default function (pi: ExtensionAPI) {
             selected,
             branch: await currentBranch(projectRoot),
           });
-          await appendEpisode(memoryDirPath, episode);
-          await appendEvent(projectRoot, manifest.run_id, { type: "episode_memory_written", task_id: task.id, episode_id: episode.episode_id, trusted: episode.trusted });
+          const decision = await appendEpisode(memoryDirPath, episode, memoryConfig);
+          if (decision.written) {
+            await appendEvent(projectRoot, manifest.run_id, { type: "episode_memory_written", task_id: task.id, episode_id: episode.episode_id, trusted: decision.trusted, write_policy: decision.decision.writePolicy });
+          } else {
+            await appendEvent(projectRoot, manifest.run_id, { type: "episode_memory_skipped_untrusted", task_id: task.id, episode_id: episode.episode_id, reason: decision.decision.reason, write_policy: decision.decision.writePolicy });
+          }
         }
       } catch (error) {
         await appendEvent(projectRoot, manifest.run_id, { type: "episode_memory_write_failed", task_id: task.id, error: String(error) });
