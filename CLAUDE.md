@@ -24,6 +24,10 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-06 | **Cost/token telemetry persisted** (P0): builder-contract `cost`/`context`/`execution` extracted at validate into `metrics.json` — `cumulative_tokens {input,output,total}`, per-stage `stage_cost_usd`/`stage_tokens`, `cumulative_tool_calls`; increments are idempotency-keyed on builder-contract content hash (retries/loop iterations can't double-count, so the loop budget cap enforces on real spend), `metrics_write_failed` drift event with event-recompute fallback, mid-run upgrade seeds from history, read path prefers persisted totals; docs schema in HARNESS.md | 4 | #83 #135, PR #199 (adversarial review: F1 blocking + 3 fixed pre-merge) |
+| 2026-07-06 | **Approval audit consistency**: approval records are a trust boundary — `validateApprovalRecord`/`auditRunApprovals`/`trustedApprovedArtifacts` audit before trusting (safe run/artifact, exact-casing status, actor, timestamp, dashboard token evidence, run binding, replay + append-only ordering); malformed **latest** record poisons its artifact (no fallback), both unblock gates (guardrail-override + required-approval) unified on ONE audit path, `approval_audit_failed` events, fail-loud write boundary | 1 | #133, PR #202 (review: replay-drift MEDIUM fixed pre-merge) |
+| 2026-07-06 | **Critical-stage checkpoints**: pre/post restore points for 06/07/08/09/12 (configurable), sha-256 integrity manifests (corrupt checkpoint → `CORRUPT`, fails closed — no best-effort lies), restorability verified on disk, wired into claim/validate/rollback, composes with BLE-4 loop stage resets (reset changes task status, never checkpoint state) | 1 | #132, PR #201 (hardening → #203) |
+| 2026-07-06 | **Goal contract runtime-enforced**: `validateStageGoalEvaluation` wired into `sdlc_validate` — a goal-driven run FAILS validation (into validation.json + the retry policy) when agent-11's `goal_evaluation` is missing/malformed; no enforcement without an active goal; stage targeting reuses the rollup's `taskStageIds` so gate and loop reset can't disagree | 1 | #196, PR #198 (review MERGE; corruption edge → #200) |
 | 2026-07-06 | **Agent-11 goal contract**: `goal_evaluation` in feedback.json feeds the goal evaluator as an evidenced judge-verdict writer — explicit human/host verdicts always consumed first (id-less shorthand included), agent stamps ahead of the current iteration rejected, evidence must resolve to a real file inside runDir/projectRoot (existence-not-relevance documented honestly), conflicting duplicate criteria consumed by neither, agent rerun recommendations UNION the recipe's stages so the loop self-sustains; closes BLE-4 — **all six BLE epics done** | 1 | #128 #126, PR #195 (adversarial review: 5 findings fixed pre-merge, runtime wiring → #196) |
 | 2026-07-06 | **BLE-4 goal loop (core)**: model-free goal evaluator (`goal-check.js` — verifiable criteria evaluated by the harness; judge criteria close via iteration-stamped `goal-verdict.json`, unstamped = stale in loop context), bounded budget-capped `rstack-agents pipeline loop` (default 3 iterations, hard cap 20 no config can exceed, no-progress stop, budget checked pre-iteration), in-lock stage resets that can't launder attempt budgets, five pinned loop events in status/feed, `docs/loop-recipes.md` (recipes tagged with maintenance taxonomy) | 1 | #127 #129, PR #193 |
 | 2026-07-06 | **Adopt-aware agents**: run-modes contract (greenfield/brownfield/feature) in OPERATING-STANDARD §8 + SOUL, "Adopted-Run Behavior" in ALL 15 stage agents (detection recipe with `RUN_BASE` fallback, refine-never-regenerate, study-before-modify per Stephens Ch11 p243), markers verified against `harvest.js`; completes the #148 flagship end-to-end | 3 | #183, PRs #192 #189 #190 #191 |
@@ -57,17 +61,27 @@ Pre-2026-06 history lives in CHANGELOG.md (v1.0 → v1.9.0-rc).
 
 Work top-down. File a GitHub issue before any branch (Richardson's rule: issues before PRs).
 
-1. **#196** — wire `validateGoalEvaluation` into the stage-11 validation path (runtime
-   enforcement of the goal contract; today it's prompt-text-only, which goal 1 forbids).
-   Small, well-scoped — from PR #195's adversarial review. Goal 1.
-2. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
-   do after the #95 page-module split. Goal 2.
-3. **#134–#137** — cost/context/memory (BLE-6), incl. #83 persisted cost metrics. Goal 4.
-4. **#130–#133** — BLE-5 remainder: stage checkpoints (#132), approval audit consistency (#133);
-   re-scope #131 first — partially superseded by the validator sandbox. Goal 1.
-5. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
-6. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
-    E2E tests, dark stages) + #159 parallel benchmark. Goal 2.
+**Backend closeout in progress (2026-07-06):** wave 1 shipped — #196, #132, #133, #83, #135
+(PRs #198/#201/#202/#199). Remaining to close epics #130 (BLE-5) and #134 (BLE-6):
+
+1. **#136** — context pressure warnings (builder-prompt/memory/artifact/stage-summary size
+   thresholds → `context_pressure_warning`/`memory_pruned`/`artifact_summary_truncated` events).
+   Now unblocked — #135's cost/context fields + events landed. BLE-6. Goal 4.
+2. **#137** — tighten memory write policy (validator-approved-only default; failed episodes
+   `trusted:false`; signature/evidence/quality-score checks; memory-write-decision events). BLE-6. Goal 4.
+3. **#131** — destructive-action gate coverage — **re-scope first**: the validator sandbox (#119)
+   already hard-blocks validator writes; remainder = a centralized classification module +
+   builder-side hook coverage (rm -rf, force-push, publish, deploy, secret paths). BLE-5. Goal 1.
+4. **#159** — parallel-execution benchmark harness (SEQ vs PAR on data-independent stages;
+   enable parallel groups only on measured ≥40% gain). Pairs with #132 checkpoints. Goal 2/4.
+5. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
+   after the #95 page-module split. Goal 2.
+6. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
+7. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
+    E2E tests, dark stages). Goal 2.
+
+Backend follow-ups filed from wave-1 reviews (small, do opportunistically): #200 (goal gate
+fail-closed on corrupt events.jsonl), #203 (atomic checkpoint restore + deep rollup check).
 
 UI ↔ backend alignment note (2026-07-04 review): the dashboard approve path writes run-level
 `approvals.json` (`appendRunApproval`), so guardrail overrides approved from the Business Hub reach
