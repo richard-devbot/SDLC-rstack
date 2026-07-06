@@ -248,8 +248,9 @@ condition passes" — bounded, budget-capped, and model-free.
   against `value`, read from `source`: `"feedback"` (the agent-11 artifact), `"pipeline_state"`
   (the in-memory rollup), or `{"file": "relative/to/run"}`. A missing feedback artifact is a
   clear non-pass that recommends rerunning `11-feedback-loop` — never a silent skip.
-- `judge` — **the harness never calls a model.** Judge criteria close through
-  `<run_dir>/goal-verdict.json`, written by a host framework or a human:
+- `judge` — **the harness never calls a model.** Judge criteria close through the verdict
+  protocol: `<run_dir>/goal-verdict.json`, written by a host framework or a human (or the
+  evidence-gated agent-11 `goal_evaluation` path described below):
   `{ "criterion_id", "verdict": "PASS"|"FAIL", "judge", "reasoning", "iteration",
   "recommendation": "retry"|"block", "recommended_rerun_stages": [] }` (single object, array, or
   `{"verdicts": []}`). The harness validates and consumes it; without a fresh verdict the
@@ -260,6 +261,28 @@ condition passes" — bounded, budget-capped, and model-free.
   for a human.
 
 Any criterion may carry `rerun_stages` — the canonical stages a RETRY should reset.
+
+**Agent-11 writer path (#128).** Stage 11 (`11-feedback-loop`) is a legitimate writer of the same
+verdict protocol — not a second one. Its feedback.json may embed a structured `goal_evaluation`
+section (`goal_id`, `iteration`, `status`, `consistency_score`, `critical_count`,
+`failing_stages`, `recommended_rerun_stages`, `requires_human_decision`, `reason`, and
+per-criterion `criteria[]`: `{ criterion_id, result: "met"|"not_met"|"unknown", evidence[],
+reasoning, recommended_rerun_stages, maintenance_category, recommendation }`). The evaluator
+converts each per-criterion result into a judge verdict **only when every listed evidence path
+exists on disk** (relative paths resolve against the run dir, then the project root) — an
+`unknown` result or an unevidenced claim is rejected with a recorded reason and the criterion
+stays at the `ASK_USER` path. The same freshness rules apply: inside a loop iteration an
+evaluation stamped with an older or missing `iteration` is stale and ignored. An explicit
+`goal-verdict.json` entry outranks the agent-11 evaluation for the same criterion, so a human or
+host verdict always wins. `recommended_rerun_stages` on a `not_met` criterion feed stage resets,
+routed through the agent's maintenance taxonomy (corrective defects → the fixing stage,
+preventive gaps → docs, and so on). The top-level `goal_evaluation` fields are the agent's
+recommendation for hosts and dashboards; the evaluator recomputes its own decision from raw
+evidence and never copies them. Section shape is checked by `validateGoalEvaluation` (same
+`{ok, checks, issues}` contract style as builder/validator checks), consumption/rejection is
+surfaced on the evaluation as `agent_goal_evaluation: { present, consumed, rejected, issues }`,
+and the harness still never calls a model — agent 11 recommends with evidence; `goal-check.js`
+decides.
 
 **Evaluator.** `evaluateGoal(projectRoot, runId, options)` builds the rollup in memory (persists
 nothing), reads only structured JSON (never prose), always layers harness checks over the criteria

@@ -29,9 +29,11 @@ hard cap of 20 that no config can exceed, a no-progress stop, and the `.rstack/b
   the operator's privileges: treat it with the same trust you give npm scripts, and never run a
   goal definition you have not read.
 
-The harness never calls a model. Judge-kind criteria close through a `goal-verdict.json` written by
-a host framework or a human between iterations; the loop stops (`ASK_USER`) until the verdict
-exists.
+The harness never calls a model. Judge-kind criteria close through the verdict protocol: a
+`goal-verdict.json` written by a host framework or a human between iterations, **or** an
+evidence-backed `goal_evaluation` section emitted by stage `11-feedback-loop` in its
+feedback.json (see `docs/HARNESS.md` → "Agent-11 writer path"); the loop stops (`ASK_USER`)
+until a fresh verdict exists.
 
 ---
 
@@ -120,9 +122,14 @@ lands reduces future corrective work; nothing user-visible changes.
 
 - **Trigger:** manual — run after `06-architecture` completes, or after requirements change.
 - **Goal:** judge — "is this design satisfying?" is not machine-verifiable, so it closes through
-  the model-free verdict protocol: the loop stops at `ASK_USER` until a host framework (running its
-  own reviewer model) or a human writes `goal-verdict.json` into the run directory.
-- **Stages rerun on a FAIL verdict:** whatever the verdict names, defaulting to `06-architecture`.
+  the model-free verdict protocol. The packaged reviewer is stage `11-feedback-loop`: its
+  feedback.json carries a structured, evidence-backed `goal_evaluation` that the evaluator
+  consumes as the judge verdict (#128). A host framework or human can still write
+  `goal-verdict.json` directly — and an explicit verdict file outranks the agent's evaluation
+  for the same criterion.
+- **Stages rerun on a FAIL verdict:** whatever the verdict names, defaulting to
+  `06-architecture` — plus `11-feedback-loop`, so the next iteration produces a FRESH
+  evaluation (the old one's iteration stamp goes stale by design).
 
 `arch-satisfaction.goal.json`:
 
@@ -137,12 +144,39 @@ lands reduces future corrective work; nothing user-visible changes.
       "rerun_stages": ["06-architecture"] },
     { "id": "design-review", "kind": "judge",
       "question": "Does system_design.json cover every FR with an endpoint or table, name the rejected alternative for the stack choice, and include non-empty security controls?",
-      "rerun_stages": ["06-architecture"] }
+      "rerun_stages": ["06-architecture", "11-feedback-loop"] }
   ]
 }
 ```
 
-The reviewer answers by writing `.rstack/runs/<run_id>/goal-verdict.json`:
+Stage 11 answers inside its feedback.json (`artifacts/stages/11-feedback-loop/feedback.json`):
+
+```json
+{
+  "goal_evaluation": {
+    "goal_id": "arch-satisfaction",
+    "iteration": 1,
+    "status": "RETRY",
+    "consistency_score": 82.5,
+    "critical_count": 1,
+    "failing_stages": ["06-architecture"],
+    "recommended_rerun_stages": ["06-architecture"],
+    "requires_human_decision": false,
+    "reason": "FR-003 has no endpoint; security controls section is empty.",
+    "criteria": [
+      { "criterion_id": "design-review", "result": "not_met",
+        "evidence": ["artifacts/stages/06-architecture/system_design.json"],
+        "reasoning": "FR-003 unmapped; empty security controls.",
+        "maintenance_category": "corrective", "recommendation": "retry",
+        "recommended_rerun_stages": ["06-architecture"] }
+    ]
+  }
+}
+```
+
+The evaluator consumes a per-criterion result only when every listed evidence path exists on
+disk; `unknown` or unevidenced claims stop the loop at `ASK_USER` instead. A human can override
+by writing `.rstack/runs/<run_id>/goal-verdict.json`:
 
 ```json
 {
@@ -155,12 +189,12 @@ The reviewer answers by writing `.rstack/runs/<run_id>/goal-verdict.json`:
 }
 ```
 
-Then run `pipeline loop` again: the harness consumes the verdict (inside a loop iteration a
-verdict whose `iteration` stamp is older than the current one — or missing — is stale and
-ignored), resets the named stages, and re-evaluates after
-the next pass. A verdict with `"recommendation": "block"` stops the loop for a human instead of
-retrying. The judge's *reasoning* lives in the verdict file; the harness itself never calls a
-model and never parses prose.
+Then run `pipeline loop` again: the harness consumes the freshest applicable verdict (inside a
+loop iteration a verdict — file or agent-11 — whose `iteration` stamp is older than the current
+one, or missing, is stale and ignored), resets the named stages, and re-evaluates after the next
+pass. A verdict with `"recommendation": "block"` stops the loop for a human instead of retrying.
+The judge's *reasoning* lives in the verdict; the harness itself never calls a model and never
+parses prose.
 
 ---
 
