@@ -28,7 +28,7 @@ export function dashboardHtml(port) {
         <div class="ws-dot" id="ws-dot" style="margin-left:auto"></div>
       </div>
     </div>
-    <nav class="nav">${sidebarMarkup()}</nav>
+    <nav class="nav" aria-label="Dashboard pages">${sidebarMarkup()}</nav>
     <div class="side-kpis">
       <div class="side-kpi"><div class="side-v" id="side-runs">-</div><div class="side-l">Runs</div></div>
       <div class="side-kpi"><div class="side-v" id="side-cost">-</div><div class="side-l">Spend</div></div>
@@ -40,8 +40,8 @@ export function dashboardHtml(port) {
     <header id="topbar">
       <div class="tb-title" id="page-title">Command Center</div>
       <div class="tb-scope">
-        <select class="run-select" id="scope-project" onchange="setScopeProject(this.value)" title="Project scope"><option value="">All projects</option></select>
-        <select class="run-select" id="scope-run" onchange="setScopeRun(this.value)" title="Run scope"><option value="">All runs</option></select>
+        <select class="run-select" id="scope-project" onchange="setScopeProject(this.value)" title="Project scope" aria-label="Project scope"><option value="">All projects</option></select>
+        <select class="run-select" id="scope-run" onchange="setScopeRun(this.value)" title="Run scope" aria-label="Run scope"><option value="">All runs</option></select>
       </div>
       <div class="tb-status" title="Data freshness — live, stale, or disconnected"><span class="status-dot status-connecting" id="status-dot"></span><span id="status-text">Loading...</span></div>
       <div id="conn-live" role="status" aria-live="polite" class="sr-only"></div>
@@ -51,19 +51,19 @@ export function dashboardHtml(port) {
       </div>
     </header>
     <div id="content">
-      <div id="err"></div>
+      <div id="err" role="alert"></div>
       ${pageMarkup()}
     </div>
   </main>
 </div>
-<div id="drawer-overlay" onclick="closeDrawer()"></div>
-<aside id="drawer-panel">
+<div id="drawer-overlay" onclick="closeDrawer()" aria-hidden="true"></div>
+<aside id="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
   <div class="drawer-head">
     <div>
       <div class="drawer-title" id="drawer-title">Run</div>
       <div class="drawer-sub" id="drawer-sub">-</div>
     </div>
-    <button class="drawer-close" onclick="closeDrawer()">x</button>
+    <button class="drawer-close" onclick="closeDrawer()" aria-label="Close run details">x</button>
   </div>
   <div class="drawer-body" id="drawer-body"></div>
 </aside>

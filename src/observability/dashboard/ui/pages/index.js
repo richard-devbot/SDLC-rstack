@@ -34,8 +34,8 @@ export function sidebarMarkup() {
   return Object.entries(grouped).map(([section, items]) =>
     `<div class="nav-section">${section.toUpperCase()}</div>` +
     items.map(([id, icon, label]) =>
-      `<button class="nav-link${id === 'command' ? ' active' : ''}" data-page="${id}">` +
-        `<span class="nav-icon">${icon}</span><span>${label}</span>` +
+      `<button class="nav-link${id === 'command' ? ' active' : ''}" data-page="${id}"${id === 'command' ? ' aria-current="page"' : ''}>` +
+        `<span class="nav-icon" aria-hidden="true">${icon}</span><span>${label}</span>` +
         badgeFor(id) +
       '</button>',
     ).join(''),
@@ -219,7 +219,7 @@ function pageBody(id) {
       </div>
     `,
     'agent-work': '<div class="panel"><div class="panel-head"><span class="panel-title">Agent Work by Run</span><span class="panel-note" id="agent-work-count"></span></div><div class="panel-body" id="agent-work-list"></div></div>',
-    'live-feed': '<div class="panel"><div class="panel-head"><span class="panel-title">Event Stream</span><span class="panel-note" id="live-feed-count"></span></div><div class="panel-body"><div class="feed-list" id="live-feed-list"></div></div></div>',
+    'live-feed': '<div class="panel"><div class="panel-head"><span class="panel-title">Event Stream</span><span class="panel-note" id="live-feed-count" aria-live="polite"></span></div><div class="panel-body"><div class="feed-list" id="live-feed-list" role="log" aria-label="Event stream"></div></div></div>',
     team: `
       <div class="panel">
         <div class="panel-head"><span class="panel-title">Live Now</span><span class="panel-note" id="team-live-count"></span></div>
