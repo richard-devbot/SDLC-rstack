@@ -1269,4 +1269,21 @@ tr.clickable:hover td { background: #f8fbff; }
 .kv-note { font-size: 11px; color: var(--muted); margin-top: 8px; font-style: italic; }
 
 @media (max-width: 900px) { .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* [wave:money] Cost & Budget / Run Analytics money panels (#92, #215) */
+.stage-bar-fill.money { background: var(--amber); }
+.stage-bar-fill.bench-seq { background: var(--muted); }
+.stage-bar-fill.bench-par { background: var(--green); }
+.bench-head { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.budget-row { padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.budget-row:last-child { border-bottom: none; }
+.budget-row-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 6px; }
+.budget-track { height: 12px; background: var(--soft); border-radius: 6px; overflow: hidden; }
+.budget-fill { height: 100%; border-radius: 6px; }
+.budget-fill.ok { background: var(--green); }
+.budget-fill.near { background: var(--amber); }
+.budget-fill.over { background: var(--red); }
+.budget-note { font-size: 11px; margin-top: 4px; color: var(--muted); }
+.budget-note.near { color: var(--amber); }
+.budget-note.over { color: var(--red); font-weight: 700; }
 `;
