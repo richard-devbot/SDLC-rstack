@@ -290,6 +290,70 @@ test('config loop.maxIterations applies when no CLI override is given', async ()
   assert.equal(report.max_iterations, 7);
 });
 
+test('agent-11 goal_evaluation drives a self-sustaining loop: not_met resets 06 AND 11, the fresh re-evaluation completes it', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-loop-'));
+  const runDir = seedRun(projectRoot, 'run-a', {
+    tasks: [task('001', 'PASS', '06-architecture'), task('002', 'PASS', '11-feedback-loop')],
+    goal: {
+      goal_id: 'arch-satisfaction',
+      criteria: [{
+        id: 'design-review', kind: 'judge', question: 'Is the design satisfying?',
+        // The recipe wires 11-feedback-loop into rerun_stages so every RETRY
+        // re-runs the reviewer and refreshes the iteration stamp.
+        rerun_stages: ['06-architecture', '11-feedback-loop'],
+      }],
+    },
+  });
+  const designDir = path.join(runDir, 'artifacts', 'stages', '06-architecture');
+  mkdirSync(designDir, { recursive: true });
+  writeFileSync(path.join(designDir, 'system_design.json'), JSON.stringify({ services: [] }));
+  const feedbackDir = path.join(runDir, 'artifacts', 'stages', '11-feedback-loop');
+  mkdirSync(feedbackDir, { recursive: true });
+  const goalEvaluation = (iteration, result) => ({
+    summary: { critical_count: 0, overall_consistency_score: 95 },
+    issues: [],
+    goal_evaluation: {
+      goal_id: 'arch-satisfaction', iteration, status: result === 'met' ? 'PASS' : 'RETRY',
+      consistency_score: 95, critical_count: 0,
+      failing_stages: [], recommended_rerun_stages: result === 'met' ? [] : ['06-architecture'],
+      requires_human_decision: false, reason: result === 'met' ? 'Design covers every FR.' : 'FR-003 has no endpoint in the design.',
+      criteria: [{
+        criterion_id: 'design-review', result,
+        evidence: ['artifacts/stages/06-architecture/system_design.json'],
+        reasoning: result === 'met' ? 'every FR mapped' : 'FR-003 unmapped',
+        maintenance_category: 'corrective', recommendation: 'retry',
+        // The agent "forgets" to include 11-feedback-loop — exactly the bug:
+        // the harness must union the criterion's rerun_stages back in so the
+        // loop keeps refreshing the reviewer instead of stalling.
+        recommended_rerun_stages: ['06-architecture'],
+      }],
+    },
+  });
+  // Agent 11's evidence-backed verdict for iteration 1: design not satisfying.
+  writeFileSync(path.join(feedbackDir, 'feedback.json'), JSON.stringify(goalEvaluation(1, 'not_met')));
+
+  const invokeTool = async (tool) => {
+    if (tool !== 'sdlc_build_next') return;
+    // The "agents" re-run: stage 06 fixes the design, stage 11 re-reviews and
+    // stamps a fresh iteration-2 evaluation.
+    writeFileSync(path.join(feedbackDir, 'feedback.json'), JSON.stringify(goalEvaluation(2, 'met')));
+    writeFileSync(path.join(runDir, 'tasks.json'), JSON.stringify({
+      tasks: [task('001', 'PASS', '06-architecture'), task('002', 'PASS', '11-feedback-loop')],
+    }));
+  };
+  const report = await runGoalLoop(projectRoot, { runId: 'run-a', maxIterations: 3, invokeTool });
+
+  // Iteration 1 consumed the fresh agent-11 verdict; the reset UNIONS the
+  // criterion's wiring (11-feedback-loop) with the agent's recommendation.
+  assert.equal(report.iterations[0].evaluation.status, 'RETRY');
+  assert.equal(report.iterations[0].decision.action, 'retry_stages');
+  assert.deepEqual([...report.iterations[0].decision.stages].sort(), ['06-architecture', '11-feedback-loop']);
+  // Iteration 2: stage 11 re-ran, produced a fresh met evaluation — the loop
+  // completes on its own instead of stalling at ask_user on a stale stamp.
+  assert.equal(report.stopped_on, 'complete');
+  assert.equal(report.iterations[1].evaluation.status, 'PASS');
+});
+
 test('loop events are visible in pipeline status: goal_loop rollup + status line', async () => {
   const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-loop-'));
   const runDir = seedRun(projectRoot, 'run-a', {
