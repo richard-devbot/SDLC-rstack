@@ -425,6 +425,65 @@ at claim, `stage_checkpoint_after_saved` (same fields) after a PASS validation, 
 only ones the `checkpoints` rollup in `pipeline-state.json` (and `rstack-agents pipeline status`)
 counts.
 
+## Parallel-execution benchmark (#159)
+
+Builder/validator round-trips dominate wall clock. Some stages are
+*data-independent* — none reads another's output artifact — so they can run in
+a parallel group. Parallel groups are enabled **from evidence, not vibes**: a
+benchmark measures sequential vs parallel wall clock, and the config gate only
+flips them on when the measured improvement clears a target (default **≥ 40%**).
+
+**Decision logic** lives in `src/core/harness/parallel-benchmark.js` (pure, no
+clock reads — timings are inputs, so the gate is deterministic and tested):
+
+- `checkDataIndependence(members)` — a group is parallel-safe only if every
+  member is a canonical stage id, ids are unique, no member reads an artifact
+  produced by another member, and the group is within `PARALLEL_GROUP_HARD_CAP`
+  (6). An oversized group is **rejected, not silently truncated**.
+- `aggregateSequentialTime` / `aggregateParallelTime` — sequential = sum of
+  durations; parallel = the slowest member per group (groups run in series),
+  plus any solo stages.
+- `evaluateParallelGate({ seqTimeMs, parTimeMs, target })` — improvement =
+  `(seq − par) / seq`; `enable` is true iff `improvement ≥ target` (inclusive).
+- `buildBenchmarkArtifact(...)` — the run-artifact shape.
+
+**Runner:** `node scripts/bench-parallel.mjs [--target 0.4] [--out <path>]
+[--run-id <id>] [--timings '{"12-...":900}']`. By default it benchmarks the
+data-independent group **12 (security) / 13 (compliance) / 14 (cost)** — each
+reads upstream artifacts (requirements, architecture, code) and writes its own
+distinct output, so none reads another's artifact.
+
+**Honesty — mock vs real:** the runner defaults to `mode: "mock"`. It does
+**not** launch live builder/validator agents; it runs a synthetic sleep
+workload per stage (durations modelling round-trip wall clock) timed with the
+real clock, and gates on the modelled sum-vs-slowest numbers so CI is not flaky
+on scheduler jitter. The artifact is stamped `"mode": "mock"` with a
+`measurement` note. Feed real per-stage durations via `--timings` to gate
+against measured numbers; live-agent capture (`mode: "real"`) is future work.
+
+**Artifact → Business Hub:** the result is written to
+`.rstack/runs/<run_id>/artifacts/parallel-benchmark.json`. The dashboard run
+indexer (`state/runs.js → indexArtifacts`) picks up any top-level file under a
+run's `artifacts/` as a run-scoped deliverable, so the data reaches the Hub
+artifact index with no extra wiring. A dedicated Hub panel is a later,
+presentational step — the data flows now.
+
+**Config gate** (`.rstack/rstack.config.json`, validated on load by
+`config-validation.js`):
+
+```json
+"parallel_groups": {
+  "enabled": false,
+  "target": 0.40,
+  "require_benchmark": true,
+  "groups": [["12-security-threat-model", "13-compliance-checker", "14-cost-estimation"]]
+}
+```
+
+`enabled` should only be set `true` once a benchmark artifact shows the group
+clears `target`. Config validation flags non-data-independent groups, an
+out-of-range `target`, unknown keys, and `enabled: true` with no groups.
+
 ## Validation commands
 
 Run these after Harness changes:
