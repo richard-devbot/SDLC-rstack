@@ -56,6 +56,20 @@ function openDrawer(runId) {
   panel.classList.add('open');
   var closeBtn = panel.querySelector('.drawer-close');
   if (closeBtn) closeBtn.focus();
+  // Focus trap (#216 review F2): aria-modal promises the background is inert,
+  // so Tab must loop inside the open panel instead of walking out of it.
+  if (!panel.dataset.trapWired) {
+    panel.dataset.trapWired = '1';
+    panel.addEventListener('keydown', function(e) {
+      if (e.key !== 'Tab') return;
+      var focusables = panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (!focusables.length) return;
+      var first = focusables[0];
+      var last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+  }
 }
 
 function artifactListHtml(run) {
