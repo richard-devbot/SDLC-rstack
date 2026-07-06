@@ -274,6 +274,31 @@ test('config loop.maxIterations applies when no CLI override is given', async ()
   assert.equal(report.max_iterations, 7);
 });
 
+test('loop events are visible in pipeline status: goal_loop rollup + status line', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-loop-'));
+  const runDir = seedRun(projectRoot, 'run-a', {
+    tasks: [task('001', 'PASS', '07-code')],
+    goal: { goal_id: 'never-met', criteria: [{ id: 'ghost', kind: 'file_exists', path: 'never.md', rerun_stages: ['07-code'] }] },
+  });
+  const invokeTool = async (tool) => {
+    if (tool !== 'sdlc_build_next') return;
+    writeFileSync(path.join(runDir, 'tasks.json'), JSON.stringify({ tasks: [task('001', 'PASS', '07-code')] }));
+  };
+  await runGoalLoop(projectRoot, { runId: 'run-a', maxIterations: 2, invokeTool });
+
+  const { buildPipelineState } = await import('../src/core/harness/pipeline-state.js');
+  const state = await buildPipelineState(projectRoot, 'run-a');
+  assert.ok(state.goal_loop.total > 0, 'rollup carries a goal_loop summary');
+  assert.equal(state.goal_loop.iterations, 2);
+  assert.equal(state.goal_loop.last_evaluation.status, 'RETRY');
+  assert.equal(state.goal_loop.stopped_on, 'max_iterations');
+  assert.equal(state.retries.total, 0, 'goal-loop events must not inflate the task-retry counts');
+
+  const { formatPipelineStatus } = await import('../src/commands/pipeline.js');
+  const text = formatPipelineStatus(state);
+  assert.match(text, /Goal loop: iteration 2 \| last evaluation RETRY .* \| stopped on max_iterations/);
+});
+
 test('formatLoopReport renders iterations and the closing line', async () => {
   const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-loop-'));
   seedRun(projectRoot, 'run-a', { tasks: [task('001', 'PASS')] });

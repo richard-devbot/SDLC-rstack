@@ -104,6 +104,16 @@ export function formatPipelineStatus(state) {
     : `${retries.total ?? 0}`;
   lines.push(`Retries: ${retryText} | Guardrail events: ${state.guardrails?.total ?? 0}`);
 
+  const loop = state.goal_loop;
+  if (loop?.total) {
+    const parts = [`iteration ${loop.iterations}`];
+    if (loop.last_evaluation?.status) {
+      parts.push(`last evaluation ${loop.last_evaluation.status} (score ${loop.last_evaluation.score ?? '?'})`);
+    }
+    if (loop.stopped_on) parts.push(`stopped on ${loop.stopped_on}`);
+    lines.push(`Goal loop: ${parts.join(' | ')}`);
+  }
+
   const blockers = state.approval_blockers || [];
   if (blockers.length) {
     lines.push(`Approval blockers (${blockers.length}):`);

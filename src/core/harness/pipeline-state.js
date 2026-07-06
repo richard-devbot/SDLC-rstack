@@ -142,8 +142,12 @@ function isRetryEvent(event) {
   // Matches legacy retry_* names plus the BLE-3 emitter contract
   // (retry_decision, task_retry_scheduled, task_retry_exhausted).
   // task_human_context_required has no "retry" in its name but is part of
-  // the retry loop, so it is included explicitly.
-  return /retry/i.test(eventType(event)) || eventType(event) === 'task_human_context_required';
+  // the retry loop, so it is included explicitly. Goal-loop events
+  // (loop_iteration_retrying_stages, ...) have their own rollup and must not
+  // inflate the task-retry counts.
+  const type = eventType(event);
+  if (type.startsWith('loop_')) return false;
+  return /retry/i.test(type) || type === 'task_human_context_required';
 }
 
 function isGuardrailEvent(event) {
@@ -263,6 +267,37 @@ function summarizeRetryEvents(events) {
   return { total: summary.total, ...counts, events: summary.events };
 }
 
+// Goal-loop rollup (#129): surfaces the bounded loop's progress — iteration
+// count, the latest goal evaluation, and how the loop ended — so
+// `pipeline status` answers "where is the loop?" without reading events.jsonl.
+function summarizeGoalLoopEvents(events) {
+  let total = 0;
+  let iterations = 0;
+  let lastEvaluation = null;
+  let stoppedOn = null;
+  for (const event of events) {
+    const type = eventType(event);
+    if (!type.startsWith('loop_') && type !== 'goal_evaluated') continue;
+    total += 1;
+    if (type === 'loop_iteration_started') {
+      iterations = Math.max(iterations, Number(event.iteration) || 0);
+      stoppedOn = null; // a new iteration supersedes an earlier terminal event
+    } else if (type === 'goal_evaluated') {
+      lastEvaluation = {
+        goal_id: event.goal_id ?? null,
+        status: event.status ?? null,
+        score: event.score ?? null,
+        reason: event.reason ?? null,
+      };
+    } else if (type === 'loop_completed') {
+      stoppedOn = 'complete';
+    } else if (type === 'loop_blocked') {
+      stoppedOn = event.stopped_on ?? 'blocked';
+    }
+  }
+  return { total, iterations, last_evaluation: lastEvaluation, stopped_on: stoppedOn };
+}
+
 function summarizeEvents(events, predicate) {
   const items = events.filter(predicate).map((event) => ({
     ts: event.ts || event.timestamp || null,
@@ -318,6 +353,7 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
     current,
     stages,
     retries: summarizeRetryEvents(events),
+    goal_loop: summarizeGoalLoopEvents(events),
     guardrails: summarizeEvents(events, isGuardrailEvent),
     approval_blockers: buildApprovalBlockers(approvals),
     cost_context: buildCostContext(metrics),
