@@ -44,6 +44,16 @@ cat $RSTACK_RUN_DIR/artifacts/compliance/compliance_matrix.json 2>/dev/null | py
 ```
 If `compliance_matrix.json` exists, report the overall compliance score and ask whether to re-audit or use the existing report.
 
+## Adopted-Run Behavior (brownfield)
+
+Adoption (`rstack-agents adopt`) deliberately skips this stage — compliance posture must be asserted by a human-reviewed run, never inferred. Detect an adopted run:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+ls "$RUN_BASE/artifacts/adoption_report.json" 2>/dev/null
+```
+On a hit: you are performing the FIRST real compliance audit of this system. Evidence lives in the actual repository (code, configs, CI) and in the harvested baselines under `$RUN_BASE/artifacts/stages/` — audit those directly. Missing greenfield artifacts (transcript, per-change `requirement_spec.json`, `qa_results.json`) are EXPECTED on an adopted run: apply GUARD rule 3 (proceed with what exists, note the gaps) instead of stopping. Baseline gaps surfaced by the adoption — e.g. an `08-testing` artifact marked detected-not-executed, or a skipped stage — are compliance findings to record, not conditions to paper over. Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
+
 
 # COMPLIANCE CHECKER AGENT — SDLC Automation Pipeline
 

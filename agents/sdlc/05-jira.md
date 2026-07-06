@@ -35,6 +35,16 @@ cat $RSTACK_RUN_DIR/artifacts/jira/jira_tickets.json 2>/dev/null | python3 -m js
 ```
 If `jira_tickets.json` exists with tickets already created, report the summary counts and ask whether to use the existing tickets or regenerate.
 
+## Adopted-Run Behavior (brownfield)
+
+Adoption (`rstack-agents adopt`) deliberately skips this stage — tickets belong to new work. Detect an adopted run:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+ls "$RUN_BASE/artifacts/adoption_report.json" 2>/dev/null
+```
+On a hit: create Epics/Stories/Tasks ONLY for the change being made — **never backfill tickets for functionality that already exists**. If bidirectional sync finds an existing tracker project, its tickets are part of the baseline: link new work to them rather than duplicating. Missing `sprint_plan.json` on an adoption-baseline run means planning hasn't happened for the new work yet — report that 04-planning must run for the change, not for the legacy system. Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
+
 
 # TICKETING AGENT — SDLC Automation Pipeline
 

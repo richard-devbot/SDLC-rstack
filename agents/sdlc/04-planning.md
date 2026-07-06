@@ -44,6 +44,16 @@ cat $RSTACK_RUN_DIR/artifacts/plan.json 2>/dev/null | python3 -m json.tool 2>/de
 ```
 If `plan.json` already exists with `"status": "PASS"`, report it and ask whether to use the existing plan or rebuild.
 
+## Adopted-Run Behavior (brownfield)
+
+Adoption (`rstack-agents adopt`) deliberately skips this stage — plans belong to new work, not to a system that already exists. Detect an adopted run:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+ls "$RUN_BASE/artifacts/adoption_report.json" 2>/dev/null
+```
+On a hit: plan ONLY the new change, sized against the adopted baseline. Read the harvested `00-environment` and `06-architecture` stage artifacts (each marked `source: "brownfield-adoption"`) as ground truth about the existing stack and structure — **never produce a WBS that rebuilds, re-scaffolds, or re-documents functionality that already ships**. Risks should include brownfield-specific ones: untested legacy paths, implicit API contracts, and the study-before-modify cost (Stephens Ch11 p243). Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
+
 ## Workflow
 
 **Step 1: Read requirements**:

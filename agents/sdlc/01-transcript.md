@@ -39,6 +39,16 @@ cat $RSTACK_RUN_DIR/artifacts/transcript.json 2>/dev/null | python3 -m json.tool
 ```
 If `transcript.json` already exists with `"status": "PASS"`, report it and ask the user whether to use the existing output or re-process.
 
+## Adopted-Run Behavior (brownfield)
+
+Adoption (`rstack-agents adopt`) deliberately skips this stage — no meeting transcript exists for an already-built system. Detect an adopted run:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+ls "$RUN_BASE/artifacts/adoption_report.json" 2>/dev/null
+```
+On a hit: a missing `transcript.json` is expected, not a failure — **never fabricate a transcript describing the legacy system**. Process only new input the user actually provides (a feature brief or meeting notes for the change being made), and pull system context from `adoption_report.json` (`scan_summary`: `languages` and `frameworks` lists, plus `docs`/`test_dirs`/`ci_pipelines`/`deploy_configs` counts) instead of inventing it. Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
+
 ## Workflow
 
 **Step 1: Read the environment report**:

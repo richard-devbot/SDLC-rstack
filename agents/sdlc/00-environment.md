@@ -44,6 +44,16 @@ cat "$RUN_BASE/artifacts/environment_report.json" 2>/dev/null | python3 -m json.
 ```
 If `environment_report.json` already exists and `pipeline_ready` is `true`, skip re-detection and report the existing state. Only re-run detection if the user explicitly requests it or if critical tools have changed.
 
+## Adopted-Run Behavior (brownfield)
+
+If this run was created by `rstack-agents adopt`, a harvested baseline report already exists. Detect it:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+grep -l '"source": "brownfield-adoption"' "$RUN_BASE/artifacts/stages/00-environment/environment_report.json" 2>/dev/null
+```
+On a hit: the baseline was inferred from manifest files (package.json, go.mod, pyproject.toml, …), not from live tool detection — it lists languages/frameworks as present without version numbers and was never verified against this machine. **Refine it, never regenerate it**: run the Step 1 detection commands, merge real versions, missing tools, and fallbacks into the existing report, and preserve its `source`, `evidence`, and `adopted_at` fields so the adoption provenance survives. Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
+
 ## Workflow
 
 **Step 1: Detect available tools**:
