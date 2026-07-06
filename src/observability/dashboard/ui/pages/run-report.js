@@ -10,24 +10,8 @@ export const runReportScript = `
 var REPORT_CACHE = {};            // runId → { stages, deliverables }
 var REPORT_RUN_ID = null;
 
-var STAGE_CARD_META = {
-  '00-environment': { icon: '🧰', title: 'Environment', persona: 'DevOps' },
-  '01-transcript': { icon: '🎙', title: 'Transcript', persona: 'Business Analyst' },
-  '02-requirements': { icon: '📋', title: 'Requirements', persona: 'Product Manager' },
-  '03-documentation': { icon: '📝', title: 'Documentation', persona: 'Technical Writer' },
-  '04-planning': { icon: '🗺', title: 'Planning', persona: 'Delivery Manager' },
-  '05-jira': { icon: '🎫', title: 'Tickets', persona: 'Scrum Master' },
-  '06-architecture': { icon: '🏛', title: 'Architecture', persona: 'Solution Architect' },
-  '07-code': { icon: '⚙️', title: 'Code', persona: 'Senior Developer' },
-  '08-testing': { icon: '🧪', title: 'Testing', persona: 'QA Engineer' },
-  '09-deployment': { icon: '🚀', title: 'Deployment', persona: 'Release Engineer' },
-  '10-summary': { icon: '📊', title: 'Summary', persona: 'Program Manager' },
-  '11-feedback-loop': { icon: '🔄', title: 'Feedback Loop', persona: 'Quality Coach' },
-  '12-security-threat-model': { icon: '🛡', title: 'Security', persona: 'Security Engineer' },
-  '13-compliance-checker': { icon: '⚖️', title: 'Compliance', persona: 'Compliance Officer' },
-  '14-cost-estimation': { icon: '💰', title: 'Cost', persona: 'FinOps Analyst' },
-};
-var STAGE_CARD_ORDER = Object.keys(STAGE_CARD_META);
+// STAGE_CARD_META / STAGE_CARD_ORDER are generated from the canonical
+// harness stage list by ui/stage-meta.js.
 
 function fetchRunReport(runId) {
   if (REPORT_CACHE[runId]) return Promise.resolve(REPORT_CACHE[runId]);

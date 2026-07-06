@@ -8,6 +8,7 @@
 // Everything is plain JS concatenated into a single <script> at serve time
 // — zero dependencies, no build step, no framework.
 
+import { stageMetaScript } from './stage-meta.js';
 import { libScript } from './lib.js';
 import { drawerScript } from './drawer.js';
 import { commandCenterScript } from './pages/command-center.js';
@@ -33,6 +34,7 @@ import { diagnosticsScript } from './pages/diagnostics.js';
 
 export function clientScript(port) {
   return [
+    stageMetaScript,
     libScript,
     drawerScript,
     commandCenterScript,

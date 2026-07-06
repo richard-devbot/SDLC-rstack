@@ -13,26 +13,15 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { CANONICAL_SDLC_STAGES } from '../../../core/harness/stages.js';
+
 const MAX_REPORT_BYTES = 256 * 1024;
 
 // stage id → the artifact filename it writes under artifacts/stages/<id>/.
-export const STAGE_ARTIFACTS = Object.freeze({
-  '00-environment': 'environment_report.json',
-  '01-transcript': 'transcript.json',
-  '02-requirements': 'requirements.json',
-  '03-documentation': 'documentation.json',
-  '04-planning': 'plan.json',
-  '05-jira': 'jira_tickets.json',
-  '06-architecture': 'system_design.json',
-  '07-code': 'code_report.json',
-  '08-testing': 'test_report.json',
-  '09-deployment': 'deployment_report.json',
-  '10-summary': 'summary.json',
-  '11-feedback-loop': 'feedback.json',
-  '12-security-threat-model': 'threat_model.json',
-  '13-compliance-checker': 'compliance_report.json',
-  '14-cost-estimation': 'cost_estimate.json',
-});
+// Derived from the canonical harness stage list — never hand-mirrored (#95).
+export const STAGE_ARTIFACTS = Object.freeze(
+  Object.fromEntries(CANONICAL_SDLC_STAGES.map((stage) => [stage.id, stage.artifact])),
+);
 
 // Top-level cross-stage deliverables worth surfacing on their own.
 const DELIVERABLES = Object.freeze({

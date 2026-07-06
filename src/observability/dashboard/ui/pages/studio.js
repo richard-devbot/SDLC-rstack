@@ -9,24 +9,8 @@ export const studioScript = `
 // ── Studio: Jarvis-style live agent workspace (issue #44) ───────────────────
 // Personas translate stage ids into people a manager recognizes — straight
 // from the workspace-v8 concept: agents introduce themselves.
-var STAGE_PERSONAS = {
-  '00-environment': ['DevOps Engineer', 'Prepare the Workshop'],
-  '01-transcript': ['Business Analyst', 'Listen to the Customer'],
-  '02-requirements': ['Product Manager', 'Define What to Build'],
-  '03-documentation': ['Technical Writer', 'Write It Down'],
-  '04-planning': ['Delivery Manager', 'Plan the Work'],
-  '05-jira': ['Scrum Master', 'Create the Tickets'],
-  '06-architecture': ['Solution Architect', 'Design the System'],
-  '07-code': ['Senior Developer', 'Build the Software'],
-  '08-testing': ['QA Engineer', 'Prove It Works'],
-  '09-deployment': ['Release Engineer', 'Ship It'],
-  '10-summary': ['Program Manager', 'Report the Outcome'],
-  '11-feedback-loop': ['Quality Coach', 'Close the Loop'],
-  '12-security-threat-model': ['Security Engineer', 'Find the Threats'],
-  '13-compliance-checker': ['Compliance Officer', 'Check the Rules'],
-  '14-cost-estimation': ['FinOps Analyst', 'Count the Cost'],
-};
-var STUDIO_STAGE_ORDER = Object.keys(STAGE_PERSONAS);
+// STAGE_PERSONAS / STUDIO_STAGE_ORDER are generated from the canonical
+// harness stage list by ui/stage-meta.js (shared with the 3D studio).
 var STUDIO_NARRATION = { text: '', shown: 0, timer: null };
 var STUDIO_SELECTED_STAGE = null;
 

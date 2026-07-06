@@ -15,6 +15,8 @@
  * owner: RStack developed by Richardson Gunde
  */
 
+import { STUDIO_PERSONAS } from './stage-meta.js';
+
 export function studio3dHtml(port) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -119,23 +121,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const PORT = ${Number(port)};
 
 // ── Stage personas (shared concept with the 2D Studio) ─────────────────────
-const PERSONAS = {
-  '00-environment': ['DevOps Engineer', 'Prepare the Workshop'],
-  '01-transcript': ['Business Analyst', 'Listen to the Customer'],
-  '02-requirements': ['Product Manager', 'Define What to Build'],
-  '03-documentation': ['Technical Writer', 'Write It Down'],
-  '04-planning': ['Delivery Manager', 'Plan the Work'],
-  '05-jira': ['Scrum Master', 'Create the Tickets'],
-  '06-architecture': ['Solution Architect', 'Design the System'],
-  '07-code': ['Senior Developer', 'Build the Software'],
-  '08-testing': ['QA Engineer', 'Prove It Works'],
-  '09-deployment': ['Release Engineer', 'Ship It'],
-  '10-summary': ['Program Manager', 'Report the Outcome'],
-  '11-feedback-loop': ['Quality Coach', 'Close the Loop'],
-  '12-security-threat-model': ['Security Engineer', 'Find the Threats'],
-  '13-compliance-checker': ['Compliance Officer', 'Check the Rules'],
-  '14-cost-estimation': ['FinOps Analyst', 'Count the Cost'],
-};
+// Personas come from the dashboard's single stage-meta source, which is
+// itself keyed to the canonical harness stage list (ui/stage-meta.js).
+const PERSONAS = ${JSON.stringify(STUDIO_PERSONAS)};
 const STAGE_ORDER = Object.keys(PERSONAS);
 const STATUS_COLOR = { running: 0xD97706, done: 0x16A34A, queued: 0x2563EB, fail: 0xDC2626 };
 const SCREEN_THEME = {
