@@ -134,13 +134,20 @@ test('Business Hub approval resolution writes the run-level approval artifact', 
     const approval = state.pendingApprovals.find((item) => item.artifact === 'architecture.md');
     assert.ok(approval, 'blocked gate becomes a pending dashboard approval');
 
-    const ok = await resolveDashboardApproval(projectRoot, approval.id, 'approved', 'Manager Maya', { includeRegistry: false });
+    // Token-verified actor evidence, exactly as the dashboard server passes
+    // it after the RSTACK_APPROVAL_TOKEN check — the #133 audit requires it
+    // before a business-hub record may land or unblock anything.
+    const ok = await resolveDashboardApproval(projectRoot, approval.id, 'approved', 'Manager Maya', {
+      includeRegistry: false,
+      actor: { name: 'Manager Maya', via: 'dashboard', tokenVerified: true, ts: new Date().toISOString() },
+    });
     assert.equal(ok, true);
 
     const runApprovals = JSON.parse(await readFile(join(runDir, 'approvals.json'), 'utf8'));
     assert.equal(runApprovals.at(-1).artifact, 'architecture.md');
     assert.equal(runApprovals.at(-1).status, 'APPROVED');
     assert.equal(runApprovals.at(-1).approver, 'Manager Maya');
+    assert.equal(runApprovals.at(-1).actor.tokenVerified, true, 'token evidence travels into the run record');
 
     const after = await buildFullState(projectRoot, { includeRegistry: false });
     assert.ok(!after.pendingApprovals.some((item) => item.id === approval.id), 'resolved approval leaves the pending queue');

@@ -111,6 +111,13 @@ test('evaluateTaskClaim applies the stricter destructive attempt budget', () => 
   assert.equal(result.violations[0].limit, DEFAULT_HARNESS_GUARDRAILS.maxDestructiveTaskAttempts);
 });
 
+// Complete, audit-passing approval record — the #133 consistency audit
+// requires actor, timestamp, and exact status casing before any record may
+// unblock work.
+function approvalRecord(artifact, status, overrides = {}) {
+  return { id: `app-${status}`, artifact, status, approver: 'Manager Maya', timestamp: '2026-07-06T10:00:00.000Z', ...overrides };
+}
+
 test('evaluateTaskClaim honors an APPROVED guardrail override, latest record wins', () => {
   const events = [
     { type: 'task_started', task_id: '004-implementation' },
@@ -121,7 +128,7 @@ test('evaluateTaskClaim honors an APPROVED guardrail override, latest record win
   const approved = evaluateTaskClaim({
     task: { id: '004-implementation' },
     events,
-    approvals: [{ artifact, status: 'APPROVED' }],
+    approvals: [approvalRecord(artifact, 'APPROVED')],
   });
   assert.equal(approved.allowed, true);
   assert.equal(approved.overridden, true);
@@ -131,12 +138,62 @@ test('evaluateTaskClaim honors an APPROVED guardrail override, latest record win
     task: { id: '004-implementation' },
     events,
     approvals: [
-      { artifact, status: 'APPROVED' },
-      { artifact, status: 'CONSUMED' },
+      approvalRecord(artifact, 'APPROVED'),
+      approvalRecord(artifact, 'CONSUMED'),
     ],
   });
   assert.equal(consumed.allowed, false, 'a consumed override no longer unblocks');
-  assert.equal(hasGuardrailOverride([{ artifact, status: 'APPROVED' }, { artifact, status: 'CONSUMED' }], '004-implementation'), false);
+  assert.equal(hasGuardrailOverride([approvalRecord(artifact, 'APPROVED'), approvalRecord(artifact, 'CONSUMED')], '004-implementation'), false);
+});
+
+test('hasGuardrailOverride: malformed or tampered records never unblock (#133)', () => {
+  const taskId = '004-implementation';
+  const artifact = guardrailOverrideArtifact(taskId);
+
+  // Malformed shapes are treated as absent — the task stays gated.
+  assert.equal(hasGuardrailOverride([{ artifact, status: 'APPROVED' }], taskId), false, 'missing approver/timestamp');
+  assert.equal(hasGuardrailOverride([approvalRecord(artifact, 'APPROVED', { approver: '  ' })], taskId), false, 'blank approver');
+  assert.equal(hasGuardrailOverride([approvalRecord(artifact, 'APPROVED', { timestamp: 'yesterday-ish' })], taskId), false, 'unparseable timestamp');
+  assert.equal(hasGuardrailOverride([approvalRecord(artifact, 'approved')], taskId), false, 'lowercase status is casing confusion, not a synonym');
+  assert.equal(hasGuardrailOverride([approvalRecord(artifact, 'APPROVED', { source: 'business-hub' })], taskId), false, 'dashboard source without token evidence');
+  assert.equal(hasGuardrailOverride(['junk', null, 42, {}], taskId), false, 'junk entries never unblock or crash');
+
+  // Tampering the CONSUMED marker of a spent override must NOT resurrect the
+  // earlier APPROVED record: the malformed LATEST record poisons the artifact.
+  const tamperedConsumed = [
+    approvalRecord(artifact, 'APPROVED'),
+    { artifact, status: 'CONSUMED' }, // approver/timestamp stripped
+  ];
+  assert.equal(hasGuardrailOverride(tamperedConsumed, taskId), false, 'tampered CONSUMED does not resurrect the override');
+
+  // A complete record with dashboard token evidence still unblocks.
+  const evidenced = approvalRecord(artifact, 'APPROVED', {
+    source: 'business-hub',
+    actor: { name: 'Manager Maya', via: 'dashboard', tokenVerified: true },
+  });
+  assert.equal(hasGuardrailOverride([evidenced], taskId), true);
+});
+
+test('hasGuardrailOverride: a spent override cannot be resurrected by verbatim replay (#133)', () => {
+  const taskId = '004-implementation';
+  const artifact = guardrailOverrideArtifact(taskId);
+
+  // Attacker re-appends the ORIGINAL spent APPROVED record after its CONSUMED
+  // marker. Every legitimate writer mints a fresh id, so the duplicate id is
+  // the tell: the override gate must run the same replay/ordering history audit
+  // the required-approval gate does — one code path, no drift.
+  const resurrected = [
+    approvalRecord(artifact, 'APPROVED'), // id app-APPROVED, ts T
+    approvalRecord(artifact, 'CONSUMED'), // id app-CONSUMED, spends it
+    approvalRecord(artifact, 'APPROVED'), // verbatim copy — same id app-APPROVED
+  ];
+  assert.equal(hasGuardrailOverride(resurrected, taskId), false, 'duplicate-id replay of a spent override never re-grants it');
+
+  // Cross-run binding: a well-formed override stamped for another run must not
+  // unblock this one.
+  const foreign = approvalRecord(artifact, 'APPROVED', { run_id: 'run-somewhere-else' });
+  assert.equal(hasGuardrailOverride([foreign], taskId, { expectedRunId: 'run-here' }), false, 'foreign-run override does not unblock this run');
+  assert.equal(hasGuardrailOverride([approvalRecord(artifact, 'APPROVED', { run_id: 'run-here' })], taskId, { expectedRunId: 'run-here' }), true, 'same-run override still unblocks');
 });
 
 test('evaluateTaskClaim respects configured attempt budgets', () => {

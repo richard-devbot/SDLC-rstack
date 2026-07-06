@@ -16,6 +16,7 @@ import { taskStageIds } from "../../core/harness/pipeline-state.js";
 import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
+import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedApprovedArtifacts } from "../../core/harness/approval-audit.js";
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
 import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate, builderContractKey } from "../../core/harness/telemetry.js";
 import { deriveRunTotals } from "../../observability/metrics/derive.js";
@@ -604,10 +605,12 @@ async function readApprovals(runDir: string): Promise<ApprovalRecord[]> {
   }
 }
 
-function approvedArtifacts(approvals: ApprovalRecord[]): Set<string> {
-  const latest = new Map<string, ApprovalRecord>();
-  for (const approval of approvals) latest.set(approval.artifact, approval);
-  return new Set([...latest.values()].filter((approval) => approval.status === "APPROVED").map((approval) => approval.artifact));
+// Latest-record-wins with the #133 consistency audit applied to the winning
+// record: a malformed approval never unblocks (treated as absent, the gate
+// stays closed), and a malformed LATEST record poisons its artifact instead
+// of falling back to an earlier valid one — fail closed on tampering.
+function approvedArtifacts(approvals: ApprovalRecord[], expectedRunId?: string): Set<string> {
+  return trustedApprovedArtifacts(approvals, { expectedRunId });
 }
 
 function requiredApprovalsForTask(taskId: string): string[] {
@@ -643,8 +646,8 @@ async function effectiveRequiredApprovals(projectRoot: string, manifest: RunMani
   return [...new Set([...defaults, ...policyRequired])];
 }
 
-function missingApprovals(approvals: ApprovalRecord[], required: string[]): string[] {
-  const approved = approvedArtifacts(approvals);
+function missingApprovals(approvals: ApprovalRecord[], required: string[], expectedRunId?: string): string[] {
+  const approved = approvedArtifacts(approvals, expectedRunId);
   return required.filter((artifact) => !approved.has(artifact));
 }
 
@@ -904,7 +907,7 @@ async function destructiveApprovalExists(projectRoot: string): Promise<boolean> 
   const id = sessionRun(projectRoot);
   if (!id) return false;
   const approvals = await readApprovals(join(runsDir(projectRoot), id));
-  const approved = approvedArtifacts(approvals);
+  const approved = approvedArtifacts(approvals, id);
   return approved.has("destructive-action") || approved.has("release-readiness.json");
 }
 
@@ -1137,6 +1140,14 @@ export default function (pi: ExtensionAPI) {
       const manifest = await readManifest(projectRoot, params.run_id);
       const runDir = join(runsDir(projectRoot), manifest.run_id);
       const path = approvalsPath(runDir);
+
+      // Fail at the write boundary, loudly: an unsafe artifact name would be
+      // rejected by the gate-side consistency audit anyway (#133), so record
+      // nothing and tell the caller instead of minting an approval that can
+      // never unblock.
+      if (!isSafeArtifactName(params.artifact)) {
+        throw new Error(`Unsafe artifact name: ${JSON.stringify(params.artifact)}. Artifact names are file/stage names (e.g. 'plan.md'), never paths.`);
+      }
 
       const approver = params.approver || resolveUserIdentity(projectRoot).name;
       await assertManagerAllowed(projectRoot, approver);
@@ -1476,16 +1487,37 @@ export default function (pi: ExtensionAPI) {
         const task = taskState.tasks.find((t: any) => t.status === "PENDING" || t.status === "READY")
           || taskState.tasks.find((t: any) => t.status === "FAIL")
           || taskState.tasks.find((t: any) => t.status === "BLOCKED");
-        if (!task) return { taskState, task: null, missing: [] as string[], requiredApprovals: [] as string[], readiness: null as any, guardrailCheck: null as any };
-        const runApprovals = await readApprovals(runDir);
+        if (!task) return { taskState, task: null, missing: [] as string[], requiredApprovals: [] as string[], readiness: null as any, guardrailCheck: null as any, approvalAuditEvents: [] as any[] };
+        const rawApprovals = await readApprovals(runDir);
+        const runEvents = await readJsonl(join(runDir, "events.jsonl"));
+        // Approval consistency audit (#133): approvals.json is a trust
+        // boundary — records reach it from several writers, so the claim gate
+        // validates before trusting. The gates below (hasGuardrailOverride via
+        // evaluateTaskClaim, trustedApprovedArtifacts via missingApprovals)
+        // are audit-aware on the raw list: a malformed record is treated as
+        // ABSENT and the task stays gated. If the run context itself fails
+        // audit (unsafe id, missing manifest), NO record is trusted. Rejected
+        // records are reported post-lock as approval_audit_failed events,
+        // deduped against events already recorded.
+        const approvalAudit = auditRunApprovals(rawApprovals, { runId: manifest.run_id, runDir });
+        const runApprovals = approvalAudit.ok ? rawApprovals : [];
+        const reportedAuditKeys = new Set(
+          runEvents
+            .filter((event: any) => event?.type === "approval_audit_failed")
+            .map((event: any) => `${event.record_id ?? ""}|${event.artifact ?? ""}|${event.status ?? ""}`),
+        );
+        const approvalAuditEvents = approvalAudit.rejected
+          .map((rejection) => approvalAuditEvent(rejection, { task_id: task.id }))
+          .filter((event) => !reportedAuditKeys.has(`${event.record_id ?? ""}|${event.artifact ?? ""}|${event.status ?? ""}`));
         // Attempt-budget gate: a FAIL task must not be re-claimed forever. The
         // budget is enforced here, before stamping, so a burned-out task never
         // restarts without an explicit guardrail-override approval (#149).
         const guardrailCheck = evaluateTaskClaim({
           task,
-          events: await readJsonl(join(runDir, "events.jsonl")),
+          events: runEvents,
           approvals: runApprovals,
           guardrails: await loadProjectGuardrails(projectRoot),
+          expectedRunId: manifest.run_id,
         });
         if (!guardrailCheck.allowed) {
           // Hard-block for auditability: the dashboard and pipeline state must
@@ -1496,14 +1528,14 @@ export default function (pi: ExtensionAPI) {
             task.status = "BLOCKED";
             await writeJsonAtomic(tasksPath, taskState);
           }
-          return { taskState, task, missing: [] as string[], requiredApprovals: [] as string[], readiness: null as any, guardrailCheck, guardrailAlreadyBlocked: alreadyBlocked };
+          return { taskState, task, missing: [] as string[], requiredApprovals: [] as string[], readiness: null as any, guardrailCheck, guardrailAlreadyBlocked: alreadyBlocked, approvalAuditEvents };
         }
         const requiredApprovals = await effectiveRequiredApprovals(projectRoot, manifest, task.id);
-        const missing = missingApprovals(runApprovals, requiredApprovals);
-        if (missing.length) return { taskState, task, missing, requiredApprovals, readiness: null as any, guardrailCheck };
+        const missing = missingApprovals(runApprovals, requiredApprovals, manifest.run_id);
+        if (missing.length) return { taskState, task, missing, requiredApprovals, readiness: null as any, guardrailCheck, approvalAuditEvents };
         const readinessStage = latestStageId((task.stage_artifacts || []).map((artifact: any) => artifact?.stage_id).filter(Boolean));
         const readiness = await assertReadyForStage(projectRoot, { runId: manifest.run_id, targetStage: readinessStage });
-        if (!readiness.ok) return { taskState, task, missing, requiredApprovals, readiness, guardrailCheck };
+        if (!readiness.ok) return { taskState, task, missing, requiredApprovals, readiness, guardrailCheck, approvalAuditEvents };
         if (guardrailCheck.overridden) {
           // Consume the one-shot override BEFORE granting the attempt, inside
           // the claim critical section: a crash between consumption and the
@@ -1544,9 +1576,14 @@ export default function (pi: ExtensionAPI) {
           task.agent = task.pipeline_agents[0];
         }
         await writeJsonAtomic(tasksPath, taskState);
-        return { taskState, task, missing, requiredApprovals, readiness, guardrailCheck };
+        return { taskState, task, missing, requiredApprovals, readiness, guardrailCheck, approvalAuditEvents };
       });
-      const { taskState, task, missing, requiredApprovals, readiness, guardrailCheck, guardrailAlreadyBlocked } = claim;
+      const { taskState, task, missing, requiredApprovals, readiness, guardrailCheck, guardrailAlreadyBlocked, approvalAuditEvents } = claim;
+      // Ignored malformed approvals are recorded, never silently dropped —
+      // the event stream must explain WHY a gate treated a record as absent.
+      for (const auditEvent of approvalAuditEvents ?? []) {
+        await appendEvent(projectRoot, manifest.run_id, auditEvent);
+      }
       if (!task) return { content: [{ type: "text", text: `No pending task for ${manifest.run_id}. Run sdlc_status or sdlc_validate for final checks.` }], details: taskState };
       if (guardrailCheck && !guardrailCheck.allowed) {
         // Events, queue entry, and paging fire only on the transition to
@@ -2073,8 +2110,8 @@ export default function (pi: ExtensionAPI) {
       const next = tasks.find((t: any) => ["PENDING", "READY", "FAIL", "IN_PROGRESS"].includes(t.status));
       const runDir = join(runsDir(projectRoot), manifest.run_id);
       const approvals = await readApprovals(runDir);
-      const nextMissingApprovals = next && next.status !== "IN_PROGRESS" ? missingApprovals(approvals, await effectiveRequiredApprovals(projectRoot, manifest, next.id)) : [];
-      const releaseMissingApprovals = manifest.mode !== "express" ? missingApprovals(approvals, ["plan.md", "requirements.json", "architecture.md", "release-readiness.json"]) : [];
+      const nextMissingApprovals = next && next.status !== "IN_PROGRESS" ? missingApprovals(approvals, await effectiveRequiredApprovals(projectRoot, manifest, next.id), manifest.run_id) : [];
+      const releaseMissingApprovals = manifest.mode !== "express" ? missingApprovals(approvals, ["plan.md", "requirements.json", "architecture.md", "release-readiness.json"], manifest.run_id) : [];
       if (tasks.length > 0 && !next && tasks.every((t: any) => t.status === "PASS") && releaseMissingApprovals.length === 0) {
         manifest.status = "DONE";
         await writeManifest(manifest);

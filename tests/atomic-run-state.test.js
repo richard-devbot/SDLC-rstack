@@ -78,9 +78,11 @@ test('concurrent appendRunApproval calls both land', async () => {
   const runDir = join(projectRoot, '.rstack', 'runs', 'run-1');
   await writeJsonAtomic(join(runDir, 'manifest.json'), { run_id: 'run-1' });
 
+  // Token-verified actor evidence: dashboard-sourced records (the default
+  // source) must pass the #133 consistency audit to be written at all.
   await Promise.all([
-    appendRunApproval(projectRoot, 'run-1', { artifact: 'plan.md', status: 'APPROVED', approver: 'a' }),
-    appendRunApproval(projectRoot, 'run-1', { artifact: 'architecture.md', status: 'APPROVED', approver: 'b' }),
+    appendRunApproval(projectRoot, 'run-1', { artifact: 'plan.md', status: 'APPROVED', approver: 'a', actor: { name: 'a', via: 'dashboard', tokenVerified: true } }),
+    appendRunApproval(projectRoot, 'run-1', { artifact: 'architecture.md', status: 'APPROVED', approver: 'b', actor: { name: 'b', via: 'dashboard', tokenVerified: true } }),
   ]);
 
   const approvals = JSON.parse(readFileSync(join(runDir, 'approvals.json'), 'utf8'));

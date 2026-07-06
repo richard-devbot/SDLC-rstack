@@ -17,6 +17,7 @@ export { CANONICAL_SDLC_STAGES, assertCanonicalStages } from './core/harness/sta
 export { validateBuilderContract, validateValidatorContract } from './core/harness/contracts.js';
 export { appendEvidenceEvent, validateEvidenceEvent } from './core/harness/evidence.js';
 export { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from './core/harness/guardrails.js';
+export { validateApprovalRecord, auditRunApprovals, trustedApprovedArtifacts, approvalAuditEvent, isSafeRunId, isSafeArtifactName, RUN_APPROVAL_STATUSES, QUEUE_APPROVAL_STATUSES, DASHBOARD_APPROVAL_SOURCES } from './core/harness/approval-audit.js';
 export { updateRunMetrics, createStageCheckpoint, rollbackStage, prepareRunState } from './core/harness/run-state.js';
 export { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate } from './core/harness/telemetry.js';
 export { buildPipelineState, readPipelineState, summarizePipelineState, writePipelineState } from './core/harness/pipeline-state.js';
