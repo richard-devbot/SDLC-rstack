@@ -61,7 +61,7 @@ const COMMAND_RULES = Object.freeze([
   }),
   Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.DEPLOY,
-    pattern: /\bterraform\s+(apply|destroy)\b|\bpulumi\s+(up|destroy)\b|\bkubectl\s+(apply|delete|replace|patch|scale|drain|cordon)\b|\bhelm\s+(install|upgrade|uninstall|rollback|delete)\b|\bdocker\s+(push|compose\s+down)\b|\baws\s+cloudformation\s+(create|update|delete)-stack\b|\bgcloud\s+\S*\s*deploy\b|\b(firebase|vercel|netlify)\s+deploy\b|\bflyctl?\s+deploy\b|\b(sls|serverless)\s+deploy\b|\bansible-playbook\b/i,
+    pattern: /\bterraform\s+(apply|destroy)\b|\bpulumi\s+(up|destroy)\b|\bkubectl\s+(apply|delete|replace|patch|scale|drain|cordon)\b|\bhelm\s+(install|upgrade|uninstall|rollback|delete)\b|\bdocker\s+(push|compose\s+down)\b|\baws\s+cloudformation\s+(create|update|delete)-stack\b|\bgcloud\s+\S*\s*deploy\b|\b(firebase|vercel|netlify)\s+deploy\b|\b(fly|flyctl)\s+deploy\b|\b(sls|serverless)\s+deploy\b|\bansible-playbook\b/i,
     reason: 'infrastructure deploy, apply, or destroy',
   }),
   Object.freeze({
