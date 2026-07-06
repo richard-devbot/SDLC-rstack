@@ -53,15 +53,28 @@ for f in environment_report requirement_spec plan system_design code_report test
 done
 ```
 
-**Step 2: Write PROJECT_SUMMARY.md** — human-readable:
+**Step 2: Mine the run's event log** — the input for defect analysis:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
+# Event type census — every defect metric traces back to one of these lines
+grep -o '"type": *"[a-z_]*"' "$RUN_BASE/events.jsonl" 2>/dev/null | sort | uniq -c | sort -rn
+# Per-task validator verdicts (status, issue count, retry recommendation)
+for v in "$RUN_BASE"/tasks/*/validation.json; do
+  python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('task_id'), d.get('status'), len(d.get('issues',[])), d.get('retry_recommendation'))" "$v" 2>/dev/null
+done
+```
+
+**Step 3: Write PROJECT_SUMMARY.md** — human-readable:
 - What was built (1 paragraph)
 - Architecture decisions (table: decision, rationale)
 - How to run locally
 - How to deploy
 - Known issues and risks
+- Defect analysis (what failed, who caught it, dominant cause bucket — from the Defect Analysis section below)
 - Next steps / backlog
 
-**Step 3: Write summary.json**:
+**Step 4: Write summary.json**:
 ```json
 {
   "project_name": "...",
@@ -70,12 +83,97 @@ done
   "architecture_decisions": [...],
   "open_risks": [...],
   "next_steps": [...],
+  "defect_analysis": {
+    "source": ["events.jsonl", "tasks/*/validation.json"],
+    "defects": [
+      {
+        "task_id": "...",
+        "stage_id": "...",
+        "kind": "missing_evidence|failed_check|budget_overrun|malformed_contract|...",
+        "discoverer": "<validator profile, guardrail rule, or check name>",
+        "severity": "BLOCKED|FAIL|NEEDS_CONTEXT",
+        "attempts": 0,
+        "first_seen": "<ISO 8601 of first failing event>",
+        "fixed_at": "<ISO 8601 of the passing validation, or null>",
+        "age_at_fix_minutes": null,
+        "cause_bucket": "people|process|tools|requirements"
+      }
+    ],
+    "totals": { "by_kind": {}, "by_discoverer": {}, "by_severity": {}, "by_cause_bucket": {} },
+    "retry_rollup": { "scheduled": 0, "exhausted": 0, "human_required": 0 },
+    "metrics": [
+      { "name": "defect_count", "value": 0, "scope": "project" },
+      { "name": "cause_bucket_distribution", "value": {}, "scope": "process" },
+      { "name": "cost_usd", "value": null, "scope": "project", "reason": "cost plumbing lands with BLE-6 (#134-#137, #83) — not fabricating" },
+      { "name": "context_tokens", "value": null, "scope": "project", "reason": "context metrics land with BLE-6 (#134-#137) — not fabricating" }
+    ]
+  },
   "pipeline_complete": true,
   "status": "PASS"
 }
 ```
 
 Write to: `$RSTACK_RUN_DIR/artifacts/summary.json` and `PROJECT_SUMMARY.md`
+
+## Defect Analysis (wrap-party discipline)
+
+A run you do not learn from is a run you will repeat. Before closing the
+pipeline, analyze its defects — from REAL event data only, never from memory.
+
+**Source of truth:** `$RUN_BASE/events.jsonl` and `$RUN_BASE/tasks/*/validation.json`
+(see `docs/HARNESS.md` for the event contract). The harness already emits
+everything needed: `retry_decision` events (task_id, stage_id, attempt,
+max_attempts, retry_recommendation, action, next_status, reason, issues), the
+action events `task_retry_scheduled` / `task_retry_exhausted` /
+`task_human_context_required` / `task_blocked_by_validator`, and the guardrail
+events `guardrail_triggered` (limit_name, current_value, limit_value) and
+`guardrail_overridden`.
+
+For every defect (a FAIL validation, a retry event, or a guardrail block), record:
+1. **kind** — the failure class (missing evidence, failed check, budget overrun, malformed contract, ...)
+2. **discoverer** — which validator profile, check, or guardrail rule caught it. Defects caught here are cheap; the same defect found by a user in production is not — the discoverer distribution is the number to watch.
+3. **severity** — from the validator's `issues[]`, or by outcome: BLOCKED > FAIL > NEEDS_CONTEXT
+4. **age at fix** — timestamp of the first failing event vs the passing validation for the same task; `null` if never fixed (and then it belongs in `open_risks` too)
+
+**Ishikawa-style cause grouping:** for repeated failures, group root causes into
+four buckets — **people** (missing context, approval delays), **process** (stage
+ordering, contract gaps), **tools** (harness, environment, toolchain), and
+**requirements** (spec wrong or ambiguous). No diagram needed: the bucket counts
+go in `totals.by_cause_bucket`, and the dominant bucket gets one sentence of
+analysis in PROJECT_SUMMARY.md.
+
+**Process vs project metrics:** tag every metric with its scope. `"scope": "project"`
+numbers describe THIS run (defect count, retry rollup, ages at fix).
+`"scope": "process"` numbers describe the team's trend across runs (recurring
+cause buckets, defect rates over time) — the Business Hub trends page consumes
+those.
+
+**Honest nulls:** report only what the events can prove. Cost and context-usage
+fields stay `null` until BLE-6 (#134–#137, #83) lands the plumbing — write
+`null` with a `"reason"`, never an invented number. An honest null is a data
+point; a fabricated metric is a defect in this report. A run with an empty
+event log gets an empty `defects` array and a note saying so — not synthetic
+analysis.
+
+## Adopted-Run Behavior (brownfield)
+
+If the run manifest says `"mode": "adopt"` and `$RUN_BASE/artifacts/adoption_report.json`
+exists, the upstream baselines were harvested by `rstack-agents adopt`, not
+generated: harvested stage artifacts carry `"source": "brownfield-adoption"`
+with `adopted_at` and `evidence` fields.
+
+- Harvested baselines are DONE-with-evidence. Summarize AGAINST them — "what
+  this system already is, per the adoption evidence" — never regenerate or
+  second-guess a baseline artifact.
+- Separate adopted from built: PROJECT_SUMMARY.md gets a "Baseline (adopted)"
+  vs "Built this run" split, so the reader knows which claims trace to
+  adoption evidence and which to fresh pipeline work.
+- Adoption skips are honest gaps, not errors: "no test suite found" or "tests
+  detected, NOT executed" from the adopted `test_report.json` goes into open
+  risks verbatim.
+- Defect analysis covers only THIS run's events. A pure adoption run emits
+  `adoption_harvested` events, not build/validate cycles — expect a near-empty
+  `defects` array and say so, rather than inventing analysis.
 
 
 ## Quality Self-Check
@@ -84,6 +182,9 @@ Before reporting DONE, verify:
 - Does PROJECT_SUMMARY.md include "how to run locally" and "how to deploy" with actual commands?
 - Are all architecture decisions documented with their rationale?
 - Are open risks listed with severity?
+- Does every entry in `defect_analysis.defects` trace to a real event or validation file (no invented defects, no omitted failures)?
+- Is every metric tagged `"scope": "project"` or `"scope": "process"`, and does every `null` metric carry a `"reason"`?
+- On an adopted run: are baseline claims cited to adoption evidence, and is adopted-vs-built clearly separated?
 
 If any answer is NO — fix it before reporting status. A fast DONE_WITH_CONCERNS is better than a wrong DONE.
 
