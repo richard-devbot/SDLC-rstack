@@ -18,6 +18,7 @@ import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
 import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedApprovedArtifacts } from "../../core/harness/approval-audit.js";
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
+import { classifyDestructiveAction, requireApprovalForDestructiveAction, destructiveApprovalArtifact } from "../../core/harness/destructive-actions.js";
 import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate, builderContractKey } from "../../core/harness/telemetry.js";
 // #136 (BLE-6.2): context-pressure classifier — detects oversized context at
 // validate time and appends non-blocking context_pressure_warning events.
@@ -899,20 +900,47 @@ function finalAssistantText(messages: any[]): string {
   return "";
 }
 
-function isDestructiveBash(command: string): boolean {
-  return /\b(rm\s+-rf|git\s+push|npm\s+publish|terraform\s+(apply|destroy)|kubectl\s+(apply|delete|replace)|helm\s+(install|upgrade|uninstall)|docker\s+(rm|rmi|compose\s+down)|aws\s+cloudformation\s+delete|DROP\s+TABLE|DELETE\s+FROM)\b/i.test(command);
-}
+// Destructive-action gate for the live builder tool_call path (#210). Converged
+// onto the centralized, obfuscation-tested classifier (#131) and the audited
+// approval path (#133) so the running harness enforces the SAME definition the
+// in-repo tests pin — no second, weaker copy of "what is destructive".
+//
+// Cheap-first: classifyDestructiveAction is pure, so the common (non-destructive)
+// tool call returns immediately with no I/O. Only a destructive verdict triggers
+// the task + approval reads.
+async function evaluateDestructiveToolCall(
+  projectRoot: string,
+  runId: string | null,
+  event: any,
+): Promise<{ block: boolean; verdict: any; taskId: string | null; reason: string | null }> {
+  const verdict = classifyDestructiveAction({ toolName: event?.toolName, input: event?.input });
+  if (!verdict.destructive) return { block: false, verdict, taskId: null, reason: null };
 
-function protectedWritePath(pathValue: string): boolean {
-  return /(^|\/)(\.env|\.env\..*|id_rsa|id_ed25519|secrets?\.|credentials\.|\.npmrc|\.pypirc)(\/|$)/i.test(pathValue);
-}
+  // Per-task approval (#133): scope the approval to the task actually running.
+  // The builder's task is the IN_PROGRESS one; null when none is claimed yet
+  // (the gate then fails closed — a destructive action with no owning task and
+  // no approval is blocked).
+  let taskId: string | null = null;
+  let approved = new Set<string>();
+  if (runId) {
+    const runDir = join(runsDir(projectRoot), runId);
+    const tasksFile = join(runDir, "tasks.json");
+    if (existsSync(tasksFile)) {
+      try {
+        const taskState = JSON.parse(await readFile(tasksFile, "utf8"));
+        taskId = (taskState.tasks || []).find((t: any) => t.status === "IN_PROGRESS")?.id ?? null;
+      } catch { /* unreadable tasks.json → no task id → fail closed */ }
+    }
+    approved = approvedArtifacts(await readApprovals(runDir), runId);
+  }
 
-async function destructiveApprovalExists(projectRoot: string): Promise<boolean> {
-  const id = sessionRun(projectRoot);
-  if (!id) return false;
-  const approvals = await readApprovals(join(runsDir(projectRoot), id));
-  const approved = approvedArtifacts(approvals, id);
-  return approved.has("destructive-action") || approved.has("release-readiness.json");
+  const decision = requireApprovalForDestructiveAction({ action: verdict, taskId, approvedArtifacts: approved });
+  // Backward compatibility: a run-level `destructive-action` (or a
+  // release-readiness.json) approval — the pre-#210 coarse artifact — still
+  // unblocks. Per-task approval is preferred and checked first by the decision.
+  const coarseApproved = approved.has("destructive-action") || approved.has("release-readiness.json");
+  if (decision.allowed || coarseApproved) return { block: false, verdict, taskId, reason: null };
+  return { block: true, verdict, taskId, reason: decision.reason };
 }
 
 async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], task: DelegateTask, signal?: AbortSignal): Promise<any> {
@@ -1060,14 +1088,27 @@ export default function (pi: ExtensionAPI) {
 
     if (process.env.RSTACK_ALLOW_DESTRUCTIVE === "1") return undefined;
 
-    if (event.toolName === "bash" && typeof event.input?.command === "string" && isDestructiveBash(event.input.command)) {
-      if (await destructiveApprovalExists(projectRoot)) return undefined;
-      return { block: true, reason: "RStack blocked a destructive shell command. Approve artifact 'destructive-action' with sdlc_approve or set RSTACK_ALLOW_DESTRUCTIVE=1." };
-    }
-
-    if (["write", "edit"].includes(event.toolName) && typeof event.input?.path === "string" && protectedWritePath(event.input.path)) {
-      if (await destructiveApprovalExists(projectRoot)) return undefined;
-      return { block: true, reason: "RStack blocked a write/edit to a protected secret or credential path. Approve 'destructive-action' with sdlc_approve to continue." };
+    // Destructive-action gate (#210): classify via the centralized #131
+    // classifier and require an audited per-task approval (#133). Covers shell
+    // commands (broad-delete, git-force, publish, deploy, db-destroy,
+    // secret-write) and write/edit targets (secret + protected-config paths),
+    // including the obfuscated forms the old inline regex missed.
+    const destructive = await evaluateDestructiveToolCall(projectRoot, id, event);
+    if (destructive.block) {
+      if (id) {
+        await appendEvent(projectRoot, id, {
+          type: "destructive_action_blocked",
+          tool: event.toolName,
+          task_id: destructive.taskId,
+          category: destructive.verdict?.category ?? null,
+          reason: destructive.verdict?.reason ?? null,
+          approval_artifact: destructiveApprovalArtifact(destructive.taskId),
+        }).catch(() => {});
+      }
+      return {
+        block: true,
+        reason: `RStack blocked a destructive action. ${destructive.reason} (or set RSTACK_ALLOW_DESTRUCTIVE=1 to override).`,
+      };
     }
 
     return undefined;
