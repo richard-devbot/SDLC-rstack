@@ -272,11 +272,17 @@ converts each per-criterion result into a judge verdict **only when every listed
 exists on disk** (relative paths resolve against the run dir, then the project root) — an
 `unknown` result or an unevidenced claim is rejected with a recorded reason and the criterion
 stays at the `ASK_USER` path. The same freshness rules apply: inside a loop iteration an
-evaluation stamped with an older or missing `iteration` is stale and ignored. An explicit
-`goal-verdict.json` entry outranks the agent-11 evaluation for the same criterion, so a human or
-host verdict always wins. `recommended_rerun_stages` on a `not_met` criterion feed stage resets,
-routed through the agent's maintenance taxonomy (corrective defects → the fixing stage,
-preventive gaps → docs, and so on). The top-level `goal_evaluation` fields are the agent's
+evaluation stamped with an older or missing `iteration` is stale and ignored — and because this
+writer is model-driven (unlike the trusted `goal-verdict.json` writer), a stamp **ahead of** the
+current iteration is rejected as malformed rather than staying fresh forever. An explicit
+`goal-verdict.json` entry outranks the agent-11 evaluation for the same criterion — including the
+id-less single-judge shorthand — so a human or host verdict always wins.
+`recommended_rerun_stages` on a `not_met` criterion feed stage resets, routed through the agent's
+maintenance taxonomy (corrective defects → the fixing stage, preventive gaps → docs, and so on).
+Reset semantics differ by writer: an explicit `goal-verdict.json` **replaces** the criterion's
+`rerun_stages` (the human names exactly what to reset), while an agent-11 verdict **unions** with
+them — the agent can add stages but can never drop the recipe's wiring (e.g. `11-feedback-loop`
+kept in `rerun_stages` so each iteration re-runs the reviewer and refreshes the stamp). The top-level `goal_evaluation` fields are the agent's
 recommendation for hosts and dashboards; the evaluator recomputes its own decision from raw
 evidence and never copies them. Section shape is checked by `validateGoalEvaluation` (same
 `{ok, checks, issues}` contract style as builder/validator checks), consumption/rejection is

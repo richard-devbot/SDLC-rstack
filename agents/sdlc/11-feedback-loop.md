@@ -306,7 +306,12 @@ grep '"loop_iteration_started"' "$RUN_BASE/events.jsonl" 2>/dev/null | tail -1
    - `evidence[]`: run-relative artifact paths that PROVE the result (e.g.
      `artifacts/stages/06-architecture/system_design.json`). Paths must exist.
    - `reasoning`: one sentence explaining the result
-   - `recommended_rerun_stages[]`: canonical stage ids to reset if `not_met`
+   - `recommended_rerun_stages[]`: canonical stage ids to reset if `not_met`.
+     ALWAYS include `11-feedback-loop` itself on a `not_met` — the next loop
+     iteration must re-run you to produce a fresh evaluation, or the loop
+     stalls on your stale stamp. (The harness also unions the criterion's own
+     `rerun_stages` into your recommendation as a backstop — you can add
+     stages, never drop the recipe's wiring.)
    - `maintenance_category`: perfective | adaptive | corrective | preventive
    - `recommendation`: `retry` (default) | `block` (human must intervene)
 

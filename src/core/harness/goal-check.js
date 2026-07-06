@@ -560,8 +560,8 @@ async function evaluateCriterion(criterion, { projectRoot, runDir, state, eviden
   // criterion_ids, so a single merged pool would let an agent claim outrank a
   // shorthand human verdict by winning the id match. A human/host verdict
   // must always win.
-  const verdict = findVerdict(explicitVerdicts, criterion, judgeCriteriaCount, iteration)
-    ?? findVerdict(agentVerdicts, criterion, judgeCriteriaCount, iteration);
+  const explicit = findVerdict(explicitVerdicts, criterion, judgeCriteriaCount, iteration);
+  const verdict = explicit ?? findVerdict(agentVerdicts, criterion, judgeCriteriaCount, iteration);
   if (!verdict || !verdict.verdict) {
     const rejection = agentRejections.find((item) => item.criterion_id === criterion.id);
     return {
@@ -572,11 +572,20 @@ async function evaluateCriterion(criterion, { projectRoot, runDir, state, eviden
         : `awaiting judge verdict — a host framework or human must write ${GOAL_VERDICT_FILE}, or stage 11-feedback-loop must emit an evidence-backed goal_evaluation (criterion_id: ${criterion.id})`,
     };
   }
+  // Rerun semantics by writer: an explicit goal-verdict.json REPLACES the
+  // criterion's rerun_stages (documented contract — the human/host names
+  // exactly what to reset); an agent-11 verdict UNIONS with them, so the
+  // recipe's wiring (e.g. 11-feedback-loop kept in rerun_stages so the next
+  // iteration produces a fresh evaluation) can never be dropped by the
+  // agent's own recommendation.
+  const rerunStages = explicit
+    ? (verdict.recommended_rerun_stages.length ? verdict.recommended_rerun_stages : criterion.rerun_stages)
+    : [...new Set([...criterion.rerun_stages, ...verdict.recommended_rerun_stages])];
   return {
     ...result,
     status: verdict.verdict,
     detail: `judge ${verdict.judge ?? 'unknown'}: ${verdict.verdict}${verdict.reasoning ? ` — ${verdict.reasoning}` : ''}`,
-    rerun_stages: verdict.recommended_rerun_stages.length ? verdict.recommended_rerun_stages : criterion.rerun_stages,
+    rerun_stages: rerunStages,
     recommendation: verdict.recommendation,
   };
 }
