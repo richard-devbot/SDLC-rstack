@@ -91,7 +91,9 @@ function normalizeApprovals(rawApprovals) {
   return [];
 }
 
-function taskStageIds(task) {
+// Exported: the goal-loop stage reset (goal-loop.js) must derive stage ids
+// for tasks exactly the way the rollup does, so the two can never disagree.
+export function taskStageIds(task) {
   const ids = new Set();
   for (const artifact of task.stage_artifacts || []) {
     if (artifact?.stage_id) ids.add(artifact.stage_id);

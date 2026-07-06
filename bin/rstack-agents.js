@@ -15,6 +15,7 @@ import chalk from 'chalk';
 import { listAgents, listSkills, listPlugins, addPlugin } from '../src/commands/list.js';
 import { loadPipelineStatus, formatPipelineStatus } from '../src/commands/pipeline.js';
 import { runPipeline, formatRunReport } from '../src/commands/pipeline-run.js';
+import { runGoalLoop, formatLoopReport, loadGoalDefinition } from '../src/commands/pipeline-loop.js';
 import { adoptProject, formatAdoptionReport } from '../src/commands/adopt.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
@@ -207,6 +208,41 @@ pipelineCmd
       // Human-gate stops exit non-zero so CI can distinguish "needs a human"
       // from "complete"; dry-run and completion exit zero.
       process.exit(['complete', 'dry_run', 'missing_contract', 'max_steps'].includes(report.stopped_on) ? 0 : 1);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+pipelineCmd
+  .command('loop')
+  .description('Bounded goal loop: advance the run, evaluate the goal after each pass, rerun only recommended stages until PASS, a human gate, or a spent bound')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('-r, --run-id <runId>', 'run id (defaults to latest run)')
+  .option('-g, --goal <path>', 'goal definition JSON (defaults to <run>/goal.json, else the built-in pipeline-complete goal)')
+  .option('--max-iterations <n>', 'iteration bound (default 3 or .rstack/rstack.config.json loop.maxIterations; hard cap 20)')
+  .option('--max-steps <n>', 'backend steps per iteration (default 10)')
+  .option('--dry-run', 'evaluate the goal and report the loop decision without invoking tools or writing any state')
+  .option('--json', 'print the structured loop report as JSON')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const goal = opts.goal ? await loadGoalDefinition(resolve(opts.goal)) : null;
+      const report = await runGoalLoop(projectRoot, {
+        runId: opts.runId,
+        goal,
+        maxIterations: opts.maxIterations != null ? Number(opts.maxIterations) : undefined,
+        maxStepsPerIteration: opts.maxSteps != null ? Number(opts.maxSteps) : undefined,
+        dryRun: opts.dryRun === true,
+      });
+      if (opts.json) {
+        process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+      } else {
+        console.log(formatLoopReport(report));
+      }
+      // Only "goal met" and dry-run exit zero — every other stop means the
+      // goal is unmet or a human is needed, and CI must be able to tell.
+      process.exit(['complete', 'dry_run'].includes(report.stopped_on) ? 0 : 1);
     } catch (err) {
       log.error(err.message);
       process.exit(1);
