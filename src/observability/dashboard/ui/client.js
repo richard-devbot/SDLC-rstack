@@ -11,6 +11,7 @@
 import { stageMetaScript } from './stage-meta.js';
 import { libScript } from './lib.js';
 import { drawerScript } from './drawer.js';
+import { pages } from './pages/index.js';
 import { commandCenterScript } from './pages/command-center.js';
 import { businessFlexScript } from './pages/business-flex.js';
 import { studioScript } from './pages/studio.js';
@@ -80,27 +81,9 @@ var POLL_TIMER = null;       // REST fallback poll handle (active while WS down)
 var FRESHNESS_TIMER = null;  // 1s heartbeat that ages the freshness chip
 var LAST_CONN_KIND = null;   // last announced connection kind (debounces aria)
 
-var PAGE_LABELS = {
-  command: 'Command Center',
-  'business-flex': 'Business Flex',
-  workflow: 'Workflow Map',
-  projects: 'Projects & Runs',
-  'run-report': 'Run Report',
-  'run-analytics': 'Run Analytics',
-  'agent-work': 'Agent Work',
-  'live-feed': 'Live Feed',
-  team: 'Team & Presence',
-  approvals: 'Approvals',
-  decisions: 'Decisions / Readiness',
-  'release-readiness': 'Release Readiness',
-  security: 'Security',
-  compliance: 'Compliance',
-  'cost-budget': 'Cost & Budget',
-  'alerts-guardrails': 'Alerts & Guardrails',
-  traceability: 'Requirements & Traceability',
-  'team-layers': 'Team & Layers',
-  diagnostics: 'Diagnostics'
-};
+// Topbar titles come from the same nav registry that renders the sidebar
+// (ui/pages/index.js) — one list, no hand-mirrored copy.
+var PAGE_LABELS = ${JSON.stringify(Object.fromEntries(pages.map(([id, , label]) => [id, label])))};
 
 document.querySelectorAll('.nav-link').forEach(function(btn) {
   btn.addEventListener('click', function() {
