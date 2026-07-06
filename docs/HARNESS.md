@@ -345,7 +345,13 @@ proving a `pipeline loop --goal <recipe>` context — a task targeting `11-feedb
 validation when feedback.json is missing or its `goal_evaluation` section is malformed, with the
 named checks recorded in validation.json instead of a silent ASK_USER later. Runs with no active
 goal keep the section optional (a single informational `goal_evaluation_not_required` PASS), and
-tasks that never target stage 11 see no goal checks at all.
+tasks that never target stage 11 see no goal checks at all. Goal-activity is **permanent** — any
+historical `loop_iteration_started`/`goal_evaluated` event marks the run goal-driven for the rest
+of its life, so a later unrelated stage-11 revalidation still demands `goal_evaluation`
+(conservative by design). And it is **fail-closed on unreadable state (#200)**: if `events.jsonl`
+exists but yields zero parseable events, or can't be read at all, the gate returns a
+`goal_activity_indeterminate` FAIL rather than assuming "no goal" — a corrupt event log at stage 11
+stops for human eyes instead of silently passing.
 
 **Evaluator.** `evaluateGoal(projectRoot, runId, options)` builds the rollup in memory (persists
 nothing), reads only structured JSON (never prose), always layers harness checks over the criteria

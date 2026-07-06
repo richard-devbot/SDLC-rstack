@@ -520,9 +520,33 @@ async function activeGoalContext(runDir) {
   if (existsSync(join(runDir, GOAL_DEFINITION_FILE))) {
     return { active: true, source: GOAL_DEFINITION_FILE };
   }
-  const events = await readJsonlIfPresent(join(runDir, 'events.jsonl'));
-  const loopEvent = events.find((event) => GOAL_ACTIVE_LOOP_EVENT_TYPES.has(event?.type));
-  if (loopEvent) return { active: true, source: `loop event ${loopEvent.type}` };
+  // Distinguish "no events file" (a genuine non-goal run) from "events file
+  // present but unreadable/corrupt". In the latter case we CANNOT tell whether
+  // a `pipeline loop --goal <recipe>` drove this run — the proof lives only in
+  // events.jsonl — so the tolerant `[]` fallback would silently disarm the gate
+  // (fail-open). Report indeterminate instead and let the gate fail closed
+  // (#200; matches goal 4 "never silently degraded" and the #82 data-integrity
+  // philosophy). A legitimately empty events.jsonl (brand-new run) is NOT
+  // corrupt — only non-empty content that yields zero parseable events, or a
+  // read failure despite the file existing, is.
+  const eventsPath = join(runDir, 'events.jsonl');
+  if (existsSync(eventsPath)) {
+    let raw;
+    try {
+      raw = await readFile(eventsPath, 'utf8');
+    } catch {
+      return { active: false, indeterminate: true, reason: 'events.jsonl exists but could not be read' };
+    }
+    const nonEmptyLines = raw.split('\n').filter((line) => line.trim());
+    const events = nonEmptyLines.flatMap((line) => {
+      try { return [JSON.parse(line)]; } catch { return []; }
+    });
+    if (nonEmptyLines.length > 0 && events.length === 0) {
+      return { active: false, indeterminate: true, reason: `events.jsonl has ${nonEmptyLines.length} line(s) but none are parseable JSON` };
+    }
+    const loopEvent = events.find((event) => GOAL_ACTIVE_LOOP_EVENT_TYPES.has(event?.type));
+    if (loopEvent) return { active: true, source: `loop event ${loopEvent.type}` };
+  }
   return { active: false, source: null };
 }
 
@@ -538,6 +562,17 @@ export async function validateStageGoalEvaluation({ runDir, stageIds = [] } = {}
     return summarize([], { goal_active: false, goal_source: null });
   }
   const goalContext = await activeGoalContext(runDir);
+  if (goalContext.indeterminate) {
+    // Fail closed: goal activity can't be determined because the run's event
+    // log is unreadable, so we refuse to pass the gate on the assumption there
+    // is no goal (#200). A corrupt events.jsonl at stage 11 is a real
+    // data-integrity problem worth stopping for, not a silent PASS.
+    return summarize([{
+      name: 'goal_activity_indeterminate',
+      status: 'FAIL',
+      evidence: `cannot determine goal activity: ${goalContext.reason} — refusing to pass stage-11 validation on unreadable run state (fail-closed)`,
+    }], { goal_active: false, goal_source: null, goal_activity_indeterminate: true });
+  }
   if (!goalContext.active) {
     return summarize([{
       name: 'goal_evaluation_not_required',
