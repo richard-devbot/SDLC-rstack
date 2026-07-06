@@ -53,6 +53,22 @@ cat "$RUN_BASE/artifacts/system_design.json" 2>/dev/null | python3 -m json.tool 
 ```
 If `system_design.json` already exists with `"status": "PASS"`, report it and ask whether to use the existing design or re-architect.
 
+## Adopted-Run Behavior (brownfield)
+
+If this run was created by `rstack-agents adopt`, a harvested design baseline already exists. Detect it:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+grep -l '"source": "brownfield-adoption"' "$RUN_BASE/artifacts/stages/06-architecture/system_design.json" 2>/dev/null
+```
+On a hit: the baseline is an INFERRED design — `tech_stack` and `structure` were derived from manifest files and repo layout, and its own `note` says to refine it deliberately before large changes. **REFINE the inferred design, do not redesign**:
+1. Verify the inferred `tech_stack`/`structure` against the actual code — where the artifact and the code disagree, the code wins.
+2. Add what inference cannot capture: service boundaries, API contracts, data model, auth model, explicit trade-offs and failure modes.
+3. Record every addition as a refinement of the baseline (keep `source`, `evidence`, `adopted_at`); design from scratch ONLY the parts the new change introduces.
+4. Study before modifying (Stephens Ch11 p243) — read the modules your design touches before proposing changes to them.
+
+Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
+
 ## Workflow
 
 **Step 1: Read inputs**:

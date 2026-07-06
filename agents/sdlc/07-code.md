@@ -64,6 +64,20 @@ cat "$RUN_BASE/artifacts/code_report.json" 2>/dev/null | head -20
 ```
 If `code_report.json` exists with `"status": "PASS"`, report which files were created and ask whether to continue from where left off or regenerate.
 
+## Adopted-Run Behavior (brownfield)
+
+If this run was created by `rstack-agents adopt`, the existing codebase IS the code baseline. Detect it:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+grep -l '"source": "brownfield-adoption"' "$RUN_BASE/artifacts/stages/07-code/code_report.json" 2>/dev/null
+```
+On a hit: the baseline `code_report.json` carries `existing_codebase: true`, the real `top_level_dirs`, and the detected `test_command`. **Never scaffold — Steps 3 and 4 of the Workflow do not apply to code that already exists.** Modify instead, under the brownfield ground rules (`agents/OPERATING-STANDARD.md`, "Run modes"):
+1. Study before modifying (Stephens Ch11 p243: changing old code without studying it adds as many bugs as it removes) — read the files you will touch AND their callers first.
+2. Make the smallest change that satisfies the task; do not refactor adjacent code.
+3. Respect existing API contracts and behavior that tests may not cover.
+4. Verify with the baseline's recorded `test_command`, not a test runner you assume.
+
 ## Workflow
 
 **Step 1: Read the architecture**:
