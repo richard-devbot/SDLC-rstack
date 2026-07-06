@@ -99,10 +99,11 @@ function setClass(id, value) {
   if (el) el.className = value;
 }
 
-function setBadge(id, value) {
+function setBadge(id, value, ariaLabel) {
   var el = document.getElementById(id);
   if (!el) return;
   el.textContent = value;
+  if (ariaLabel) el.setAttribute('aria-label', value + ' ' + ariaLabel);
   el.style.display = value > 0 ? 'inline-block' : 'none';
 }
 

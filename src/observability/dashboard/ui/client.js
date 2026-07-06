@@ -93,13 +93,35 @@ document.querySelectorAll('.nav-link').forEach(function(btn) {
 
 function showPage(name) {
   document.querySelectorAll('.nav-link').forEach(function(btn) {
-    btn.classList.toggle('active', btn.getAttribute('data-page') === name);
+    var active = btn.getAttribute('data-page') === name;
+    btn.classList.toggle('active', active);
+    if (active) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
   });
   document.querySelectorAll('.page').forEach(function(page) {
     page.classList.toggle('active', page.id === 'page-' + name);
   });
   setText('page-title', PAGE_LABELS[name] || name);
 }
+
+// Keyboard access: Escape closes the run drawer; Enter/Space activates
+// row-style clickables (run tables, presence cards, studio workstations).
+// Rows are re-rendered wholesale on every snapshot, so activation is
+// delegated here instead of wiring per-element listeners.
+document.addEventListener('keydown', function(event) {
+  if (event.key === 'Escape') {
+    var panel = document.getElementById('drawer-panel');
+    if (panel && panel.classList.contains('open')) closeDrawer();
+    return;
+  }
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  var target = event.target;
+  if (!target || typeof target.matches !== 'function') return;
+  if (target.matches('.clickable[tabindex], .workstation[tabindex]')) {
+    event.preventDefault();
+    target.click();
+  }
+});
 
 function applyState(state, opts) {
   STATE = state;
@@ -240,8 +262,8 @@ function renderFrame(s) {
   setText('side-cost', '$' + Number(s.totalCost || 0).toFixed(2));
   setText('side-pass', passed);
   setText('side-agents', (s.agentWork || []).length);
-  setBadge('badge-approvals', pending.length);
-  setBadge('badge-alerts', alerts.length);
+  setBadge('badge-approvals', pending.length, 'pending approvals');
+  setBadge('badge-alerts', alerts.length, 'active alerts');
   setText('alert-count', alerts.length + ' alerts');
   setText('approval-count', pending.length + ' pending');
   setClass('btn-alerts', 'tb-chip' + (alerts.length ? ' danger' : ''));

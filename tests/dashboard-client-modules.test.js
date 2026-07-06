@@ -46,6 +46,27 @@ test('registry order matches the historical applyState render order', () => {
   ]);
 });
 
+test('shell and nav carry the ARIA + keyboard accessibility contract (#95)', () => {
+  const html = dashboardHtml(3008);
+  // Nav landmark, current-page marking (initial markup + runtime toggling).
+  assert.match(html, /<nav class="nav" aria-label="Dashboard pages">/);
+  assert.match(html, /data-page="command" aria-current="page"/);
+  assert.match(html, /setAttribute\('aria-current', 'page'\)/);
+  // Drawer is a labelled modal dialog with focus management and Esc close.
+  assert.match(html, /id="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title"/);
+  assert.match(html, /aria-label="Close run details"/);
+  assert.match(html, /DRAWER_RETURN_FOCUS/);
+  assert.match(html, /event\.key === 'Escape'/);
+  // Errors announce; the live feed is a labelled log region.
+  assert.match(html, /id="err" role="alert"/);
+  assert.match(html, /id="live-feed-list" role="log" aria-label="Event stream"/);
+  // Row-style clickables are keyboard reachable with delegated activation.
+  assert.match(html, /class="clickable" tabindex="0"/);
+  assert.match(html, /\.clickable\[tabindex\], \.workstation\[tabindex\]/);
+  // Status badges get spoken labels, not just colored counts.
+  assert.match(html, /setBadge\('badge-approvals', pending\.length, 'pending approvals'\)/);
+});
+
 test('dashboard HTML still ships the whole bundle in a single page load', () => {
   const html = dashboardHtml(3008);
   for (const id of NAV_IDS) {

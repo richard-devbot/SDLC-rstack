@@ -27,7 +27,7 @@ function renderProjects(s) {
     var passed = tasks.filter(function(task) { return task.status === 'PASS'; }).length;
     var project = shortName(run.projectRoot);
     var integrityBadge = run.hasIntegrityErrors ? ' ' + pill('warn', 'data damaged') : '';
-    return '<tr class="clickable" data-runid="' + esc(run.runId) + '" onclick="openDrawerRow(this)">' +
+    return '<tr class="clickable" tabindex="0" data-runid="' + esc(run.runId) + '" onclick="openDrawerRow(this)" aria-label="Open run details">' +
       '<td>' + pill(run.derivedStatus || 'idle') + integrityBadge + '</td>' +
       '<td><div class="strong">' + esc((run.manifest && run.manifest.goal) || run.runId) + '</div><div class="faint mono">' + esc(run.runId) + '</div></td>' +
       '<td class="mono muted">' + esc(project) + '</td>' +

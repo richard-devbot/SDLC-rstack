@@ -6,6 +6,11 @@
 
 export const drawerScript = `
 // ── run drawer ─────────────────────────────────────────────
+// Focus management: opening the drawer moves focus to its close button;
+// closing returns focus to the element that opened it (keyboard walkthrough
+// in #95). Escape-to-close is delegated in the core keydown handler.
+var DRAWER_RETURN_FOCUS = null;
+
 function openDrawerRow(row) {
   openDrawer(row.getAttribute('data-runid'));
 }
@@ -45,8 +50,12 @@ function openDrawer(runId) {
         return '<div class="feed-row"><div class="feed-icon info">' + (item.toolCalls || 0) + '</div><div><div class="feed-summary">' + esc(item.minute || '') + '</div><div class="feed-meta"><span>' + (item.stagesDone || []).length + ' stages</span><span>' + (item.guardrails || 0) + ' guardrails</span></div></div></div>';
       }).join('') || emptyHtml('No timeline', '')) +
     '</div></div>');
+  DRAWER_RETURN_FOCUS = document.activeElement;
   document.getElementById('drawer-overlay').classList.add('open');
-  document.getElementById('drawer-panel').classList.add('open');
+  var panel = document.getElementById('drawer-panel');
+  panel.classList.add('open');
+  var closeBtn = panel.querySelector('.drawer-close');
+  if (closeBtn) closeBtn.focus();
 }
 
 function artifactListHtml(run) {
@@ -103,5 +112,9 @@ function viewArtifact(btn) {
 function closeDrawer() {
   document.getElementById('drawer-overlay').classList.remove('open');
   document.getElementById('drawer-panel').classList.remove('open');
+  if (DRAWER_RETURN_FOCUS && typeof DRAWER_RETURN_FOCUS.focus === 'function' && document.contains(DRAWER_RETURN_FOCUS)) {
+    DRAWER_RETURN_FOCUS.focus();
+  }
+  DRAWER_RETURN_FOCUS = null;
 }
 `;

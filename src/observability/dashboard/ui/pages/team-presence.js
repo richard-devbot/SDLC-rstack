@@ -16,7 +16,7 @@ function renderTeam(s) {
     var task = item.currentTask
       ? chip((item.currentTask.agent || 'agent') + ' → ' + item.currentTask.title)
       : '<span class="muted">between tasks</span>';
-    return '<div class="stack-item clickable" data-runid="' + esc(item.runId) + '" onclick="openDrawerRow(this)">' +
+    return '<div class="stack-item clickable" role="button" tabindex="0" data-runid="' + esc(item.runId) + '" onclick="openDrawerRow(this)" aria-label="Open run details">' +
       '<div>' + dot + '<span class="strong">' + esc(item.startedBy) + '</span> <span class="muted">on</span> ' + esc(shortName(item.projectRoot)) + '' +
       '<div class="muted">' + esc(item.goal) + '</div></div>' +
       '<div class="metric-row">' + task + '<span class="faint mono">' + fmtAgo(item.secondsAgo) + '</span></div>' +

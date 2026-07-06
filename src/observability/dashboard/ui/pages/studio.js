@@ -83,7 +83,7 @@ function renderStudio(s) {
     var entry = model[stageId];
     var voice = entry.voice ? '“' + entry.voice.slice(0, 110) + (entry.voice.length > 110 ? '…' : '') + '”' : '';
     var badge = entry.status === 'running' ? '● WORKING NOW' : entry.status === 'done' ? '✓ COMPLETE' : entry.status === 'fail' ? '✗ NEEDS REVIEW' : '○ QUEUED';
-    return '<div class="workstation ' + entry.status + (stageId === STUDIO_SELECTED_STAGE ? ' selected' : '') + '" data-stage="' + esc(stageId) + '" onclick="openStudioStage(this)">' +
+    return '<div class="workstation ' + entry.status + (stageId === STUDIO_SELECTED_STAGE ? ' selected' : '') + '" role="button" tabindex="0" data-stage="' + esc(stageId) + '" onclick="openStudioStage(this)">' +
       '<div class="ws-head"><span class="ws-id mono">' + esc(stageId.slice(0, 2)) + '</span><span class="ws-status-dot"></span></div>' +
       '<div class="ws-business">' + esc(persona[1]) + '</div>' +
       '<div class="ws-persona mono">' + esc(persona[0]) + '</div>' +
@@ -126,7 +126,7 @@ function renderStudioInspector(run, model, stageId) {
     : '';
   panel.innerHTML =
     '<div class="panel-head"><span class="panel-title">' + esc(persona[0]) + ' — ' + esc(persona[1]) + '</span>' +
-    '<button class="drawer-close" onclick="closeStudioInspector()">x</button></div>' +
+    '<button class="drawer-close" onclick="closeStudioInspector()" aria-label="Close stage inspector">x</button></div>' +
     '<div class="panel-body">' +
       (task
         ? '<div class="strong">' + esc(task.title || task.id) + '</div>' +

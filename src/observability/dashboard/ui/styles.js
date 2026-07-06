@@ -1190,6 +1190,12 @@ tr.clickable:hover td { background: #f8fbff; }
 .ar-faint { color: var(--faint); }
 .ar-clamp { display: inline-block; max-height: 1.6em; overflow: hidden; cursor: pointer; vertical-align: bottom; border: none; border-bottom: 1px dotted var(--line-strong); background: none; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; }
 .ar-clamp:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+/* Keyboard a11y (#95): a visible focus ring on everything reachable by Tab. */
+.nav-link:focus-visible, .tb-chip:focus-visible, .btn:focus-visible, .drawer-close:focus-visible,
+.run-select:focus-visible, .artifact-link:focus-visible, .rail-step:focus-visible,
+.workspace-stage-card:focus-visible, .workstation:focus-visible, .clickable:focus-visible {
+  outline: 2px solid var(--blue); outline-offset: 2px;
+}
 .ar-clamp.ar-open { max-height: none; }
 .ar-warn { background: var(--soft); border: 1px solid var(--amber); border-radius: 8px; padding: 8px 12px; font-size: 12px; margin-bottom: 8px; }
 
