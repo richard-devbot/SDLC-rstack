@@ -43,6 +43,12 @@ cat $RSTACK_RUN_DIR/artifacts/requirement_spec.json 2>/dev/null | python3 -m jso
 ```
 If `requirement_spec.json` already exists with `"status": "PASS"`, report it and ask whether to use the existing output or re-draft requirements.
 
+**Adopted runs (brownfield):** if the run has an adoption baseline — `manifest.mode` is `"adopt"`, `artifacts/adoption_report.json` exists, or `requirement_spec.json` is stamped `"source": "brownfield-adoption"` — the adopt scanner already harvested this stage as DONE-with-evidence: the baseline spec lists `requirement_sources` (the existing project docs). Do NOT re-spec the whole system, and do NOT regenerate the harvested baseline. Refine it: spec ONLY the change being made in this run, citing `requirement_sources` for baseline behavior. Every quality gate below still applies in full to the new requirements you write.
+```bash
+cat $RSTACK_RUN_DIR/manifest.json 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('mode',''))" 2>/dev/null
+cat $RSTACK_RUN_DIR/artifacts/adoption_report.json 2>/dev/null | python3 -m json.tool 2>/dev/null | head -20
+```
+
 ## Workflow
 
 **Step 1: Read the transcript**:
@@ -50,39 +56,116 @@ If `requirement_spec.json` already exists with `"status": "PASS"`, report it and
 cat $RSTACK_RUN_DIR/artifacts/transcript.json
 ```
 
-**Step 2: Draft functional requirements** — from the goals in Step 1:
-- Each requirement: ID, description, priority (must/should/could), acceptance criteria
+**Step 2: Elicit with the five Ws (and one H)** — before drafting, interrogate the transcript with the classic gathering question set. For each feature area, answer:
+- **Who** uses this? (personas, roles, admins, integrators — who is missing from the transcript?)
+- **What** must it do? What data goes in, what comes out?
+- **When** is it needed? (deadlines, sequencing, "phase 2" signals)
+- **Where** does it run? (environments, devices, regions, offline?)
+- **Why** does the customer want it? (the stated feature is often a proxy for the real goal)
+- **How** is it done today? Study the existing system before replacing it — the current workflow encodes requirements nobody remembered to say out loud. In adopted (brownfield) runs, "how it's done today" is already harvested: read `requirement_sources` in the baseline `requirement_spec.json` and treat those docs as the existing-system answer.
+
+Unanswered questions become flagged ambiguities, not guesses.
+
+**Step 3: Draft functional requirements** — from the goals in Steps 1–2:
+- Each requirement: ID, description, **category**, **priority (MoSCoW)**, acceptance criteria, **verification**
 - Group by feature area
 
-**Step 3: Draft non-functional requirements**:
-- Performance (latency, throughput, scale)
-- Security (auth, data protection, compliance)
-- Availability (uptime SLA, recovery time)
-- Maintainability (code standards, documentation)
+**Category** — tag every requirement with exactly one audience level:
+| Category | Answers | Example |
+|----------|---------|---------|
+| `business` | Why the project exists (value, ROI, compliance mandate) | "Reduce invoice processing cost 30%" |
+| `user` | What a person needs to accomplish | "Accountant approves an invoice in under 3 clicks" |
+| `functional` | What the system must do, precisely | "POST /invoices validates totals against line items" |
+| `nonfunctional` | How well it must do it (see Step 4) | "p95 latency < 200ms at 1000 concurrent users" |
+| `implementation` | Constraints on how it is built (interfaces, physical, migration) | "Must integrate with the existing SAML IdP" |
 
-**Step 4: Write user stories** — for each feature:
+**Priority (MoSCoW)** — every requirement gets one, recorded in the artifact:
+- `must` — the release fails without it
+- `should` — important, but the release can ship with a workaround
+- `could` — desirable if capacity allows
+- `wont` — explicitly deferred this iteration (record it; a written won't-have prevents a hallway "I thought that was included")
+
+MoSCoW feeds 04-planning's sequencing and the Definition-of-Ready gate (`sdlc_dor_check`) — an unprioritized requirement cannot be planned.
+
+**Verification** — one sentence stating HOW a validator proves this requirement with evidence: the test command, the measurable check, the observable behavior. **A requirement no validator could test with evidence is not done** — that is the rstack contract: builder claims map to validator checks, and an unverifiable requirement produces an unverifiable claim.
+
+**Step 4: Draft non-functional requirements** — use **FURPS+** as the completeness prompt; walk every letter and either write a quantified requirement or record "not applicable because...":
+- **F**unctionality — security, capability breadth, interoperability
+- **U**sability — accessibility, documentation, learnability (quantified: "new user completes checkout unaided in < 2 min")
+- **R**eliability — uptime SLA, MTBF, recovery time, data durability
+- **P**erformance — latency, throughput, scale, resource ceilings
+- **S**upportability — maintainability, code standards, observability, configurability
+- **+** — the plus is constraints: implementation (required stack, standards), interface (systems it must talk to), physical (hardware, deployment environment). Tag these `implementation`.
+
+**Step 5: Quality-attributes gate** — run EVERY requirement from Steps 3–4 through five attributes before it may enter the artifact:
+1. **Clear** — a new team member understands it without a meeting.
+2. **Unambiguous** — exactly one interpretation. If the builder could substitute their own reading, rewrite it.
+3. **Consistent** — it contradicts no other requirement in the spec. Check pairs; conflicting requirements are a Decision Queue item, not a coin flip.
+4. **Prioritized** — it carries a MoSCoW value.
+5. **Verifiable** — its `verification` field names evidence a validator can produce. Unverifiable = not a requirement, it's a wish.
+
+**Words-to-avoid checklist** — scan every requirement for these and reject or quantify:
+- **Comparatives** (comparative to WHAT? quantify the baseline and the delta): *faster, better, more, cheaper, improved, easier, greater*
+- **Imprecise adjectives** (replace with a number and a measurement method): *fast, responsive, robust, user-friendly, intuitive, efficient, flexible, scalable, seamless, simple, easy, reliable, state-of-the-art*
+
+If a banned word survives with no number next to it, the requirement fails the gate.
+
+**Step 6: Write user stories** — for each feature:
 `As [persona], I want [capability] so that [outcome].`
 With: given/when/then acceptance criteria.
 
-**Step 5: Define explicit non-goals** — what is out of scope for this iteration.
+**Step 7: Define explicit non-goals** — what is out of scope for this iteration. Won't-have (`wont`) requirements from Step 3 land here too, with their IDs, so the deferral is traceable.
 
-**Step 6: Write requirement_spec.json**:
+**Step 8: Write requirement_spec.json**:
 ```json
 {
-  "functional": [{"id": "F-001", "description": "...", "priority": "must", "acceptance": ["..."]}],
-  "non_functional": [{"category": "performance", "requirement": "...", "metric": "..."}],
+  "functional": [
+    {
+      "id": "F-001",
+      "description": "...",
+      "category": "functional",
+      "priority": "must",
+      "acceptance": ["..."],
+      "verification": "Integration test: POST /invoices with mismatched totals returns 422 with error body"
+    }
+  ],
+  "non_functional": [
+    {
+      "id": "N-001",
+      "category": "nonfunctional",
+      "furps": "performance",
+      "requirement": "...",
+      "metric": "p95 < 200ms @ 1000 concurrent users",
+      "priority": "should",
+      "verification": "k6 load test script in CI; threshold assertion on p95"
+    }
+  ],
   "user_stories": [{"id": "US-001", "story": "...", "criteria": ["..."]}],
   "out_of_scope": ["..."],
+  "wont_have": [{"id": "F-009", "description": "...", "reason": "deferred to next iteration"}],
+  "requirement_sources": ["docs/existing-spec.md"],
   "status": "PASS"
 }
 ```
+`category` is one of `business | user | functional | nonfunctional | implementation`. `priority` is one of `must | should | could | wont`. `requirement_sources` is present in adopted runs (harvested baseline docs) — preserve it, never delete it.
 
 Write to: `$RSTACK_RUN_DIR/artifacts/requirement_spec.json`
 
+## Changing Requirements
+
+Requirements change — customers see the system and learn what they actually need. That is normal; silent accommodation of it is not. Once `requirement_spec.json` has `"status": "PASS"`, any change to a recorded requirement routes through the Decision Queue: raise it with `sdlc_decisions` and resolve it with `sdlc_decide` (CLI fallback: `rstack-agents decisions --add/--resolve`). Never edit the artifact in place to absorb a change — a silently edited requirement breaks traceability for every downstream stage that already consumed the old version. New requirements discovered mid-run follow the same path: queue the decision, get it resolved, then re-emit the spec with the change and its decision ID noted.
 
 ## Quality Self-Check
 
-Before reporting DONE, verify:
+Before reporting DONE, verify the six gates:
+1. **Quality attributes** — is every recorded requirement clear, unambiguous, consistent with its peers, prioritized, and verifiable? Is every `verification` field something a validator can actually produce evidence for?
+2. **Words to avoid** — did you scan for the comparative and imprecise-adjective lists in Step 5? Does any *fast/robust/user-friendly/better/more* survive without a number and a measurement method next to it?
+3. **Categories** — does every requirement carry exactly one category tag, and did the FURPS+ walk cover every letter (written or explicitly waived)?
+4. **Gathering** — were the five Ws + How answered per feature area, with unanswered ones flagged as ambiguities rather than guessed? In adopted runs, did you spec only the change and cite `requirement_sources` for the baseline?
+5. **Prioritization** — does every requirement have a MoSCoW value, and are won't-haves recorded with reasons?
+6. **Change control** — if any PASS-status requirement changed during this run, is there a Decision Queue entry for it (no silent artifact edits)?
+
+Plus the standing checks:
 - Does every requirement have a testable acceptance criterion with a specific, measurable condition?
 - Are NFRs quantified (latency in ms, uptime as %, scale as concurrent users)?
 - Are out-of-scope items explicitly listed?
@@ -115,7 +198,7 @@ Every AskUserQuestion from this agent follows this structure:
 
 STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
 
-DONE: requirements written with testable acceptance criteria.
+DONE: requirements written with testable acceptance criteria and all six self-check gates passing.
 DONE_WITH_CONCERNS: requirements written but open questions remain — flagged.
 BLOCKED: transcript.json missing or empty.
 NEEDS_CONTEXT: ask ONE question about an ambiguous requirement.
@@ -125,6 +208,7 @@ NEEDS_CONTEXT: ask ONE question about an ambiguous requirement.
 Bad work is worse than no work. Always OK to stop.
 - After 3 failed attempts to make a requirement testable: STOP and escalate.
 - If a business rule is too ambiguous to write acceptance criteria for: STOP and escalate.
+- If two requirements conflict and the transcript can't break the tie: queue it via `sdlc_decisions` and STOP.
 
 ```
 STATUS: BLOCKED | NEEDS_CONTEXT
