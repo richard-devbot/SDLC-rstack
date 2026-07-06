@@ -194,6 +194,31 @@ Every builder prompt asks agents to add compact summary fields to `builder.json`
 
 This is the context-reduction path. Later agents receive durable decisions, evidence, and handoff hints instead of full transcripts or raw logs.
 
+### Write policy (enforced in code, #137)
+
+Memory is only useful if it is trustworthy and bounded, so the trust level of every episode is decided by `appendEpisode` in `src/memory/index.js` (via `evaluateWritePolicy`) — never by trusting the caller's `trusted` flag and never by prompt text. A caller cannot launder a failed or unsafe episode into trusted memory: `appendEpisode` overwrites `trusted` with the policy decision before writing.
+
+Two policies (`writePolicy` in `memory-config.json`, default `validator-approved-only`):
+
+- **`validator-approved-only`** — only `validator_status: "PASS"` episodes are stored, and only as `trusted: true`. A non-PASS episode is **skipped** (nothing is persisted, so it can never be recalled and cannot resurrect the behavior it records).
+- **`validation-attempts`** — non-PASS episodes **are** stored, but always `trusted: false`. They surface only when a recall explicitly opts into untrusted memory (`recallEpisodes(..., { includeUntrusted: true })`); default recalls skip them.
+
+Before an episode may be trusted, three integrity checks must also hold (a PASS that fails any of them is demoted to `trusted: false` under `validation-attempts`, or skipped under `validator-approved-only`):
+
+1. **signature** — `verifyEpisodeSignature` matches (tampered records are never trusted; `readEpisodes` also drops them on read),
+2. **evidence_paths** — a non-empty array of non-blank strings,
+3. **quality_score** — a finite value in `[0, 1]`.
+
+`appendEpisode` returns `{ path, written, trusted, decision }` so the call site can emit the matching ledger event. Retracted episodes (`retractEpisode`) are filtered by `readEpisodes`/`recallEpisodes` and are never served.
+
+**Events (pinned contract — `sdlc_validate` appends one per write decision to `events.jsonl`):**
+
+- `episode_memory_written` — `task_id`, `episode_id`, `trusted`, `write_policy`. The episode was stored at the stated trust level.
+- `episode_memory_skipped_untrusted` — `task_id`, `episode_id`, `reason` (e.g. `not-validator-approved`, `integrity-failed:signature`), `write_policy`. The write policy refused to store the episode; nothing was persisted.
+- `episode_memory_write_failed` — `task_id`, `error`. An unexpected error (I/O, schema-invalid episode) prevented the write.
+
+Memory is **historical context only**: it is injected into builder prompts as bounded, non-authoritative observations and cannot override the current task, user approvals, tool safety, or validator gates. The injected block says so explicitly (`formatEpisodesForPrompt`), and trusted recall cannot reach a failed or unsafe episode unless the run is explicitly configured to store validation attempts as untrusted memory and the recall explicitly asks for untrusted memory.
+
 ## Guardrails
 
 Guardrail defaults live in `src/core/harness/guardrails.js`:
