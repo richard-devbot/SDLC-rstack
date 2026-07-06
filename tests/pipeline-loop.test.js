@@ -290,6 +290,56 @@ test('config loop.maxIterations applies when no CLI override is given', async ()
   assert.equal(report.max_iterations, 7);
 });
 
+test('agent-11 goal_evaluation drives the loop: fresh not_met resets its stages, then goes stale -> ask_user', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-loop-'));
+  const runDir = seedRun(projectRoot, 'run-a', {
+    tasks: [task('001', 'PASS', '06-architecture')],
+    goal: {
+      goal_id: 'arch-satisfaction',
+      criteria: [{ id: 'design-review', kind: 'judge', question: 'Is the design satisfying?', rerun_stages: ['06-architecture'] }],
+    },
+  });
+  const designDir = path.join(runDir, 'artifacts', 'stages', '06-architecture');
+  mkdirSync(designDir, { recursive: true });
+  writeFileSync(path.join(designDir, 'system_design.json'), JSON.stringify({ services: [] }));
+  const feedbackDir = path.join(runDir, 'artifacts', 'stages', '11-feedback-loop');
+  mkdirSync(feedbackDir, { recursive: true });
+  // Agent 11's evidence-backed verdict for iteration 1: design not satisfying,
+  // corrective remediation routed at 06-architecture.
+  writeFileSync(path.join(feedbackDir, 'feedback.json'), JSON.stringify({
+    summary: { critical_count: 0, overall_consistency_score: 95 },
+    issues: [],
+    goal_evaluation: {
+      goal_id: 'arch-satisfaction', iteration: 1, status: 'RETRY',
+      consistency_score: 95, critical_count: 0,
+      failing_stages: [], recommended_rerun_stages: ['06-architecture'],
+      requires_human_decision: false, reason: 'FR-003 has no endpoint in the design.',
+      criteria: [{
+        criterion_id: 'design-review', result: 'not_met',
+        evidence: ['artifacts/stages/06-architecture/system_design.json'],
+        reasoning: 'FR-003 unmapped', maintenance_category: 'corrective',
+        recommendation: 'retry', recommended_rerun_stages: ['06-architecture'],
+      }],
+    },
+  }));
+
+  const invokeTool = async (tool) => {
+    if (tool !== 'sdlc_build_next') return;
+    writeFileSync(path.join(runDir, 'tasks.json'), JSON.stringify({ tasks: [task('001', 'PASS', '06-architecture')] }));
+  };
+  const report = await runGoalLoop(projectRoot, { runId: 'run-a', maxIterations: 3, invokeTool });
+
+  // Iteration 1 consumed the fresh agent-11 verdict and reset the stage it named.
+  assert.equal(report.iterations[0].evaluation.status, 'RETRY');
+  assert.equal(report.iterations[0].decision.action, 'retry_stages');
+  assert.deepEqual(report.iterations[0].decision.stages, ['06-architecture']);
+  // Iteration 2: the iteration-1 stamp is now stale, stage 11 has not re-run,
+  // so the judge criterion is unanswered again — the loop stops for a human
+  // instead of trusting the old claim.
+  assert.equal(report.stopped_on, 'ask_user');
+  assert.match(report.detail, /design-review/);
+});
+
 test('loop events are visible in pipeline status: goal_loop rollup + status line', async () => {
   const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-loop-'));
   const runDir = seedRun(projectRoot, 'run-a', {

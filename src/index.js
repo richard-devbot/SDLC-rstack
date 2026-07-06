@@ -21,7 +21,7 @@ export { updateRunMetrics, createStageCheckpoint, rollbackStage, prepareRunState
 export { buildPipelineState, readPipelineState, summarizePipelineState, writePipelineState } from './core/harness/pipeline-state.js';
 export { addDecision, decide, readDecisions, summarizeDecisions, writeDecisions } from './core/harness/decisions.js';
 export { assertReadyForStage, dorCheck, readinessModeForProfile } from './core/harness/readiness.js';
-export { evaluateGoal, readGoalEvidence, summarizeGoalDecision, normalizeGoalDefinition, GOAL_STATUSES } from './core/harness/goal-check.js';
+export { evaluateGoal, readGoalEvidence, summarizeGoalDecision, normalizeGoalDefinition, normalizeGoalEvaluation, validateGoalEvaluation, goalVerdictsFromFeedback, GOAL_STATUSES, GOAL_EVALUATION_RESULTS, MAINTENANCE_CATEGORIES } from './core/harness/goal-check.js';
 export { planLoopDecision, resolveLoopBounds, loadProjectLoopBounds, evaluateLoopBudget, computeProgressFingerprint, DEFAULT_LOOP_BOUNDS, LOOP_HARD_CAP } from './core/harness/goal-loop.js';
 
 // ── Memory ────────────────────────────────────────────────────────────────────

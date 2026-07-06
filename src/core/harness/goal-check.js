@@ -228,6 +228,194 @@ function findVerdict(verdicts, criterion, judgeCriteriaCount, minIteration) {
   return null;
 }
 
+// ── Agent-11 goal_evaluation (#128, BLE-4.2) ─────────────────────────────────
+//
+// Stage 11 (feedback-loop) may embed a structured `goal_evaluation` object in
+// feedback.json — its machine-readable answer to "does this run meet the
+// active goal?". The harness/agent boundary stays clean: agent 11 RECOMMENDS
+// with evidence; this evaluator remains the deterministic decision-maker and
+// still never calls a model. Per-criterion results become goal verdicts
+// through the SAME verdict protocol as goal-verdict.json (same iteration
+// freshness rules — a missing stamp is stale inside a loop iteration) and are
+// consumed ONLY when every listed evidence path exists on disk. An `unknown`
+// result or an unevidenced claim is never consumed — the judge criterion stays
+// PENDING and the evaluation stops at the existing ASK_USER path.
+//
+// {
+//   "goal_evaluation": {
+//     "goal_id": "arch-satisfaction",
+//     "iteration": 2,
+//     "status": "RETRY",
+//     "consistency_score": 82.5,
+//     "critical_count": 1,
+//     "failing_stages": ["06-architecture"],
+//     "recommended_rerun_stages": ["06-architecture"],
+//     "requires_human_decision": false,
+//     "reason": "FR-003 has no endpoint in system_design.json",
+//     "criteria": [
+//       { "criterion_id": "design-review", "result": "not_met",
+//         "evidence": ["artifacts/stages/06-architecture/system_design.json"],
+//         "reasoning": "FR-003 unmapped", "maintenance_category": "corrective",
+//         "recommendation": "retry",
+//         "recommended_rerun_stages": ["06-architecture"] }
+//     ]
+//   }
+// }
+//
+// The top-level fields (status, consistency_score, ...) are the agent's
+// recommendation for hosts and dashboards — the evaluator recomputes its own
+// decision from raw evidence and never trusts them blindly.
+
+export const GOAL_EVALUATION_RESULTS = Object.freeze(['met', 'not_met', 'unknown']);
+export const MAINTENANCE_CATEGORIES = Object.freeze(['perfective', 'adaptive', 'corrective', 'preventive']);
+export const AGENT_GOAL_JUDGE = 'agent.11-feedback-loop';
+export const GOAL_EVALUATION_REQUIRED_FIELDS = Object.freeze([
+  'status',
+  'consistency_score',
+  'critical_count',
+  'failing_stages',
+  'recommended_rerun_stages',
+  'requires_human_decision',
+  'reason',
+]);
+
+export function normalizeGoalEvaluation(raw) {
+  const issues = [];
+  const section = {
+    present: raw != null,
+    goal_id: null,
+    iteration: null,
+    status: null,
+    criteria: [],
+    issues,
+  };
+  if (raw == null) return section;
+  if (!isPlainObject(raw)) {
+    issues.push('goal_evaluation must be a JSON object');
+    return section;
+  }
+  if (typeof raw.goal_id === 'string' && raw.goal_id.trim()) section.goal_id = raw.goal_id.trim();
+  if (raw.iteration != null) {
+    if (Number.isInteger(raw.iteration)) section.iteration = raw.iteration;
+    else issues.push(`goal_evaluation.iteration must be an integer, got ${JSON.stringify(raw.iteration)} — treated as unstamped (stale inside a loop iteration)`);
+  }
+  if (GOAL_STATUSES.includes(raw.status)) section.status = raw.status;
+  else issues.push(`goal_evaluation.status must be ${GOAL_STATUSES.join(' | ')}, got ${JSON.stringify(raw.status)}`);
+  if (raw.criteria != null && !Array.isArray(raw.criteria)) {
+    issues.push('goal_evaluation.criteria must be an array');
+    return section;
+  }
+  for (const [index, entry] of (raw.criteria ?? []).entries()) {
+    if (!isPlainObject(entry)) {
+      issues.push(`goal_evaluation.criteria[${index}] must be an object`);
+      continue;
+    }
+    const criterionId = typeof entry.criterion_id === 'string' && entry.criterion_id.trim() ? entry.criterion_id.trim() : null;
+    if (!criterionId) {
+      issues.push(`goal_evaluation.criteria[${index}] is missing "criterion_id"`);
+      continue;
+    }
+    if (!GOAL_EVALUATION_RESULTS.includes(entry.result)) {
+      issues.push(`goal_evaluation.criteria[${index}] (${criterionId}): result must be ${GOAL_EVALUATION_RESULTS.join(' | ')}, got ${JSON.stringify(entry.result)}`);
+      continue;
+    }
+    section.criteria.push({
+      criterion_id: criterionId,
+      result: entry.result,
+      evidence: Array.isArray(entry.evidence)
+        ? entry.evidence.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())
+        : [],
+      reasoning: typeof entry.reasoning === 'string' ? entry.reasoning : '',
+      // A per-criterion stamp wins; otherwise the section stamp applies. No
+      // stamp at all = stale inside a loop iteration, same as goal-verdict.json.
+      iteration: Number.isInteger(entry.iteration) ? entry.iteration : section.iteration,
+      recommendation: VERDICT_RECOMMENDATIONS.includes(entry.recommendation) ? entry.recommendation : 'retry',
+      recommended_rerun_stages: normalizeRerunStages(entry.recommended_rerun_stages),
+      maintenance_category: MAINTENANCE_CATEGORIES.includes(entry.maintenance_category) ? entry.maintenance_category : null,
+    });
+  }
+  return section;
+}
+
+// Contract check for the section — same {ok, checks, issues} shape as the
+// builder/validator contract checks in contracts.js, so hosts and validators
+// can gate on it without new plumbing.
+export function validateGoalEvaluation(raw) {
+  const checks = [];
+  const push = (name, pass, evidence) => checks.push({ name, status: pass ? 'PASS' : 'FAIL', evidence });
+
+  if (!isPlainObject(raw)) {
+    push('goal_evaluation_is_object', false, 'goal_evaluation missing or not an object');
+    return { ok: false, checks, issues: checks.filter((check) => check.status === 'FAIL') };
+  }
+  push('goal_evaluation_is_object', true, 'present');
+
+  for (const field of GOAL_EVALUATION_REQUIRED_FIELDS) {
+    const present = Object.prototype.hasOwnProperty.call(raw, field);
+    push(`goal_evaluation_has_${field}`, present, present ? 'present' : 'missing');
+  }
+  push('goal_evaluation_status_allowed', GOAL_STATUSES.includes(raw.status), String(raw.status));
+  const score = Number(raw.consistency_score);
+  push('goal_evaluation_consistency_score_numeric', Number.isFinite(score) && score >= 0 && score <= 100, String(raw.consistency_score));
+  push('goal_evaluation_critical_count_numeric', Number.isInteger(raw.critical_count) && raw.critical_count >= 0, String(raw.critical_count));
+  for (const field of ['failing_stages', 'recommended_rerun_stages']) {
+    push(`goal_evaluation_${field}_is_array`, Array.isArray(raw[field]), Array.isArray(raw[field]) ? `${raw[field].length} item(s)` : 'not an array');
+  }
+  push('goal_evaluation_requires_human_decision_boolean', typeof raw.requires_human_decision === 'boolean', String(raw.requires_human_decision));
+  const reasonOk = typeof raw.reason === 'string' && raw.reason.trim().length >= 10;
+  push('goal_evaluation_reason_meaningful', reasonOk, reasonOk ? 'present' : 'reason must be at least 10 characters');
+
+  const normalized = normalizeGoalEvaluation(raw);
+  const criteriaIssues = normalized.issues.filter((issue) => issue.includes('criteria'));
+  push('goal_evaluation_criteria_well_formed', criteriaIssues.length === 0, criteriaIssues.length ? criteriaIssues.join('; ') : `${normalized.criteria.length} criteria entr(ies)`);
+
+  return { ok: checks.every((check) => check.status === 'PASS'), checks, issues: checks.filter((check) => check.status === 'FAIL') };
+}
+
+// Convert the section's per-criterion results into verdict-protocol entries.
+// Evidence-or-nothing: every listed path must exist (relative paths resolve
+// against the run dir first, then the project root). Rejections are returned
+// with reasons so ASK_USER can say WHY the agent's claim was not consumed.
+export function goalVerdictsFromFeedback(feedback, { runDir, projectRoot } = {}) {
+  const section = normalizeGoalEvaluation(feedback?.goal_evaluation);
+  const verdicts = [];
+  const rejected = [];
+  const evidenceExists = (evidencePath) => {
+    if (isAbsolute(evidencePath)) return existsSync(evidencePath);
+    if (runDir && existsSync(resolve(runDir, evidencePath))) return true;
+    if (projectRoot && existsSync(resolve(projectRoot, evidencePath))) return true;
+    return false;
+  };
+  for (const criterion of section.criteria) {
+    if (criterion.result === 'unknown') {
+      rejected.push({ criterion_id: criterion.criterion_id, reason: 'result is "unknown" — a host framework or human must judge' });
+      continue;
+    }
+    if (!criterion.evidence.length) {
+      rejected.push({ criterion_id: criterion.criterion_id, reason: 'no evidence paths — the harness never consumes unevidenced claims' });
+      continue;
+    }
+    const missing = criterion.evidence.filter((evidencePath) => !evidenceExists(evidencePath));
+    if (missing.length) {
+      rejected.push({ criterion_id: criterion.criterion_id, reason: `evidence path(s) missing on disk: ${missing.join(', ')}` });
+      continue;
+    }
+    verdicts.push({
+      criterion_id: criterion.criterion_id,
+      verdict: criterion.result === 'met' ? 'PASS' : 'FAIL',
+      judge: AGENT_GOAL_JUDGE,
+      reasoning: criterion.reasoning,
+      score: null,
+      iteration: criterion.iteration,
+      recommendation: criterion.recommendation,
+      recommended_rerun_stages: criterion.recommended_rerun_stages,
+      evidence: criterion.evidence,
+      maintenance_category: criterion.maintenance_category,
+    });
+  }
+  return { present: section.present, verdicts, rejected, issues: section.issues };
+}
+
 // ── Evidence gathering ───────────────────────────────────────────────────────
 
 export async function readGoalEvidence(runDir) {
@@ -287,7 +475,7 @@ async function defaultRunCommand(command, { cwd, timeoutMs }) {
   }
 }
 
-async function evaluateCriterion(criterion, { projectRoot, runDir, state, evidence, iteration, runCommand, judgeCriteriaCount }) {
+async function evaluateCriterion(criterion, { projectRoot, runDir, state, evidence, verdicts, agentRejections, iteration, runCommand, judgeCriteriaCount }) {
   const result = { id: criterion.id, kind: criterion.kind, status: 'FAIL', detail: '', rerun_stages: criterion.rerun_stages };
 
   if (criterion.kind === 'invalid') {
@@ -351,13 +539,17 @@ async function evaluateCriterion(criterion, { projectRoot, runDir, state, eviden
     };
   }
 
-  // judge — model-free: consume goal-verdict.json or report PENDING.
-  const verdict = findVerdict(evidence.verdicts, criterion, judgeCriteriaCount, iteration);
+  // judge — model-free: consume the verdict protocol (goal-verdict.json, or an
+  // evidence-backed agent-11 goal_evaluation entry) or report PENDING.
+  const verdict = findVerdict(verdicts, criterion, judgeCriteriaCount, iteration);
   if (!verdict || !verdict.verdict) {
+    const rejection = agentRejections.find((item) => item.criterion_id === criterion.id);
     return {
       ...result,
       status: 'PENDING',
-      detail: `awaiting judge verdict — a host framework or human must write ${GOAL_VERDICT_FILE} (criterion_id: ${criterion.id})`,
+      detail: rejection
+        ? `awaiting judge verdict — agent-11 goal_evaluation for ${criterion.id} was not consumed (${rejection.reason}); write ${GOAL_VERDICT_FILE} or re-run 11-feedback-loop with evidence`
+        : `awaiting judge verdict — a host framework or human must write ${GOAL_VERDICT_FILE}, or stage 11-feedback-loop must emit an evidence-backed goal_evaluation (criterion_id: ${criterion.id})`,
     };
   }
   return {
@@ -409,11 +601,18 @@ export async function evaluateGoal(projectRoot, runId, options = {}) {
   const iteration = Number.isInteger(options.iteration) ? options.iteration : null;
   const runCommand = options.runCommand ?? defaultRunCommand;
 
+  // Agent-11 writer path (#128): evidence-backed goal_evaluation entries join
+  // the verdict pool through the same protocol. Explicit goal-verdict.json
+  // entries come first, so a human/host verdict outranks the agent's for the
+  // same criterion.
+  const agentGoal = goalVerdictsFromFeedback(evidence.feedback, { runDir, projectRoot });
+  const verdicts = [...evidence.verdicts, ...agentGoal.verdicts];
+
   const judgeCriteriaCount = goal.criteria.filter((criterion) => criterion.kind === 'judge').length;
   const criteria = [];
   for (const criterion of goal.criteria) {
     criteria.push(await evaluateCriterion(criterion, {
-      projectRoot, runDir, state, evidence, iteration, runCommand, judgeCriteriaCount,
+      projectRoot, runDir, state, evidence, verdicts, agentRejections: agentGoal.rejected, iteration, runCommand, judgeCriteriaCount,
     }));
   }
 
@@ -442,7 +641,12 @@ export async function evaluateGoal(projectRoot, runId, options = {}) {
   if (pendingDecisions.length) askUserReasons.push(`decision ${pendingDecisions[0].decision_id ?? pendingDecisions[0].id ?? ''} is pending`.trim());
   if (needsContextTasks.length) askUserReasons.push(`task ${needsContextTasks[0].id} needs human context`);
   const pendingJudges = criteria.filter((criterion) => criterion.kind === 'judge' && criterion.status === 'PENDING');
-  if (pendingJudges.length) askUserReasons.push(`judge verdict required for criterion ${pendingJudges[0].id} (write ${GOAL_VERDICT_FILE})`);
+  if (pendingJudges.length) {
+    const rejection = agentGoal.rejected.find((item) => item.criterion_id === pendingJudges[0].id);
+    askUserReasons.push(rejection
+      ? `judge verdict required for criterion ${pendingJudges[0].id} — agent-11 claim not consumed (${rejection.reason}); write ${GOAL_VERDICT_FILE} or re-run 11-feedback-loop with evidence`
+      : `judge verdict required for criterion ${pendingJudges[0].id} (write ${GOAL_VERDICT_FILE} or have 11-feedback-loop emit an evidence-backed goal_evaluation)`);
+  }
 
   const blockReasons = [];
   if (blockedTasks.length) blockReasons.push(`task ${blockedTasks[0].id} is BLOCKED — approve guardrail-override:${blockedTasks[0].id} or intervene`);
@@ -526,6 +730,15 @@ export async function evaluateGoal(projectRoot, runId, options = {}) {
     criteria,
     harness_checks: harnessChecks,
     goal_issues: goal.issues,
+    // Observability for the agent-11 writer path: which claims were consumed
+    // as verdicts and which were rejected (and why). Advisory only — the
+    // decision above is recomputed from raw evidence, never copied from here.
+    agent_goal_evaluation: {
+      present: agentGoal.present,
+      consumed: agentGoal.verdicts.map((verdict) => verdict.criterion_id),
+      rejected: agentGoal.rejected,
+      issues: agentGoal.issues,
+    },
     evidence_paths: {
       goal: evidence.goal_path,
       feedback: evidence.feedback_path,
