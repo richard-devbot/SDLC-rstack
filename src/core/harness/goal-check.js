@@ -12,9 +12,9 @@
 // Prose is never parsed.
 
 import { exec } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { CANONICAL_SDLC_STAGES } from './stages.js';
@@ -373,18 +373,35 @@ export function validateGoalEvaluation(raw) {
 }
 
 // Convert the section's per-criterion results into verdict-protocol entries.
-// Evidence-or-nothing: every listed path must exist (relative paths resolve
-// against the run dir first, then the project root). Rejections are returned
-// with reasons so ASK_USER can say WHY the agent's claim was not consumed.
+// Evidence-or-nothing: every listed path must resolve to a REAL FILE inside
+// the run dir or the project root (relative paths resolve against the run dir
+// first, then the project root). Containment is checked with resolve +
+// relative-prefix, so "..", ".", "/", bare directories, and absolute paths
+// outside the roots are all rejected — the model must point at actual run or
+// project artifacts, not at the filesystem at large. NOTE the gate's honest
+// limit: it checks evidence EXISTENCE, not RELEVANCE — whether the artifact
+// actually proves the claim remains the validator's and the human's job.
+// Rejections are returned with reasons so ASK_USER can say WHY the agent's
+// claim was not consumed.
 export function goalVerdictsFromFeedback(feedback, { runDir, projectRoot, iteration = null } = {}) {
   const section = normalizeGoalEvaluation(feedback?.goal_evaluation);
   const verdicts = [];
   const rejected = [];
+  const withinBase = (base, target) => {
+    if (!base) return false;
+    const rel = relative(base, target);
+    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  };
+  const isRealFile = (target) => {
+    try { return statSync(target).isFile(); } catch { return false; }
+  };
   const evidenceExists = (evidencePath) => {
-    if (isAbsolute(evidencePath)) return existsSync(evidencePath);
-    if (runDir && existsSync(resolve(runDir, evidencePath))) return true;
-    if (projectRoot && existsSync(resolve(projectRoot, evidencePath))) return true;
-    return false;
+    const candidates = isAbsolute(evidencePath)
+      ? [evidencePath]
+      : [runDir && resolve(runDir, evidencePath), projectRoot && resolve(projectRoot, evidencePath)].filter(Boolean);
+    return candidates.some((candidate) => (
+      (withinBase(runDir, candidate) || withinBase(projectRoot, candidate)) && isRealFile(candidate)
+    ));
   };
   for (const criterion of section.criteria) {
     if (criterion.result === 'unknown') {
@@ -409,7 +426,7 @@ export function goalVerdictsFromFeedback(feedback, { runDir, projectRoot, iterat
     }
     const missing = criterion.evidence.filter((evidencePath) => !evidenceExists(evidencePath));
     if (missing.length) {
-      rejected.push({ criterion_id: criterion.criterion_id, reason: `evidence path(s) missing on disk: ${missing.join(', ')}` });
+      rejected.push({ criterion_id: criterion.criterion_id, reason: `evidence path(s) missing on disk, not regular files, or outside the run/project roots: ${missing.join(', ')}` });
       continue;
     }
     verdicts.push({

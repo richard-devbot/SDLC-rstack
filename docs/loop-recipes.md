@@ -174,9 +174,11 @@ Stage 11 answers inside its feedback.json (`artifacts/stages/11-feedback-loop/fe
 }
 ```
 
-The evaluator consumes a per-criterion result only when every listed evidence path exists on
-disk; `unknown` or unevidenced claims stop the loop at `ASK_USER` instead. A human can override
-by writing `.rstack/runs/<run_id>/goal-verdict.json`:
+The evaluator consumes a per-criterion result only when every listed evidence path resolves to a
+real file inside the run dir or project root; `unknown` or unevidenced claims stop the loop at
+`ASK_USER` instead. Be clear about what that gate buys: it checks evidence *existence*, not
+*relevance* — whether the artifact actually proves the claim is still the reviewer's and the
+human's job. A human can override by writing `.rstack/runs/<run_id>/goal-verdict.json`:
 
 ```json
 {

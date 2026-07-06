@@ -459,6 +459,38 @@ test('agent-11 claim whose evidence paths do not exist on disk is rejected -> AS
   assert.match(evaluation.reason, /evidence path\(s\) missing on disk/);
 });
 
+test('evidence containment: paths outside the run/project roots, ".", and directories are rejected', async () => {
+  // A real file OUTSIDE the project must not count as evidence, whether named
+  // absolutely or reached via ../ traversal — and "." (the run dir itself)
+  // proves nothing.
+  const outsideDir = mkdtempSync(path.join(os.tmpdir(), 'rstack-outside-'));
+  const outsideFile = path.join(outsideDir, 'outside.md');
+  writeFileSync(outsideFile, 'real but foreign');
+
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
+  const runDir = seedRun(projectRoot, 'run-a', { tasks: [task('001', 'PASS')], goal: judgedGoal });
+  seedDesignArtifact(runDir);
+
+  for (const evidence of [outsideFile, `../../../../..${outsideFile}`, '.', 'artifacts/stages/06-architecture']) {
+    const stageDir = path.join(runDir, 'artifacts', 'stages', '11-feedback-loop');
+    mkdirSync(stageDir, { recursive: true });
+    writeFileSync(path.join(stageDir, 'feedback.json'), JSON.stringify(feedbackWithGoalEvaluation([
+      { criterion_id: 'design-review', result: 'met', evidence: [evidence] },
+    ])));
+    const evaluation = await evaluateGoal(projectRoot, 'run-a');
+    assert.equal(evaluation.status, 'ASK_USER', `evidence ${JSON.stringify(evidence)} must be rejected`);
+    assert.match(evaluation.agent_goal_evaluation.rejected[0].reason, /outside the run\/project roots/);
+  }
+
+  // A contained absolute path to a real file is still fine.
+  const containedAbsolute = path.join(runDir, 'artifacts', 'stages', '06-architecture', 'system_design.json');
+  const stageDir = path.join(runDir, 'artifacts', 'stages', '11-feedback-loop');
+  writeFileSync(path.join(stageDir, 'feedback.json'), JSON.stringify(feedbackWithGoalEvaluation([
+    { criterion_id: 'design-review', result: 'met', evidence: [containedAbsolute] },
+  ])));
+  assert.equal((await evaluateGoal(projectRoot, 'run-a')).status, 'PASS');
+});
+
 test('"unknown" agent-11 result is never consumed -> ASK_USER', async () => {
   const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
   const runDir = seedRun(projectRoot, 'run-a', { tasks: [task('001', 'PASS')], goal: judgedGoal });

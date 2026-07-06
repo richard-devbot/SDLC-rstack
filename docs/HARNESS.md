@@ -269,9 +269,12 @@ section (`goal_id`, `iteration`, `status`, `consistency_score`, `critical_count`
 per-criterion `criteria[]`: `{ criterion_id, result: "met"|"not_met"|"unknown", evidence[],
 reasoning, recommended_rerun_stages, maintenance_category, recommendation }`). The evaluator
 converts each per-criterion result into a judge verdict **only when every listed evidence path
-exists on disk** (relative paths resolve against the run dir, then the project root) — an
-`unknown` result or an unevidenced claim is rejected with a recorded reason and the criterion
-stays at the `ASK_USER` path. The same freshness rules apply: inside a loop iteration an
+resolves to a real file inside the run dir or the project root** (relative paths resolve against
+the run dir, then the project root; `..` traversal, `.`, directories, and absolute paths outside
+those roots are rejected) — an `unknown` result or an unevidenced claim is rejected with a
+recorded reason and the criterion stays at the `ASK_USER` path. Be honest about what this gate
+buys: it checks evidence **existence**, not **relevance** — whether the named artifact actually
+proves the claim remains the validator's and the human's job. The same freshness rules apply: inside a loop iteration an
 evaluation stamped with an older or missing `iteration` is stale and ignored — and because this
 writer is model-driven (unlike the trusted `goal-verdict.json` writer), a stamp **ahead of** the
 current iteration is rejected as malformed rather than staying fresh forever. An explicit
