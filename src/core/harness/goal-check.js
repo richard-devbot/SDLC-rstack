@@ -194,8 +194,12 @@ export function normalizeGoalDefinition(raw) {
 //   "reasoning": "...", "score": 0-100, "iteration": 2,
 //   "recommendation": "retry" | "block", "recommended_rerun_stages": [...] }
 //
-// A verdict with `iteration` below the evaluator's `iteration` option is
-// stale (it graded an earlier loop pass) and is ignored.
+// Freshness: when the evaluator runs with an iteration context (the loop
+// runner always passes one), a verdict must carry `iteration >= current` to
+// be consumed — a MISSING iteration stamp is treated as stale too, so a
+// write-once {"verdict":"PASS"} can never auto-pass every later
+// re-evaluation of a regressed design. One-shot evaluations (no iteration
+// context) accept unstamped verdicts.
 
 export function normalizeGoalVerdicts(raw) {
   const list = Array.isArray(raw) ? raw : Array.isArray(raw?.verdicts) ? raw.verdicts : raw != null ? [raw] : [];
@@ -212,7 +216,11 @@ export function normalizeGoalVerdicts(raw) {
 }
 
 function findVerdict(verdicts, criterion, judgeCriteriaCount, minIteration) {
-  const fresh = verdicts.filter((verdict) => verdict.iteration == null || minIteration == null || verdict.iteration >= minIteration);
+  // Inside a loop iteration an unstamped verdict is stale by definition —
+  // otherwise it would short-circuit the freshness filter forever.
+  const fresh = verdicts.filter((verdict) => (
+    minIteration == null || (verdict.iteration != null && verdict.iteration >= minIteration)
+  ));
   const byId = fresh.find((verdict) => verdict.criterion_id === criterion.id);
   if (byId) return byId;
   // A single verdict with no criterion_id applies to the sole judge criterion.

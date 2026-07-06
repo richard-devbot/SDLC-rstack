@@ -254,6 +254,23 @@ test('stale judge verdict (iteration below the current one) is ignored -> ASK_US
   assert.equal(evaluation.status, 'ASK_USER');
 });
 
+test('unstamped judge verdict is stale inside an iteration context, but valid for one-shot evaluation', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
+  seedRun(projectRoot, 'run-a', {
+    tasks: [task('001', 'PASS')],
+    feedback: cleanFeedback,
+    goal: { goal_id: 'judged', criteria: [{ id: 'arch', kind: 'judge' }] },
+    verdict: { criterion_id: 'arch', verdict: 'PASS' },
+  });
+  // A write-once PASS with no iteration stamp must NOT be consumed forever
+  // across loop iterations — even iteration 1 requires a stamp.
+  const looped = await evaluateGoal(projectRoot, 'run-a', { iteration: 1 });
+  assert.equal(looped.status, 'ASK_USER');
+  // One-shot evaluation (no iteration context) still accepts it.
+  const oneShot = await evaluateGoal(projectRoot, 'run-a');
+  assert.equal(oneShot.status, 'PASS');
+});
+
 test('min_score threshold: passing checks below min_score keep the goal at RETRY', async () => {
   const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
   seedRun(projectRoot, 'run-a', {

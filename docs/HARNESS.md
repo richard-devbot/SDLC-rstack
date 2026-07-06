@@ -252,9 +252,12 @@ condition passes" — bounded, budget-capped, and model-free.
   `<run_dir>/goal-verdict.json`, written by a host framework or a human:
   `{ "criterion_id", "verdict": "PASS"|"FAIL", "judge", "reasoning", "iteration",
   "recommendation": "retry"|"block", "recommended_rerun_stages": [] }` (single object, array, or
-  `{"verdicts": []}`). The harness validates and consumes it; without a fresh verdict (an
-  `iteration` older than the current one is stale) the evaluation stops at `ASK_USER`. A FAIL
-  verdict retries the named stages; `"recommendation": "block"` stops for a human.
+  `{"verdicts": []}`). The harness validates and consumes it; without a fresh verdict the
+  evaluation stops at `ASK_USER`. Freshness: inside a loop iteration a verdict must carry
+  `iteration >= current` — an older or **missing** iteration stamp is stale, so a write-once
+  verdict can never auto-pass later re-evaluations (one-shot evaluations outside the loop accept
+  unstamped verdicts). A FAIL verdict retries the named stages; `"recommendation": "block"` stops
+  for a human.
 
 Any criterion may carry `rerun_stages` — the canonical stages a RETRY should reset.
 
