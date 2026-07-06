@@ -104,6 +104,17 @@ export function formatPipelineStatus(state) {
     : `${retries.total ?? 0}`;
   lines.push(`Retries: ${retryText} | Guardrail events: ${state.guardrails?.total ?? 0}`);
 
+  // #136 (BLE-6.2): non-blocking context-pressure warnings — surfaced only
+  // when present, with a per-source breakdown so the reader sees WHERE the
+  // pressure is. Detect-only: this never implies memory was pruned/truncated.
+  const contextPressure = state.context_pressure || {};
+  if ((contextPressure.total ?? 0) > 0) {
+    const bySource = Object.entries(contextPressure.by_source || {})
+      .map(([source, count]) => `${count} ${source}`)
+      .join(', ');
+    lines.push(`Context pressure warnings: ${contextPressure.total}${bySource ? ` (${bySource})` : ''}`);
+  }
+
   // Checkpoint visibility (#132): counts come from the pinned checkpoint
   // events; "restorable" lists only stages whose checkpoint directory was
   // verified on disk when the rollup was built — never an event-based claim.

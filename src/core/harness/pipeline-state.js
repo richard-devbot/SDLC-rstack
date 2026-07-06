@@ -339,6 +339,33 @@ function summarizeCheckpointEvents(events) {
   return { total: counts.before_saved + counts.after_saved + counts.reverted, ...counts };
 }
 
+// Context-pressure rollup (#136, BLE-6.2): counts the pinned
+// `context_pressure_warning` events so `pipeline status` answers "is this run
+// under context pressure?" without reading events.jsonl. Warnings are
+// non-blocking signals; the per-source breakdown says WHERE the pressure is
+// (builder_prompt / injected_memory / memory_summary / stage_summary /
+// artifact_summary / context_tokens). Detect-only by contract — this rollup
+// never implies memory was pruned or artifacts truncated.
+function summarizeContextPressureEvents(events) {
+  const by_source = {};
+  const items = [];
+  for (const event of events) {
+    if (eventType(event) !== 'context_pressure_warning') continue;
+    const source = typeof event.source === 'string' ? event.source : 'unknown';
+    by_source[source] = (by_source[source] || 0) + 1;
+    items.push({
+      ts: event.ts || event.timestamp || null,
+      task_id: event.task_id || null,
+      stage_id: event.stage_id || null,
+      source,
+      metric: event.metric || null,
+      size: event.size ?? null,
+      threshold: event.threshold ?? null,
+    });
+  }
+  return { total: items.length, by_source, warnings: items };
+}
+
 function summarizeEvents(events, predicate) {
   const items = events.filter(predicate).map((event) => ({
     ts: event.ts || event.timestamp || null,
@@ -403,6 +430,8 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
     goal_loop: summarizeGoalLoopEvents(events),
     checkpoints: summarizeCheckpointEvents(events),
     guardrails: summarizeEvents(events, isGuardrailEvent),
+    // #136 (BLE-6.2): non-blocking context-pressure warning rollup.
+    context_pressure: summarizeContextPressureEvents(events),
     approval_blockers: buildApprovalBlockers(approvals),
     cost_context: buildCostContext(metrics),
   };
@@ -439,5 +468,6 @@ export function summarizePipelineState(state) {
     approval_blockers: state.approval_blockers.length,
     retries: state.retries.total,
     guardrails: state.guardrails.total,
+    context_pressure: state.context_pressure?.total ?? 0,
   };
 }

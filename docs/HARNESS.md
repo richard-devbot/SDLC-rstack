@@ -136,6 +136,20 @@ Events (pinned contract, same rules as `retry_decision` — downstream consumers
 
 Rollups: the pipeline-state `cost_context` block carries `cumulative_tokens` alongside the existing cost/duration/tool-call totals, and each stage entry carries its `cost_usd` / `tokens` share (`null` when never recorded). `rstack-agents pipeline status` prints the token total; `--json` exposes the full structure.
 
+### Context pressure warnings (#136, BLE-6.2)
+
+`src/core/harness/context-pressure.js` classifies oversized context into **non-blocking** `context_pressure_warning` events. It builds on the #83/#135 telemetry: at validate time `sdlc_validate` measures the builder contract's `memory_summary` / `stage_summaries[]` sizes and its reported `context.tokens_used` / `context.tokens_available` gauges against configurable thresholds. Sizes are approximate character/token signals already in the harness — **no model tokenization dependency** (the issue's explicit constraint). `classifyContextPressure` is pure; the classifier and validators do no I/O (the sole impure export, `loadProjectContextPressureThresholds`, reads `.rstack/rstack.config.json`, mirroring `loadProjectGuardrails`).
+
+Thresholds live under `context_pressure` in `rstack.config.json` (optionally nested under `thresholds`) and are validated field-by-field on load (`validateContextPressureConfig`, wired through `validateProjectConfigs` — #151 pattern), so a bad threshold produces a named warning and the default applies rather than silently disabling a check. Defaults: `builder_prompt_chars` 120000, `injected_memory_chars` 24000, `artifact_summary_chars` 12000, `stage_summary_chars` 8000, `context_tokens_used` 160000, `context_tokens_ratio` 0.85.
+
+**Emit-vs-detect (transparency, #136 rule):** this path is **detect-only** — it warns, it does not prune memory or truncate artifacts. It therefore emits **only** `context_pressure_warning` and **never** `memory_pruned` or `artifact_summary_truncated`, which would name actions this code does not take. (`memory_pruned` is emitted separately by the memory-injection path when it actually prunes; this module does not.)
+
+Event (pinned contract, same rules as `retry_decision`):
+
+- `context_pressure_warning` — `task_id`, `source` (`builder_prompt` | `injected_memory` | `memory_summary` | `stage_summary` | `artifact_summary` | `context_tokens`), `metric` (`chars` | `tokens` | `ratio`), `size` (the measured value), `threshold` (the breached limit), `blocking: false`. Optional `stage_id` (stage-summary source), `artifact` (artifact-summary source), and `tokens_used` / `tokens_available` (ratio metric). Under-threshold context produces **no** event (silence, never a zero-size event).
+
+Rollup: the pipeline-state `context_pressure` block carries `{ total, by_source, warnings[] }`; `summarizePipelineState` exposes the count; `rstack-agents pipeline status` prints a `Context pressure warnings:` line (with the per-source breakdown) only when warnings are present.
+
 ## Agent episodic memory
 
 Validator-approved tasks are written to an agent/stage scoped episodic memory store by `src/memory/index.js`.

@@ -143,6 +143,7 @@ test('buildPipelineState derives status from canonical run files', async () => {
     approval_blockers: 1,
     retries: 1,
     guardrails: 1,
+    context_pressure: 0, // #136 (BLE-6.2): additive rollup field
   });
 });
 

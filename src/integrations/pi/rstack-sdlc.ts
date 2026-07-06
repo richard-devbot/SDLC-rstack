@@ -19,6 +19,9 @@ import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, ev
 import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedApprovedArtifacts } from "../../core/harness/approval-audit.js";
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
 import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate, builderContractKey } from "../../core/harness/telemetry.js";
+// #136 (BLE-6.2): context-pressure classifier — detects oversized context at
+// validate time and appends non-blocking context_pressure_warning events.
+import { classifyContextPressure, loadProjectContextPressureThresholds } from "../../core/harness/context-pressure.js";
 import { deriveRunTotals } from "../../observability/metrics/derive.js";
 import { VALIDATOR_CONTEXT_ENV, VALIDATOR_RUN_ID_ENV, VALIDATOR_READ_ONLY_TOOLS, evaluateValidatorAction, isValidatorContext, isValidatorRole, isValidatorSandboxDebug } from "../../core/harness/validator-sandbox.js";
 import { loadValidatorRegistry, resolveValidatorProfile } from "../../core/harness/validator-registry.js";
@@ -1896,6 +1899,26 @@ export default function (pi: ExtensionAPI) {
               error: String((metricsError as any)?.message ?? metricsError),
             }).catch(() => {});
           }
+        }
+        // Context-pressure warnings (#136, BLE-6.2). DETECT-ONLY: the classifier
+        // measures the contract's memory_summary / stage_summaries and the
+        // reported context token gauges against configurable thresholds and
+        // appends non-blocking `context_pressure_warning` events. It does NOT
+        // prune or truncate, so it emits ONLY that event — never memory_pruned
+        // or artifact_summary_truncated (those name actions this code does not
+        // take). Best-effort: a failure here never blocks validation.
+        try {
+          const pressureThresholds = await loadProjectContextPressureThresholds(projectRoot);
+          const pressureEvents = classifyContextPressure({
+            taskId: task.id,
+            contract: builderContract,
+            thresholds: pressureThresholds,
+          });
+          for (const pressureEvent of pressureEvents) {
+            await appendEvent(projectRoot, manifest.run_id, pressureEvent);
+          }
+        } catch (pressureError) {
+          console.error("Failed to classify context pressure:", pressureError);
         }
       }
       await appendEvent(projectRoot, manifest.run_id, { type: "quality_score_recorded", task_id: task.id, score: qualityScore, pass_checks: passChecks, total_checks: checks.length });
