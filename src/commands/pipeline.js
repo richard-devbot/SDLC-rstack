@@ -104,6 +104,19 @@ export function formatPipelineStatus(state) {
     : `${retries.total ?? 0}`;
   lines.push(`Retries: ${retryText} | Guardrail events: ${state.guardrails?.total ?? 0}`);
 
+  // Checkpoint visibility (#132): counts come from the pinned checkpoint
+  // events; "restorable" lists only stages whose checkpoint directory was
+  // verified on disk when the rollup was built — never an event-based claim.
+  const checkpoints = state.checkpoints || {};
+  const restorable = stages.filter((stage) => stage.checkpoint_restorable).map((stage) => stage.id);
+  if ((checkpoints.total ?? 0) > 0 || restorable.length) {
+    const parts = [
+      `${checkpoints.before_saved ?? 0} before / ${checkpoints.after_saved ?? 0} after / ${checkpoints.reverted ?? 0} reverted`,
+      `restorable stages: ${restorable.length ? restorable.join(', ') : 'none'}`,
+    ];
+    lines.push(`Checkpoints: ${parts.join(' | ')}`);
+  }
+
   const loop = state.goal_loop;
   if (loop?.total) {
     const parts = [`iteration ${loop.iterations}`];

@@ -11,6 +11,8 @@ import { join } from 'node:path';
 
 import { DEFAULT_HARNESS_GUARDRAILS } from './guardrails.js';
 import { DEFAULT_LOOP_BOUNDS, LOOP_HARD_CAP } from './goal-loop.js';
+import { DEFAULT_CRITICAL_STAGE_IDS } from './checkpoints.js';
+import { getCanonicalStage } from './stages.js';
 import { rstackStateDir } from './runs.js';
 
 const KNOWN_PROFILES = ['business-flex', 'enterprise-webapp', 'lean-mvp'];
@@ -65,6 +67,29 @@ export function validateRstackConfig(parsed) {
           issues.push({ field: `loop.${key}`, problem: `must be a number >= 1, got ${JSON.stringify(value)} — the default (${DEFAULT_LOOP_BOUNDS[key]}) applies` });
         } else if (key === 'maxIterations' && parsedValue > LOOP_HARD_CAP) {
           issues.push({ field: 'loop.maxIterations', problem: `exceeds the hard cap of ${LOOP_HARD_CAP} — it will be clamped to ${LOOP_HARD_CAP}` });
+        }
+      }
+    }
+  }
+  if (parsed.checkpoints != null) {
+    if (!isPlainObject(parsed.checkpoints)) {
+      issues.push({ field: 'checkpoints', problem: 'must be an object of checkpoint settings' });
+    } else {
+      for (const key of Object.keys(parsed.checkpoints)) {
+        if (key !== 'critical_stages') {
+          issues.push({ field: `checkpoints.${key}`, problem: 'unknown checkpoint key — this setting is ignored' });
+        }
+      }
+      const criticalStages = parsed.checkpoints.critical_stages;
+      if (criticalStages != null) {
+        if (!Array.isArray(criticalStages)) {
+          issues.push({ field: 'checkpoints.critical_stages', problem: `must be an array of canonical stage ids — the default (${DEFAULT_CRITICAL_STAGE_IDS.join(', ')}) applies` });
+        } else {
+          for (const stageId of criticalStages) {
+            if (typeof stageId !== 'string' || !getCanonicalStage(stageId)) {
+              issues.push({ field: 'checkpoints.critical_stages', problem: `${JSON.stringify(stageId)} is not a canonical stage id (plan task ids are not stage ids) — this entry is ignored` });
+            }
+          }
         }
       }
     }
