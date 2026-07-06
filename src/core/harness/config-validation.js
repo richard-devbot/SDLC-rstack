@@ -14,6 +14,9 @@ import { DEFAULT_LOOP_BOUNDS, LOOP_HARD_CAP } from './goal-loop.js';
 import { DEFAULT_CRITICAL_STAGE_IDS } from './checkpoints.js';
 import { getCanonicalStage } from './stages.js';
 import { rstackStateDir } from './runs.js';
+// #136 (BLE-6.2): context-pressure thresholds live in rstack.config.json under
+// `context_pressure`; validated field-by-field like every other block.
+import { validateContextPressureConfig } from './context-pressure.js';
 
 const KNOWN_PROFILES = ['business-flex', 'enterprise-webapp', 'lean-mvp'];
 const KNOWN_CHANNELS = ['slack', 'teams', 'discord', 'telegram', 'whatsapp'];
@@ -93,6 +96,12 @@ export function validateRstackConfig(parsed) {
         }
       }
     }
+  }
+  // #136 (BLE-6.2): context-pressure warning thresholds. Additive block —
+  // validated via the classifier module so the field rules live next to the
+  // defaults they guard.
+  if (parsed.context_pressure != null) {
+    issues.push(...validateContextPressureConfig(parsed.context_pressure));
   }
   return issues;
 }
