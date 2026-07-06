@@ -1295,4 +1295,13 @@ tr.clickable:hover td { background: #f8fbff; }
 .decision-log-main .feed-meta { margin-top: 4px; }
 @media (max-width: 900px) { .next-action, .decision-log-row { grid-template-columns: 1fr; } }
 /* end [wave:command] */
+
+/* [wave:ops] — ops panels: retry state, guardrail depth, context pressure, audit rejections */
+.feed-icon.info { color: var(--blue); background: #eff6ff; }
+.ops-meta { color: var(--amber); font-weight: 700; }
+.ops-note { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 8px; }
+.ops-issues { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+.ops-issues li { padding: 2px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.alert-card.fail { border-left: 4px solid var(--red); }
+/* [/wave:ops] */
 `;
