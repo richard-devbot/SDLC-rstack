@@ -1633,7 +1633,7 @@ export default function (pi: ExtensionAPI) {
         const checkpointRunDir = join(runsDir(projectRoot), manifest.run_id);
         for (const stageId of claimedStageIds) {
           if (!isCriticalStage(stageId, criticalStages)) continue;
-          const checkpoint = await saveStageCheckpoint(checkpointRunDir, stageId, "before");
+          const checkpoint = await saveStageCheckpoint(checkpointRunDir, stageId, "before", { taskId: task.id });
           if (checkpoint.saved && checkpoint.verified) {
             await appendEvent(projectRoot, manifest.run_id, checkpointEvent("stage_checkpoint_before_saved", { stage_id: stageId, task_id: task.id, verified: true }));
           }
@@ -1826,7 +1826,7 @@ export default function (pi: ExtensionAPI) {
           const checkpointRunDir = join(runsDir(projectRoot), manifest.run_id);
           for (const stageId of canonicalStageIds) {
             try {
-              const checkpoint = await saveStageCheckpoint(checkpointRunDir, stageId, "after");
+              const checkpoint = await saveStageCheckpoint(checkpointRunDir, stageId, "after", { taskId: task.id });
               if (checkpoint.saved) {
                 await appendEvent(projectRoot, manifest.run_id, { type: "stage_checkpoint_saved", stage_id: stageId, task_id: task.id });
                 if (isCriticalStage(stageId, criticalStages) && checkpoint.verified) {

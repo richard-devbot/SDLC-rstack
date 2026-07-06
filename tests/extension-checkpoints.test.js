@@ -161,6 +161,24 @@ test('critical-stage checkpoint lifecycle: before → after → rollback round-t
     );
   });
 
+  await t.test('sdlc_rollback fails closed on a corrupt checkpoint (CORRUPT)', async () => {
+    // Corrupt the slot: smuggle a file the integrity manifest never recorded.
+    writeFileSync(join(runDir, 'checkpoints', '07-code', 'smuggled.json'), '{"payload":true}');
+    writeFileSync(join(stageDir, 'code_report.json'), '{"iteration":"LIVE"}');
+
+    const res = await mockPi.tools.sdlc_rollback.execute('9', { run_id: runId, stage_id: '07-code' });
+    assert.equal(res.details.status, 'CORRUPT');
+    assert.match(res.content[0].text, /integrity verification/);
+    assert.equal(readFileSync(join(stageDir, 'code_report.json'), 'utf8'), '{"iteration":"LIVE"}',
+      'a corrupt checkpoint must never touch the live stage artifacts');
+    assert.equal(
+      readEvents(runDir).filter((event) => event.type === 'stage_checkpoint_reverted').length,
+      1,
+      'a failed-closed rollback must not append a reverted event',
+    );
+    rmSync(join(runDir, 'checkpoints', '07-code', 'smuggled.json'));
+  });
+
   await t.test('non-critical stages never emit the critical checkpoint events', () => {
     const events = readEvents(runDir);
     const pinned = events.filter((event) =>

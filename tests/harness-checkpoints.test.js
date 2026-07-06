@@ -28,6 +28,7 @@ import {
 } from '../src/core/harness/checkpoints.js';
 import { validateRstackConfig } from '../src/core/harness/config-validation.js';
 import { buildPipelineState } from '../src/core/harness/pipeline-state.js';
+import { createStageCheckpoint } from '../src/core/harness/run-state.js';
 import { formatPipelineStatus } from '../src/commands/pipeline.js';
 
 function tempDir(prefix) {
@@ -228,6 +229,114 @@ test('checkpoint → mutate → rollback round-trip restores stage artifacts', a
   });
 
   rmSync(runDir, { recursive: true, force: true });
+});
+
+test('corrupt checkpoints fail closed — never restored, live artifacts never touched', async (t) => {
+  const LIVE = '{"status":"LIVE"}';
+
+  // Fresh fixture per subtest: a saved + manifest-verified checkpoint whose
+  // live stage dir has since moved on, so any restore would be observable.
+  async function corruptFixture(stageId) {
+    const runDir = tempDir('rstack-cp-corrupt-');
+    const stageDir = makeStage(runDir, stageId, { 'artifact.json': '{"status":"GOOD"}' });
+    const saved = await saveStageCheckpoint(runDir, stageId, 'after');
+    assert.equal(saved.saved, true);
+    assert.equal(saved.verified, true);
+    writeFileSync(join(stageDir, 'artifact.json'), LIVE);
+    return { runDir, stageDir, checkpointDir: join(runDir, 'checkpoints', stageId), manifestPath: join(runDir, 'checkpoints', `${stageId}.manifest.json`) };
+  }
+
+  function assertFailedClosed(result, stageDir, reason) {
+    assert.equal(result.status, 'CORRUPT');
+    assert.equal(result.reason, reason);
+    assert.match(result.detail, /nothing was restored/);
+    assert.equal(readFileSync(join(stageDir, 'artifact.json'), 'utf8'), LIVE, 'the live stage artifacts must be untouched');
+  }
+
+  await t.test('every save stamps a schema-versioned integrity manifest', async () => {
+    const { runDir, manifestPath } = await corruptFixture('07-code');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    assert.equal(manifest.schema_version, 1);
+    assert.equal(manifest.stage_id, '07-code');
+    assert.equal(manifest.phase, 'after');
+    assert.equal(manifest.file_count, 1);
+    assert.equal(manifest.files[0].path, 'artifact.json');
+    assert.match(manifest.files[0].sha256, /^[0-9a-f]{64}$/);
+    rmSync(runDir, { recursive: true, force: true });
+  });
+
+  await t.test('tampered checkpoint content (same size) is caught by sha-256 and refused', async () => {
+    const { runDir, stageDir, checkpointDir } = await corruptFixture('07-code');
+    // Same byte length as the checkpointed content — only the hash can tell.
+    writeFileSync(join(checkpointDir, 'artifact.json'), '{"status":"EVIL"}');
+    const verdict = verifyStageCheckpoint(runDir, '07-code', { deep: true });
+    assert.equal(verdict.restorable, false);
+    assert.equal(verdict.reason, 'corrupt_content');
+    assertFailedClosed(await rollbackToCheckpoint(runDir, '07-code'), stageDir, 'corrupt_content');
+    rmSync(runDir, { recursive: true, force: true });
+  });
+
+  await t.test('a checkpoint file missing against the manifest is refused', async () => {
+    const { runDir, stageDir, checkpointDir } = await corruptFixture('08-testing');
+    rmSync(join(checkpointDir, 'artifact.json'));
+    assertFailedClosed(await rollbackToCheckpoint(runDir, '08-testing'), stageDir, 'corrupt_file_set');
+    rmSync(runDir, { recursive: true, force: true });
+  });
+
+  await t.test('an extra file smuggled into the checkpoint is refused', async () => {
+    const { runDir, stageDir, checkpointDir } = await corruptFixture('06-architecture');
+    writeFileSync(join(checkpointDir, 'smuggled.json'), '{"payload":true}');
+    assertFailedClosed(await rollbackToCheckpoint(runDir, '06-architecture'), stageDir, 'corrupt_file_set');
+    rmSync(runDir, { recursive: true, force: true });
+  });
+
+  await t.test('an unparseable manifest is refused', async () => {
+    const { runDir, stageDir, manifestPath } = await corruptFixture('09-deployment');
+    writeFileSync(manifestPath, '{truncated');
+    assertFailedClosed(await rollbackToCheckpoint(runDir, '09-deployment'), stageDir, 'corrupt_manifest');
+    rmSync(runDir, { recursive: true, force: true });
+  });
+
+  await t.test('an unknown manifest schema_version is refused — no guessing at future semantics', async () => {
+    const { runDir, stageDir, manifestPath } = await corruptFixture('12-security-threat-model');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.schema_version = 99;
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    assertFailedClosed(await rollbackToCheckpoint(runDir, '12-security-threat-model'), stageDir, 'corrupt_manifest');
+    rmSync(runDir, { recursive: true, force: true });
+  });
+
+  await t.test('a corrupt slot is repaired by the next successful save', async () => {
+    const { runDir, stageDir, checkpointDir } = await corruptFixture('07-code');
+    writeFileSync(join(checkpointDir, 'smuggled.json'), '{"payload":true}');
+    assert.equal((await rollbackToCheckpoint(runDir, '07-code')).status, 'CORRUPT');
+    // The next claim/PASS overwrites the slot and re-stamps the manifest.
+    const saved = await saveStageCheckpoint(runDir, '07-code', 'before');
+    assert.equal(saved.verified, true);
+    writeFileSync(join(stageDir, 'artifact.json'), '{"status":"TAMPERED"}');
+    const result = await rollbackToCheckpoint(runDir, '07-code');
+    assert.equal(result.status, 'SUCCESS');
+    assert.equal(readFileSync(join(stageDir, 'artifact.json'), 'utf8'), LIVE);
+    rmSync(runDir, { recursive: true, force: true });
+  });
+
+  await t.test('pre-manifest legacy checkpoints stay restorable but are honestly unverified', async () => {
+    const runDir = tempDir('rstack-cp-legacy-');
+    const stageDir = makeStage(runDir, '07-code', { 'artifact.json': '{"era":"legacy"}' });
+    // The legacy API (pre-#132) copies the directory without a manifest.
+    await createStageCheckpoint(runDir, '07-code');
+    const verdict = verifyStageCheckpoint(runDir, '07-code', { deep: true });
+    assert.equal(verdict.restorable, true);
+    assert.equal(verdict.verified, false);
+    assert.equal(verdict.reason, 'legacy_unverified');
+
+    writeFileSync(join(stageDir, 'artifact.json'), '{"era":"tampered"}');
+    const result = await rollbackToCheckpoint(runDir, '07-code');
+    assert.equal(result.status, 'SUCCESS');
+    assert.equal(result.verified, false, 'a legacy restore must not claim verified integrity');
+    assert.equal(readFileSync(join(stageDir, 'artifact.json'), 'utf8'), '{"era":"legacy"}');
+    rmSync(runDir, { recursive: true, force: true });
+  });
 });
 
 test('pipeline-state rollup counts pinned checkpoint events and verifies restorability on disk', async () => {

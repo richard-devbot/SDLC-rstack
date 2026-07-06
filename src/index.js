@@ -18,7 +18,7 @@ export { validateBuilderContract, validateValidatorContract } from './core/harne
 export { appendEvidenceEvent, validateEvidenceEvent } from './core/harness/evidence.js';
 export { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from './core/harness/guardrails.js';
 export { updateRunMetrics, createStageCheckpoint, rollbackStage, prepareRunState } from './core/harness/run-state.js';
-export { DEFAULT_CRITICAL_STAGE_IDS, CHECKPOINT_EVENT_TYPES, CHECKPOINT_PHASES, ROLLBACK_STATUSES, checkpointEvent, resolveCriticalStages, loadProjectCriticalStages, isCriticalStage, saveStageCheckpoint, verifyStageCheckpoint, rollbackToCheckpoint, stageCheckpointDir } from './core/harness/checkpoints.js';
+export { DEFAULT_CRITICAL_STAGE_IDS, CHECKPOINT_EVENT_TYPES, CHECKPOINT_PHASES, CHECKPOINT_MANIFEST_SCHEMA_VERSION, ROLLBACK_STATUSES, checkpointEvent, resolveCriticalStages, loadProjectCriticalStages, isCriticalStage, saveStageCheckpoint, verifyStageCheckpoint, rollbackToCheckpoint, stageCheckpointDir, stageCheckpointManifestPath } from './core/harness/checkpoints.js';
 export { buildPipelineState, readPipelineState, summarizePipelineState, writePipelineState } from './core/harness/pipeline-state.js';
 export { addDecision, decide, readDecisions, summarizeDecisions, writeDecisions } from './core/harness/decisions.js';
 export { assertReadyForStage, dorCheck, readinessModeForProfile } from './core/harness/readiness.js';
