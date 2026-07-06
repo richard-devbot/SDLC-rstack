@@ -1280,4 +1280,6 @@ tr.clickable:hover td { background: #f8fbff; }
 .wont-have-item { font-size: 12px; color: var(--muted); padding: 6px 0; border-bottom: 1px dashed var(--line); }
 .wont-have-item:last-child { border-bottom: none; }
 .wont-have-item .mono { color: var(--faint); }
+.run-stage-strip { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.run-stage-strip .chip { font-size: 10px; padding: 1px 6px; }
 `;

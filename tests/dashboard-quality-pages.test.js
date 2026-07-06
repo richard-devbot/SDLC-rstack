@@ -376,6 +376,38 @@ test('security page explains which stage produces the threat model and never cla
   assert.equal(pagesApi.fetchCalls.length, 0);
 });
 
+// ── #97: dark stages surface on the Projects & Runs table ──
+
+test('projects-runs rows show the stage-report strip with named dark-stage chips', () => {
+  const pagesApi = loadPages();
+  pagesApi.render('projects', {
+    projectSummaries: [],
+    runs: [{
+      runId: 'run-dark-1',
+      projectRoot: '/p',
+      manifest: { goal: 'ship the thing' },
+      tasks: [],
+      stageReports: ['01-transcript', '02-requirements', '03-documentation', '11-feedback-loop'],
+    }],
+  });
+  const table = pagesApi.html('runs-table');
+  assert.match(table, /4\/15 stage reports/);
+  assert.match(table, /Brief/);      // 01-transcript
+  assert.match(table, /Docs/);       // 03-documentation
+  assert.match(table, /Feedback/);   // 11-feedback-loop
+});
+
+test('projects-runs stage strip stays honest for runs without dark-stage artifacts', () => {
+  const pagesApi = loadPages();
+  pagesApi.render('projects', {
+    projectSummaries: [],
+    runs: [{ runId: 'run-dark-2', projectRoot: '/p', tasks: [], stageReports: ['07-code'] }],
+  });
+  const table = pagesApi.html('runs-table');
+  assert.match(table, /1\/15 stage reports/);
+  assert.doesNotMatch(table, /Brief|Docs|Feedback/);
+});
+
 // ── bundle safety: the assembled client still compiles with the wave changes ──
 
 test('assembled client bundle compiles with the quality-wave page modules', () => {
