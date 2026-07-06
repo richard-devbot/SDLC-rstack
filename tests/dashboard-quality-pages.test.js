@@ -83,7 +83,7 @@ function loadPages({ report } = {}) {
   return { ...api, render, html, elements, fetchCalls };
 }
 
-const tick = () => new Promise((resolve) => setImmediate(resolve));
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // ── #215 Stephens slice: cutover, defect analysis, maintenance taxonomy ──
 
