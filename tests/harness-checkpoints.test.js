@@ -27,6 +27,7 @@ import {
   verifyStageCheckpoint,
 } from '../src/core/harness/checkpoints.js';
 import { validateRstackConfig } from '../src/core/harness/config-validation.js';
+import { resetStagesForRetry } from '../src/core/harness/goal-loop.js';
 import { buildPipelineState } from '../src/core/harness/pipeline-state.js';
 import { createStageCheckpoint } from '../src/core/harness/run-state.js';
 import { formatPipelineStatus } from '../src/commands/pipeline.js';
@@ -337,6 +338,54 @@ test('corrupt checkpoints fail closed — never restored, live artifacts never t
     assert.equal(readFileSync(join(stageDir, 'artifact.json'), 'utf8'), '{"era":"legacy"}');
     rmSync(runDir, { recursive: true, force: true });
   });
+});
+
+test('checkpoints survive and compose with loop-iteration stage resets (BLE-4)', async () => {
+  const projectRoot = tempDir('rstack-cp-loop-');
+  const previousStateDir = process.env.RSTACK_STATE_DIR;
+  delete process.env.RSTACK_STATE_DIR;
+  const runId = 'run-loop-cp';
+  const runDir = join(projectRoot, '.rstack', 'runs', runId);
+  try {
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, 'tasks.json'), JSON.stringify({
+      tasks: [{ id: '004-implementation', status: 'PASS', stage_artifacts: [{ stage_id: '07-code' }] }],
+    }, null, 2));
+    const stageDir = makeStage(runDir, '07-code', { 'code_report.json': '{"iteration":1}' });
+    const saved = await saveStageCheckpoint(runDir, '07-code', 'after', { taskId: '004-implementation' });
+    assert.equal(saved.verified, true);
+
+    // The goal loop decides to rerun 07-code: in-lock stage reset (#129).
+    const resetIds = await resetStagesForRetry(projectRoot, runId, ['07-code']);
+    assert.deepEqual(resetIds, ['004-implementation']);
+    assert.equal(JSON.parse(readFileSync(join(runDir, 'tasks.json'), 'utf8')).tasks[0].status, 'PENDING');
+
+    // The reset must not orphan or corrupt the checkpoint slot: it resets
+    // task statuses, never checkpoint state.
+    const verdict = verifyStageCheckpoint(runDir, '07-code', { deep: true });
+    assert.equal(verdict.restorable, true);
+    assert.equal(verdict.verified, true);
+
+    // Next iteration re-claims the task: the fresh 'before' save snapshots
+    // the state this attempt starts from, re-stamping the manifest.
+    writeFileSync(join(stageDir, 'code_report.json'), '{"iteration":2}');
+    const before = await saveStageCheckpoint(runDir, '07-code', 'before', { taskId: '004-implementation' });
+    assert.equal(before.verified, true);
+    const manifest = JSON.parse(readFileSync(join(runDir, 'checkpoints', '07-code.manifest.json'), 'utf8'));
+    assert.equal(manifest.phase, 'before');
+    assert.equal(manifest.task_id, '004-implementation');
+
+    // The iteration's builder wrecks the artifacts; rollback restores the
+    // pre-attempt state — exactly the restore point BLE-4 retries rely on.
+    writeFileSync(join(stageDir, 'code_report.json'), '{"iteration":"BROKEN"}');
+    const result = await rollbackToCheckpoint(runDir, '07-code');
+    assert.equal(result.status, 'SUCCESS');
+    assert.equal(result.verified, true);
+    assert.equal(readFileSync(join(stageDir, 'code_report.json'), 'utf8'), '{"iteration":2}');
+  } finally {
+    if (previousStateDir) process.env.RSTACK_STATE_DIR = previousStateDir;
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
 });
 
 test('pipeline-state rollup counts pinned checkpoint events and verifies restorability on disk', async () => {

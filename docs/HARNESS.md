@@ -332,6 +332,40 @@ every reset, and exactly one terminal `loop_completed` (goal met) or `loop_block
 All appended to `events.jsonl` under the same file lock as the evidence ledger, and rendered by the
 Business Hub feed.
 
+### Critical-stage checkpoints (#132, BLE-5.2)
+
+Loop retries mutate stage artifacts, so the stages where a bad rewrite is expensive get restore
+points enforced by `src/core/harness/checkpoints.js` — in code, never prompt text. The critical set
+defaults to `06-architecture`, `07-code`, `08-testing`, `09-deployment`,
+`12-security-threat-model` and is configurable via `.rstack/rstack.config.json`
+`checkpoints.critical_stages` (canonical stage ids only — plan task ids like `007-code` are
+rejected, the exact conflation that silently broke checkpoints before; entries are validated
+field-by-field on load like every other config, and an explicitly empty list disables
+critical-stage checkpoints).
+
+**Lifecycle.** When `sdlc_build_next` claims a task targeting a critical stage, the harness saves a
+checkpoint of `artifacts/stages/<stage-id>/` to `checkpoints/<stage-id>/` **before** the builder
+mutates anything — this is the state a failed retry rolls back to. After `sdlc_validate` passes,
+the slot is overwritten with the validated artifacts. One slot per stage, last save wins;
+save/restore of the same stage serialize on a per-stage lock (same `withFileLock` discipline as
+tasks.json).
+
+**No best-effort claims.** Restorability is always verified against the checkpoint directory on
+disk (`verifyStageCheckpoint`), never inferred from events or memory: checkpoint events are only
+emitted after the directory is verified to exist, the per-stage `checkpoint_restorable` flag in
+`pipeline-state.json` is re-checked at rollup time, and `sdlc_rollback` returns a pinned status —
+`SUCCESS` (restored), `NO_CHECKPOINT` (nothing on disk, nothing modified), or `INVALID_STAGE`
+(non-canonical stage id, rejected before touching disk).
+
+**Events (pinned contract):** `stage_checkpoint_before_saved` (`stage_id`, `task_id`, `verified`)
+at claim, `stage_checkpoint_after_saved` (same fields) after a PASS validation, and
+`stage_checkpoint_reverted` (`stage_id`) on a successful rollback. Unknown types throw
+(`checkpointEvent`), same discipline as `LOOP_EVENT_TYPES` and `retry_decision`. The legacy
+`stage_checkpoint_saved` event still fires for every canonical stage a PASS task produced
+(existing consumers key on it); the three pinned events are the critical-stage contract and the
+only ones the `checkpoints` rollup in `pipeline-state.json` (and `rstack-agents pipeline status`)
+counts.
+
 ## Validation commands
 
 Run these after Harness changes:
