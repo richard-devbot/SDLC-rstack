@@ -27,6 +27,8 @@ import {
   verifyStageCheckpoint,
 } from '../src/core/harness/checkpoints.js';
 import { validateRstackConfig } from '../src/core/harness/config-validation.js';
+import { buildPipelineState } from '../src/core/harness/pipeline-state.js';
+import { formatPipelineStatus } from '../src/commands/pipeline.js';
 
 function tempDir(prefix) {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -226,4 +228,44 @@ test('checkpoint → mutate → rollback round-trip restores stage artifacts', a
   });
 
   rmSync(runDir, { recursive: true, force: true });
+});
+
+test('pipeline-state rollup counts pinned checkpoint events and verifies restorability on disk', async () => {
+  const projectRoot = tempDir('rstack-cp-rollup-');
+  const previousStateDir = process.env.RSTACK_STATE_DIR;
+  delete process.env.RSTACK_STATE_DIR;
+  const runId = 'run-cp-rollup';
+  const runDir = join(projectRoot, '.rstack', 'runs', runId);
+  try {
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, 'manifest.json'), JSON.stringify({ run_id: runId, goal: 'Checkpoint rollup', status: 'RUNNING' }));
+    writeFileSync(join(runDir, 'tasks.json'), JSON.stringify({
+      tasks: [{ id: '004-implementation', status: 'PASS', stage_artifacts: [{ stage_id: '07-code' }] }],
+    }));
+    makeStage(runDir, '07-code', { 'code_report.json': '{"v":1}' });
+    await saveStageCheckpoint(runDir, '07-code', 'before');
+    writeFileSync(join(runDir, 'events.jsonl'), [
+      { type: 'stage_checkpoint_before_saved', stage_id: '07-code', task_id: '004-implementation', verified: true },
+      { type: 'stage_checkpoint_after_saved', stage_id: '07-code', task_id: '004-implementation', verified: true },
+      { type: 'stage_checkpoint_reverted', stage_id: '07-code' },
+      // Legacy all-stages event: existing consumers key on it, but the pinned
+      // checkpoint rollup must not count it.
+      { type: 'stage_checkpoint_saved', stage_id: '07-code', task_id: '004-implementation' },
+    ].map((event) => JSON.stringify(event)).join('\n') + '\n');
+
+    const state = await buildPipelineState(projectRoot, runId);
+    assert.deepEqual(state.checkpoints, { total: 3, before_saved: 1, after_saved: 1, reverted: 1 });
+
+    const codeStage = state.stages.find((stage) => stage.id === '07-code');
+    assert.equal(codeStage.checkpoint_restorable, true, 'the checkpointed stage is restorable — verified on disk');
+    const testingStage = state.stages.find((stage) => stage.id === '08-testing');
+    assert.equal(testingStage.checkpoint_restorable, false, 'stages without a checkpoint directory never claim restorability');
+
+    const text = formatPipelineStatus(state);
+    assert.match(text, /Checkpoints: 1 before \/ 1 after \/ 1 reverted/);
+    assert.match(text, /restorable stages: 07-code/);
+  } finally {
+    if (previousStateDir) process.env.RSTACK_STATE_DIR = previousStateDir;
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
 });
