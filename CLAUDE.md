@@ -24,6 +24,11 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-06 | **Context pressure warnings**: detect-only classifier (`context-pressure.js`) with configurable thresholds (builder prompt / memory block / artifact + stage summaries / token ratio) validated per #151, pinned `context_pressure_warning` event (`source` field; emits ONLY what the code actually does — no `memory_pruned` claim without pruning), best-effort at validate (a throw can never fail validation), `context_pressure` rollup in pipeline-state + status CLI; closes BLE-6 — **epics #130 + #134 both closed: backend loop-engineering program (BLE-1→6) fully shipped** | 4 | #136, PR #211 (pre-execution wiring → #212) |
+| 2026-07-06 | **Destructive-action classifier**: centralized `classifyDestructiveAction` (broad-delete, git-force, publish, deploy, secret-write, protected-config-write, db-destroy incl. ORM/CLI forms) — single in-repo source of truth for builder + validator contexts, obfuscation-tested (env-prefix, /bin/rm, --force-with-lease…), no false positives on safe commands; `evaluateDestructiveAction` requires an audited `destructive-action:<taskId>` approval via the #133 path (cross-run replay rejected). Validator sandbox keeps its stricter deny-outright policy (documented divergence) | 1 | #131, PR #209 (enforcement wiring + sandbox convergence → #210) |
+| 2026-07-06 | **Parallel-execution benchmark**: `bench-parallel.mjs` + `parallel-benchmark.js` — SEQ vs PAR timing for data-independent stage groups (default 12/13/14), evidence gate `parallel_groups.enabled` only at ≥40% measured improvement (fails safe to disabled on any bad input), real data-independence detection, 6-stage cap rejects loudly, honest mock-vs-real labeling in the run artifact the Hub indexes; runner stays sequential — execution wiring is #208 | 2, 4 | #159, PR #207 |
+| 2026-07-06 | **Memory write policy enforced in code**: `evaluateWritePolicy` is the single write decision — `appendEpisode` overwrites caller `trusted` flags (launder-via-flag defended), non-PASS episodes skipped under `validator-approved-only` / written `trusted:false` under `validation-attempts`, PASS-trust gated on signature + evidence + quality-score integrity, retracted/untrusted episodes never reach the prompt, `episode_memory_skipped_untrusted` event | 1, 4 | #137, PR #206 (observability nit → #213) |
+| 2026-07-06 | **Goal gate fails closed on unreadable state**: corrupt/unreadable `events.jsonl` on a recipe-driven run now returns `goal_activity_indeterminate` FAIL instead of silently disarming the stage-11 gate; goal-activity permanence documented | 1, 4 | #200, PR #205 |
 | 2026-07-06 | **Cost/token telemetry persisted** (P0): builder-contract `cost`/`context`/`execution` extracted at validate into `metrics.json` — `cumulative_tokens {input,output,total}`, per-stage `stage_cost_usd`/`stage_tokens`, `cumulative_tool_calls`; increments are idempotency-keyed on builder-contract content hash (retries/loop iterations can't double-count, so the loop budget cap enforces on real spend), `metrics_write_failed` drift event with event-recompute fallback, mid-run upgrade seeds from history, read path prefers persisted totals; docs schema in HARNESS.md | 4 | #83 #135, PR #199 (adversarial review: F1 blocking + 3 fixed pre-merge) |
 | 2026-07-06 | **Approval audit consistency**: approval records are a trust boundary — `validateApprovalRecord`/`auditRunApprovals`/`trustedApprovedArtifacts` audit before trusting (safe run/artifact, exact-casing status, actor, timestamp, dashboard token evidence, run binding, replay + append-only ordering); malformed **latest** record poisons its artifact (no fallback), both unblock gates (guardrail-override + required-approval) unified on ONE audit path, `approval_audit_failed` events, fail-loud write boundary | 1 | #133, PR #202 (review: replay-drift MEDIUM fixed pre-merge) |
 | 2026-07-06 | **Critical-stage checkpoints**: pre/post restore points for 06/07/08/09/12 (configurable), sha-256 integrity manifests (corrupt checkpoint → `CORRUPT`, fails closed — no best-effort lies), restorability verified on disk, wired into claim/validate/rollback, composes with BLE-4 loop stage resets (reset changes task status, never checkpoint state) | 1 | #132, PR #201 (hardening → #203) |
@@ -61,27 +66,22 @@ Pre-2026-06 history lives in CHANGELOG.md (v1.0 → v1.9.0-rc).
 
 Work top-down. File a GitHub issue before any branch (Richardson's rule: issues before PRs).
 
-**Backend closeout in progress (2026-07-06):** wave 1 shipped — #196, #132, #133, #83, #135
-(PRs #198/#201/#202/#199). Remaining to close epics #130 (BLE-5) and #134 (BLE-6):
+**Backend closeout COMPLETE (2026-07-06):** waves 1+2 shipped — #196, #132, #133, #83, #135,
+#137, #159, #131, #136, #200 (PRs #198/#201/#202/#199/#206/#207/#209/#211/#205). Epics #130
+(BLE-5) and #134 (BLE-6) closed; the backend loop-engineering program (BLE-1→6) is fully shipped.
 
-1. **#136** — context pressure warnings (builder-prompt/memory/artifact/stage-summary size
-   thresholds → `context_pressure_warning`/`memory_pruned`/`artifact_summary_truncated` events).
-   Now unblocked — #135's cost/context fields + events landed. BLE-6. Goal 4.
-2. **#137** — tighten memory write policy (validator-approved-only default; failed episodes
-   `trusted:false`; signature/evidence/quality-score checks; memory-write-decision events). BLE-6. Goal 4.
-3. **#131** — destructive-action gate coverage — **re-scope first**: the validator sandbox (#119)
-   already hard-blocks validator writes; remainder = a centralized classification module +
-   builder-side hook coverage (rm -rf, force-push, publish, deploy, secret paths). BLE-5. Goal 1.
-4. **#159** — parallel-execution benchmark harness (SEQ vs PAR on data-independent stages;
-   enable parallel groups only on measured ≥40% gain). Pairs with #132 checkpoints. Goal 2/4.
-5. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
+1. **Backend follow-up batch** (small, wire-the-last-mile; all filed from adversarial reviews):
+   #210 (destructive-gate enforcement path + sandbox convergence — the classifier is dead code
+   until invoked), #208 (parallel-group execution in the runner — make the #159 evidence gate
+   live), #212 (context-pressure at prompt-assembly time), #203 (atomic checkpoint restore),
+   #213 (memory skip-event observability). Goals 1, 4.
+2. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
    after the #95 page-module split. Goal 2.
-6. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
-7. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
+3. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
+4. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
     E2E tests, dark stages). Goal 2.
-
-Backend follow-ups filed from wave-1 reviews (small, do opportunistically): #200 (goal gate
-fail-closed on corrupt events.jsonl), #203 (atomic checkpoint restore + deep rollup check).
+5. Roadmap/governance research epics #72–#79 (validator independence #72 is referenced by the
+   08-testing agent text; attestation #73; traceability drift #74). Research-scale. Goals 1, 2.
 
 UI ↔ backend alignment note (2026-07-04 review): the dashboard approve path writes run-level
 `approvals.json` (`appendRunApproval`), so guardrail overrides approved from the Business Hub reach
