@@ -463,9 +463,15 @@ const requestHandler = async (req, res) => {
     if (authErr) return denyRead(res, authErr);
     try {
       const state = await buildFullState(PROJECT_ROOT);
+      // [wave:money] Serve the SAME projection the WebSocket path sends. The
+      // raw state leaked here before, so REST-served clients (first paint +
+      // WS-down fallback) missed projection-only fields — evidenceRecent,
+      // stageCost/stageTokens, tokenTotals, metricsSource, loopBudgets — and
+      // hauled the full event/evidence streams over the wire.
+      const clientState = toClientState(state);
       // Hash a projection with server eval-time timestamps stripped, so an
       // unchanged project yields a stable ETag and revalidation returns 304.
-      sendJsonCacheable(req, res, 200, state, { hashInput: stableStringify(state) });
+      sendJsonCacheable(req, res, 200, clientState, { hashInput: stableStringify(clientState) });
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: String(err?.message) }));

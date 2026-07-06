@@ -1,11 +1,67 @@
 // owner: RStack developed by Richardson Gunde
 
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { hasMetricsWriteDrift, persistedTokenTotals } from '../../metrics/derive.js';
+
+// [wave:money] Loop budget caps (#92/#215): .rstack/budget.json is the SAME
+// file the goal loop's cost brake reads (evaluateLoopBudget in
+// core/harness/goal-loop.js), so the dashboard shows the cap that is actually
+// enforced — never a number invented for display. Sync read of one tiny file
+// per root, memoized briefly because toClientState runs on every snapshot.
+const BUDGET_MEMO = { at: 0, key: '', caps: [] };
+const BUDGET_MEMO_TTL_MS = 5000;
+
+export function readLoopBudgetCaps(sourceRoots, now = Date.now()) {
+  const roots = (sourceRoots ?? []).filter((root) => typeof root === 'string' && root);
+  const key = roots.join('|');
+  if (BUDGET_MEMO.key === key && now - BUDGET_MEMO.at < BUDGET_MEMO_TTL_MS) return BUDGET_MEMO.caps;
+  const caps = [];
+  for (const root of roots) {
+    const budgetPath = join(root, '.rstack', 'budget.json');
+    try {
+      if (!existsSync(budgetPath)) continue;
+      const budget = JSON.parse(readFileSync(budgetPath, 'utf8'));
+      const limit = Number(budget?.run_budget_usd);
+      // Mirror evaluateLoopBudget exactly: finite and >= 0 arms the brake.
+      if (Number.isFinite(limit) && limit >= 0) {
+        caps.push({
+          root,
+          run_budget_usd: limit,
+          daily_budget_usd: Number.isFinite(Number(budget?.daily_budget_usd)) ? Number(budget.daily_budget_usd) : null,
+          monthly_budget_usd: Number.isFinite(Number(budget?.monthly_budget_usd)) ? Number(budget.monthly_budget_usd) : null,
+        });
+      }
+    } catch { /* unreadable budget.json = no cap; config-validation (#151) reports it */ }
+  }
+  BUDGET_MEMO.key = key;
+  BUDGET_MEMO.at = now;
+  BUDGET_MEMO.caps = caps;
+  return caps;
+}
+
 export function toClientState(state) {
+  const loopBudgetCaps = readLoopBudgetCaps(state.sourceRoots);
+  const capByRoot = Object.fromEntries(loopBudgetCaps.map((cap) => [cap.root, cap.run_budget_usd]));
   const runs = (state.runs ?? []).map((run) => {
-    // eslint-disable-next-line no-unused-vars
     const { events, evidence, ...rest } = run;
+    // [wave:money] Cost/token provenance (#83/#215): mirrors resolveRunTotals —
+    // persisted cumulative metrics are authoritative UNLESS a
+    // metrics_write_failed event marks them stale, in which case the totals the
+    // client sees were recomputed from events. 'none' = the run has neither
+    // persisted telemetry nor any events, so no cost/token number is real.
+    const persistedTokens = persistedTokenTotals(run.metrics);
+    const metricsSource = persistedTokens && !hasMetricsWriteDrift(events)
+      ? 'persisted'
+      : (events ?? []).length > 0 ? 'events' : 'none';
     return {
       ...rest,
+      // [wave:money] Token breakdown + provenance + the loop-enforced budget
+      // cap for this run's project (null = no cap configured, loop cost brake
+      // is unarmed). Additive fields — nothing existing changes shape.
+      tokenTotals: persistedTokens,
+      metricsSource,
+      loopBudgetUsd: capByRoot[run.projectRoot] ?? null,
       workflow: run.workflow,
       budgetPolicy: run.budgetPolicy,
       profile: run.profile,
@@ -111,5 +167,8 @@ export function toClientState(state) {
     people: (state.people ?? []).slice(0, 60),
     presence: (state.presence ?? []).slice(0, 40),
     businessFlex: state.businessFlex ?? { profiles: [], budget: {}, routingSignals: [] },
+    // [wave:money] The armed loop budget caps per source root (from
+    // .rstack/budget.json — the file the goal loop enforces).
+    loopBudgets: loopBudgetCaps,
   };
 }
