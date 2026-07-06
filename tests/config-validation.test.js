@@ -55,6 +55,12 @@ test('each validator names the exact field and problem', () => {
 
   const memory = validateMemoryConfig({ writePolicy: 'whenever' });
   assert.ok(memory.some((issue) => issue.field === 'writePolicy' && /unknown write policy/.test(issue.problem)));
+
+  const loop = validateRstackConfig({ loop: { maxIterations: 99, maxStepsPerIteration: 'lots', notABound: 1 } });
+  assert.ok(loop.some((issue) => issue.field === 'loop.maxIterations' && /clamped to 20/.test(issue.problem)));
+  assert.ok(loop.some((issue) => issue.field === 'loop.maxStepsPerIteration' && /must be a number >= 1/.test(issue.problem)));
+  assert.ok(loop.some((issue) => issue.field === 'loop.notABound' && /unknown loop bound key/.test(issue.problem)));
+  assert.deepEqual(validateRstackConfig({ loop: { maxIterations: 5 } }), []);
 });
 
 test('malformed JSON and non-object configs are reported as file-level problems', async () => {

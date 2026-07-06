@@ -10,6 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { DEFAULT_HARNESS_GUARDRAILS } from './guardrails.js';
+import { DEFAULT_LOOP_BOUNDS, LOOP_HARD_CAP } from './goal-loop.js';
 import { rstackStateDir } from './runs.js';
 
 const KNOWN_PROFILES = ['business-flex', 'enterprise-webapp', 'lean-mvp'];
@@ -46,6 +47,24 @@ export function validateRstackConfig(parsed) {
         }
         if (typeof defaultValue === 'boolean' && typeof value !== 'boolean' && value !== 'true' && value !== 'false') {
           issues.push({ field: `guardrails.${key}`, problem: `must be a boolean, got ${JSON.stringify(value)} — the default (${defaultValue}) applies` });
+        }
+      }
+    }
+  }
+  if (parsed.loop != null) {
+    if (!isPlainObject(parsed.loop)) {
+      issues.push({ field: 'loop', problem: 'must be an object of goal-loop bound overrides' });
+    } else {
+      for (const [key, value] of Object.entries(parsed.loop)) {
+        if (!(key in DEFAULT_LOOP_BOUNDS)) {
+          issues.push({ field: `loop.${key}`, problem: 'unknown loop bound key — this override is ignored' });
+          continue;
+        }
+        const parsedValue = Number(value);
+        if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+          issues.push({ field: `loop.${key}`, problem: `must be a number >= 1, got ${JSON.stringify(value)} — the default (${DEFAULT_LOOP_BOUNDS[key]}) applies` });
+        } else if (key === 'maxIterations' && parsedValue > LOOP_HARD_CAP) {
+          issues.push({ field: 'loop.maxIterations', problem: `exceeds the hard cap of ${LOOP_HARD_CAP} — it will be clamped to ${LOOP_HARD_CAP}` });
         }
       }
     }
