@@ -164,6 +164,16 @@ export function plainLanguageSummary(event) {
       return `Session ended`;
     case 'observer_new_run':
       return `New run detected: ${event.run_id?.slice(-12) ?? '?'}`;
+    case 'loop_iteration_started':
+      return `🔁 Goal-loop iteration ${event.iteration ?? '?'}/${event.max_iterations ?? '?'} started${event.goal_id ? ` — goal ${event.goal_id}` : ''}`;
+    case 'goal_evaluated':
+      return `🎯 Goal ${event.goal_id ?? '?'} evaluated: ${event.status ?? '?'} (score ${event.score ?? '?'})${event.reason ? ` — ${event.reason}` : ''}`;
+    case 'loop_iteration_retrying_stages':
+      return `↻ Loop iteration ${event.iteration ?? '?'}/${event.max_iterations ?? '?'} — resetting stages: ${(event.stages ?? []).join(', ') || 'none'}`;
+    case 'loop_completed':
+      return `✅ Goal loop complete — ${event.goal_id ?? 'goal'} met at iteration ${event.iteration ?? '?'} (score ${event.score ?? '?'})`;
+    case 'loop_blocked':
+      return `⛔ Goal loop stopped (${event.stopped_on ?? 'blocked'})${event.reason ? ` — ${event.reason}` : ''}`;
     default:
       // Retry-recovery events (BLE-3) share a retry_* prefix — render them
       // rather than dropping unknown loop-engineering signals from the feed.

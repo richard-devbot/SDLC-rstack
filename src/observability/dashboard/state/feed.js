@@ -60,6 +60,10 @@ function eventLevel(ev) {
   if (ev.type === 'task_human_context_required') return 'blocked';
   if (ev.type === 'task_blocked_by_validator') return 'blocked';
   if (/^retry_/.test(String(ev.type ?? ''))) return 'warn';
+  if (ev.type === 'goal_evaluated') return ev.status === 'PASS' ? 'pass' : 'warn';
+  if (ev.type === 'loop_iteration_retrying_stages') return 'warn';
+  if (ev.type === 'loop_completed') return 'pass';
+  if (ev.type === 'loop_blocked') return 'blocked';
   if (ev.type === 'approval_gate_blocked') return 'blocked';
   if (ev.type === 'approval_gate') return 'pass';
   if (ev.type === 'quality_score_recorded') return 'pass';
