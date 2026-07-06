@@ -53,9 +53,13 @@ test('appendRunApproval refuses to write outside .rstack/runs', async () => {
   // Nothing landed in the sibling temp dir.
   assert.equal(existsSync(join(outside, 'approvals.json')), false);
 
-  // A real run still works.
+  // A real run still works. Dashboard-sourced records (the default source)
+  // must carry token-verified actor evidence to pass the #133 write audit.
   realRun(projectRoot, 'good-run');
-  const ok = await appendRunApproval(projectRoot, 'good-run', { artifact: 'plan.md', status: 'APPROVED', approver: 'x' });
+  const ok = await appendRunApproval(projectRoot, 'good-run', {
+    artifact: 'plan.md', status: 'APPROVED', approver: 'x',
+    actor: { name: 'x', via: 'dashboard', tokenVerified: true },
+  });
   assert.ok(ok && existsSync(join(projectRoot, '.rstack', 'runs', 'good-run', 'approvals.json')));
 
   rmSync(projectRoot, { recursive: true, force: true });
