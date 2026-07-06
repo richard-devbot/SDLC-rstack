@@ -174,6 +174,28 @@ test('hasGuardrailOverride: malformed or tampered records never unblock (#133)',
   assert.equal(hasGuardrailOverride([evidenced], taskId), true);
 });
 
+test('hasGuardrailOverride: a spent override cannot be resurrected by verbatim replay (#133)', () => {
+  const taskId = '004-implementation';
+  const artifact = guardrailOverrideArtifact(taskId);
+
+  // Attacker re-appends the ORIGINAL spent APPROVED record after its CONSUMED
+  // marker. Every legitimate writer mints a fresh id, so the duplicate id is
+  // the tell: the override gate must run the same replay/ordering history audit
+  // the required-approval gate does — one code path, no drift.
+  const resurrected = [
+    approvalRecord(artifact, 'APPROVED'), // id app-APPROVED, ts T
+    approvalRecord(artifact, 'CONSUMED'), // id app-CONSUMED, spends it
+    approvalRecord(artifact, 'APPROVED'), // verbatim copy — same id app-APPROVED
+  ];
+  assert.equal(hasGuardrailOverride(resurrected, taskId), false, 'duplicate-id replay of a spent override never re-grants it');
+
+  // Cross-run binding: a well-formed override stamped for another run must not
+  // unblock this one.
+  const foreign = approvalRecord(artifact, 'APPROVED', { run_id: 'run-somewhere-else' });
+  assert.equal(hasGuardrailOverride([foreign], taskId, { expectedRunId: 'run-here' }), false, 'foreign-run override does not unblock this run');
+  assert.equal(hasGuardrailOverride([approvalRecord(artifact, 'APPROVED', { run_id: 'run-here' })], taskId, { expectedRunId: 'run-here' }), true, 'same-run override still unblocks');
+});
+
 test('evaluateTaskClaim respects configured attempt budgets', () => {
   const events = [
     { type: 'task_started', task_id: '004-implementation' },

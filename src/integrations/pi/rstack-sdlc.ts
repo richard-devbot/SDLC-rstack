@@ -605,8 +605,8 @@ async function readApprovals(runDir: string): Promise<ApprovalRecord[]> {
 // record: a malformed approval never unblocks (treated as absent, the gate
 // stays closed), and a malformed LATEST record poisons its artifact instead
 // of falling back to an earlier valid one — fail closed on tampering.
-function approvedArtifacts(approvals: ApprovalRecord[]): Set<string> {
-  return trustedApprovedArtifacts(approvals);
+function approvedArtifacts(approvals: ApprovalRecord[], expectedRunId?: string): Set<string> {
+  return trustedApprovedArtifacts(approvals, { expectedRunId });
 }
 
 function requiredApprovalsForTask(taskId: string): string[] {
@@ -642,8 +642,8 @@ async function effectiveRequiredApprovals(projectRoot: string, manifest: RunMani
   return [...new Set([...defaults, ...policyRequired])];
 }
 
-function missingApprovals(approvals: ApprovalRecord[], required: string[]): string[] {
-  const approved = approvedArtifacts(approvals);
+function missingApprovals(approvals: ApprovalRecord[], required: string[], expectedRunId?: string): string[] {
+  const approved = approvedArtifacts(approvals, expectedRunId);
   return required.filter((artifact) => !approved.has(artifact));
 }
 
@@ -903,7 +903,7 @@ async function destructiveApprovalExists(projectRoot: string): Promise<boolean> 
   const id = sessionRun(projectRoot);
   if (!id) return false;
   const approvals = await readApprovals(join(runsDir(projectRoot), id));
-  const approved = approvedArtifacts(approvals);
+  const approved = approvedArtifacts(approvals, id);
   return approved.has("destructive-action") || approved.has("release-readiness.json");
 }
 
@@ -1513,6 +1513,7 @@ export default function (pi: ExtensionAPI) {
           events: runEvents,
           approvals: runApprovals,
           guardrails: await loadProjectGuardrails(projectRoot),
+          expectedRunId: manifest.run_id,
         });
         if (!guardrailCheck.allowed) {
           // Hard-block for auditability: the dashboard and pipeline state must
@@ -1526,7 +1527,7 @@ export default function (pi: ExtensionAPI) {
           return { taskState, task, missing: [] as string[], requiredApprovals: [] as string[], readiness: null as any, guardrailCheck, guardrailAlreadyBlocked: alreadyBlocked, approvalAuditEvents };
         }
         const requiredApprovals = await effectiveRequiredApprovals(projectRoot, manifest, task.id);
-        const missing = missingApprovals(runApprovals, requiredApprovals);
+        const missing = missingApprovals(runApprovals, requiredApprovals, manifest.run_id);
         if (missing.length) return { taskState, task, missing, requiredApprovals, readiness: null as any, guardrailCheck, approvalAuditEvents };
         const readinessStage = latestStageId((task.stage_artifacts || []).map((artifact: any) => artifact?.stage_id).filter(Boolean));
         const readiness = await assertReadyForStage(projectRoot, { runId: manifest.run_id, targetStage: readinessStage });
@@ -2029,8 +2030,8 @@ export default function (pi: ExtensionAPI) {
       const next = tasks.find((t: any) => ["PENDING", "READY", "FAIL", "IN_PROGRESS"].includes(t.status));
       const runDir = join(runsDir(projectRoot), manifest.run_id);
       const approvals = await readApprovals(runDir);
-      const nextMissingApprovals = next && next.status !== "IN_PROGRESS" ? missingApprovals(approvals, await effectiveRequiredApprovals(projectRoot, manifest, next.id)) : [];
-      const releaseMissingApprovals = manifest.mode !== "express" ? missingApprovals(approvals, ["plan.md", "requirements.json", "architecture.md", "release-readiness.json"]) : [];
+      const nextMissingApprovals = next && next.status !== "IN_PROGRESS" ? missingApprovals(approvals, await effectiveRequiredApprovals(projectRoot, manifest, next.id), manifest.run_id) : [];
+      const releaseMissingApprovals = manifest.mode !== "express" ? missingApprovals(approvals, ["plan.md", "requirements.json", "architecture.md", "release-readiness.json"], manifest.run_id) : [];
       if (tasks.length > 0 && !next && tasks.every((t: any) => t.status === "PASS") && releaseMissingApprovals.length === 0) {
         manifest.status = "DONE";
         await writeManifest(manifest);

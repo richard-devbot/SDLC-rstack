@@ -148,7 +148,11 @@ export async function appendRunApproval(projectRoot, runId, record) {
     approver: record.approver,
     timestamp: record.timestamp || new Date().toISOString(),
     comments: record.comments,
-    source: record.source || 'dashboard',
+    // Default to a non-dashboard source: a dashboard-sourced record demands
+    // token-verified actor evidence (#133), so defaulting to 'dashboard' would
+    // make any future no-source caller silently rejected. A programmatic write
+    // that means to claim the authenticated dashboard path must say so.
+    source: record.source || 'api',
     // Actor evidence travels with the record: dashboard-sourced approvals must
     // prove the token-verified identity that resolved them (#133), and the
     // gate-side audit rejects dashboard records without it.

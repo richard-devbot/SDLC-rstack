@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { validateApprovalRecord } from './approval-audit.js';
+import { trustedApprovedArtifacts } from './approval-audit.js';
 
 export const DEFAULT_HARNESS_GUARDRAILS = Object.freeze({
   maxTaskAttempts: 2,
@@ -75,22 +75,20 @@ export function guardrailOverrideArtifact(taskId) {
 // approval gate), so consuming an override is just appending a non-APPROVED
 // record for the same artifact.
 //
-// Trust boundary (#133): the LATEST record is audited before it is trusted —
-// a record failing the consistency audit never unblocks (treated as absent,
-// task stays gated). Auditing the latest record rather than pre-filtering
-// malformed ones also means a tampered CONSUMED marker cannot resurrect the
-// earlier APPROVED record of a spent override.
-export function hasGuardrailOverride(approvals = [], taskId) {
+// Trust boundary (#133): this routes through the SAME audit path as the
+// required-approval gate (trustedApprovedArtifacts) — one code path, no drift.
+// That means the override gate gets the full history audit, not just a
+// latest-record check: a malformed latest record poisons the artifact (a
+// tampered CONSUMED marker cannot resurrect the earlier APPROVED record), AND
+// a verbatim replay of a spent APPROVED record (re-appended after its CONSUMED
+// marker) is rejected by the replay/ordering history check. `expectedRunId`
+// binds the override to this run so a foreign-run record can't unblock it.
+export function hasGuardrailOverride(approvals = [], taskId, { expectedRunId } = {}) {
   const artifact = guardrailOverrideArtifact(taskId);
-  let latest = null;
-  for (const approval of Array.isArray(approvals) ? approvals : []) {
-    if (approval && typeof approval === 'object' && approval.artifact === artifact) latest = approval;
-  }
-  if (!latest || latest.status !== 'APPROVED') return false;
-  return validateApprovalRecord(latest).ok;
+  return trustedApprovedArtifacts(approvals, { expectedRunId }).has(artifact);
 }
 
-export function evaluateTaskClaim({ task, events = [], approvals = [], guardrails } = {}) {
+export function evaluateTaskClaim({ task, events = [], approvals = [], guardrails, expectedRunId } = {}) {
   const rules = resolveGuardrails(guardrails);
   const destructive = isDestructiveTask(task);
   const limit = destructive ? rules.maxDestructiveTaskAttempts : rules.maxTaskAttempts;
@@ -107,7 +105,7 @@ export function evaluateTaskClaim({ task, events = [], approvals = [], guardrail
   }
 
   const overrideArtifact = guardrailOverrideArtifact(task?.id);
-  if (violations.length && hasGuardrailOverride(approvals, task?.id)) {
+  if (violations.length && hasGuardrailOverride(approvals, task?.id, { expectedRunId })) {
     return { allowed: true, overridden: true, violations, override_artifact: overrideArtifact };
   }
   return { allowed: violations.length === 0, overridden: false, violations, override_artifact: overrideArtifact };
