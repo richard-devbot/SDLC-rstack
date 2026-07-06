@@ -76,6 +76,71 @@ function scoreColor(score) {
   return s >= 80 ? '#16a34a' : s >= 50 ? '#d97706' : '#dc2626';
 }
 
+// ── Stephens-artifact cards (#215): cutover, defect analysis, maintenance ──
+
+// 09-deployment "cutover" block: the deliberately chosen strategy, why it
+// fits, and the point of no return (Stephens Ch9 — inherited-by-accident is
+// not chosen).
+function cutoverHtml(cut) {
+  if (!cut || !cut.strategy) {
+    return '<div class="kv-note">No cutover strategy recorded — stage 09 writes the required cutover block (strategy, rationale, point of no return) into deployment_report.json.</div>';
+  }
+  return '<div class="cutover-block">' +
+    '<div class="kv"><span>Cutover strategy</span><b>' + esc(cut.strategy) + '</b></div>' +
+    (cut.rationale ? '<div class="kv-note">' + esc(String(cut.rationale).slice(0, 260)) + '</div>' : '') +
+    (cut.point_of_no_return ? '<div class="kv"><span>Point of no return</span><b>' + esc(String(cut.point_of_no_return).slice(0, 120)) + '</b></div>' : '') +
+    ((cut.options_considered || []).length ? '<div class="chips">' + cut.options_considered.map(chip).join('') + '</div>' : '') +
+    '</div>';
+}
+
+// 10-summary "defect_analysis": Ishikawa cause buckets + retry rollup from
+// real run events. Honest nulls stay null — rendered as "not yet measured".
+function defectAnalysisHtml(da) {
+  if (!da) {
+    return '<div class="kv-note">Defect analysis not recorded — stage 10 derives it from events.jsonl and task validations at pipeline close.</div>';
+  }
+  var buckets = (da.totals && da.totals.by_cause_bucket) || {};
+  var bucketChips = ['people', 'process', 'tools', 'requirements'].map(function(bucket) {
+    var n = Number(buckets[bucket]) || 0;
+    return '<div class="stat-chip"><span class="stat-n">' + n + '</span><span class="stat-l">' + esc(bucket) + '</span></div>';
+  }).join('');
+  var defects = (da.defects || []).length;
+  var retry = da.retry_rollup || {};
+  var nulls = (da.metrics || []).filter(function(m) { return m && m.value === null; });
+  return '<div class="mini-list-h">Defect analysis (Ishikawa cause buckets)</div>' +
+    '<div class="stat-chips">' + bucketChips + '</div>' +
+    '<div class="kv"><span>Defects recorded</span><b>' + defects + '</b></div>' +
+    (Object.keys(retry).length ? '<div class="kv"><span>Retries</span><b>' + (retry.scheduled || 0) + ' scheduled / ' + (retry.exhausted || 0) + ' exhausted / ' + (retry.human_required || 0) + ' human</b></div>' : '') +
+    nulls.slice(0, 3).map(function(m) {
+      return '<div class="kv"><span>' + esc(m.name) + '</span><b class="muted">not yet measured</b></div>';
+    }).join('');
+}
+
+// 11-feedback-loop maintenance taxonomy: remediations grouped into the four
+// classic categories. Sources are the top-level remediation[] list, the
+// issues[].remediation contract field and goal_evaluation criteria.
+function maintenanceCounts(d) {
+  var counts = { perfective: 0, adaptive: 0, corrective: 0, preventive: 0 };
+  var tally = function(cat) { if (cat && counts[cat] != null) counts[cat]++; };
+  (d.remediation || []).forEach(function(r) { tally(r && r.maintenance_category); });
+  (d.issues || []).forEach(function(issue) { tally(issue && issue.remediation && issue.remediation.maintenance_category); });
+  var ge = d.goal_evaluation || {};
+  (ge.criteria || []).forEach(function(c) { tally(c && c.maintenance_category); });
+  return counts;
+}
+
+function maintenanceTaxonomyHtml(d) {
+  var counts = maintenanceCounts(d);
+  var total = counts.perfective + counts.adaptive + counts.corrective + counts.preventive;
+  if (!total) {
+    return '<div class="kv-note">No categorized remediations — stage 11 tags each remediation perfective / adaptive / corrective / preventive.</div>';
+  }
+  return '<div class="mini-list-h">Maintenance taxonomy (' + total + ' remediation' + (total === 1 ? '' : 's') + ')</div>' +
+    '<div class="stat-chips">' + ['perfective', 'adaptive', 'corrective', 'preventive'].map(function(cat) {
+      return '<div class="stat-chip"><span class="stat-n">' + counts[cat] + '</span><span class="stat-l">' + cat + '</span></div>';
+    }).join('') + '</div>';
+}
+
 function stageBody(stageId, d) {
   if (!d) return '<div class="muted">No report produced for this stage.</div>';
   if (d._truncated) return '<div class="muted">Report too large to inline (' + Math.ceil(d._bytes / 1024) + ' KB).</div>';
@@ -116,16 +181,26 @@ function stageBody(stageId, d) {
         miniList('Coverage gaps', d.coverage_gaps);
     }
     case '09-deployment':
-      return '<div class="kv"><span>Status</span><b>' + esc(d.status || '-') + '</b></div>' + miniList('Blockers', d.blockers || d.release_constraints);
+      return '<div class="kv"><span>Status</span><b>' + esc(d.status || '-') + '</b></div>' +
+        cutoverHtml(d.cutover) +
+        miniList('Blockers', d.blockers || d.release_constraints);
     case '10-summary':
       return statChips([
         { n: (d.open_risks || []).length, l: 'open risks' },
         { n: (d.not_built_or_not_done || []).length, l: 'not done' },
         { n: (d.next_steps || []).length, l: 'next steps' },
-      ]) + gateBadge(d.release_gate) + miniList('Open risks', d.open_risks, function(r) { return (r.severity ? '[' + r.severity + '] ' : '') + (r.summary || r.id || ''); });
-    case '11-feedback-loop':
-      return '<div class="gauge-wrap">' + svgGauge(d.consistency_score, scoreColor(d.consistency_score)) + '<span class="gauge-lab">consistency</span></div>' +
-        miniList('Findings', d.traceability_findings, function(f) { return (f.requirement || '') + ' — ' + (f.status || ''); });
+      ]) + gateBadge(d.release_gate) +
+        defectAnalysisHtml(d.defect_analysis) +
+        miniList('Open risks', d.open_risks, function(r) { return (r.severity ? '[' + r.severity + '] ' : '') + (r.summary || r.id || ''); });
+    case '11-feedback-loop': {
+      var consistency = d.consistency_score != null ? d.consistency_score : (d.summary && d.summary.overall_consistency_score);
+      var criteria = ((d.goal_evaluation && (d.goal_evaluation.criteria || d.goal_evaluation.results)) || []);
+      var met = criteria.filter(function(c) { return c && c.result === 'met'; }).length;
+      return '<div class="gauge-wrap">' + svgGauge(consistency, scoreColor(consistency)) + '<span class="gauge-lab">consistency</span></div>' +
+        (criteria.length ? '<div class="kv"><span>Goal criteria met</span><b>' + met + '/' + criteria.length + '</b></div>' : '') +
+        maintenanceTaxonomyHtml(d) +
+        miniList('Issues', d.issues, function(issue) { return (issue.severity ? '[' + issue.severity + '] ' : '') + (issue.title || issue.id || ''); });
+    }
     case '12-security-threat-model': {
       var th = d.threats || [];
       var by = { HIGH: 0, MEDIUM: 0, LOW: 0 };
@@ -154,11 +229,22 @@ function stageBody(stageId, d) {
       return statChips([
         { n: (d.goals || []).length, l: 'goals' },
         { n: (d.stakeholders || []).length, l: 'stakeholders' },
+        { n: (d.decisions_made || []).length, l: 'decisions' },
         { n: (d.open_questions || []).length, l: 'open questions' },
-      ]) + miniList('Goals', d.goals);
-    case '03-documentation':
-      return statChips([{ n: (d.documents_written || []).length, l: 'docs written' }, { n: (d.known_limitations_documented || []).length, l: 'limitations' }]) +
-        miniList('Documents', d.documents_written);
+      ]) + miniList('Goals', d.goals) +
+        miniList('Open questions', d.open_questions);
+    case '03-documentation': {
+      // Contract fields: documents_created + requirement counts
+      // (documentation_output.json); adopted runs index existing docs as
+      // "docs" (harvest.js). Render whichever the run really produced.
+      var docs = d.documents_created || d.docs || d.documents_written || [];
+      var docChips = [{ n: docs.length, l: 'documents' }];
+      if (d.total_functional_requirements != null) docChips.push({ n: d.total_functional_requirements, l: 'functional reqs' });
+      if (d.total_non_functional_requirements != null) docChips.push({ n: d.total_non_functional_requirements, l: 'non-functional' });
+      return statChips(docChips) +
+        (d.estimated_complexity ? '<div class="kv"><span>Estimated complexity</span><b>' + esc(d.estimated_complexity) + '</b></div>' : '') +
+        miniList('Documents', docs, function(doc) { return String(doc).split('/').pop(); });
+    }
     case '05-jira':
       return statChips([{ n: (d.epics || []).length, l: 'epics' }, { n: (d.issues || []).length, l: 'issues' }]) +
         miniList('Epics', d.epics, function(e) { return e.title || e.id; });

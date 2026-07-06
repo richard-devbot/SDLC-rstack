@@ -1269,4 +1269,7 @@ tr.clickable:hover td { background: #f8fbff; }
 .kv-note { font-size: 11px; color: var(--muted); margin-top: 8px; font-style: italic; }
 
 @media (max-width: 900px) { .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* [wave:quality] Requirements & Traceability, Security registry, Stephens report cards, dark-stage chips */
+.cutover-block { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
 `;
