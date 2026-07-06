@@ -24,6 +24,9 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-06 | **BLE-4 goal loop (core)**: model-free goal evaluator (`goal-check.js` — verifiable criteria evaluated by the harness; judge criteria close via iteration-stamped `goal-verdict.json`, unstamped = stale in loop context), bounded budget-capped `rstack-agents pipeline loop` (default 3 iterations, hard cap 20 no config can exceed, no-progress stop, budget checked pre-iteration), in-lock stage resets that can't launder attempt budgets, five pinned loop events in status/feed, `docs/loop-recipes.md` (recipes tagged with maintenance taxonomy) | 1 | #127 #129, PR #193 |
+| 2026-07-06 | **Adopt-aware agents**: run-modes contract (greenfield/brownfield/feature) in OPERATING-STANDARD §8 + SOUL, "Adopted-Run Behavior" in ALL 15 stage agents (detection recipe with `RUN_BASE` fallback, refine-never-regenerate, study-before-modify per Stephens Ch11 p243), markers verified against `harvest.js`; completes the #148 flagship end-to-end | 3 | #183, PRs #192 #189 #190 #191 |
+| 2026-07-06 | **Stephens book alignment**: 02-requirements Ch4 quality gates (clear/unambiguous/consistent/prioritized/verifiable, words-to-avoid, FURPS+, five Ws, MoSCoW, changes via Decision Queue); 08-testing five-level taxonomy + black/white/gray-box; 09-deployment deliberate cutover strategy (`cutover` block required) + canonical-then-legacy write path; 10-summary defect analysis from real BLE-3 events + Ishikawa grouping + honest nulls; 11-feedback-loop maintenance taxonomy (perfective/adaptive/corrective/preventive) + bug-swarm rule | 1, 4 | #184 #185 #186 #187, PRs #189 #190 #191 |
 | 2026-07-05 | **Brownfield adoption** `rstack-agents adopt`: read-only scanner + evidence-or-skip harvesters for all 15 stages, dry-run plan writes nothing, adoption run is DONE-with-evidence + resumable, specialist gap scan, migration guide packaged; closes flagship epic #148 + #160 | 3 | #148 #160, PR #181 |
 | 2026-07-05 | State-of-RStack audit doc: four-discipline cross-verification, trigger×goal loop framework check, Stephens book grounding, full pending map + onboarding for any coding model | 2 | PR #180 |
 | 2026-07-05 | Resume-aware runner `rstack-agents pipeline run`: skips DONE work, validates active contracts, re-claims retryable failures via the model-free bridge, stops at every human gate; pure planner shared with `--dry-run` (persists nothing); closes BLE-3 epic #121 | 3, 4 | #124, PR #178 |
@@ -53,22 +56,16 @@ Pre-2026-06 history lives in CHANGELOG.md (v1.0 → v1.9.0-rc).
 
 Work top-down. File a GitHub issue before any branch (Richardson's rule: issues before PRs).
 
-1. **#183** — adopt-aware agents: stage prompts recognize brownfield baselines; run-modes
-   contract (greenfield/brownfield/feature) in OPERATING-STANDARD. Completes the #148 flagship
-   end-to-end. Goal 3.
-2. **#126–#129** — BLE-4 goal loop: evaluator, agent-11 goal contract (fold in #186 maintenance
-   taxonomy), bounded budget-capped runner + loop recipes (docs sweep, error sweep, architecture
-   satisfaction — see docs/STATE-OF-RSTACK-2026-07-05.md §2). Goal 1.
-3. **#184 / #185 / #187** — Stephens book alignment batch: requirements quality gates (Ch4),
-   test taxonomy + cutover strategy (Ch8/9), wrap-party defect analysis (Ch10). Parallel-agent
-   friendly (disjoint files). Goals 1, 4.
-4. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
+1. **#128** — agent-11 goal contract (`goal_evaluation` in feedback.json feeding the #193
+   evaluator as an evidenced verdict writer; folds in the #186 maintenance taxonomy). Last item
+   of BLE-4 — closes epic #126. In flight 2026-07-06 (feat/goal-contract-128). Goal 1.
+2. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
    do after the #95 page-module split. Goal 2.
-5. **#134–#137** — cost/context/memory (BLE-6), incl. #83 persisted cost metrics. Goal 4.
-6. **#130–#133** — BLE-5 remainder: stage checkpoints (#132), approval audit consistency (#133);
+3. **#134–#137** — cost/context/memory (BLE-6), incl. #83 persisted cost metrics. Goal 4.
+4. **#130–#133** — BLE-5 remainder: stage checkpoints (#132), approval audit consistency (#133);
    re-scope #131 first — partially superseded by the validator sandbox. Goal 1.
-7. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
-8. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
+5. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
+6. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
     E2E tests, dark stages) + #159 parallel benchmark. Goal 2.
 
 UI ↔ backend alignment note (2026-07-04 review): the dashboard approve path writes run-level
