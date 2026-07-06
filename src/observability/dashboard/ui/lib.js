@@ -122,14 +122,6 @@ function showErr(message) {
   console.error('[rstack-business]', message);
 }
 
-function barCells(n, cls) {
-  var out = '';
-  var count = Math.min(8, n || 0);
-  for (var i = 0; i < count; i++) out += '<span class="mini-bar ' + cls + '"></span>';
-  if (!out) out = '<span class="mini-bar"></span>';
-  return out;
-}
-
 function feedRowHtml(item) {
   var level = item.level || 'info';
   var icon = level === 'pass' ? 'OK' : level === 'fail' ? 'NO' : level === 'blocked' ? 'BL' : level === 'warn' ? '!' : 'i';
@@ -249,23 +241,5 @@ function authAwareFetch(url, opts) {
     }
     return response;
   });
-}
-
-function workloadHtml(s) {
-  var runs = s.runs || [];
-  var active = runs.filter(function(run) { return run.derivedStatus === 'active'; }).length;
-  var stalled = runs.filter(function(run) { return run.derivedStatus === 'stalled'; }).length;
-  var ended = runs.filter(function(run) { return run.derivedStatus === 'ended' || run.derivedStatus === 'done'; }).length;
-  return '<div class="metric-row">' + pill('active', active + ' active') + pill('warn', stalled + ' stalled') + pill('pass', ended + ' ended') + '</div>' +
-    '<div style="margin-top:12px">' + (s.projectSummaries || []).slice(0, 5).map(function(project) {
-      return '<div class="feed-row"><div class="feed-icon info">' + esc(String(project.runs || 0)) + '</div><div><div class="feed-summary">' + esc(project.name) + '</div><div class="feed-meta"><span>' + project.tasks + ' tasks</span><span>$' + Number(project.cost || 0).toFixed(4) + '</span></div></div></div>';
-    }).join('') + '</div>';
-}
-
-function healthHtml(s) {
-  var blocked = (s.blockedGates || []).length;
-  var alerts = (s.alerts || []).length;
-  var missing = (s.diagnostics && s.diagnostics.missingValidationCount) || 0;
-  return '<div class="metric-row">' + pill(alerts ? 'warn' : 'pass', alerts + ' alerts') + pill(blocked ? 'warn' : 'pass', blocked + ' blocked') + pill(missing ? 'warn' : 'pass', missing + ' missing validation') + '</div>';
 }
 `;
