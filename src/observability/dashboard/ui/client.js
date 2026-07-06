@@ -1,13 +1,34 @@
 // owner: RStack developed by Richardson Gunde
+//
+// Client bundle assembler + core runtime for the Business Hub dashboard.
+// The core owns cross-page state (snapshot, scope, freshness), the nav
+// router, transport (WS + REST fallback) and bootstrap. Page render logic
+// lives in ui/pages/*.js modules that self-register with the page registry
+// (ui/lib.js); shared helpers in ui/lib.js; the run drawer in ui/drawer.js.
+// Everything is plain JS concatenated into a single <script> at serve time
+// — zero dependencies, no build step, no framework.
+
+import { libScript } from './lib.js';
+import { drawerScript } from './drawer.js';
 
 export function clientScript(port) {
+  return [
+    libScript,
+    drawerScript,
+    coreScript(port),
+  ].join('\n');
+}
+
+// Registration order = bundle order above = render order in applyState.
+function coreScript(port) {
   return `
+// ── core: state, scope, router, transport ─────────────────────────
 var STATE = null;
 var PORT = ${port};
 var WS_CONNECTED = false;
 var reconnectTimer = null;
 var ws = null;
-var WORKFLOW_SELECTED_STAGE_ID = null;
+
 
 // Data-freshness tracking (issue #87): never let stale data look live.
 var LAST_SERVER_TS = null;   // ISO ts carried by the last snapshot
@@ -16,129 +37,6 @@ var LAST_ETAG = null;        // ETag for conditional REST polling
 var POLL_TIMER = null;       // REST fallback poll handle (active while WS down)
 var FRESHNESS_TIMER = null;  // 1s heartbeat that ages the freshness chip
 var LAST_CONN_KIND = null;   // last announced connection kind (debounces aria)
-
-var WORKFLOW_STAGE_META = {
-  '00-environment': {
-    business: 'System Check',
-    persona: 'IT Setup Specialist',
-    role: 'Gets the studio ready',
-    desc: 'Checks that every tool, folder and runtime needed for a run is available before work starts.',
-    reads: 'kickoff context',
-    writes: 'readiness report'
-  },
-  '01-transcript': {
-    business: 'Understanding The Ask',
-    persona: 'Business Analyst',
-    role: 'Captures the working session',
-    desc: 'Turns the user conversation into a structured record so later agents do not guess intent.',
-    reads: 'session transcript',
-    writes: 'project brief'
-  },
-  '02-requirements': {
-    business: 'Define What To Build',
-    persona: 'Senior Analyst',
-    role: 'Writes the requirements',
-    desc: 'Converts the brief into clear feature, constraint and success criteria for delivery.',
-    reads: 'project brief',
-    writes: 'requirements spec'
-  },
-  '03-documentation': {
-    business: 'Business Paperwork',
-    persona: 'Technical Writer',
-    role: 'Prepares decision-ready docs',
-    desc: 'Packages requirements into readable documents that business and delivery teams can review.',
-    reads: 'requirements',
-    writes: 'documentation set'
-  },
-  '04-planning': {
-    business: 'Delivery Plan',
-    persona: 'Project Manager',
-    role: 'Breaks work into steps',
-    desc: 'Turns the scope into a staged plan with sequencing, milestones and handoff expectations.',
-    reads: 'requirements',
-    writes: 'implementation plan'
-  },
-  '05-jira': {
-    business: 'Task Tickets',
-    persona: 'Scrum Master',
-    role: 'Creates trackable work',
-    desc: 'Makes the work visible as tickets and acceptance criteria that teams can follow.',
-    reads: 'delivery plan',
-    writes: 'task tickets'
-  },
-  '06-architecture': {
-    business: 'System Design',
-    persona: 'Solution Architect',
-    role: 'Designs the system',
-    desc: 'Defines the architecture, data movement, major trade-offs and technical boundaries.',
-    reads: 'requirements',
-    writes: 'system design'
-  },
-  '07-code': {
-    business: 'Build The Software',
-    persona: 'Senior Developer',
-    role: 'Writes production code',
-    desc: 'Implements the planned changes and records what changed through builder contracts.',
-    reads: 'system design',
-    writes: 'code report'
-  },
-  '08-testing': {
-    business: 'Quality Checks',
-    persona: 'QA Lead',
-    role: 'Validates the work',
-    desc: 'Checks outcomes against requirements and attaches validation evidence to the run.',
-    reads: 'code report',
-    writes: 'test report'
-  },
-  '09-deployment': {
-    business: 'Going Live',
-    persona: 'DevOps Engineer',
-    role: 'Prepares release',
-    desc: 'Packages delivery, release checks, deployment evidence and rollout readiness.',
-    reads: 'test report',
-    writes: 'deployment report'
-  },
-  '10-summary': {
-    business: 'Handoff Package',
-    persona: 'Delivery Lead',
-    role: 'Summarizes the run',
-    desc: 'Collects outcomes, proof and next steps into a handoff summary.',
-    reads: 'all stage outputs',
-    writes: 'run summary'
-  },
-  '11-feedback-loop': {
-    business: 'Learning Loop',
-    persona: 'Customer Success Lead',
-    role: 'Captures feedback',
-    desc: 'Feeds lessons, follow-ups and product signals back into the next iteration.',
-    reads: 'handoff summary',
-    writes: 'feedback record'
-  },
-  '12-security-threat-model': {
-    business: 'Security Review',
-    persona: 'Security Lead',
-    role: 'Models threats',
-    desc: 'Identifies security risks, attack surfaces and mitigation needs before shipment confidence is claimed.',
-    reads: 'architecture and code',
-    writes: 'threat model'
-  },
-  '13-compliance-checker': {
-    business: 'Compliance Check',
-    persona: 'Compliance Lead',
-    role: 'Checks obligations',
-    desc: 'Reviews privacy, regulatory, policy and enterprise-readiness expectations for the run.',
-    reads: 'requirements and evidence',
-    writes: 'compliance report'
-  },
-  '14-cost-estimation': {
-    business: 'Cost Forecast',
-    persona: 'Finance Analyst',
-    role: 'Estimates operating cost',
-    desc: 'Captures cost signals and expected operating impact so business teams can plan responsibly.',
-    reads: 'deployment design',
-    writes: 'cost estimate'
-  }
-};
 
 var PAGE_LABELS = {
   command: 'Command Center',
@@ -160,29 +58,6 @@ var PAGE_LABELS = {
   traceability: 'Requirements & Traceability',
   'team-layers': 'Team & Layers',
   diagnostics: 'Diagnostics'
-};
-
-var PAGE_SUBS = {
-  command: 'Operational overview across every known .rstack project, run, agent action, approval and alert.',
-  'business-flex': 'Profiles, budget guardrails, selected teams, and routing proof for business-team SDLC flexibility.',
-  workflow: 'The canonical SDLC flow, grouped by stage with pass, fail, active and ready counts from real run tasks.',
-  projects: 'All registered project roots and their run sessions, costs, task status and activity timeline.',
-  'run-analytics': 'Wall-clock run timelines, per-stage durations and run-over-run delivery trends derived from events.jsonl.',
-  team: 'Who is live and working right now, the people behind every run, approval and guidance, and the manager project rollup.',
-  studio: 'The live agent studio — every stage as a workstation, the Manager narrating progress, status as glow. Click an agent for their report.',
-  'run-report': 'Every stage report as an infographic — requirements, architecture, tests, security, compliance, cost, release gate — for the selected run.',
-  'agent-work': 'Builder and validator work grouped by project, run, stage and agent contract.',
-  'live-feed': 'Real-time event stream from events.jsonl plus live WebSocket refreshes.',
-  approvals: 'Human-in-loop actions from the approval queue only.',
-  decisions: 'Decision Queue and Definition-of-Ready status from decisions.json, dor-report.json and readiness.json.',
-  'release-readiness': 'The conservative ship/no-ship view: blockers, test status, unresolved gates, evidence completeness, and manager actions.',
-  security: 'Threat registry and release-gate status from threat-model artifacts, open risks, and security-stage findings.',
-  compliance: 'Control coverage, audit gaps, evidence status, and compliance readiness across SDLC runs.',
-  'cost-budget': 'Estimated cost, run spend, budget envelopes, and cost drivers for business governance.',
-  'alerts-guardrails': 'Threshold alerts, blocked gates, guardrails, stalled work and spend risks.',
-  traceability: 'FR/NFR requirements, stage artifacts, verified tasks and evidence connected by run.',
-  'team-layers': 'Stack layers and framework health across harness, tracker, alerts, hooks, memory and observers.',
-  diagnostics: 'Source roots, missing builder contracts, validation coverage and raw .rstack data health.'
 };
 
 document.querySelectorAll('.nav-link').forEach(function(btn) {
@@ -215,26 +90,13 @@ function applyState(state, opts) {
   try { renderScopeSelectors(state); } catch (err) { showErr('scope: ' + err.message); }
   var scoped = applyScope(state);
   try { renderFrame(state); } catch (err) { showErr('frame: ' + err.message); }
-  try { renderCommand(scoped); } catch (err) { showErr('command: ' + err.message); }
-  try { renderBusinessFlex(scoped); } catch (err) { showErr('business flex: ' + err.message); }
-  try { renderStudio(scoped); } catch (err) { showErr('studio: ' + err.message); }
-  try { renderWorkflow(scoped); } catch (err) { showErr('workflow: ' + err.message); }
-  try { renderProjects(scoped); } catch (err) { showErr('projects: ' + err.message); }
-  try { renderRunAnalytics(scoped); } catch (err) { showErr('run analytics: ' + err.message); }
-  try { renderRunReport(scoped); } catch (err) { showErr('run report: ' + err.message); }
-  try { renderTeam(scoped); } catch (err) { showErr('team: ' + err.message); }
-  try { renderAgentWork(scoped); } catch (err) { showErr('agent work: ' + err.message); }
-  try { renderLiveFeed(scoped); } catch (err) { showErr('live feed: ' + err.message); }
-  try { renderApprovals(state); } catch (err) { showErr('approvals: ' + err.message); }
-  try { renderDecisions(scoped); } catch (err) { showErr('decisions: ' + err.message); }
-  try { renderReleaseReadiness(scoped); } catch (err) { showErr('release readiness: ' + err.message); }
-  try { renderSecurity(scoped); } catch (err) { showErr('security: ' + err.message); }
-  try { renderCompliance(scoped); } catch (err) { showErr('compliance: ' + err.message); }
-  try { renderCostBudget(scoped); } catch (err) { showErr('cost budget: ' + err.message); }
-  try { renderAlertsGuardrails(state); } catch (err) { showErr('alerts: ' + err.message); }
-  try { renderTraceability(scoped); } catch (err) { showErr('traceability: ' + err.message); }
-  try { renderTeamLayers(scoped); } catch (err) { showErr('team layers: ' + err.message); }
-  try { renderDiagnostics(state); } catch (err) { showErr('diagnostics: ' + err.message); }
+  PAGE_RENDERERS.forEach(function(page) {
+    try {
+      page.render(page.unscoped ? state : scoped);
+    } catch (err) {
+      showErr(page.errLabel + ': ' + err.message);
+    }
+  });
 }
 
 // ── Global project → run scope (issue #43) ──────────────────────────────────
@@ -344,68 +206,6 @@ function notifyNewGates(s) {
   } catch (err) { /* best-effort */ }
 }
 
-// ── Team & Presence page (issue #42) ────────────────────────────────────────
-function renderTeam(s) {
-  var presence = s.presence || [];
-  var live = presence.filter(function(item) { return item.live; });
-  setText('team-live-count', live.length + ' live / ' + presence.length + ' recent');
-  setHTML('team-live', presence.map(function(item) {
-    var dot = item.live ? '<span class="presence-dot live"></span>' : '<span class="presence-dot"></span>';
-    var task = item.currentTask
-      ? chip((item.currentTask.agent || 'agent') + ' → ' + item.currentTask.title)
-      : '<span class="muted">between tasks</span>';
-    return '<div class="stack-item clickable" data-runid="' + esc(item.runId) + '" onclick="openDrawerRow(this)">' +
-      '<div>' + dot + '<span class="strong">' + esc(item.startedBy) + '</span> <span class="muted">on</span> ' + esc(shortName(item.projectRoot)) + '' +
-      '<div class="muted">' + esc(item.goal) + '</div></div>' +
-      '<div class="metric-row">' + task + '<span class="faint mono">' + fmtAgo(item.secondsAgo) + '</span></div>' +
-    '</div>';
-  }).join('') || emptyHtml('Nobody live right now', 'Runs with events in the last 30 minutes appear here.'));
-
-  var people = s.people || [];
-  setText('team-people-count', people.length + ' people');
-  setHTML('team-people-table', people.map(function(person) {
-    return '<tr>' +
-      '<td><div class="strong">' + esc(person.name) + '</div>' + (person.email ? '<div class="faint mono">' + esc(person.email) + '</div>' : '') + '</td>' +
-      '<td class="mono">' + person.runsStarted + '</td>' +
-      '<td class="mono">' + person.approvals + (person.rejections ? ' <span class="muted">/ ' + person.rejections + ' rejected</span>' : '') + '</td>' +
-      '<td class="mono">' + person.guidance + '</td>' +
-      '<td class="mono muted">' + (person.lastSeen ? fmtTime(person.lastSeen) : '-') + '</td>' +
-    '</tr>';
-  }).join('') || '<tr><td colspan="5" class="empty">No people yet — runs started after the people layer record who did what</td></tr>');
-
-  var projects = s.projectSummaries || [];
-  var blocked = s.blockedGates || [];
-  var runs = s.runs || [];
-  setText('team-manager-count', projects.length + ' projects');
-  setHTML('team-manager-table', projects.map(function(project) {
-    var projectRuns = runs.filter(function(run) { return run.projectRoot === project.projectRoot; });
-    var durations = projectRuns.map(function(run) { return (run.totals || {}).duration_ms || 0; }).filter(Boolean);
-    var avg = durations.length ? durations.reduce(function(sum, ms) { return sum + ms; }, 0) / durations.length : 0;
-    var total = project.passed + project.failed;
-    var rate = total ? Math.round(project.passed / total * 100) : 0;
-    var gates = blocked.filter(function(gate) { return projectRuns.some(function(run) { return run.runId === gate.runId; }); }).length;
-    return '<tr>' +
-      '<td><div class="strong">' + esc(project.name) + '</div></td>' +
-      '<td class="mono">' + project.runs + (project.active ? ' <span class="muted">(' + project.active + ' active)</span>' : '') + '</td>' +
-      '<td class="mono">' + fmtDur(avg) + '</td>' +
-      '<td class="mono">' + rate + '%</td>' +
-      '<td class="mono">' + (gates ? '<span class="strong">' + gates + '</span>' : '0') + '</td>' +
-    '</tr>';
-  }).join('') || '<tr><td colspan="5" class="empty">No projects yet</td></tr>');
-
-  var guidanceFeed = (s.feed || []).filter(function(item) { return item.type === 'clarification_answers_added'; });
-  setText('team-guidance-count', guidanceFeed.length + ' entries');
-  setHTML('team-guidance', guidanceFeed.slice(0, 30).map(feedRowHtml).join('') ||
-    emptyHtml('No guidance recorded yet', 'When a developer answers clarification questions, it shows up here with their name.'));
-}
-
-function fmtAgo(seconds) {
-  if (seconds < 60) return seconds + 's ago';
-  var minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return minutes + 'm ago';
-  return Math.floor(minutes / 60) + 'h ago';
-}
-
 function renderFrame(s) {
   var tasks = allTasks(s);
   var passed = tasks.filter(function(task) { return task.status === 'PASS'; }).length;
@@ -421,12 +221,122 @@ function renderFrame(s) {
   setText('approval-count', pending.length + ' pending');
   setClass('btn-alerts', 'tb-chip' + (alerts.length ? ' danger' : ''));
   setClass('btn-approvals', 'tb-chip' + (pending.length ? ' warn' : ''));
-  Object.keys(PAGE_SUBS).forEach(function(page) {
-    setText(page + '-sub', PAGE_SUBS[page]);
-    setText(page + '-updated', s.ts ? 'Updated ' + fmtTime(s.ts) : '');
+  PAGE_RENDERERS.forEach(function(page) {
+    setText(page.id + '-sub', page.sub);
+    setText(page.id + '-updated', s.ts ? 'Updated ' + fmtTime(s.ts) : '');
   });
 }
 
+function fetchState() {
+  // Conditional request: an unchanged snapshot returns 304, which still
+  // confirms the data is current (refresh the freshness clock) without a
+  // re-render. ETag stripping of server eval-time stamps lives server-side.
+  var opts = LAST_ETAG ? { headers: { 'If-None-Match': LAST_ETAG } } : {};
+  return authAwareFetch('/api/state', opts)
+    .then(function(response) {
+      var etag = response.headers.get('etag');
+      if (etag) LAST_ETAG = etag;
+      if (response.status === 304) {
+        LAST_SNAPSHOT_AT = Date.now();
+        updateFreshness();
+        return null;
+      }
+      if (!response.ok) {
+        // Never let an error body masquerade as a fresh snapshot.
+        return response.json().catch(function() { return {}; }).then(function(body) {
+          throw new Error(body.error || ('HTTP ' + response.status));
+        });
+      }
+      return response.json().then(function(data) { applyState(data, { fromSnapshot: true }); return data; });
+    })
+    .catch(function(err) {
+      // Don't claim freshness — let the heartbeat age the chip toward stale.
+      updateFreshness();
+      showErr('HTTP load failed: ' + err.message);
+    });
+}
+
+function connectWS() {
+  try {
+    // Browsers cannot set custom headers on WebSocket upgrades, so the read
+    // token travels as a query param when configured.
+    var wsProto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    var wsToken = readToken();
+    ws = new WebSocket(wsProto + 'localhost:' + PORT + (wsToken ? '/?token=' + encodeURIComponent(wsToken) : ''));
+  } catch (err) {
+    WS_CONNECTED = false;
+    startPolling();
+    updateFreshness();
+    return;
+  }
+  ws.onopen = function() {
+    WS_CONNECTED = true;
+    clearTimeout(reconnectTimer);
+    stopPolling();
+    updateFreshness();
+  };
+  ws.onmessage = function(event) {
+    try {
+      applyState(JSON.parse(event.data), { fromSnapshot: true });
+    } catch (err) {
+      showErr('WS render: ' + err.message);
+    }
+  };
+  ws.onclose = ws.onerror = function() {
+    WS_CONNECTED = false;
+    updateFreshness();
+    startPolling();
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connectWS, 2500);
+  };
+}
+
+// While the socket is down, keep data flowing with a 5s REST poll so the
+// dashboard recovers on its own (and the chip can show "Reconnecting" with a
+// live-as-of stamp rather than a frozen page).
+function startPolling() {
+  if (POLL_TIMER) return;
+  POLL_TIMER = setInterval(function() { if (!WS_CONNECTED) fetchState(); }, 5000);
+}
+
+function stopPolling() {
+  if (!POLL_TIMER) return;
+  clearInterval(POLL_TIMER);
+  POLL_TIMER = null;
+}
+
+function shortClock(value) {
+  if (!value) return null;
+  var d = new Date(value);
+  if (isNaN(d.getTime())) return String(value).slice(11, 19) || null;
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
+// Single source of truth for the topbar connection chip. Derives the kind from
+// socket state + snapshot age, paints the dot/label, and announces transitions
+// to assistive tech via the aria-live region.
+function updateFreshness() {
+  var kind = classifyFreshness({
+    now: Date.now(),
+    lastSnapshotAt: LAST_SNAPSHOT_AT,
+    wsConnected: WS_CONNECTED,
+    hasData: LAST_SNAPSHOT_AT > 0,
+  });
+  var label = freshnessLabel(kind, shortClock(LAST_SERVER_TS));
+  setText('status-text', label);
+  var statusDot = document.getElementById('status-dot');
+  var wsDot = document.getElementById('ws-dot');
+  if (statusDot) statusDot.className = 'status-dot ' + freshnessDotClass(kind);
+  if (wsDot) wsDot.className = kind === 'live' ? 'ws-dot ws-live' : 'ws-dot';
+  if (kind !== LAST_CONN_KIND) {
+    LAST_CONN_KIND = kind;
+    var live = document.getElementById('conn-live');
+    if (live) live.textContent = label;
+  }
+}
+
+// ── page: command ────────────────────────────────────────────────
 function renderCommand(s) {
   var tasks = allTasks(s);
   var counts = taskStatusCounts(tasks);
@@ -511,77 +421,6 @@ function renderExecutiveMissionBrief(s) {
   setHTML('executive-risk-strip', risks.map(function(risk) {
     return '<div class="risk-chip ' + risk.tone + '"><b>' + esc(risk.value) + '</b><span>' + esc(risk.label) + '</span></div>';
   }).join(''));
-}
-
-function renderBusinessFlex(s) {
-  var model = businessFlexModel(s);
-  var profiles = model.profiles;
-  var routing = model.routingSignals;
-  var budget = model.budget;
-  var domainCount = profiles.reduce(function(set, profile) {
-    (profile.enabledDomains || []).forEach(function(domain) { set[domain] = true; });
-    return set;
-  }, {});
-  var domainTotal = Object.keys(domainCount).length;
-  setText('business-flex-title', profiles.length ? profiles.length + ' active profile pack' + (profiles.length === 1 ? '' : 's') + ' powering business-team delivery' : 'No RStack profile data loaded yet');
-  setText('business-flex-subcopy', 'Profiles decide which teams, agents, plugins, budget guardrails, and dashboard pages are active for this project.');
-  setText('business-flex-status-chip', routing.length ? 'Routing visible' : profiles.length ? 'Profile ready' : 'Waiting for run');
-  setClass('business-flex-status-chip', 'command-status ' + (routing.length ? 'active' : profiles.length ? 'ok' : 'warn'));
-  setText('business-flex-profiles', profiles.length);
-  setText('business-flex-profiles-s', profiles.map(function(p) { return p.profile; }).join(', ') || 'run rstack-agents init --profile business-flex');
-  setText('business-flex-domains', domainTotal);
-  setText('business-flex-domains-s', 'across selected business teams');
-  setText('business-flex-budget', '$' + Number(budget.runBudgetTotal || 0).toFixed(2));
-  setText('business-flex-budget-s', '$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + ' estimated task envelopes');
-  setText('business-flex-routing', routing.length);
-  setText('business-flex-routing-s', (budget.tasksWithBudget || 0) + ' tasks include budget metadata');
-  setText('business-flex-profile-count', profiles.length + ' profiles');
-  setHTML('business-flex-profiles-list', profiles.map(businessProfileHtml).join('') || emptyHtml('No profile packs yet', 'Run rstack-agents init --profile business-flex, then start and plan a run.'));
-  setText('business-flex-budget-count', (budget.tasksWithBudget || 0) + ' task envelopes');
-  setHTML('business-flex-budget-list', businessBudgetHtml(model));
-  setText('business-flex-routing-count', routing.length + ' routed tasks');
-  setHTML('business-flex-routing-list', routing.slice(0, 24).map(businessRoutingHtml).join('') || emptyHtml('No routing proof yet', 'Task routing appears after sdlc_plan writes tasks.json.'));
-}
-
-function businessFlexModel(s) {
-  if (s.businessFlex && ((s.businessFlex.profiles || []).length || (s.businessFlex.routingSignals || []).length)) return s.businessFlex;
-  var profiles = {};
-  var routingSignals = [];
-  var budget = { runBudgetTotal: 0, estimatedTaskBudget: 0, tasksWithBudget: 0 };
-  (s.runs || []).forEach(function(run) {
-    var profile = run.profile || {};
-    var id = profile.profile || (run.manifest && run.manifest.profile) || 'unprofiled';
-    if (!profiles[id]) profiles[id] = { profile: id, name: profile.name || id, workflow: run.workflow || profile.workflow || '', runs: 0, enabledDomains: [], enabledAgents: [], enabledPlugins: [], dashboardPages: [] };
-    profiles[id].runs += 1;
-    ['enabledDomains', 'enabledAgents', 'enabledPlugins', 'dashboardPages'].forEach(function(key) {
-      var sourceKey = key.replace(/[A-Z]/g, function(c) { return '_' + c.toLowerCase(); });
-      (profile[sourceKey] || profile[key] || []).forEach(function(value) {
-        if (profiles[id][key].indexOf(value) === -1) profiles[id][key].push(value);
-      });
-    });
-    budget.runBudgetTotal += Number((run.budgetPolicy && run.budgetPolicy.run_budget_usd) || 0);
-    (run.tasks || []).forEach(function(task) {
-      if (task.budget_envelope) {
-        budget.tasksWithBudget += 1;
-        budget.estimatedTaskBudget += Number(task.budget_envelope.estimated_ai_cost_usd || 0);
-      }
-      if (task.routing) routingSignals.push({ runId: run.runId, projectRoot: run.projectRoot, taskId: task.id, title: task.title, profile: task.profile || id, selectedBy: task.routing.selected_by, explanation: task.routing.explanation || [], specialists: task.specialists || [], budget: task.budget_envelope || null });
-    });
-  });
-  return { profiles: Object.keys(profiles).map(function(k) { return profiles[k]; }), budget: budget, routingSignals: routingSignals };
-}
-
-function businessProfileHtml(profile) {
-  return '<div class="project-card"><div class="agent-head"><div><div class="strong">' + esc(profile.name || profile.profile) + '</div><div class="muted mono">' + esc(profile.profile) + ' / ' + esc(profile.workflow || '') + ' / ' + esc(profile.runs || 0) + ' runs</div></div>' + pill('active', 'profile') + '</div><div class="chips">' + (profile.enabledDomains || []).slice(0, 8).map(chip).join('') + '</div><div class="muted">Agents: ' + esc((profile.enabledAgents || []).slice(0, 5).join(', ') || '-') + '</div><div class="muted">Plugins: ' + esc((profile.enabledPlugins || []).slice(0, 5).join(', ') || '-') + '</div></div>';
-}
-
-function businessBudgetHtml(model) {
-  var budget = model.budget || {};
-  return '<div class="metric-row">' + pill('warn', '$' + Number(budget.runBudgetTotal || 0).toFixed(2) + ' run budget') + pill('pass', '$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + ' task estimate') + pill('info', (budget.tasksWithBudget || 0) + ' budgeted tasks') + '</div><div class="muted" style="margin-top:12px">Budget policy is loaded from .rstack/budget.json and copied into plan/task metadata before delegated work starts.</div>';
-}
-
-function businessRoutingHtml(item) {
-  return '<div class="agent-item"><div class="agent-head"><div><div class="strong">' + esc(item.title || item.taskId) + '</div><div class="muted mono">' + esc(item.profile || '') + ' / ' + esc(item.taskId || '') + ' / ' + esc(shortName(item.projectRoot)) + '</div></div>' + pill('active', item.selectedBy || 'routed') + '</div><div class="chips">' + (item.explanation || []).slice(0, 6).map(chip).join('') + '</div><div class="muted">Specialists: ' + esc((item.specialists || []).slice(0, 6).join(', ') || '-') + '</div>' + (item.budget ? '<div class="muted">Budget envelope: ' + esc(item.budget.currency || 'USD') + ' ' + esc(item.budget.estimated_ai_cost_usd || 0) + '</div>' : '') + '</div>';
 }
 
 function commandSummaryTitle(s, attentionItems, counts) {
@@ -726,6 +565,350 @@ function commandLayersHtml(s) {
     '</div>';
   }).join('');
 }
+
+registerPage('command', {
+  errLabel: 'command',
+  sub: 'Operational overview across every known .rstack project, run, agent action, approval and alert.',
+  render: renderCommand
+});
+
+// ── page: business-flex ────────────────────────────────────────────────
+function renderBusinessFlex(s) {
+  var model = businessFlexModel(s);
+  var profiles = model.profiles;
+  var routing = model.routingSignals;
+  var budget = model.budget;
+  var domainCount = profiles.reduce(function(set, profile) {
+    (profile.enabledDomains || []).forEach(function(domain) { set[domain] = true; });
+    return set;
+  }, {});
+  var domainTotal = Object.keys(domainCount).length;
+  setText('business-flex-title', profiles.length ? profiles.length + ' active profile pack' + (profiles.length === 1 ? '' : 's') + ' powering business-team delivery' : 'No RStack profile data loaded yet');
+  setText('business-flex-subcopy', 'Profiles decide which teams, agents, plugins, budget guardrails, and dashboard pages are active for this project.');
+  setText('business-flex-status-chip', routing.length ? 'Routing visible' : profiles.length ? 'Profile ready' : 'Waiting for run');
+  setClass('business-flex-status-chip', 'command-status ' + (routing.length ? 'active' : profiles.length ? 'ok' : 'warn'));
+  setText('business-flex-profiles', profiles.length);
+  setText('business-flex-profiles-s', profiles.map(function(p) { return p.profile; }).join(', ') || 'run rstack-agents init --profile business-flex');
+  setText('business-flex-domains', domainTotal);
+  setText('business-flex-domains-s', 'across selected business teams');
+  setText('business-flex-budget', '$' + Number(budget.runBudgetTotal || 0).toFixed(2));
+  setText('business-flex-budget-s', '$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + ' estimated task envelopes');
+  setText('business-flex-routing', routing.length);
+  setText('business-flex-routing-s', (budget.tasksWithBudget || 0) + ' tasks include budget metadata');
+  setText('business-flex-profile-count', profiles.length + ' profiles');
+  setHTML('business-flex-profiles-list', profiles.map(businessProfileHtml).join('') || emptyHtml('No profile packs yet', 'Run rstack-agents init --profile business-flex, then start and plan a run.'));
+  setText('business-flex-budget-count', (budget.tasksWithBudget || 0) + ' task envelopes');
+  setHTML('business-flex-budget-list', businessBudgetHtml(model));
+  setText('business-flex-routing-count', routing.length + ' routed tasks');
+  setHTML('business-flex-routing-list', routing.slice(0, 24).map(businessRoutingHtml).join('') || emptyHtml('No routing proof yet', 'Task routing appears after sdlc_plan writes tasks.json.'));
+}
+
+function businessProfileHtml(profile) {
+  return '<div class="project-card"><div class="agent-head"><div><div class="strong">' + esc(profile.name || profile.profile) + '</div><div class="muted mono">' + esc(profile.profile) + ' / ' + esc(profile.workflow || '') + ' / ' + esc(profile.runs || 0) + ' runs</div></div>' + pill('active', 'profile') + '</div><div class="chips">' + (profile.enabledDomains || []).slice(0, 8).map(chip).join('') + '</div><div class="muted">Agents: ' + esc((profile.enabledAgents || []).slice(0, 5).join(', ') || '-') + '</div><div class="muted">Plugins: ' + esc((profile.enabledPlugins || []).slice(0, 5).join(', ') || '-') + '</div></div>';
+}
+
+function businessBudgetHtml(model) {
+  var budget = model.budget || {};
+  return '<div class="metric-row">' + pill('warn', '$' + Number(budget.runBudgetTotal || 0).toFixed(2) + ' run budget') + pill('pass', '$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + ' task estimate') + pill('info', (budget.tasksWithBudget || 0) + ' budgeted tasks') + '</div><div class="muted" style="margin-top:12px">Budget policy is loaded from .rstack/budget.json and copied into plan/task metadata before delegated work starts.</div>';
+}
+
+function businessRoutingHtml(item) {
+  return '<div class="agent-item"><div class="agent-head"><div><div class="strong">' + esc(item.title || item.taskId) + '</div><div class="muted mono">' + esc(item.profile || '') + ' / ' + esc(item.taskId || '') + ' / ' + esc(shortName(item.projectRoot)) + '</div></div>' + pill('active', item.selectedBy || 'routed') + '</div><div class="chips">' + (item.explanation || []).slice(0, 6).map(chip).join('') + '</div><div class="muted">Specialists: ' + esc((item.specialists || []).slice(0, 6).join(', ') || '-') + '</div>' + (item.budget ? '<div class="muted">Budget envelope: ' + esc(item.budget.currency || 'USD') + ' ' + esc(item.budget.estimated_ai_cost_usd || 0) + '</div>' : '') + '</div>';
+}
+
+registerPage('business-flex', {
+  errLabel: 'business flex',
+  sub: 'Profiles, budget guardrails, selected teams, and routing proof for business-team SDLC flexibility.',
+  render: renderBusinessFlex
+});
+
+// ── page: studio ────────────────────────────────────────────────
+// ── Studio: Jarvis-style live agent workspace (issue #44) ───────────────────
+// Personas translate stage ids into people a manager recognizes — straight
+// from the workspace-v8 concept: agents introduce themselves.
+var STAGE_PERSONAS = {
+  '00-environment': ['DevOps Engineer', 'Prepare the Workshop'],
+  '01-transcript': ['Business Analyst', 'Listen to the Customer'],
+  '02-requirements': ['Product Manager', 'Define What to Build'],
+  '03-documentation': ['Technical Writer', 'Write It Down'],
+  '04-planning': ['Delivery Manager', 'Plan the Work'],
+  '05-jira': ['Scrum Master', 'Create the Tickets'],
+  '06-architecture': ['Solution Architect', 'Design the System'],
+  '07-code': ['Senior Developer', 'Build the Software'],
+  '08-testing': ['QA Engineer', 'Prove It Works'],
+  '09-deployment': ['Release Engineer', 'Ship It'],
+  '10-summary': ['Program Manager', 'Report the Outcome'],
+  '11-feedback-loop': ['Quality Coach', 'Close the Loop'],
+  '12-security-threat-model': ['Security Engineer', 'Find the Threats'],
+  '13-compliance-checker': ['Compliance Officer', 'Check the Rules'],
+  '14-cost-estimation': ['FinOps Analyst', 'Count the Cost'],
+};
+var STUDIO_STAGE_ORDER = Object.keys(STAGE_PERSONAS);
+var STUDIO_NARRATION = { text: '', shown: 0, timer: null };
+var STUDIO_SELECTED_STAGE = null;
+
+function studioRun(s) {
+  var runs = s.runs || [];
+  if (!runs.length) return null;
+  var active = runs.filter(function(run) { return run.derivedStatus === 'active'; });
+  return active[0] || runs[0];
+}
+
+function studioStageModel(run) {
+  // stage → { status, task, voice } from the run's tasks + stage timings.
+  var model = {};
+  STUDIO_STAGE_ORDER.forEach(function(stageId) { model[stageId] = { status: 'queued', task: null, voice: '' }; });
+  (run.tasks || []).forEach(function(task) {
+    var stageIds = (task.stage_artifacts || []).map(function(artifact) { return artifact.stage_id; });
+    if (!stageIds.length && task.stageId) stageIds = [task.stageId];
+    stageIds.forEach(function(stageId) {
+      if (!model[stageId]) return;
+      var entry = model[stageId];
+      var status = String(task.status || '').toUpperCase();
+      var mapped = status === 'PASS' ? 'done' : status === 'IN_PROGRESS' ? 'running' : status === 'FAIL' ? 'fail' : 'queued';
+      // Strongest signal wins: running > fail > done > queued.
+      var rank = { running: 3, fail: 2, done: 1, queued: 0 };
+      if (rank[mapped] >= rank[entry.status]) {
+        entry.status = mapped;
+        entry.task = task;
+        entry.voice = (task.builder && (task.builder.work_done || task.builder.summary)) ||
+          (mapped === 'queued' ? 'Waiting for the conveyor…' : '') || '';
+      }
+    });
+  });
+  // Stage elapsed from derived metrics marks completion even without tasks.
+  Object.keys(run.stageElapsed || {}).forEach(function(stageId) {
+    if (model[stageId] && model[stageId].status === 'queued') model[stageId].status = 'done';
+  });
+  return model;
+}
+
+function renderStudio(s) {
+  var run = studioRun(s);
+  var grid = document.getElementById('studio-grid');
+  if (!grid) return;
+  if (!run) {
+    setHTML('studio-grid', emptyHtml('The studio is empty', 'Start a run and the agents take their desks.'));
+    setText('studio-narration', 'No runs yet. The studio opens with the first sdlc_start.');
+    return;
+  }
+  var totals = run.totals || {};
+  var isActive = run.derivedStatus === 'active';
+  setText('studio-run-label', (run.startedBy ? run.startedBy + ' · ' : '') + run.runId.slice(0, 40));
+  var visor = document.getElementById('studio-visor');
+  if (visor) visor.className = 'studio-visor' + (isActive ? ' live' : '');
+  setHTML('studio-hud',
+    '<div><span>' + fmtDur(totals.duration_ms) + '</span><label>elapsed</label></div>' +
+    '<div><span>' + (totals.tasks_passed || 0) + '</span><label>passed</label></div>' +
+    '<div><span>' + (totals.tool_calls || 0) + '</span><label>tool calls</label></div>' +
+    '<div><span>' + (totals.quality_avg !== null && totals.quality_avg !== undefined ? Math.round(totals.quality_avg * 100) + '%' : '—') + '</span><label>quality</label></div>');
+
+  // The Manager narrates the newest event for this run.
+  var latest = (s.feed || []).filter(function(item) { return item.runId === run.runId; })[0];
+  var narration = latest
+    ? latest.summary + (isActive ? ' — the studio is live.' : '')
+    : 'Studio idle. Last run: ' + ((run.manifest && run.manifest.goal) || run.runId).slice(0, 80);
+  typeNarration(narration);
+
+  var model = studioStageModel(run);
+  setHTML('studio-grid', STUDIO_STAGE_ORDER.map(function(stageId) {
+    var persona = STAGE_PERSONAS[stageId];
+    var entry = model[stageId];
+    var voice = entry.voice ? '“' + entry.voice.slice(0, 110) + (entry.voice.length > 110 ? '…' : '') + '”' : '';
+    var badge = entry.status === 'running' ? '● WORKING NOW' : entry.status === 'done' ? '✓ COMPLETE' : entry.status === 'fail' ? '✗ NEEDS REVIEW' : '○ QUEUED';
+    return '<div class="workstation ' + entry.status + (stageId === STUDIO_SELECTED_STAGE ? ' selected' : '') + '" data-stage="' + esc(stageId) + '" onclick="openStudioStage(this)">' +
+      '<div class="ws-head"><span class="ws-id mono">' + esc(stageId.slice(0, 2)) + '</span><span class="ws-status-dot"></span></div>' +
+      '<div class="ws-business">' + esc(persona[1]) + '</div>' +
+      '<div class="ws-persona mono">' + esc(persona[0]) + '</div>' +
+      '<div class="ws-badge mono">' + badge + '</div>' +
+      (voice ? '<div class="ws-voice">' + esc(voice) + '</div>' : '') +
+    '</div>';
+  }).join(''));
+  if (STUDIO_SELECTED_STAGE) renderStudioInspector(run, model, STUDIO_SELECTED_STAGE);
+}
+
+function typeNarration(text) {
+  if (text === STUDIO_NARRATION.text) return;
+  STUDIO_NARRATION.text = text;
+  STUDIO_NARRATION.shown = 0;
+  clearInterval(STUDIO_NARRATION.timer);
+  STUDIO_NARRATION.timer = setInterval(function() {
+    STUDIO_NARRATION.shown += 3;
+    var el = document.getElementById('studio-narration');
+    if (!el) { clearInterval(STUDIO_NARRATION.timer); return; }
+    el.textContent = STUDIO_NARRATION.text.slice(0, STUDIO_NARRATION.shown) + (STUDIO_NARRATION.shown < STUDIO_NARRATION.text.length ? '▌' : '');
+    if (STUDIO_NARRATION.shown >= STUDIO_NARRATION.text.length) clearInterval(STUDIO_NARRATION.timer);
+  }, 30);
+}
+
+function openStudioStage(el) {
+  STUDIO_SELECTED_STAGE = el.getAttribute('data-stage');
+  if (STATE) applyState(STATE);
+}
+
+function renderStudioInspector(run, model, stageId) {
+  var panel = document.getElementById('studio-inspector');
+  if (!panel) return;
+  var persona = STAGE_PERSONAS[stageId] || ['Agent', stageId];
+  var entry = model[stageId] || { status: 'queued', task: null };
+  var task = entry.task;
+  panel.style.display = 'block';
+  var checks = task && task.validation
+    ? '<div class="metric-row">' + pill('pass', task.validation.pass_checks + '/' + task.validation.total_checks + ' checks') +
+      (task.validation.failed_checks || []).slice(0, 3).map(function(name) { return pill('fail', name); }).join('') + '</div>'
+    : '';
+  panel.innerHTML =
+    '<div class="panel-head"><span class="panel-title">' + esc(persona[0]) + ' — ' + esc(persona[1]) + '</span>' +
+    '<button class="drawer-close" onclick="closeStudioInspector()">x</button></div>' +
+    '<div class="panel-body">' +
+      (task
+        ? '<div class="strong">' + esc(task.title || task.id) + '</div>' +
+          '<div class="muted">' + esc(task.description || '') + '</div>' +
+          (task.builder && task.builder.work_done ? '<div class="ws-voice">“' + esc(task.builder.work_done) + '”</div>' : '') +
+          checks +
+          '<div class="chips">' + (task.specialists || []).map(function(name) { return chip(name); }).join('') + '</div>' +
+          '<button class="tb-chip" data-runid="' + esc(run.runId) + '" onclick="openDrawerRow(this)">Open full run</button>'
+        : '<div class="muted">No task routed to this stage yet — ' + esc(persona[0]) + ' is ' + (entry.status === 'done' ? 'finished.' : 'waiting at their desk.') + '</div>') +
+    '</div>';
+}
+
+function closeStudioInspector() {
+  STUDIO_SELECTED_STAGE = null;
+  var panel = document.getElementById('studio-inspector');
+  if (panel) panel.style.display = 'none';
+}
+
+registerPage('studio', {
+  errLabel: 'studio',
+  sub: 'The live agent studio — every stage as a workstation, the Manager narrating progress, status as glow. Click an agent for their report.',
+  render: renderStudio
+});
+
+// ── page: workflow ────────────────────────────────────────────────
+var WORKFLOW_SELECTED_STAGE_ID = null;
+
+var WORKFLOW_STAGE_META = {
+  '00-environment': {
+    business: 'System Check',
+    persona: 'IT Setup Specialist',
+    role: 'Gets the studio ready',
+    desc: 'Checks that every tool, folder and runtime needed for a run is available before work starts.',
+    reads: 'kickoff context',
+    writes: 'readiness report'
+  },
+  '01-transcript': {
+    business: 'Understanding The Ask',
+    persona: 'Business Analyst',
+    role: 'Captures the working session',
+    desc: 'Turns the user conversation into a structured record so later agents do not guess intent.',
+    reads: 'session transcript',
+    writes: 'project brief'
+  },
+  '02-requirements': {
+    business: 'Define What To Build',
+    persona: 'Senior Analyst',
+    role: 'Writes the requirements',
+    desc: 'Converts the brief into clear feature, constraint and success criteria for delivery.',
+    reads: 'project brief',
+    writes: 'requirements spec'
+  },
+  '03-documentation': {
+    business: 'Business Paperwork',
+    persona: 'Technical Writer',
+    role: 'Prepares decision-ready docs',
+    desc: 'Packages requirements into readable documents that business and delivery teams can review.',
+    reads: 'requirements',
+    writes: 'documentation set'
+  },
+  '04-planning': {
+    business: 'Delivery Plan',
+    persona: 'Project Manager',
+    role: 'Breaks work into steps',
+    desc: 'Turns the scope into a staged plan with sequencing, milestones and handoff expectations.',
+    reads: 'requirements',
+    writes: 'implementation plan'
+  },
+  '05-jira': {
+    business: 'Task Tickets',
+    persona: 'Scrum Master',
+    role: 'Creates trackable work',
+    desc: 'Makes the work visible as tickets and acceptance criteria that teams can follow.',
+    reads: 'delivery plan',
+    writes: 'task tickets'
+  },
+  '06-architecture': {
+    business: 'System Design',
+    persona: 'Solution Architect',
+    role: 'Designs the system',
+    desc: 'Defines the architecture, data movement, major trade-offs and technical boundaries.',
+    reads: 'requirements',
+    writes: 'system design'
+  },
+  '07-code': {
+    business: 'Build The Software',
+    persona: 'Senior Developer',
+    role: 'Writes production code',
+    desc: 'Implements the planned changes and records what changed through builder contracts.',
+    reads: 'system design',
+    writes: 'code report'
+  },
+  '08-testing': {
+    business: 'Quality Checks',
+    persona: 'QA Lead',
+    role: 'Validates the work',
+    desc: 'Checks outcomes against requirements and attaches validation evidence to the run.',
+    reads: 'code report',
+    writes: 'test report'
+  },
+  '09-deployment': {
+    business: 'Going Live',
+    persona: 'DevOps Engineer',
+    role: 'Prepares release',
+    desc: 'Packages delivery, release checks, deployment evidence and rollout readiness.',
+    reads: 'test report',
+    writes: 'deployment report'
+  },
+  '10-summary': {
+    business: 'Handoff Package',
+    persona: 'Delivery Lead',
+    role: 'Summarizes the run',
+    desc: 'Collects outcomes, proof and next steps into a handoff summary.',
+    reads: 'all stage outputs',
+    writes: 'run summary'
+  },
+  '11-feedback-loop': {
+    business: 'Learning Loop',
+    persona: 'Customer Success Lead',
+    role: 'Captures feedback',
+    desc: 'Feeds lessons, follow-ups and product signals back into the next iteration.',
+    reads: 'handoff summary',
+    writes: 'feedback record'
+  },
+  '12-security-threat-model': {
+    business: 'Security Review',
+    persona: 'Security Lead',
+    role: 'Models threats',
+    desc: 'Identifies security risks, attack surfaces and mitigation needs before shipment confidence is claimed.',
+    reads: 'architecture and code',
+    writes: 'threat model'
+  },
+  '13-compliance-checker': {
+    business: 'Compliance Check',
+    persona: 'Compliance Lead',
+    role: 'Checks obligations',
+    desc: 'Reviews privacy, regulatory, policy and enterprise-readiness expectations for the run.',
+    reads: 'requirements and evidence',
+    writes: 'compliance report'
+  },
+  '14-cost-estimation': {
+    business: 'Cost Forecast',
+    persona: 'Finance Analyst',
+    role: 'Estimates operating cost',
+    desc: 'Captures cost signals and expected operating impact so business teams can plan responsibly.',
+    reads: 'deployment design',
+    writes: 'cost estimate'
+  }
+};
 
 function renderWorkflow(s) {
   var stages = s.stageMatrix || [];
@@ -891,6 +1074,13 @@ function openWorkflowStage(stageId) {
   if (STATE) renderWorkflow(STATE);
 }
 
+registerPage('workflow', {
+  errLabel: 'workflow',
+  sub: 'The canonical SDLC flow, grouped by stage with pass, fail, active and ready counts from real run tasks.',
+  render: renderWorkflow
+});
+
+// ── page: projects ────────────────────────────────────────────────
 function renderProjects(s) {
   var projects = s.projectSummaries || [];
   var runs = s.runs || [];
@@ -923,432 +1113,93 @@ function renderProjects(s) {
   }).join('') || '<tr><td colspan="6" class="empty">No runs yet</td></tr>');
 }
 
-function renderAgentWork(s) {
-  var groups = s.agentGroups || groupAgentWork(s.agentWork || []);
-  var workCount = (s.agentWork || []).length;
-  setText('agent-work-count', workCount + ' actions');
-  setHTML('agent-work-list', groups.map(function(group) {
-    var agents = Object.keys(group.agents || {});
-    return '<div class="agent-group">' +
-      '<div class="agent-head"><div><div class="agent-title">' + esc(group.goal || group.runId) + '</div><div class="muted mono">' + esc(shortName(group.projectRoot)) + ' / ' + esc(group.runId) + '</div></div>' +
-      '<div class="metric-row">' + pill('pass', group.passed + ' pass') + pill('fail', group.failed + ' fail') + pill('info', group.evidence + ' checks') + pill('warn', group.risks + ' risks') + '</div></div>' +
-      '<div class="chips">' + agents.slice(0, 6).map(function(agent) { return chip(agent + ' x' + group.agents[agent]); }).join('') + '</div>' +
-      '<div class="agent-items">' + (group.items || []).slice(0, 8).map(agentItemHtml).join('') + '</div>' +
-    '</div>';
-  }).join('') || emptyHtml('No agent contracts yet', 'builder.json and validation.json data appears here.'));
-}
+registerPage('projects', {
+  errLabel: 'projects',
+  sub: 'All registered project roots and their run sessions, costs, task status and activity timeline.',
+  render: renderProjects
+});
 
-function renderLiveFeed(s) {
-  var feed = s.feed || [];
-  setText('live-feed-count', feed.length + ' events');
-  setHTML('live-feed-list', feed.length ? feed.map(feedRowHtml).join('') : emptyHtml('No events yet', 'Live event data appears here.'));
-}
+// ── page: run-analytics ────────────────────────────────────────────────
+var ANALYTICS_RUN_ID = null;
 
-function renderApprovals(s) {
-  var approvals = s.approvals || [];
-  var pending = approvals.filter(function(item) { return !item.status || item.status === 'pending'; });
-  var resolved = approvals.filter(function(item) { return item.status && item.status !== 'pending'; });
-  setText('approvals-count', pending.length + ' pending');
-  setHTML('approvals-list', pending.map(function(item) { return approvalHtml(item, true); }).join('') || emptyHtml('No pending approvals', 'Only queue-backed approvals appear here.'));
-  setHTML('approvals-resolved', resolved.slice(0, 20).map(function(item) { return approvalHtml(item, false); }).join('') || emptyHtml('No resolved approvals', 'Approved and rejected queue entries appear here.'));
-}
-
-function renderDecisions(s) {
-  var state = s.decisions || { runs: [], totals: {} };
-  var runs = state.runs || [];
-  var decisions = [];
-  runs.forEach(function(run) {
-    (run.decisions || []).forEach(function(decision) {
-      decisions.push({ run: run, decision: decision });
-    });
-  });
-  var pending = decisions.filter(function(item) { return item.decision.status === 'pending'; });
-  setText('decisions-count', pending.length + ' pending / ' + decisions.length + ' total');
-  setText('readiness-count', runs.length + ' runs');
-  setHTML('decisions-list', decisions.slice(0, 40).map(function(item) {
-    var d = item.decision;
-    return '<div class="approval-card ' + esc(d.status || 'pending') + '"><div class="agent-head"><div><div class="strong">' + esc(d.decision_id + ' — ' + d.question) + '</div><div class="muted">' + esc(d.recommendation ? 'Recommendation: ' + d.recommendation : 'No recommendation recorded') + '</div><div class="feed-meta"><span>' + esc(d.impact) + '</span><span>before ' + esc(d.required_before_stage) + '</span><span>' + esc((item.run.runId || '').slice(-16)) + '</span></div></div>' + pill(d.status || 'pending', d.status || 'pending') + '</div></div>';
-  }).join('') || emptyHtml('No decisions recorded', 'Use sdlc_decisions or rstack-agents decisions to add Decision Queue items.'));
-  setHTML('readiness-list', runs.map(function(run) {
-    var r = run.readiness || {};
-    return '<div class="alert-card ' + (r.status === 'FAIL' ? 'fail' : r.status === 'WARN' ? 'warn' : 'pass') + '"><div class="agent-head"><div><div class="strong">' + esc(run.goal || run.runId) + '</div><div class="muted">' + esc(r.message || 'Definition-of-Ready status') + '</div><div class="feed-meta"><span>' + esc(run.profile || '') + '</span><span>' + esc(r.mode || '') + '</span><span>score ' + esc(r.score || 0) + '</span></div></div>' + pill(r.status || 'PASS') + '</div></div>';
-  }).join('') || emptyHtml('No readiness data', 'Run sdlc_dor_check or rstack-agents dor after starting an RStack run.'));
-}
-
-function renderReleaseReadiness(s) {
-  var tasks = allTasks(s);
-  var counts = taskStatusCounts(tasks);
-  var blocked = (s.blockedGates || []).length;
-  var alerts = (s.alerts || []).length;
-  var pending = (s.pendingApprovals || []).length;
-  var missingValidation = (s.diagnostics && s.diagnostics.missingValidationCount) || 0;
-  var passEvidence = (s.diagnostics && s.diagnostics.evidenceCount) || 0;
-  var checks = [
-    { name: 'Tests passing', ok: counts.FAIL === 0, detail: counts.PASS + ' passed / ' + counts.FAIL + ' failed' },
-    { name: 'Approval gates resolved', ok: blocked === 0 && pending === 0, detail: blocked + ' blocked gates, ' + pending + ' pending approvals' },
-    { name: 'Validation evidence attached', ok: missingValidation === 0, detail: passEvidence + ' evidence records, ' + missingValidation + ' missing validations' },
-    { name: 'Operational alerts clear', ok: alerts === 0, detail: alerts + ' active alerts' }
-  ];
-  var blockedCount = checks.filter(function(c) { return !c.ok; }).length;
-  var verdict = blockedCount ? 'BLOCKED — ' + blockedCount + ' release condition' + (blockedCount === 1 ? '' : 's') + ' need work' : 'READY TO SHIP';
-  setText('release-readiness-verdict', verdict);
-  setText('release-readiness-chip', blockedCount ? 'Blocked' : 'Ready');
-  setClass('release-readiness-chip', 'command-status ' + (blockedCount ? 'warn' : 'ok'));
-  setText('release-readiness-count', checks.filter(function(c) { return c.ok; }).length + '/' + checks.length + ' passed');
-  setHTML('release-readiness-checklist', checks.map(function(check) {
-    return '<div class="command-row"><div><div class="strong">' + esc(check.name) + '</div><div class="muted">' + esc(check.detail) + '</div></div>' + pill(check.ok ? 'pass' : 'warn', check.ok ? 'PASS' : 'BLOCK') + '</div>';
-  }).join(''));
-  setHTML('release-readiness-blockers', checks.filter(function(c) { return !c.ok; }).map(function(check) {
-    return '<div class="attention-item warn"><div class="attention-value">!</div><div><div class="attention-title">' + esc(check.name) + '</div><div class="attention-detail">' + esc(check.detail) + '</div></div><span class="pill warn">ACTION</span></div>';
-  }).join('') || emptyHtml('No release blockers', 'This scoped data is ready by the conservative dashboard checks.'));
-}
-
-function renderSecurity(s) {
+function renderRunAnalytics(s) {
   var runs = s.runs || [];
-  var securityRuns = runs.filter(function(run) { return (run.stageReports || []).indexOf('12-security-threat-model') !== -1; });
-  var alertRisks = (s.alerts || []).filter(function(alert) { return /security|threat|risk|gate/i.test(String(alert.title || alert.type || alert.detail || '')); });
-  var high = alertRisks.length;
-  // First-pass heuristic: all blocked gates are treated as medium-severity
-  // security signals. Not every blocked gate is security-related (deployment
-  // or architecture approvals also block), so this over-counts until #91 adds
-  // a dedicated STRIDE/DREAD registry sourced from threat_model.json.
-  var medium = Math.max(0, ((s.blockedGates || []).length));
-  var low = securityRuns.length;
-  setText('security-threat-count', (high + medium + low) + ' signals');
-  setHTML('security-threat-heatmap', '<div class="heatmap"><div class="heat high"><b>' + high + '</b><span>high security/risk alerts</span></div><div class="heat med"><b>' + medium + '</b><span>blocked gates to review</span></div><div class="heat low"><b>' + low + '</b><span>runs with security stage</span></div></div>');
-  setHTML('security-release-gate', high || medium ? '<div class="alert-card warn"><div class="strong">Security release gate needs review</div><div class="muted">Resolve open security/risk alerts and blocked gates before shipment.</div></div>' : '<div class="alert-card pass"><div class="strong">No security blocker detected</div><div class="muted">Threat model artifacts are present where the run produced them.</div></div>');
-  var rows = (alertRisks.length ? alertRisks : securityRuns.slice(0, 20).map(function(run) { return { level: 'info', title: 'Security threat model produced', detail: 'Stage 12 artifact present', runId: run.runId }; })).slice(0, 30);
-  setHTML('security-threat-registry', rows.map(function(item) {
-    return '<tr><td>' + pill(item.level || 'info', item.level || 'info') + '</td><td><div class="strong">' + esc(item.title || item.type || 'Security signal') + '</div><div class="muted">' + esc(item.detail || '') + '</div></td><td class="mono muted">' + esc((item.runId || '').slice(-24)) + '</td><td>Review / mitigate</td></tr>';
-  }).join('') || '<tr><td colspan="4" class="empty">No security stage artifacts or security alerts in scope.</td></tr>');
-}
-
-function renderCompliance(s) {
-  var runs = s.runs || [];
-  var complianceRuns = runs.filter(function(run) { return (run.stageReports || []).indexOf('13-compliance-checker') !== -1; });
-  var evidence = (s.diagnostics && s.diagnostics.evidenceCount) || 0;
-  var tasks = (s.diagnostics && s.diagnostics.taskCount) || allTasks(s).length;
-  var coverage = tasks ? Math.min(100, Math.round((evidence / tasks) * 100)) : 0;
-  setText('compliance-score-count', complianceRuns.length + ' compliance runs');
-  setHTML('compliance-scorecards', [
-    { name: 'Audit evidence coverage', value: coverage + '%', detail: evidence + ' evidence records / ' + tasks + ' tasks' },
-    { name: 'Compliance stage coverage', value: complianceRuns.length, detail: 'runs with 13-compliance-checker output' },
-    { name: 'Validation gaps', value: (s.diagnostics && s.diagnostics.missingValidationCount) || 0, detail: 'missing validation contracts' }
-  ].map(function(card) { return '<div class="command-row"><div><div class="strong">' + esc(card.name) + '</div><div class="muted">' + esc(card.detail) + '</div></div><div class="side-v mini">' + esc(card.value) + '</div></div>'; }).join(''));
-  setHTML('compliance-controls', complianceRuns.length ? '<div class="stack-list">' + complianceRuns.slice(0, 12).map(function(run) { return '<div class="command-row"><div><div class="strong">Compliance report available</div><div class="muted mono">' + esc(run.runId) + '</div></div>' + pill('pass', 'report') + '</div>'; }).join('') + '</div>' : emptyHtml('Compliance stage not run in this scope', 'Run stage 13 or select a run that produced compliance_report.json.'));
-}
-
-function renderCostBudget(s) {
-  var model = businessFlexModel(s);
-  var budget = model.budget || {};
-  var totalCost = Number(s.totalCost || 0);
-  var avgCost = (s.totalRuns || 0) ? totalCost / s.totalRuns : 0;
-  setText('cost-budget-count', (s.totalRuns || 0) + ' runs');
-  setHTML('cost-budget-summary', '<div class="proof-grid"><div><div class="proof-value">$' + totalCost.toFixed(4) + '</div><div class="proof-label">actual tracked spend</div></div><div><div class="proof-value">$' + avgCost.toFixed(4) + '</div><div class="proof-label">avg / run</div></div><div><div class="proof-value">$' + Number(budget.runBudgetTotal || 0).toFixed(2) + '</div><div class="proof-label">profile run budget</div></div><div><div class="proof-value">$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + '</div><div class="proof-label">estimated task budget</div></div></div>');
-  var drivers = [];
-  (s.runs || []).forEach(function(run) {
-    (run.tasks || []).forEach(function(task) {
-      if (task.budget_envelope) drivers.push({ task: task.title || task.id, runId: run.runId, cost: task.budget_envelope.estimated_ai_cost_usd || 0 });
-    });
-  });
-  setHTML('cost-budget-drivers', drivers.slice(0, 20).map(function(driver) {
-    return '<div class="command-row"><div><div class="strong">' + esc(driver.task) + '</div><div class="muted mono">' + esc(driver.runId) + '</div></div><div class="side-v mini">$' + Number(driver.cost || 0).toFixed(2) + '</div></div>';
-  }).join('') || emptyHtml('No task budget envelopes', 'Business Flex budgets appear after init/profile and task routing metadata are written.'));
-}
-
-function renderAlertsGuardrails(s) {
-  var alerts = s.alerts || [];
-  var blocked = s.blockedGates || [];
-  setText('alerts-count', alerts.length + ' alerts');
-  setText('blocked-count', blocked.length + ' blocked gates');
-  setHTML('alerts-list', alerts.map(alertHtml).join('') || emptyHtml('All clear', 'No thresholds are currently breached.'));
-  setHTML('blocked-list', blocked.map(function(gate) {
-    return '<div class="alert-card warn"><div class="strong">' + esc(gate.title) + '</div><div class="muted">' + esc(gate.detail) + '</div><div class="feed-meta"><span>' + esc(gate.runId || '') + '</span><span>' + esc(fmtTime(gate.ts)) + '</span></div></div>';
-  }).join('') || emptyHtml('No blocked gates', 'Blocked approval gate history appears here.'));
-}
-
-function renderTraceability(s) {
-  var traces = s.traceMap || [];
-  setHTML('traceability-list', traces.map(function(trace) {
-    var steps = [
-      ['Requirements', trace.stages && trace.stages.requirements],
-      ['Architecture', trace.stages && trace.stages.architecture],
-      ['Code', trace.stages && trace.stages.code],
-      ['Testing', trace.stages && trace.stages.testing]
-    ].map(function(step) {
-      return '<span class="trace-step ' + (step[1] ? 'done' : '') + '">' + esc(step[0]) + '</span>';
+  var select = document.getElementById('analytics-run-select');
+  if (select) {
+    if (!ANALYTICS_RUN_ID || !runs.some(function(run) { return run.runId === ANALYTICS_RUN_ID; })) {
+      ANALYTICS_RUN_ID = runs.length ? runs[0].runId : null;
+    }
+    select.innerHTML = runs.map(function(run) {
+      var label = ((run.manifest && run.manifest.goal) || run.runId).slice(0, 70);
+      return '<option value="' + esc(run.runId) + '"' + (run.runId === ANALYTICS_RUN_ID ? ' selected' : '') + '>' + esc(label) + '</option>';
     }).join('');
-    var reqs = (trace.requirements || []).slice(0, 5).map(function(req) {
-      return '<div class="agent-item"><div class="mono faint">' + esc(req.id || req.area || 'requirement') + '</div><div>' + esc((req.description || req.title || req.text || '').slice(0, 170)) + '</div></div>';
-    }).join('');
-    var tasks = (trace.passTasks || []).slice(0, 6).map(function(task) {
-      return '<div class="agent-item"><div class="strong">' + esc(task.title || task.id) + '</div><div class="muted mono">' + esc(task.id) + ' / ' + (task.evidenceCount || 0) + ' checks</div></div>';
-    }).join('');
-    return '<div class="trace-card"><div class="agent-head"><div><div class="agent-title">' + esc(trace.goal || trace.runId) + '</div><div class="muted mono">' + esc(shortName(trace.projectRoot)) + ' / ' + esc(trace.runId) + '</div></div>' + pill('pass', (trace.evidenceTotal || 0) + ' checks') + '</div><div class="trace-flow">' + steps + '</div><div class="grid-2" style="margin-top:12px"><div>' + (reqs || emptyHtml('No requirements', '')) + '</div><div>' + (tasks || emptyHtml('No verified tasks', '')) + '</div></div></div>';
-  }).join('') || emptyHtml('No traceability data', 'Requirements and evidence appear after stage artifacts are written.'));
+  }
+  renderAnalyticsRun(ANALYTICS_RUN_ID);
+  renderStageBars(s);
+  renderTrendTable(s);
 }
 
-function renderTeamLayers(s) {
-  var layers = s.layers || [];
-  var frameworks = s.frameworks || {};
-  setHTML('layers-grid', layers.map(function(layer) {
-    return '<div class="layer-card"><div class="agent-head"><div><div class="strong">' + esc(layer.name) + '</div><div class="muted">' + esc(layer.detail) + '</div></div>' + pill(layer.health, layer.health) + '</div><div class="kpi-v" style="font-size:22px">' + esc(layer.count) + '</div></div>';
-  }).join('') || emptyHtml('No layer data', 'Layer health appears here.'));
-  setHTML('framework-table', Object.keys(frameworks).map(function(name) {
-    var item = frameworks[name];
-    return '<tr><td class="strong">' + esc(name) + '</td><td>' + item.runs + '</td><td style="color:var(--green);font-weight:800">' + item.pass + '</td><td style="color:var(--red);font-weight:800">' + item.fail + '</td><td class="mono muted">$' + Number(item.cost || 0).toFixed(4) + '</td></tr>';
-  }).join('') || '<tr><td colspan="5" class="empty">No framework data</td></tr>');
-}
-
-function renderDiagnostics(s) {
-  var d = s.diagnostics || {};
-  var rows = [
-    ['Runs', d.runCount || 0],
-    ['Tasks', d.taskCount || 0],
-    ['Events', d.eventCount || 0],
-    ['Evidence records', d.evidenceCount || 0],
-    ['Missing builder contracts', d.missingBuilderCount || 0],
-    ['Missing validation contracts', d.missingValidationCount || 0],
-    ['Data integrity errors', d.integrityErrorCount || 0]
-  ];
-  setHTML('diagnostics-health', rows.map(function(row) {
-    return '<div class="feed-row"><div class="feed-icon info">i</div><div><div class="feed-summary">' + esc(row[0]) + '</div></div><div class="feed-ts">' + esc(row[1]) + '</div></div>';
-  }).join(''));
-  var integrity = d.integrity || [];
-  var configIssues = d.configIssues || [];
-  var problems = integrity.map(function(issue) {
-    return '<div class="feed-row"><div class="feed-icon warn">!</div><div><div class="feed-summary">' + esc(issue.file) + '</div><div class="feed-meta"><span>' + esc(issue.runId || '') + '</span><span>' + esc(issue.error) + '</span></div></div></div>';
-  }).concat(configIssues.map(function(issue) {
-    return '<div class="feed-row"><div class="feed-icon warn">!</div><div><div class="feed-summary">' + esc(issue.file) + '</div><div class="feed-meta"><span>' + esc(issue.field || 'config') + '</span><span>' + esc(issue.problem) + '</span></div></div></div>';
-  }));
-  setHTML('diagnostics-integrity', problems.join('') || emptyHtml('No data integrity or config problems', 'Damaged run files and invalid .rstack config values appear here.'));
-  setHTML('diagnostics-roots', (d.sourceRoots || s.sourceRoots || []).map(function(root) {
-    return '<div class="project-card"><div class="strong">' + esc(shortName(root)) + '</div><div class="project-path mono">' + esc(root) + '</div></div>';
-  }).join('') || emptyHtml('No source roots', ''));
-}
-
-function workloadHtml(s) {
-  var runs = s.runs || [];
-  var active = runs.filter(function(run) { return run.derivedStatus === 'active'; }).length;
-  var stalled = runs.filter(function(run) { return run.derivedStatus === 'stalled'; }).length;
-  var ended = runs.filter(function(run) { return run.derivedStatus === 'ended' || run.derivedStatus === 'done'; }).length;
-  return '<div class="metric-row">' + pill('active', active + ' active') + pill('warn', stalled + ' stalled') + pill('pass', ended + ' ended') + '</div>' +
-    '<div style="margin-top:12px">' + (s.projectSummaries || []).slice(0, 5).map(function(project) {
-      return '<div class="feed-row"><div class="feed-icon info">' + esc(String(project.runs || 0)) + '</div><div><div class="feed-summary">' + esc(project.name) + '</div><div class="feed-meta"><span>' + project.tasks + ' tasks</span><span>$' + Number(project.cost || 0).toFixed(4) + '</span></div></div></div>';
-    }).join('') + '</div>';
-}
-
-function healthHtml(s) {
-  var blocked = (s.blockedGates || []).length;
-  var alerts = (s.alerts || []).length;
-  var missing = (s.diagnostics && s.diagnostics.missingValidationCount) || 0;
-  return '<div class="metric-row">' + pill(alerts ? 'warn' : 'pass', alerts + ' alerts') + pill(blocked ? 'warn' : 'pass', blocked + ' blocked') + pill(missing ? 'warn' : 'pass', missing + ' missing validation') + '</div>';
-}
-
-function agentItemHtml(work) {
-  var total = work.totalChecks || 0;
-  var rate = total ? Math.round((work.passChecks || 0) / total * 100) : 0;
-  return '<div class="agent-item"><div class="agent-head"><div><div class="strong">' + esc(work.title || work.taskId) + '</div><div class="muted mono">' + esc(work.stageId || work.taskId || '') + ' / ' + esc(work.agent || '') + '</div></div>' + pill(work.status || 'ready') + '</div>' +
-    '<div class="agent-summary">' + esc(work.summary || work.workDone || 'No builder summary yet.') + '</div>' +
-    (total ? '<div class="progress" style="margin-top:8px"><div class="progress-fill" style="width:' + rate + '%"></div></div>' : '') +
-    '<div class="chips">' + chip((work.passChecks || 0) + '/' + total + ' checks') + chip((work.riskCount || 0) + ' risks') + (work.filesModified || []).slice(0, 2).map(chip).join('') + '</div></div>';
-}
-
-function approvalHtml(item, canAct) {
-  var status = item.status || 'pending';
-  // Guardrail overrides are one-shot credentials, not standing approvals —
-  // say so on the card so the manager knows exactly what they are granting.
-  var isOverride = String(item.artifact || '').indexOf('guardrail-override:') === 0;
-  var overrideNote = isOverride
-    ? '<div class="muted" style="margin-top:6px">🛡 One-shot override: approving grants exactly <span class="strong">one</span> more attempt for this task, then the override is consumed and further attempts block again.</div>'
-    : '';
-  return '<div class="approval-card ' + esc(status) + '"><div class="agent-head"><div><div class="strong">' + esc(item.title || item.type || 'Approval required') + '</div><div class="muted">' + esc(item.detail || item.reason || '') + '</div>' + overrideNote + '<div class="feed-meta"><span>' + esc(shortName(item.projectRoot)) + '</span><span>' + esc((item.runId || '').slice(-16)) + '</span><span>' + esc(fmtTime(item.ts)) + '</span></div></div>' + pill(status, status) + '</div>' +
-    (canAct ? '<div class="approval-actions"><button class="btn primary" data-id="' + esc(item.id) + '" onclick="approveFromButton(this)">Approve</button><button class="btn danger" data-id="' + esc(item.id) + '" onclick="rejectFromButton(this)">Reject</button></div>' : '') +
-    '</div>';
-}
-
-function alertHtml(alert) {
-  return '<div class="alert-card ' + esc(alert.level || 'info') + '"><div class="agent-head"><div><div class="strong">' + esc(alert.title || alert.type || 'Alert') + '</div><div class="muted">' + esc(alert.detail || '') + '</div><div class="feed-meta"><span>' + esc(alert.type || '') + '</span><span>' + esc(alert.runId || '') + '</span></div></div>' + pill(alert.level || 'info') + '</div></div>';
-}
-
-function feedRowHtml(item) {
-  var level = item.level || 'info';
-  var icon = level === 'pass' ? 'OK' : level === 'fail' ? 'NO' : level === 'blocked' ? 'BL' : level === 'warn' ? '!' : 'i';
-  return '<div class="feed-row"><div class="feed-icon ' + esc(level) + '">' + icon + '</div><div><div class="feed-summary">' + esc(item.summary || '') + '</div><div class="feed-meta">' + (item.runId ? '<span>' + esc(item.runId.slice(-14)) + '</span>' : '') + (item.projectRoot ? '<span>' + esc(shortName(item.projectRoot)) + '</span>' : '') + (item.type ? '<span>' + esc(item.type) + '</span>' : '') + '</div></div><div class="feed-ts">' + esc(fmtTime(item.ts)) + '</div></div>';
-}
-
-function groupAgentWork(work) {
-  var groups = {};
-  (work || []).forEach(function(item) {
-    var key = (item.projectRoot || 'unknown') + '::' + item.runId;
-    if (!groups[key]) groups[key] = { projectRoot: item.projectRoot, runId: item.runId, goal: item.goal, total: 0, passed: 0, failed: 0, evidence: 0, risks: 0, agents: {}, items: [] };
-    var group = groups[key];
-    group.total += 1;
-    if (item.status === 'PASS') group.passed += 1;
-    if (item.status === 'FAIL') group.failed += 1;
-    group.evidence += item.evidenceCount || 0;
-    group.risks += item.riskCount || 0;
-    group.agents[item.agent || 'agent'] = (group.agents[item.agent || 'agent'] || 0) + 1;
-    group.items.push(item);
-  });
-  return Object.keys(groups).map(function(key) { return groups[key]; });
-}
-
-// ── Studio: Jarvis-style live agent workspace (issue #44) ───────────────────
-// Personas translate stage ids into people a manager recognizes — straight
-// from the workspace-v8 concept: agents introduce themselves.
-var STAGE_PERSONAS = {
-  '00-environment': ['DevOps Engineer', 'Prepare the Workshop'],
-  '01-transcript': ['Business Analyst', 'Listen to the Customer'],
-  '02-requirements': ['Product Manager', 'Define What to Build'],
-  '03-documentation': ['Technical Writer', 'Write It Down'],
-  '04-planning': ['Delivery Manager', 'Plan the Work'],
-  '05-jira': ['Scrum Master', 'Create the Tickets'],
-  '06-architecture': ['Solution Architect', 'Design the System'],
-  '07-code': ['Senior Developer', 'Build the Software'],
-  '08-testing': ['QA Engineer', 'Prove It Works'],
-  '09-deployment': ['Release Engineer', 'Ship It'],
-  '10-summary': ['Program Manager', 'Report the Outcome'],
-  '11-feedback-loop': ['Quality Coach', 'Close the Loop'],
-  '12-security-threat-model': ['Security Engineer', 'Find the Threats'],
-  '13-compliance-checker': ['Compliance Officer', 'Check the Rules'],
-  '14-cost-estimation': ['FinOps Analyst', 'Count the Cost'],
-};
-var STUDIO_STAGE_ORDER = Object.keys(STAGE_PERSONAS);
-var STUDIO_NARRATION = { text: '', shown: 0, timer: null };
-var STUDIO_SELECTED_STAGE = null;
-
-function studioRun(s) {
-  var runs = s.runs || [];
-  if (!runs.length) return null;
-  var active = runs.filter(function(run) { return run.derivedStatus === 'active'; });
-  return active[0] || runs[0];
-}
-
-function studioStageModel(run) {
-  // stage → { status, task, voice } from the run's tasks + stage timings.
-  var model = {};
-  STUDIO_STAGE_ORDER.forEach(function(stageId) { model[stageId] = { status: 'queued', task: null, voice: '' }; });
-  (run.tasks || []).forEach(function(task) {
-    var stageIds = (task.stage_artifacts || []).map(function(artifact) { return artifact.stage_id; });
-    if (!stageIds.length && task.stageId) stageIds = [task.stageId];
-    stageIds.forEach(function(stageId) {
-      if (!model[stageId]) return;
-      var entry = model[stageId];
-      var status = String(task.status || '').toUpperCase();
-      var mapped = status === 'PASS' ? 'done' : status === 'IN_PROGRESS' ? 'running' : status === 'FAIL' ? 'fail' : 'queued';
-      // Strongest signal wins: running > fail > done > queued.
-      var rank = { running: 3, fail: 2, done: 1, queued: 0 };
-      if (rank[mapped] >= rank[entry.status]) {
-        entry.status = mapped;
-        entry.task = task;
-        entry.voice = (task.builder && (task.builder.work_done || task.builder.summary)) ||
-          (mapped === 'queued' ? 'Waiting for the conveyor…' : '') || '';
-      }
-    });
-  });
-  // Stage elapsed from derived metrics marks completion even without tasks.
-  Object.keys(run.stageElapsed || {}).forEach(function(stageId) {
-    if (model[stageId] && model[stageId].status === 'queued') model[stageId].status = 'done';
-  });
-  return model;
-}
-
-function renderStudio(s) {
-  var run = studioRun(s);
-  var grid = document.getElementById('studio-grid');
-  if (!grid) return;
+function renderAnalyticsRun(runId) {
+  ANALYTICS_RUN_ID = runId;
+  var run = ((STATE && STATE.runs) || []).filter(function(item) { return item.runId === runId; })[0];
   if (!run) {
-    setHTML('studio-grid', emptyHtml('The studio is empty', 'Start a run and the agents take their desks.'));
-    setText('studio-narration', 'No runs yet. The studio opens with the first sdlc_start.');
+    setHTML('analytics-kpis', '');
+    setHTML('analytics-gantt', emptyHtml('No runs yet', 'Run timelines appear once a run records task events.'));
     return;
   }
   var totals = run.totals || {};
-  var isActive = run.derivedStatus === 'active';
-  setText('studio-run-label', (run.startedBy ? run.startedBy + ' · ' : '') + run.runId.slice(0, 40));
-  var visor = document.getElementById('studio-visor');
-  if (visor) visor.className = 'studio-visor' + (isActive ? ' live' : '');
-  setHTML('studio-hud',
-    '<div><span>' + fmtDur(totals.duration_ms) + '</span><label>elapsed</label></div>' +
-    '<div><span>' + (totals.tasks_passed || 0) + '</span><label>passed</label></div>' +
-    '<div><span>' + (totals.tool_calls || 0) + '</span><label>tool calls</label></div>' +
-    '<div><span>' + (totals.quality_avg !== null && totals.quality_avg !== undefined ? Math.round(totals.quality_avg * 100) + '%' : '—') + '</span><label>quality</label></div>');
+  setHTML('analytics-kpis',
+    '<div class="kpi blue"><div class="kpi-v">' + fmtDur(totals.duration_ms) + '</div><div class="kpi-l">Run Duration</div></div>' +
+    '<div class="kpi blue"><div class="kpi-v">' + (totals.tool_calls || 0) + '</div><div class="kpi-l">Tool Calls</div></div>' +
+    '<div class="kpi green"><div class="kpi-v">' + (totals.tasks_passed || 0) + '</div><div class="kpi-l">Passed</div></div>' +
+    '<div class="kpi red"><div class="kpi-v">' + (totals.tasks_failed || 0) + '</div><div class="kpi-l">Failed</div></div>' +
+    '<div class="kpi amber"><div class="kpi-v">' + (totals.quality_avg !== null && totals.quality_avg !== undefined ? Math.round(totals.quality_avg * 100) + '%' : '-') + '</div><div class="kpi-l">Avg Quality</div></div>' +
+    '<div class="kpi amber"><div class="kpi-v">$' + Number(totals.cost_usd || 0).toFixed(4) + '</div><div class="kpi-l">Cost</div></div>');
+  setHTML('analytics-gantt', ganttHtml(run.timeline || []));
+}
 
-  // The Manager narrates the newest event for this run.
-  var latest = (s.feed || []).filter(function(item) { return item.runId === run.runId; })[0];
-  var narration = latest
-    ? latest.summary + (isActive ? ' — the studio is live.' : '')
-    : 'Studio idle. Last run: ' + ((run.manifest && run.manifest.goal) || run.runId).slice(0, 80);
-  typeNarration(narration);
-
-  var model = studioStageModel(run);
-  setHTML('studio-grid', STUDIO_STAGE_ORDER.map(function(stageId) {
-    var persona = STAGE_PERSONAS[stageId];
-    var entry = model[stageId];
-    var voice = entry.voice ? '“' + entry.voice.slice(0, 110) + (entry.voice.length > 110 ? '…' : '') + '”' : '';
-    var badge = entry.status === 'running' ? '● WORKING NOW' : entry.status === 'done' ? '✓ COMPLETE' : entry.status === 'fail' ? '✗ NEEDS REVIEW' : '○ QUEUED';
-    return '<div class="workstation ' + entry.status + (stageId === STUDIO_SELECTED_STAGE ? ' selected' : '') + '" data-stage="' + esc(stageId) + '" onclick="openStudioStage(this)">' +
-      '<div class="ws-head"><span class="ws-id mono">' + esc(stageId.slice(0, 2)) + '</span><span class="ws-status-dot"></span></div>' +
-      '<div class="ws-business">' + esc(persona[1]) + '</div>' +
-      '<div class="ws-persona mono">' + esc(persona[0]) + '</div>' +
-      '<div class="ws-badge mono">' + badge + '</div>' +
-      (voice ? '<div class="ws-voice">' + esc(voice) + '</div>' : '') +
+function renderStageBars(s) {
+  var stages = (s.trends && s.trends.stages) || {};
+  var ids = Object.keys(stages).sort();
+  setText('analytics-stage-count', ids.length + ' stages');
+  if (!ids.length) {
+    setHTML('analytics-stage-bars', emptyHtml('No stage durations yet', 'stage_completed events populate this view.'));
+    return;
+  }
+  var max = Math.max.apply(null, ids.map(function(id) { return stages[id].avg_elapsed_ms || 0; })) || 1;
+  setHTML('analytics-stage-bars', ids.map(function(id) {
+    var stage = stages[id];
+    var width = Math.max(2, ((stage.avg_elapsed_ms || 0) / max) * 100);
+    return '<div class="stage-bar-row">' +
+      '<div class="stage-bar-label mono">' + esc(id) + '</div>' +
+      '<div class="stage-bar-track"><div class="stage-bar-fill" style="width:' + width.toFixed(1) + '%"></div></div>' +
+      '<div class="stage-bar-value mono">' + fmtDur(stage.avg_elapsed_ms) + ' <span class="faint">x' + stage.runs + '</span></div>' +
     '</div>';
   }).join(''));
-  if (STUDIO_SELECTED_STAGE) renderStudioInspector(run, model, STUDIO_SELECTED_STAGE);
 }
 
-function typeNarration(text) {
-  if (text === STUDIO_NARRATION.text) return;
-  STUDIO_NARRATION.text = text;
-  STUDIO_NARRATION.shown = 0;
-  clearInterval(STUDIO_NARRATION.timer);
-  STUDIO_NARRATION.timer = setInterval(function() {
-    STUDIO_NARRATION.shown += 3;
-    var el = document.getElementById('studio-narration');
-    if (!el) { clearInterval(STUDIO_NARRATION.timer); return; }
-    el.textContent = STUDIO_NARRATION.text.slice(0, STUDIO_NARRATION.shown) + (STUDIO_NARRATION.shown < STUDIO_NARRATION.text.length ? '▌' : '');
-    if (STUDIO_NARRATION.shown >= STUDIO_NARRATION.text.length) clearInterval(STUDIO_NARRATION.timer);
-  }, 30);
+function renderTrendTable(s) {
+  var rows = (s.trends && s.trends.runs) || [];
+  setText('analytics-trend-count', rows.length + ' runs');
+  setHTML('analytics-trend-table', rows.map(function(row) {
+    return '<tr class="clickable" data-runid="' + esc(row.runId) + '" onclick="openDrawerRow(this)">' +
+      '<td><div class="strong">' + esc((row.goal || row.runId).slice(0, 60)) + '</div><div class="faint mono">' + esc(String(row.created_at || '').slice(0, 16)) + '</div></td>' +
+      '<td class="mono">' + fmtDur(row.duration_ms) + '</td>' +
+      '<td class="mono">' + (row.tool_calls || 0) + '</td>' +
+      '<td><span class="strong">' + (row.tasks_passed || 0) + '</span><span class="muted">/' + ((row.tasks_passed || 0) + (row.tasks_failed || 0)) + '</span></td>' +
+      '<td class="mono">' + (row.quality_avg !== null && row.quality_avg !== undefined ? Math.round(row.quality_avg * 100) + '%' : '-') + '</td>' +
+      '<td class="mono muted">$' + Number(row.cost_usd || 0).toFixed(4) + '</td>' +
+    '</tr>';
+  }).join('') || '<tr><td colspan="6" class="empty">No runs yet</td></tr>');
 }
 
-function openStudioStage(el) {
-  STUDIO_SELECTED_STAGE = el.getAttribute('data-stage');
-  if (STATE) applyState(STATE);
-}
+registerPage('run-analytics', {
+  errLabel: 'run analytics',
+  sub: 'Wall-clock run timelines, per-stage durations and run-over-run delivery trends derived from events.jsonl.',
+  render: renderRunAnalytics
+});
 
-function renderStudioInspector(run, model, stageId) {
-  var panel = document.getElementById('studio-inspector');
-  if (!panel) return;
-  var persona = STAGE_PERSONAS[stageId] || ['Agent', stageId];
-  var entry = model[stageId] || { status: 'queued', task: null };
-  var task = entry.task;
-  panel.style.display = 'block';
-  var checks = task && task.validation
-    ? '<div class="metric-row">' + pill('pass', task.validation.pass_checks + '/' + task.validation.total_checks + ' checks') +
-      (task.validation.failed_checks || []).slice(0, 3).map(function(name) { return pill('fail', name); }).join('') + '</div>'
-    : '';
-  panel.innerHTML =
-    '<div class="panel-head"><span class="panel-title">' + esc(persona[0]) + ' — ' + esc(persona[1]) + '</span>' +
-    '<button class="drawer-close" onclick="closeStudioInspector()">x</button></div>' +
-    '<div class="panel-body">' +
-      (task
-        ? '<div class="strong">' + esc(task.title || task.id) + '</div>' +
-          '<div class="muted">' + esc(task.description || '') + '</div>' +
-          (task.builder && task.builder.work_done ? '<div class="ws-voice">“' + esc(task.builder.work_done) + '”</div>' : '') +
-          checks +
-          '<div class="chips">' + (task.specialists || []).map(function(name) { return chip(name); }).join('') + '</div>' +
-          '<button class="tb-chip" data-runid="' + esc(run.runId) + '" onclick="openDrawerRow(this)">Open full run</button>'
-        : '<div class="muted">No task routed to this stage yet — ' + esc(persona[0]) + ' is ' + (entry.status === 'done' ? 'finished.' : 'waiting at their desk.') + '</div>') +
-    '</div>';
-}
-
-function closeStudioInspector() {
-  STUDIO_SELECTED_STAGE = null;
-  var panel = document.getElementById('studio-inspector');
-  if (panel) panel.style.display = 'none';
-}
-
+// ── page: run-report ────────────────────────────────────────────────
 // ── Stage report infographics (issue #60) — shared by Run Report + Studio 3D ─
 var REPORT_CACHE = {};            // runId → { stages, deliverables }
 var REPORT_RUN_ID = null;
@@ -1607,212 +1458,130 @@ function reportKpi(label, value, tone) {
   return '<div class="report-kpi ' + tone + '"><div class="report-kpi-v">' + esc(String(value)) + '</div><div class="report-kpi-l">' + esc(label) + '</div></div>';
 }
 
-var ANALYTICS_RUN_ID = null;
+registerPage('run-report', {
+  errLabel: 'run report',
+  sub: 'Every stage report as an infographic — requirements, architecture, tests, security, compliance, cost, release gate — for the selected run.',
+  render: renderRunReport
+});
 
-function renderRunAnalytics(s) {
-  var runs = s.runs || [];
-  var select = document.getElementById('analytics-run-select');
-  if (select) {
-    if (!ANALYTICS_RUN_ID || !runs.some(function(run) { return run.runId === ANALYTICS_RUN_ID; })) {
-      ANALYTICS_RUN_ID = runs.length ? runs[0].runId : null;
-    }
-    select.innerHTML = runs.map(function(run) {
-      var label = ((run.manifest && run.manifest.goal) || run.runId).slice(0, 70);
-      return '<option value="' + esc(run.runId) + '"' + (run.runId === ANALYTICS_RUN_ID ? ' selected' : '') + '>' + esc(label) + '</option>';
-    }).join('');
-  }
-  renderAnalyticsRun(ANALYTICS_RUN_ID);
-  renderStageBars(s);
-  renderTrendTable(s);
-}
-
-function renderAnalyticsRun(runId) {
-  ANALYTICS_RUN_ID = runId;
-  var run = ((STATE && STATE.runs) || []).filter(function(item) { return item.runId === runId; })[0];
-  if (!run) {
-    setHTML('analytics-kpis', '');
-    setHTML('analytics-gantt', emptyHtml('No runs yet', 'Run timelines appear once a run records task events.'));
-    return;
-  }
-  var totals = run.totals || {};
-  setHTML('analytics-kpis',
-    '<div class="kpi blue"><div class="kpi-v">' + fmtDur(totals.duration_ms) + '</div><div class="kpi-l">Run Duration</div></div>' +
-    '<div class="kpi blue"><div class="kpi-v">' + (totals.tool_calls || 0) + '</div><div class="kpi-l">Tool Calls</div></div>' +
-    '<div class="kpi green"><div class="kpi-v">' + (totals.tasks_passed || 0) + '</div><div class="kpi-l">Passed</div></div>' +
-    '<div class="kpi red"><div class="kpi-v">' + (totals.tasks_failed || 0) + '</div><div class="kpi-l">Failed</div></div>' +
-    '<div class="kpi amber"><div class="kpi-v">' + (totals.quality_avg !== null && totals.quality_avg !== undefined ? Math.round(totals.quality_avg * 100) + '%' : '-') + '</div><div class="kpi-l">Avg Quality</div></div>' +
-    '<div class="kpi amber"><div class="kpi-v">$' + Number(totals.cost_usd || 0).toFixed(4) + '</div><div class="kpi-l">Cost</div></div>');
-  setHTML('analytics-gantt', ganttHtml(run.timeline || []));
-}
-
-function ganttHtml(segments) {
-  var timed = segments.filter(function(seg) { return seg.started_at; });
-  if (!timed.length) return emptyHtml('No timeline segments', 'task_started / task_validated events build this view.');
-  var start = Math.min.apply(null, timed.map(function(seg) { return Date.parse(seg.started_at); }));
-  var end = Math.max.apply(null, timed.map(function(seg) {
-    return seg.ended_at ? Date.parse(seg.ended_at) : Date.parse(seg.started_at);
-  }));
-  var span = Math.max(1, end - start);
-  return timed.map(function(seg) {
-    var s0 = Date.parse(seg.started_at);
-    var s1 = seg.ended_at ? Date.parse(seg.ended_at) : end;
-    var left = ((s0 - start) / span) * 100;
-    var width = Math.max(0.8, ((s1 - s0) / span) * 100);
-    var cls = seg.status === 'PASS' ? 'pass' : seg.status === 'FAIL' ? 'fail' : 'running';
-    var label = seg.task_id + (seg.attempt > 1 ? ' (attempt ' + seg.attempt + ')' : '');
-    var stages = (seg.stage_ids || []).join(', ');
-    return '<div class="gantt-row">' +
-      '<div class="gantt-label" title="' + esc(stages) + '">' + esc(label) + '</div>' +
-      '<div class="gantt-track">' +
-        '<div class="gantt-bar ' + cls + '" style="left:' + left.toFixed(2) + '%;width:' + width.toFixed(2) + '%" title="' + esc(label + ' — ' + fmtDur(seg.elapsed_ms) + (stages ? ' — ' + stages : '')) + '"></div>' +
-      '</div>' +
-      '<div class="gantt-dur mono">' + (seg.ended_at ? fmtDur(seg.elapsed_ms) : 'running') + '</div>' +
+// ── page: team ────────────────────────────────────────────────
+// ── Team & Presence page (issue #42) ────────────────────────────────────────
+function renderTeam(s) {
+  var presence = s.presence || [];
+  var live = presence.filter(function(item) { return item.live; });
+  setText('team-live-count', live.length + ' live / ' + presence.length + ' recent');
+  setHTML('team-live', presence.map(function(item) {
+    var dot = item.live ? '<span class="presence-dot live"></span>' : '<span class="presence-dot"></span>';
+    var task = item.currentTask
+      ? chip((item.currentTask.agent || 'agent') + ' → ' + item.currentTask.title)
+      : '<span class="muted">between tasks</span>';
+    return '<div class="stack-item clickable" data-runid="' + esc(item.runId) + '" onclick="openDrawerRow(this)">' +
+      '<div>' + dot + '<span class="strong">' + esc(item.startedBy) + '</span> <span class="muted">on</span> ' + esc(shortName(item.projectRoot)) + '' +
+      '<div class="muted">' + esc(item.goal) + '</div></div>' +
+      '<div class="metric-row">' + task + '<span class="faint mono">' + fmtAgo(item.secondsAgo) + '</span></div>' +
     '</div>';
-  }).join('');
-}
+  }).join('') || emptyHtml('Nobody live right now', 'Runs with events in the last 30 minutes appear here.'));
 
-function renderStageBars(s) {
-  var stages = (s.trends && s.trends.stages) || {};
-  var ids = Object.keys(stages).sort();
-  setText('analytics-stage-count', ids.length + ' stages');
-  if (!ids.length) {
-    setHTML('analytics-stage-bars', emptyHtml('No stage durations yet', 'stage_completed events populate this view.'));
-    return;
-  }
-  var max = Math.max.apply(null, ids.map(function(id) { return stages[id].avg_elapsed_ms || 0; })) || 1;
-  setHTML('analytics-stage-bars', ids.map(function(id) {
-    var stage = stages[id];
-    var width = Math.max(2, ((stage.avg_elapsed_ms || 0) / max) * 100);
-    return '<div class="stage-bar-row">' +
-      '<div class="stage-bar-label mono">' + esc(id) + '</div>' +
-      '<div class="stage-bar-track"><div class="stage-bar-fill" style="width:' + width.toFixed(1) + '%"></div></div>' +
-      '<div class="stage-bar-value mono">' + fmtDur(stage.avg_elapsed_ms) + ' <span class="faint">x' + stage.runs + '</span></div>' +
-    '</div>';
-  }).join(''));
-}
-
-function renderTrendTable(s) {
-  var rows = (s.trends && s.trends.runs) || [];
-  setText('analytics-trend-count', rows.length + ' runs');
-  setHTML('analytics-trend-table', rows.map(function(row) {
-    return '<tr class="clickable" data-runid="' + esc(row.runId) + '" onclick="openDrawerRow(this)">' +
-      '<td><div class="strong">' + esc((row.goal || row.runId).slice(0, 60)) + '</div><div class="faint mono">' + esc(String(row.created_at || '').slice(0, 16)) + '</div></td>' +
-      '<td class="mono">' + fmtDur(row.duration_ms) + '</td>' +
-      '<td class="mono">' + (row.tool_calls || 0) + '</td>' +
-      '<td><span class="strong">' + (row.tasks_passed || 0) + '</span><span class="muted">/' + ((row.tasks_passed || 0) + (row.tasks_failed || 0)) + '</span></td>' +
-      '<td class="mono">' + (row.quality_avg !== null && row.quality_avg !== undefined ? Math.round(row.quality_avg * 100) + '%' : '-') + '</td>' +
-      '<td class="mono muted">$' + Number(row.cost_usd || 0).toFixed(4) + '</td>' +
+  var people = s.people || [];
+  setText('team-people-count', people.length + ' people');
+  setHTML('team-people-table', people.map(function(person) {
+    return '<tr>' +
+      '<td><div class="strong">' + esc(person.name) + '</div>' + (person.email ? '<div class="faint mono">' + esc(person.email) + '</div>' : '') + '</td>' +
+      '<td class="mono">' + person.runsStarted + '</td>' +
+      '<td class="mono">' + person.approvals + (person.rejections ? ' <span class="muted">/ ' + person.rejections + ' rejected</span>' : '') + '</td>' +
+      '<td class="mono">' + person.guidance + '</td>' +
+      '<td class="mono muted">' + (person.lastSeen ? fmtTime(person.lastSeen) : '-') + '</td>' +
     '</tr>';
-  }).join('') || '<tr><td colspan="6" class="empty">No runs yet</td></tr>');
+  }).join('') || '<tr><td colspan="5" class="empty">No people yet — runs started after the people layer record who did what</td></tr>');
+
+  var projects = s.projectSummaries || [];
+  var blocked = s.blockedGates || [];
+  var runs = s.runs || [];
+  setText('team-manager-count', projects.length + ' projects');
+  setHTML('team-manager-table', projects.map(function(project) {
+    var projectRuns = runs.filter(function(run) { return run.projectRoot === project.projectRoot; });
+    var durations = projectRuns.map(function(run) { return (run.totals || {}).duration_ms || 0; }).filter(Boolean);
+    var avg = durations.length ? durations.reduce(function(sum, ms) { return sum + ms; }, 0) / durations.length : 0;
+    var total = project.passed + project.failed;
+    var rate = total ? Math.round(project.passed / total * 100) : 0;
+    var gates = blocked.filter(function(gate) { return projectRuns.some(function(run) { return run.runId === gate.runId; }); }).length;
+    return '<tr>' +
+      '<td><div class="strong">' + esc(project.name) + '</div></td>' +
+      '<td class="mono">' + project.runs + (project.active ? ' <span class="muted">(' + project.active + ' active)</span>' : '') + '</td>' +
+      '<td class="mono">' + fmtDur(avg) + '</td>' +
+      '<td class="mono">' + rate + '%</td>' +
+      '<td class="mono">' + (gates ? '<span class="strong">' + gates + '</span>' : '0') + '</td>' +
+    '</tr>';
+  }).join('') || '<tr><td colspan="5" class="empty">No projects yet</td></tr>');
+
+  var guidanceFeed = (s.feed || []).filter(function(item) { return item.type === 'clarification_answers_added'; });
+  setText('team-guidance-count', guidanceFeed.length + ' entries');
+  setHTML('team-guidance', guidanceFeed.slice(0, 30).map(feedRowHtml).join('') ||
+    emptyHtml('No guidance recorded yet', 'When a developer answers clarification questions, it shows up here with their name.'));
 }
 
-function fmtDur(ms) {
-  ms = Number(ms) || 0;
-  if (ms < 1000) return ms + 'ms';
-  var sec = Math.round(ms / 1000);
-  if (sec < 60) return sec + 's';
-  var min = Math.floor(sec / 60);
-  if (min < 60) return min + 'm ' + (sec % 60) + 's';
-  return Math.floor(min / 60) + 'h ' + (min % 60) + 'm';
+registerPage('team', {
+  errLabel: 'team',
+  sub: 'Who is live and working right now, the people behind every run, approval and guidance, and the manager project rollup.',
+  render: renderTeam
+});
+
+// ── page: agent-work ────────────────────────────────────────────────
+function renderAgentWork(s) {
+  var groups = s.agentGroups || groupAgentWork(s.agentWork || []);
+  var workCount = (s.agentWork || []).length;
+  setText('agent-work-count', workCount + ' actions');
+  setHTML('agent-work-list', groups.map(function(group) {
+    var agents = Object.keys(group.agents || {});
+    return '<div class="agent-group">' +
+      '<div class="agent-head"><div><div class="agent-title">' + esc(group.goal || group.runId) + '</div><div class="muted mono">' + esc(shortName(group.projectRoot)) + ' / ' + esc(group.runId) + '</div></div>' +
+      '<div class="metric-row">' + pill('pass', group.passed + ' pass') + pill('fail', group.failed + ' fail') + pill('info', group.evidence + ' checks') + pill('warn', group.risks + ' risks') + '</div></div>' +
+      '<div class="chips">' + agents.slice(0, 6).map(function(agent) { return chip(agent + ' x' + group.agents[agent]); }).join('') + '</div>' +
+      '<div class="agent-items">' + (group.items || []).slice(0, 8).map(agentItemHtml).join('') + '</div>' +
+    '</div>';
+  }).join('') || emptyHtml('No agent contracts yet', 'builder.json and validation.json data appears here.'));
 }
 
-function openDrawerRow(row) {
-  openDrawer(row.getAttribute('data-runid'));
+registerPage('agent-work', {
+  errLabel: 'agent work',
+  sub: 'Builder and validator work grouped by project, run, stage and agent contract.',
+  render: renderAgentWork
+});
+
+// ── page: live-feed ────────────────────────────────────────────────
+function renderLiveFeed(s) {
+  var feed = s.feed || [];
+  setText('live-feed-count', feed.length + ' events');
+  setHTML('live-feed-list', feed.length ? feed.map(feedRowHtml).join('') : emptyHtml('No events yet', 'Live event data appears here.'));
 }
 
-function openDrawer(runId) {
-  var run = (STATE && STATE.runs || []).filter(function(item) { return item.runId === runId; })[0];
-  if (!run) return;
-  var tasks = run.tasks || [];
-  var timeline = run.activityTimeline || [];
-  var passed = tasks.filter(function(task) { return task.status === 'PASS'; }).length;
-  var failed = tasks.filter(function(task) { return task.status === 'FAIL'; }).length;
-  var totals = run.totals || {};
-  var calls = totals.tool_calls || timeline.reduce(function(total, item) { return total + (item.toolCalls || 0); }, 0);
-  var cost = totals.cost_usd || (run.metrics || {}).cumulative_cost_usd || 0;
-  setText('drawer-title', (run.manifest && run.manifest.goal) || run.runId);
-  setText('drawer-sub', shortName(run.projectRoot) + ' / ' + run.runId);
-  setHTML('drawer-body',
-    '<div class="kpi-grid">' +
-      '<div class="kpi blue"><div class="kpi-v">' + fmtDur(totals.duration_ms) + '</div><div class="kpi-l">Duration</div></div>' +
-      '<div class="kpi blue"><div class="kpi-v">' + calls + '</div><div class="kpi-l">Tool Calls</div></div>' +
-      '<div class="kpi green"><div class="kpi-v">' + passed + '</div><div class="kpi-l">Passed</div></div>' +
-      '<div class="kpi red"><div class="kpi-v">' + failed + '</div><div class="kpi-l">Failed</div></div>' +
-      '<div class="kpi amber"><div class="kpi-v">' + (totals.quality_avg !== null && totals.quality_avg !== undefined ? Math.round(totals.quality_avg * 100) + '%' : '-') + '</div><div class="kpi-l">Quality</div></div>' +
-      '<div class="kpi amber"><div class="kpi-v">$' + Number(cost).toFixed(4) + '</div><div class="kpi-l">Cost</div></div>' +
-    '</div>' +
-    '<div class="panel"><div class="panel-head"><span class="panel-title">Deliverables</span><span class="panel-note">' + (run.artifactIndex || []).length + ' artifacts</span></div><div class="panel-body">' +
-      artifactListHtml(run) +
-    '</div></div>' +
-    '<div class="panel"><div class="panel-head"><span class="panel-title">Evidence</span><span class="panel-note">' + (run.evidenceCount || 0) + ' records</span></div><div class="panel-body">' +
-      evidenceListHtml(run) +
-    '</div></div>' +
-    '<div class="panel"><div class="panel-head"><span class="panel-title">Task Timeline</span></div><div class="panel-body"><div class="gantt">' +
-      ganttHtml(run.timeline || []) +
-    '</div></div></div>' +
-    '<div class="panel"><div class="panel-head"><span class="panel-title">Activity by Minute</span></div><div class="panel-body">' +
-      (timeline.map(function(item) {
-        return '<div class="feed-row"><div class="feed-icon info">' + (item.toolCalls || 0) + '</div><div><div class="feed-summary">' + esc(item.minute || '') + '</div><div class="feed-meta"><span>' + (item.stagesDone || []).length + ' stages</span><span>' + (item.guardrails || 0) + ' guardrails</span></div></div></div>';
-      }).join('') || emptyHtml('No timeline', '')) +
-    '</div></div>');
-  document.getElementById('drawer-overlay').classList.add('open');
-  document.getElementById('drawer-panel').classList.add('open');
+registerPage('live-feed', {
+  errLabel: 'live feed',
+  sub: 'Real-time event stream from events.jsonl plus live WebSocket refreshes.',
+  render: renderLiveFeed
+});
+
+// ── page: approvals ────────────────────────────────────────────────
+function renderApprovals(s) {
+  var approvals = s.approvals || [];
+  var pending = approvals.filter(function(item) { return !item.status || item.status === 'pending'; });
+  var resolved = approvals.filter(function(item) { return item.status && item.status !== 'pending'; });
+  setText('approvals-count', pending.length + ' pending');
+  setHTML('approvals-list', pending.map(function(item) { return approvalHtml(item, true); }).join('') || emptyHtml('No pending approvals', 'Only queue-backed approvals appear here.'));
+  setHTML('approvals-resolved', resolved.slice(0, 20).map(function(item) { return approvalHtml(item, false); }).join('') || emptyHtml('No resolved approvals', 'Approved and rejected queue entries appear here.'));
 }
 
-function artifactListHtml(run) {
-  var items = run.artifactIndex || [];
-  if (!items.length) return emptyHtml('No artifacts yet', 'Stage deliverables (requirements, architecture, QA reports…) appear here.');
-  var byStage = {};
-  items.forEach(function(item) { (byStage[item.stage] = byStage[item.stage] || []).push(item); });
-  return Object.keys(byStage).sort().map(function(stage) {
-    return '<div class="artifact-group"><div class="artifact-stage mono">' + esc(stage) + '</div>' +
-      byStage[stage].map(function(item) {
-        var name = item.path.split('/').pop();
-        return '<button class="artifact-link" data-runid="' + esc(run.runId) + '" data-path="' + esc(item.path) + '" onclick="viewArtifact(this)">' +
-          '<span class="mono">' + esc(name) + '</span><span class="faint mono">' + Math.ceil((item.size || 0) / 1024) + ' KB</span></button>';
-      }).join('') + '</div>';
-  }).join('');
-}
-
-function evidenceListHtml(run) {
-  var entries = run.evidenceRecent || [];
-  if (!entries.length) return emptyHtml('No evidence yet', 'Validation evidence records appear here.');
-  return entries.map(function(entry) {
-    return '<div class="evidence-row">' + pill(entry.status === 'PASS' ? 'pass' : 'fail', entry.status) +
-      '<span class="mono">' + esc(entry.task_id || '') + '</span>' +
-      '<span class="muted">' + esc(entry.kind || '') + '</span>' +
-      '<span class="faint mono">' + (entry.ts ? fmtTime(entry.ts) : '') + '</span></div>';
-  }).join('');
-}
-
-function viewArtifact(btn) {
-  var runId = btn.getAttribute('data-runid');
-  var path = btn.getAttribute('data-path');
-  authAwareFetch('/api/artifact?run=' + encodeURIComponent(runId) + '&path=' + encodeURIComponent(path))
-    .then(function(response) { return response.json(); })
-    .then(function(data) {
-      if (data.error) { showErr('artifact: ' + data.error); return; }
-      var body = document.getElementById('drawer-body');
-      // Rich rendering (Markdown / structured JSON / JSONL) lives in
-      // artifact-render.js; fall back to a raw <pre> if that module is absent.
-      if (typeof renderArtifactInto === 'function') {
-        renderArtifactInto(body, data, runId, function() { openDrawer(runId); });
-      } else {
-        var kb = Math.ceil((data.size || 0) / 1024);
-        body.innerHTML =
-          '<div class="ar-toolbar"><button class="tb-chip ar-back">← Back to run</button>' +
-          '<span class="ar-path mono">' + esc(data.path) + '</span><span class="ar-size">' + kb + ' KB</span></div>' +
-          '<div class="panel"><div class="panel-body"><pre class="artifact-content">' + esc(data.content) + '</pre></div></div>';
-        var fb = body.querySelector('.ar-back');
-        if (fb) fb.addEventListener('click', function() { openDrawer(runId); });
-      }
-    })
-    .catch(function(err) { showErr('artifact: ' + err.message); });
-}
-
-function closeDrawer() {
-  document.getElementById('drawer-overlay').classList.remove('open');
-  document.getElementById('drawer-panel').classList.remove('open');
+function approvalHtml(item, canAct) {
+  var status = item.status || 'pending';
+  // Guardrail overrides are one-shot credentials, not standing approvals —
+  // say so on the card so the manager knows exactly what they are granting.
+  var isOverride = String(item.artifact || '').indexOf('guardrail-override:') === 0;
+  var overrideNote = isOverride
+    ? '<div class="muted" style="margin-top:6px">🛡 One-shot override: approving grants exactly <span class="strong">one</span> more attempt for this task, then the override is consumed and further attempts block again.</div>'
+    : '';
+  return '<div class="approval-card ' + esc(status) + '"><div class="agent-head"><div><div class="strong">' + esc(item.title || item.type || 'Approval required') + '</div><div class="muted">' + esc(item.detail || item.reason || '') + '</div>' + overrideNote + '<div class="feed-meta"><span>' + esc(shortName(item.projectRoot)) + '</span><span>' + esc((item.runId || '').slice(-16)) + '</span><span>' + esc(fmtTime(item.ts)) + '</span></div></div>' + pill(status, status) + '</div>' +
+    (canAct ? '<div class="approval-actions"><button class="btn primary" data-id="' + esc(item.id) + '" onclick="approveFromButton(this)">Approve</button><button class="btn danger" data-id="' + esc(item.id) + '" onclick="rejectFromButton(this)">Reject</button></div>' : '') +
+    '</div>';
 }
 
 function approveFromButton(btn) {
@@ -1850,237 +1619,255 @@ function resolveApproval(id, action) {
   }).catch(function(err) { showErr('approval: ' + err.message); });
 }
 
-// Read token (#164): kept in sessionStorage only — never persisted across
-// browser sessions. Prompted once on the first 401 from a read endpoint.
-function readToken() {
-  return sessionStorage.getItem('rstack-read-token') || '';
-}
+registerPage('approvals', {
+  errLabel: 'approvals',
+  sub: 'Human-in-loop actions from the approval queue only.',
+  unscoped: true,
+  render: renderApprovals
+});
 
-function promptReadToken() {
-  if (typeof window.prompt !== 'function') return '';
-  var token = window.prompt('Dashboard read token (RSTACK_DASHBOARD_READ_TOKEN set on the hub)') || '';
-  if (token) sessionStorage.setItem('rstack-read-token', token);
-  return token;
-}
-
-function readHeaders(extra) {
-  var headers = extra || {};
-  var token = readToken();
-  if (token) headers['x-rstack-read-token'] = token;
-  return headers;
-}
-
-function authAwareFetch(url, opts) {
-  opts = opts || {};
-  opts.headers = readHeaders(opts.headers);
-  return fetch(url, opts).then(function(response) {
-    if (response.status === 401 && !readToken()) {
-      var token = promptReadToken();
-      if (token) {
-        opts.headers = readHeaders(opts.headers);
-        return fetch(url, opts);
-      }
-    }
-    return response;
-  });
-}
-
-function fetchState() {
-  // Conditional request: an unchanged snapshot returns 304, which still
-  // confirms the data is current (refresh the freshness clock) without a
-  // re-render. ETag stripping of server eval-time stamps lives server-side.
-  var opts = LAST_ETAG ? { headers: { 'If-None-Match': LAST_ETAG } } : {};
-  return authAwareFetch('/api/state', opts)
-    .then(function(response) {
-      var etag = response.headers.get('etag');
-      if (etag) LAST_ETAG = etag;
-      if (response.status === 304) {
-        LAST_SNAPSHOT_AT = Date.now();
-        updateFreshness();
-        return null;
-      }
-      if (!response.ok) {
-        // Never let an error body masquerade as a fresh snapshot.
-        return response.json().catch(function() { return {}; }).then(function(body) {
-          throw new Error(body.error || ('HTTP ' + response.status));
-        });
-      }
-      return response.json().then(function(data) { applyState(data, { fromSnapshot: true }); return data; });
-    })
-    .catch(function(err) {
-      // Don't claim freshness — let the heartbeat age the chip toward stale.
-      updateFreshness();
-      showErr('HTTP load failed: ' + err.message);
+// ── page: decisions ────────────────────────────────────────────────
+function renderDecisions(s) {
+  var state = s.decisions || { runs: [], totals: {} };
+  var runs = state.runs || [];
+  var decisions = [];
+  runs.forEach(function(run) {
+    (run.decisions || []).forEach(function(decision) {
+      decisions.push({ run: run, decision: decision });
     });
-}
-
-function connectWS() {
-  try {
-    // Browsers cannot set custom headers on WebSocket upgrades, so the read
-    // token travels as a query param when configured.
-    var wsProto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-    var wsToken = readToken();
-    ws = new WebSocket(wsProto + 'localhost:' + PORT + (wsToken ? '/?token=' + encodeURIComponent(wsToken) : ''));
-  } catch (err) {
-    WS_CONNECTED = false;
-    startPolling();
-    updateFreshness();
-    return;
-  }
-  ws.onopen = function() {
-    WS_CONNECTED = true;
-    clearTimeout(reconnectTimer);
-    stopPolling();
-    updateFreshness();
-  };
-  ws.onmessage = function(event) {
-    try {
-      applyState(JSON.parse(event.data), { fromSnapshot: true });
-    } catch (err) {
-      showErr('WS render: ' + err.message);
-    }
-  };
-  ws.onclose = ws.onerror = function() {
-    WS_CONNECTED = false;
-    updateFreshness();
-    startPolling();
-    clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(connectWS, 2500);
-  };
-}
-
-// While the socket is down, keep data flowing with a 5s REST poll so the
-// dashboard recovers on its own (and the chip can show "Reconnecting" with a
-// live-as-of stamp rather than a frozen page).
-function startPolling() {
-  if (POLL_TIMER) return;
-  POLL_TIMER = setInterval(function() { if (!WS_CONNECTED) fetchState(); }, 5000);
-}
-
-function stopPolling() {
-  if (!POLL_TIMER) return;
-  clearInterval(POLL_TIMER);
-  POLL_TIMER = null;
-}
-
-function shortClock(value) {
-  if (!value) return null;
-  var d = new Date(value);
-  if (isNaN(d.getTime())) return String(value).slice(11, 19) || null;
-  function pad(n) { return (n < 10 ? '0' : '') + n; }
-  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
-}
-
-// Single source of truth for the topbar connection chip. Derives the kind from
-// socket state + snapshot age, paints the dot/label, and announces transitions
-// to assistive tech via the aria-live region.
-function updateFreshness() {
-  var kind = classifyFreshness({
-    now: Date.now(),
-    lastSnapshotAt: LAST_SNAPSHOT_AT,
-    wsConnected: WS_CONNECTED,
-    hasData: LAST_SNAPSHOT_AT > 0,
   });
-  var label = freshnessLabel(kind, shortClock(LAST_SERVER_TS));
-  setText('status-text', label);
-  var statusDot = document.getElementById('status-dot');
-  var wsDot = document.getElementById('ws-dot');
-  if (statusDot) statusDot.className = 'status-dot ' + freshnessDotClass(kind);
-  if (wsDot) wsDot.className = kind === 'live' ? 'ws-dot ws-live' : 'ws-dot';
-  if (kind !== LAST_CONN_KIND) {
-    LAST_CONN_KIND = kind;
-    var live = document.getElementById('conn-live');
-    if (live) live.textContent = label;
-  }
+  var pending = decisions.filter(function(item) { return item.decision.status === 'pending'; });
+  setText('decisions-count', pending.length + ' pending / ' + decisions.length + ' total');
+  setText('readiness-count', runs.length + ' runs');
+  setHTML('decisions-list', decisions.slice(0, 40).map(function(item) {
+    var d = item.decision;
+    return '<div class="approval-card ' + esc(d.status || 'pending') + '"><div class="agent-head"><div><div class="strong">' + esc(d.decision_id + ' — ' + d.question) + '</div><div class="muted">' + esc(d.recommendation ? 'Recommendation: ' + d.recommendation : 'No recommendation recorded') + '</div><div class="feed-meta"><span>' + esc(d.impact) + '</span><span>before ' + esc(d.required_before_stage) + '</span><span>' + esc((item.run.runId || '').slice(-16)) + '</span></div></div>' + pill(d.status || 'pending', d.status || 'pending') + '</div></div>';
+  }).join('') || emptyHtml('No decisions recorded', 'Use sdlc_decisions or rstack-agents decisions to add Decision Queue items.'));
+  setHTML('readiness-list', runs.map(function(run) {
+    var r = run.readiness || {};
+    return '<div class="alert-card ' + (r.status === 'FAIL' ? 'fail' : r.status === 'WARN' ? 'warn' : 'pass') + '"><div class="agent-head"><div><div class="strong">' + esc(run.goal || run.runId) + '</div><div class="muted">' + esc(r.message || 'Definition-of-Ready status') + '</div><div class="feed-meta"><span>' + esc(run.profile || '') + '</span><span>' + esc(r.mode || '') + '</span><span>score ' + esc(r.score || 0) + '</span></div></div>' + pill(r.status || 'PASS') + '</div></div>';
+  }).join('') || emptyHtml('No readiness data', 'Run sdlc_dor_check or rstack-agents dor after starting an RStack run.'));
 }
 
-function allTasks(s) {
-  return (s.runs || []).reduce(function(items, run) { return items.concat(run.tasks || []); }, []);
+registerPage('decisions', {
+  errLabel: 'decisions',
+  sub: 'Decision Queue and Definition-of-Ready status from decisions.json, dor-report.json and readiness.json.',
+  render: renderDecisions
+});
+
+// ── page: release-readiness ────────────────────────────────────────────────
+function renderReleaseReadiness(s) {
+  var tasks = allTasks(s);
+  var counts = taskStatusCounts(tasks);
+  var blocked = (s.blockedGates || []).length;
+  var alerts = (s.alerts || []).length;
+  var pending = (s.pendingApprovals || []).length;
+  var missingValidation = (s.diagnostics && s.diagnostics.missingValidationCount) || 0;
+  var passEvidence = (s.diagnostics && s.diagnostics.evidenceCount) || 0;
+  var checks = [
+    { name: 'Tests passing', ok: counts.FAIL === 0, detail: counts.PASS + ' passed / ' + counts.FAIL + ' failed' },
+    { name: 'Approval gates resolved', ok: blocked === 0 && pending === 0, detail: blocked + ' blocked gates, ' + pending + ' pending approvals' },
+    { name: 'Validation evidence attached', ok: missingValidation === 0, detail: passEvidence + ' evidence records, ' + missingValidation + ' missing validations' },
+    { name: 'Operational alerts clear', ok: alerts === 0, detail: alerts + ' active alerts' }
+  ];
+  var blockedCount = checks.filter(function(c) { return !c.ok; }).length;
+  var verdict = blockedCount ? 'BLOCKED — ' + blockedCount + ' release condition' + (blockedCount === 1 ? '' : 's') + ' need work' : 'READY TO SHIP';
+  setText('release-readiness-verdict', verdict);
+  setText('release-readiness-chip', blockedCount ? 'Blocked' : 'Ready');
+  setClass('release-readiness-chip', 'command-status ' + (blockedCount ? 'warn' : 'ok'));
+  setText('release-readiness-count', checks.filter(function(c) { return c.ok; }).length + '/' + checks.length + ' passed');
+  setHTML('release-readiness-checklist', checks.map(function(check) {
+    return '<div class="command-row"><div><div class="strong">' + esc(check.name) + '</div><div class="muted">' + esc(check.detail) + '</div></div>' + pill(check.ok ? 'pass' : 'warn', check.ok ? 'PASS' : 'BLOCK') + '</div>';
+  }).join(''));
+  setHTML('release-readiness-blockers', checks.filter(function(c) { return !c.ok; }).map(function(check) {
+    return '<div class="attention-item warn"><div class="attention-value">!</div><div><div class="attention-title">' + esc(check.name) + '</div><div class="attention-detail">' + esc(check.detail) + '</div></div><span class="pill warn">ACTION</span></div>';
+  }).join('') || emptyHtml('No release blockers', 'This scoped data is ready by the conservative dashboard checks.'));
 }
 
-function taskStatusCounts(tasks) {
-  var counts = { PASS: 0, FAIL: 0, IN_PROGRESS: 0, PENDING: 0, READY: 0, QUEUED: 0 };
-  (tasks || []).forEach(function(task) {
-    var status = String(task.status || 'READY').toUpperCase();
-    if (status === 'RUNNING') status = 'IN_PROGRESS';
-    if (status === 'DONE') status = 'PASS';
-    if (!counts[status]) counts[status] = 0;
-    counts[status] += 1;
+registerPage('release-readiness', {
+  errLabel: 'release readiness',
+  sub: 'The conservative ship/no-ship view: blockers, test status, unresolved gates, evidence completeness, and manager actions.',
+  render: renderReleaseReadiness
+});
+
+// ── page: security ────────────────────────────────────────────────
+function renderSecurity(s) {
+  var runs = s.runs || [];
+  var securityRuns = runs.filter(function(run) { return (run.stageReports || []).indexOf('12-security-threat-model') !== -1; });
+  var alertRisks = (s.alerts || []).filter(function(alert) { return /security|threat|risk|gate/i.test(String(alert.title || alert.type || alert.detail || '')); });
+  var high = alertRisks.length;
+  // First-pass heuristic: all blocked gates are treated as medium-severity
+  // security signals. Not every blocked gate is security-related (deployment
+  // or architecture approvals also block), so this over-counts until #91 adds
+  // a dedicated STRIDE/DREAD registry sourced from threat_model.json.
+  var medium = Math.max(0, ((s.blockedGates || []).length));
+  var low = securityRuns.length;
+  setText('security-threat-count', (high + medium + low) + ' signals');
+  setHTML('security-threat-heatmap', '<div class="heatmap"><div class="heat high"><b>' + high + '</b><span>high security/risk alerts</span></div><div class="heat med"><b>' + medium + '</b><span>blocked gates to review</span></div><div class="heat low"><b>' + low + '</b><span>runs with security stage</span></div></div>');
+  setHTML('security-release-gate', high || medium ? '<div class="alert-card warn"><div class="strong">Security release gate needs review</div><div class="muted">Resolve open security/risk alerts and blocked gates before shipment.</div></div>' : '<div class="alert-card pass"><div class="strong">No security blocker detected</div><div class="muted">Threat model artifacts are present where the run produced them.</div></div>');
+  var rows = (alertRisks.length ? alertRisks : securityRuns.slice(0, 20).map(function(run) { return { level: 'info', title: 'Security threat model produced', detail: 'Stage 12 artifact present', runId: run.runId }; })).slice(0, 30);
+  setHTML('security-threat-registry', rows.map(function(item) {
+    return '<tr><td>' + pill(item.level || 'info', item.level || 'info') + '</td><td><div class="strong">' + esc(item.title || item.type || 'Security signal') + '</div><div class="muted">' + esc(item.detail || '') + '</div></td><td class="mono muted">' + esc((item.runId || '').slice(-24)) + '</td><td>Review / mitigate</td></tr>';
+  }).join('') || '<tr><td colspan="4" class="empty">No security stage artifacts or security alerts in scope.</td></tr>');
+}
+
+registerPage('security', {
+  errLabel: 'security',
+  sub: 'Threat registry and release-gate status from threat-model artifacts, open risks, and security-stage findings.',
+  render: renderSecurity
+});
+
+// ── page: compliance ────────────────────────────────────────────────
+function renderCompliance(s) {
+  var runs = s.runs || [];
+  var complianceRuns = runs.filter(function(run) { return (run.stageReports || []).indexOf('13-compliance-checker') !== -1; });
+  var evidence = (s.diagnostics && s.diagnostics.evidenceCount) || 0;
+  var tasks = (s.diagnostics && s.diagnostics.taskCount) || allTasks(s).length;
+  var coverage = tasks ? Math.min(100, Math.round((evidence / tasks) * 100)) : 0;
+  setText('compliance-score-count', complianceRuns.length + ' compliance runs');
+  setHTML('compliance-scorecards', [
+    { name: 'Audit evidence coverage', value: coverage + '%', detail: evidence + ' evidence records / ' + tasks + ' tasks' },
+    { name: 'Compliance stage coverage', value: complianceRuns.length, detail: 'runs with 13-compliance-checker output' },
+    { name: 'Validation gaps', value: (s.diagnostics && s.diagnostics.missingValidationCount) || 0, detail: 'missing validation contracts' }
+  ].map(function(card) { return '<div class="command-row"><div><div class="strong">' + esc(card.name) + '</div><div class="muted">' + esc(card.detail) + '</div></div><div class="side-v mini">' + esc(card.value) + '</div></div>'; }).join(''));
+  setHTML('compliance-controls', complianceRuns.length ? '<div class="stack-list">' + complianceRuns.slice(0, 12).map(function(run) { return '<div class="command-row"><div><div class="strong">Compliance report available</div><div class="muted mono">' + esc(run.runId) + '</div></div>' + pill('pass', 'report') + '</div>'; }).join('') + '</div>' : emptyHtml('Compliance stage not run in this scope', 'Run stage 13 or select a run that produced compliance_report.json.'));
+}
+
+registerPage('compliance', {
+  errLabel: 'compliance',
+  sub: 'Control coverage, audit gaps, evidence status, and compliance readiness across SDLC runs.',
+  render: renderCompliance
+});
+
+// ── page: cost-budget ────────────────────────────────────────────────
+function renderCostBudget(s) {
+  var model = businessFlexModel(s);
+  var budget = model.budget || {};
+  var totalCost = Number(s.totalCost || 0);
+  var avgCost = (s.totalRuns || 0) ? totalCost / s.totalRuns : 0;
+  setText('cost-budget-count', (s.totalRuns || 0) + ' runs');
+  setHTML('cost-budget-summary', '<div class="proof-grid"><div><div class="proof-value">$' + totalCost.toFixed(4) + '</div><div class="proof-label">actual tracked spend</div></div><div><div class="proof-value">$' + avgCost.toFixed(4) + '</div><div class="proof-label">avg / run</div></div><div><div class="proof-value">$' + Number(budget.runBudgetTotal || 0).toFixed(2) + '</div><div class="proof-label">profile run budget</div></div><div><div class="proof-value">$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + '</div><div class="proof-label">estimated task budget</div></div></div>');
+  var drivers = [];
+  (s.runs || []).forEach(function(run) {
+    (run.tasks || []).forEach(function(task) {
+      if (task.budget_envelope) drivers.push({ task: task.title || task.id, runId: run.runId, cost: task.budget_envelope.estimated_ai_cost_usd || 0 });
+    });
   });
-  return counts;
+  setHTML('cost-budget-drivers', drivers.slice(0, 20).map(function(driver) {
+    return '<div class="command-row"><div><div class="strong">' + esc(driver.task) + '</div><div class="muted mono">' + esc(driver.runId) + '</div></div><div class="side-v mini">$' + Number(driver.cost || 0).toFixed(2) + '</div></div>';
+  }).join('') || emptyHtml('No task budget envelopes', 'Business Flex budgets appear after init/profile and task routing metadata are written.'));
 }
 
-function barCells(n, cls) {
-  var out = '';
-  var count = Math.min(8, n || 0);
-  for (var i = 0; i < count; i++) out += '<span class="mini-bar ' + cls + '"></span>';
-  if (!out) out = '<span class="mini-bar"></span>';
-  return out;
+registerPage('cost-budget', {
+  errLabel: 'cost budget',
+  sub: 'Estimated cost, run spend, budget envelopes, and cost drivers for business governance.',
+  render: renderCostBudget
+});
+
+// ── page: alerts-guardrails ────────────────────────────────────────────────
+function renderAlertsGuardrails(s) {
+  var alerts = s.alerts || [];
+  var blocked = s.blockedGates || [];
+  setText('alerts-count', alerts.length + ' alerts');
+  setText('blocked-count', blocked.length + ' blocked gates');
+  setHTML('alerts-list', alerts.map(alertHtml).join('') || emptyHtml('All clear', 'No thresholds are currently breached.'));
+  setHTML('blocked-list', blocked.map(function(gate) {
+    return '<div class="alert-card warn"><div class="strong">' + esc(gate.title) + '</div><div class="muted">' + esc(gate.detail) + '</div><div class="feed-meta"><span>' + esc(gate.runId || '') + '</span><span>' + esc(fmtTime(gate.ts)) + '</span></div></div>';
+  }).join('') || emptyHtml('No blocked gates', 'Blocked approval gate history appears here.'));
 }
 
-function pill(status, label) {
-  var value = label || String(status || 'ready');
-  var cls = String(status || 'ready').toLowerCase();
-  if (cls === 'pass' || cls === 'passed') cls = 'pass';
-  if (cls === 'fail' || cls === 'failed') cls = 'fail';
-  if (cls === 'in_progress') cls = 'running';
-  return '<span class="pill ' + esc(cls) + '">' + esc(value) + '</span>';
+function alertHtml(alert) {
+  return '<div class="alert-card ' + esc(alert.level || 'info') + '"><div class="agent-head"><div><div class="strong">' + esc(alert.title || alert.type || 'Alert') + '</div><div class="muted">' + esc(alert.detail || '') + '</div><div class="feed-meta"><span>' + esc(alert.type || '') + '</span><span>' + esc(alert.runId || '') + '</span></div></div>' + pill(alert.level || 'info') + '</div></div>';
 }
 
-function chip(label) {
-  return '<span class="chip">' + esc(label || '') + '</span>';
+registerPage('alerts-guardrails', {
+  errLabel: 'alerts',
+  sub: 'Threshold alerts, blocked gates, guardrails, stalled work and spend risks.',
+  unscoped: true,
+  render: renderAlertsGuardrails
+});
+
+// ── page: traceability ────────────────────────────────────────────────
+function renderTraceability(s) {
+  var traces = s.traceMap || [];
+  setHTML('traceability-list', traces.map(function(trace) {
+    var steps = [
+      ['Requirements', trace.stages && trace.stages.requirements],
+      ['Architecture', trace.stages && trace.stages.architecture],
+      ['Code', trace.stages && trace.stages.code],
+      ['Testing', trace.stages && trace.stages.testing]
+    ].map(function(step) {
+      return '<span class="trace-step ' + (step[1] ? 'done' : '') + '">' + esc(step[0]) + '</span>';
+    }).join('');
+    var reqs = (trace.requirements || []).slice(0, 5).map(function(req) {
+      return '<div class="agent-item"><div class="mono faint">' + esc(req.id || req.area || 'requirement') + '</div><div>' + esc((req.description || req.title || req.text || '').slice(0, 170)) + '</div></div>';
+    }).join('');
+    var tasks = (trace.passTasks || []).slice(0, 6).map(function(task) {
+      return '<div class="agent-item"><div class="strong">' + esc(task.title || task.id) + '</div><div class="muted mono">' + esc(task.id) + ' / ' + (task.evidenceCount || 0) + ' checks</div></div>';
+    }).join('');
+    return '<div class="trace-card"><div class="agent-head"><div><div class="agent-title">' + esc(trace.goal || trace.runId) + '</div><div class="muted mono">' + esc(shortName(trace.projectRoot)) + ' / ' + esc(trace.runId) + '</div></div>' + pill('pass', (trace.evidenceTotal || 0) + ' checks') + '</div><div class="trace-flow">' + steps + '</div><div class="grid-2" style="margin-top:12px"><div>' + (reqs || emptyHtml('No requirements', '')) + '</div><div>' + (tasks || emptyHtml('No verified tasks', '')) + '</div></div></div>';
+  }).join('') || emptyHtml('No traceability data', 'Requirements and evidence appear after stage artifacts are written.'));
 }
 
-function emptyHtml(title, detail) {
-  return '<div class="empty"><div class="empty-title">' + esc(title || 'Empty') + '</div>' + (detail ? '<div>' + esc(detail) + '</div>' : '') + '</div>';
+registerPage('traceability', {
+  errLabel: 'traceability',
+  sub: 'FR/NFR requirements, stage artifacts, verified tasks and evidence connected by run.',
+  render: renderTraceability
+});
+
+// ── page: team-layers ────────────────────────────────────────────────
+function renderTeamLayers(s) {
+  var layers = s.layers || [];
+  var frameworks = s.frameworks || {};
+  setHTML('layers-grid', layers.map(function(layer) {
+    return '<div class="layer-card"><div class="agent-head"><div><div class="strong">' + esc(layer.name) + '</div><div class="muted">' + esc(layer.detail) + '</div></div>' + pill(layer.health, layer.health) + '</div><div class="kpi-v" style="font-size:22px">' + esc(layer.count) + '</div></div>';
+  }).join('') || emptyHtml('No layer data', 'Layer health appears here.'));
+  setHTML('framework-table', Object.keys(frameworks).map(function(name) {
+    var item = frameworks[name];
+    return '<tr><td class="strong">' + esc(name) + '</td><td>' + item.runs + '</td><td style="color:var(--green);font-weight:800">' + item.pass + '</td><td style="color:var(--red);font-weight:800">' + item.fail + '</td><td class="mono muted">$' + Number(item.cost || 0).toFixed(4) + '</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="empty">No framework data</td></tr>');
 }
 
-function shortName(path) {
-  return String(path || '-').split('/').filter(Boolean).pop() || '-';
+registerPage('team-layers', {
+  errLabel: 'team layers',
+  sub: 'Stack layers and framework health across harness, tracker, alerts, hooks, memory and observers.',
+  render: renderTeamLayers
+});
+
+// ── page: diagnostics ────────────────────────────────────────────────
+function renderDiagnostics(s) {
+  var d = s.diagnostics || {};
+  var rows = [
+    ['Runs', d.runCount || 0],
+    ['Tasks', d.taskCount || 0],
+    ['Events', d.eventCount || 0],
+    ['Evidence records', d.evidenceCount || 0],
+    ['Missing builder contracts', d.missingBuilderCount || 0],
+    ['Missing validation contracts', d.missingValidationCount || 0],
+    ['Data integrity errors', d.integrityErrorCount || 0]
+  ];
+  setHTML('diagnostics-health', rows.map(function(row) {
+    return '<div class="feed-row"><div class="feed-icon info">i</div><div><div class="feed-summary">' + esc(row[0]) + '</div></div><div class="feed-ts">' + esc(row[1]) + '</div></div>';
+  }).join(''));
+  var integrity = d.integrity || [];
+  var configIssues = d.configIssues || [];
+  var problems = integrity.map(function(issue) {
+    return '<div class="feed-row"><div class="feed-icon warn">!</div><div><div class="feed-summary">' + esc(issue.file) + '</div><div class="feed-meta"><span>' + esc(issue.runId || '') + '</span><span>' + esc(issue.error) + '</span></div></div></div>';
+  }).concat(configIssues.map(function(issue) {
+    return '<div class="feed-row"><div class="feed-icon warn">!</div><div><div class="feed-summary">' + esc(issue.file) + '</div><div class="feed-meta"><span>' + esc(issue.field || 'config') + '</span><span>' + esc(issue.problem) + '</span></div></div></div>';
+  }));
+  setHTML('diagnostics-integrity', problems.join('') || emptyHtml('No data integrity or config problems', 'Damaged run files and invalid .rstack config values appear here.'));
+  setHTML('diagnostics-roots', (d.sourceRoots || s.sourceRoots || []).map(function(root) {
+    return '<div class="project-card"><div class="strong">' + esc(shortName(root)) + '</div><div class="project-path mono">' + esc(root) + '</div></div>';
+  }).join('') || emptyHtml('No source roots', ''));
 }
 
-function fmtTime(value) {
-  if (!value) return '-';
-  return String(value).replace('T', ' ').slice(0, 16);
-}
-
-function setText(id, value) {
-  var el = document.getElementById(id);
-  if (el) el.textContent = value;
-}
-
-function setHTML(id, value) {
-  var el = document.getElementById(id);
-  if (el) el.innerHTML = value;
-}
-
-function setClass(id, value) {
-  var el = document.getElementById(id);
-  if (el) el.className = value;
-}
-
-function setBadge(id, value) {
-  var el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = value;
-  el.style.display = value > 0 ? 'inline-block' : 'none';
-}
-
-function esc(value) {
-  return String(value == null ? '' : value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function showErr(message) {
-  var el = document.getElementById('err');
-  if (!el) return;
-  el.textContent = 'Error: ' + message;
-  el.style.display = 'block';
-  console.error('[rstack-business]', message);
-}
+registerPage('diagnostics', {
+  errLabel: 'diagnostics',
+  sub: 'Source roots, missing builder contracts, validation coverage and raw .rstack data health.',
+  unscoped: true,
+  render: renderDiagnostics
+});
 
 updateFreshness();
 // Heartbeat: re-evaluate freshness every second so the chip ages from "live"
