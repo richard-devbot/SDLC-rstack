@@ -1,7 +1,7 @@
 ---
 name: 11-feedback-loop
 description: |
-  SDLC pipeline optional stage 11. Feedback processing agent. Collects user/stakeholder feedback on the delivered system and produces feedback.json with: satisfaction scores, change requests, bugs found, and prioritised iteration backlog. (sdlc)
+  SDLC pipeline optional stage 11. Feedback processing agent. Collects user/stakeholder feedback on the delivered system and produces feedback.json with: satisfaction scores, change requests, bugs found, prioritised iteration backlog, and a structured goal_evaluation the bounded goal loop consumes. (sdlc)
 model: sonnet
 tools:
   - Bash
@@ -256,7 +256,69 @@ fixed in this run, name the loop recipe that should own it: corrective
 findings feed the error sweep; preventive findings (including bug-swarm
 refactors) feed the docs/refactor sweeps.
 
-### Task 8: Interactive Review
+### Task 8: Structured Goal Evaluation (goal contract — BLE-4)
+The bounded goal loop (`rstack-agents pipeline loop`) consumes your output as
+machine-readable goal status — never prose. The `goal_evaluation` object in
+feedback.json is REQUIRED on every run; the harness evaluator
+(`src/core/harness/goal-check.js`) reads it without prose parsing.
+
+**Boundary (non-negotiable):** you RECOMMEND with evidence; the harness
+evaluator remains the deterministic decision-maker and never calls a model.
+It consumes a per-criterion result ONLY when every listed evidence path exists
+on disk. An `unknown` result or an unevidenced claim is never consumed — the
+criterion stays with a human (ASK_USER). Never claim `met` without naming the
+artifact that proves it.
+
+1. Check whether this run declares an active goal definition:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+cat "$RUN_BASE/goal.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -40
+```
+
+2. Determine the current loop iteration — the freshness stamp. Inside a loop,
+   an evaluation with an older or MISSING `iteration` stamp is stale and the
+   harness ignores it:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep '"loop_iteration_started"' "$RUN_BASE/events.jsonl" 2>/dev/null | tail -1
+```
+   Use that event's `iteration` value as `goal_evaluation.iteration`. If the
+   run has no loop events, omit `iteration` (one-shot evaluation).
+
+3. Fill the top-level fields from your own analysis (Tasks 1–7):
+   - `status`: `PASS` (goal met) | `RETRY` (rework can close the gap) |
+     `ASK_USER` (a human must decide) | `BLOCK` (unremediable finding)
+   - `consistency_score`: your `overall_consistency_score`
+   - `critical_count`: your CRITICAL issue count
+   - `failing_stages[]`: canonical stage ids whose artifacts fail the goal
+   - `recommended_rerun_stages[]`: canonical stage ids to reset, routed through
+     the maintenance taxonomy (Task 7): **corrective** defects point at the
+     stage that fixes them (usually `07-code` / `08-testing`), **preventive**
+     doc/refactor gaps at `03-documentation`, design gaps at `06-architecture`
+   - `requires_human_decision`: true when status is ASK_USER or BLOCK
+   - `reason`: one operator-readable sentence
+
+4. For EVERY criterion in goal.json — `judge`-kind criteria especially — add an
+   entry to `goal_evaluation.criteria[]`:
+   - `criterion_id`: the criterion's id from goal.json, exactly
+   - `result`: `met` | `not_met` | `unknown` (use `unknown` when you cannot
+     verify — never guess)
+   - `evidence[]`: run-relative artifact paths that PROVE the result (e.g.
+     `artifacts/stages/06-architecture/system_design.json`). Paths must exist.
+   - `reasoning`: one sentence explaining the result
+   - `recommended_rerun_stages[]`: canonical stage ids to reset if `not_met`
+   - `maintenance_category`: perfective | adaptive | corrective | preventive
+   - `recommendation`: `retry` (default) | `block` (human must intervene)
+
+5. If no goal.json exists, evaluate against the default harness goal (all tasks
+   passed, no human gates, no critical issues) and emit `goal_evaluation` with
+   an empty `criteria` array.
+
+A human- or host-written `$RUN_BASE/goal-verdict.json` for the same criterion
+outranks your evaluation — do not fight it; report the disagreement in
+`reason` instead.
+
+### Task 9: Interactive Review
 Present a summary of findings to the user:
 
 ```
@@ -334,6 +396,28 @@ Create: `$RUN_BASE/artifacts/stages/11-feedback-loop/feedback.json` (canonical),
     "info_count": 0,
     "overall_consistency_score": 0.0,
     "pipeline_health": "HEALTHY|NEEDS_ATTENTION|CRITICAL_GAPS"
+  },
+  "goal_evaluation": {
+    "goal_id": "<from $RUN_BASE/goal.json, or 'pipeline-complete' for the default goal>",
+    "iteration": 1,
+    "status": "PASS|RETRY|ASK_USER|BLOCK",
+    "consistency_score": 0.0,
+    "critical_count": 0,
+    "failing_stages": ["<canonical stage ids>"],
+    "recommended_rerun_stages": ["<canonical stage ids, taxonomy-routed>"],
+    "requires_human_decision": false,
+    "reason": "<one operator-readable sentence>",
+    "criteria": [
+      {
+        "criterion_id": "<criterion id from goal.json>",
+        "result": "met|not_met|unknown",
+        "evidence": ["<run-relative artifact paths that exist and prove the result>"],
+        "reasoning": "<one sentence>",
+        "recommended_rerun_stages": ["<canonical stage ids>"],
+        "maintenance_category": "perfective|adaptive|corrective|preventive",
+        "recommendation": "retry|block"
+      }
+    ]
   },
   "remediation_plan_path": "$RSTACK_RUN_DIR/artifacts/feedback/REMEDIATION_PLAN.md",
   "previous_agent": "summary_agent",
@@ -434,6 +518,7 @@ Before reporting DONE, verify:
 - Does the traceability matrix show actual coverage percentages?
 - Is the consistency score calculated from real issue counts?
 - Does every remediation carry a `maintenance_category`, and were corrective clusters checked against the bug-swarm rule?
+- Does `goal_evaluation` exist with all required fields, does every `met`/`not_met` criterion list evidence paths that actually exist, and is `iteration` stamped with the current loop iteration (or omitted outside a loop)?
 
 If any answer is NO — fix it before reporting status. A fast DONE_WITH_CONCERNS is better than a wrong DONE.
 
