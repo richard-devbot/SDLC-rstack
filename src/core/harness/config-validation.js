@@ -14,6 +14,8 @@ import { DEFAULT_LOOP_BOUNDS, LOOP_HARD_CAP } from './goal-loop.js';
 import { DEFAULT_CRITICAL_STAGE_IDS } from './checkpoints.js';
 import { getCanonicalStage } from './stages.js';
 import { rstackStateDir } from './runs.js';
+// #159: parallel-groups config validation (data-independence + gate target).
+import { validateParallelGroupsConfig } from './parallel-benchmark.js';
 
 const KNOWN_PROFILES = ['business-flex', 'enterprise-webapp', 'lean-mvp'];
 const KNOWN_CHANNELS = ['slack', 'teams', 'discord', 'telegram', 'whatsapp'];
@@ -92,6 +94,12 @@ export function validateRstackConfig(parsed) {
           }
         }
       }
+    }
+  }
+  // #159: parallel_groups block — data-independence of each group + gate target.
+  if (parsed.parallel_groups != null) {
+    for (const found of validateParallelGroupsConfig(parsed.parallel_groups)) {
+      issues.push(found);
     }
   }
   return issues;
