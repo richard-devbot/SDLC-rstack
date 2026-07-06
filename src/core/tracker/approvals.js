@@ -2,6 +2,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { withFileLock, writeFileAtomic, writeJsonAtomic } from '../harness/safe-write.js';
+import { isSafeRunId, isSafeArtifactName, validateApprovalRecord } from '../harness/approval-audit.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -9,18 +10,12 @@ const QUEUE_FILE = '.rstack/approvals.jsonl';
 
 // Run ids are timestamp-slug strings — never path separators or traversal.
 // A crafted approval id could otherwise encode a runId like "../../etc" and
-// drive a write outside .rstack/runs (issue #54). Validate before any FS use.
-const SAFE_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
+// drive a write outside .rstack/runs (issue #54). The canonical validators
+// live in harness/approval-audit.js (#133) so the write path here and the
+// read-side gate audit can never drift apart.
+export { isSafeRunId } from '../harness/approval-audit.js';
 
-export function isSafeRunId(runId) {
-  return typeof runId === 'string' && SAFE_RUN_ID.test(runId) && !runId.includes('..');
-}
-
-function safeArtifact(artifact) {
-  // Artifacts are file/stage names, not paths.
-  return typeof artifact === 'string' && artifact.length > 0 && artifact.length < 256
-    && !artifact.includes('/') && !artifact.includes('\\') && !artifact.includes('..');
-}
+const safeArtifact = isSafeArtifactName;
 
 // Resolve a run's approvals.json and assert it stays inside .rstack/runs/<runId>.
 // Returns null if the runId is unsafe, escapes the sandbox, or the run has no
@@ -146,18 +141,28 @@ export async function appendRunApproval(projectRoot, runId, record) {
   // Hard sandbox: unsafe/escaping runId, or a run with no manifest, writes nothing.
   const path = safeRunApprovalsPath(projectRoot, runId);
   if (!path) return null;
+  const next = {
+    id: record.id || `app-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+    artifact: record.artifact,
+    status: record.status,
+    approver: record.approver,
+    timestamp: record.timestamp || new Date().toISOString(),
+    comments: record.comments,
+    source: record.source || 'dashboard',
+    // Actor evidence travels with the record: dashboard-sourced approvals must
+    // prove the token-verified identity that resolved them (#133), and the
+    // gate-side audit rejects dashboard records without it.
+    ...(record.actor ? { actor: record.actor } : {}),
+  };
+  // Consistency audit at the write boundary (#133): a record the gate-side
+  // audit would reject (unsafe artifact, wrong status casing, missing
+  // approver/timestamp, dashboard source without token evidence) is refused
+  // outright — malformed approvals never land, same null contract as an
+  // unsafe runId.
+  if (!validateApprovalRecord(next).ok) return null;
   return withFileLock(path, async () => {
     const approvals = await readJson(path, []);
     const all = Array.isArray(approvals) ? approvals : [];
-    const next = {
-      id: record.id || `app-${new Date().toISOString().replace(/[:.]/g, '-')}`,
-      artifact: record.artifact,
-      status: record.status,
-      approver: record.approver,
-      timestamp: record.timestamp || new Date().toISOString(),
-      comments: record.comments,
-      source: record.source || 'dashboard',
-    };
     all.push(next);
     await writeJsonAtomic(path, all);
     return next;
@@ -200,11 +205,11 @@ export async function resolveApproval(projectRoot, id, decision, resolvedBy, opt
     if (idx === -1) all.push(next);
     else all[idx] = next;
     await writeQueue(projectRoot, all);
-    return { base, approver, queueStatus, resolvedAt };
+    return { base, approver, queueStatus, resolvedAt, actor };
   });
   if (!resolved) return false;
 
-  const { base, approver, queueStatus, resolvedAt } = resolved;
+  const { base, approver, queueStatus, resolvedAt, actor } = resolved;
   const runStatus = decision === 'approved' ? 'APPROVED' : 'REJECTED';
   if (!options.skipRunWrite && base.runId && base.artifact) {
     await appendRunApproval(projectRoot, base.runId, {
@@ -215,6 +220,10 @@ export async function resolveApproval(projectRoot, id, decision, resolvedBy, opt
       timestamp: resolvedAt,
       comments: base.taskId ? `Dashboard ${queueStatus} for blocked task ${base.taskId}` : `Dashboard ${queueStatus}`,
       source: 'business-hub',
+      // Thread the token-verified actor evidence into the run record — the
+      // gate-side audit (#133) requires it before a dashboard-sourced
+      // approval may unblock anything.
+      actor,
     });
   }
 

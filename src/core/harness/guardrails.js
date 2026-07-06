@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { validateApprovalRecord } from './approval-audit.js';
+
 export const DEFAULT_HARNESS_GUARDRAILS = Object.freeze({
   maxTaskAttempts: 2,
   maxDestructiveTaskAttempts: 1,
@@ -72,13 +74,20 @@ export function guardrailOverrideArtifact(taskId) {
 // Run approvals are latest-record-wins per artifact (same semantics as the
 // approval gate), so consuming an override is just appending a non-APPROVED
 // record for the same artifact.
+//
+// Trust boundary (#133): the LATEST record is audited before it is trusted —
+// a record failing the consistency audit never unblocks (treated as absent,
+// task stays gated). Auditing the latest record rather than pre-filtering
+// malformed ones also means a tampered CONSUMED marker cannot resurrect the
+// earlier APPROVED record of a spent override.
 export function hasGuardrailOverride(approvals = [], taskId) {
   const artifact = guardrailOverrideArtifact(taskId);
   let latest = null;
-  for (const approval of approvals) {
-    if (approval?.artifact === artifact) latest = approval;
+  for (const approval of Array.isArray(approvals) ? approvals : []) {
+    if (approval && typeof approval === 'object' && approval.artifact === artifact) latest = approval;
   }
-  return latest?.status === 'APPROVED';
+  if (!latest || latest.status !== 'APPROVED') return false;
+  return validateApprovalRecord(latest).ok;
 }
 
 export function evaluateTaskClaim({ task, events = [], approvals = [], guardrails } = {}) {
