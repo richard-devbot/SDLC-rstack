@@ -737,6 +737,27 @@ test('validateStageGoalEvaluation: non-stage-11 tasks and goal-less runs stay un
   assert.equal(junk.checks.length, 0);
 });
 
+test('validateStageGoalEvaluation: a corrupt events.jsonl fails closed instead of disarming the gate (#200)', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
+
+  // No goal.json — goal activity can only be proven from events.jsonl. A run
+  // whose event log exists but is unparseable must NOT silently read as "no
+  // active goal": we can't tell, so fail closed.
+  const corruptDir = seedRun(projectRoot, 'run-corrupt', { tasks: [task('001', 'PASS')] });
+  writeFileSync(path.join(corruptDir, 'events.jsonl'), 'not json\n{ truncated at the sta\n');
+  const corrupt = await validateStageGoalEvaluation({ runDir: corruptDir, stageIds: ['11-feedback-loop'] });
+  assert.equal(corrupt.ok, false, 'corrupt event log fails the gate');
+  assert.equal(corrupt.goal_activity_indeterminate, true);
+  assert.ok(corrupt.issues.some((check) => check.name === 'goal_activity_indeterminate'));
+
+  // A legitimately empty events.jsonl (brand-new run) is NOT corrupt — the
+  // section stays optional, a single informational PASS.
+  const emptyDir = seedRun(projectRoot, 'run-empty', { tasks: [task('001', 'PASS')], events: [] });
+  const empty = await validateStageGoalEvaluation({ runDir: emptyDir, stageIds: ['11-feedback-loop'] });
+  assert.equal(empty.ok, true, 'an empty event log is a clean non-goal run, not a failure');
+  assert.equal(empty.checks[0].name, 'goal_evaluation_not_required');
+});
+
 test('validateStageGoalEvaluation: a goal-driven run FAILs a missing or malformed goal_evaluation (#196)', async () => {
   const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
   const goal = { goal_id: 'fixture', criteria: [{ id: 'c1', kind: 'judge', question: 'Is it done?' }] };
