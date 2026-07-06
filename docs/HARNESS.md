@@ -230,6 +230,73 @@ Every retry decision is observable without reading source (#125):
 
 `rstack-agents pipeline run` advances a run from its current harness state without invoking any model (#124): completed tasks are skipped, an active task with a builder contract is validated (which drives the retry policy), retryable failures are re-claimed through `sdlc_build_next`, and the loop stops the moment a human is needed — pending approval, `ask_user`, an exhausted retry budget awaiting a `guardrail-override`, a prepared builder packet awaiting agent execution, or `--max-steps`. `--dry-run` prints the exact next action and persists nothing (not even the rollup); `--json` emits the structured step report. Human-gate stops exit non-zero so CI can tell "needs a human" from "complete".
 
+### Goal loop (bounded)
+
+BLE-4 (#127/#129) adds the goal-conditioned loop: "keep working until a structured success
+condition passes" — bounded, budget-capped, and model-free.
+
+**Goal contract.** A goal definition (per-run `goal.json`, or a recipe file passed via
+`pipeline loop --goal <path>`; see `docs/loop-recipes.md`) declares `goal_id`, `min_score`
+(0–100, default 100), and `criteria[]`. Criterion kinds, all evaluated by
+`src/core/harness/goal-check.js`:
+
+- `file_exists` — path relative to the project root (`run_relative: true` for the run dir).
+- `command` — runs in the project root; passes when the exit code matches `expect_exit_code`
+  (default 0). Bounded by `timeout_ms` (default 120s, cap 600s). Must be a read-only check —
+  the evaluator runs it in `--dry-run` too.
+- `metric_threshold` — numeric dot-path (`metric`) compared (`operator`: `>= > <= < == !=`)
+  against `value`, read from `source`: `"feedback"` (the agent-11 artifact), `"pipeline_state"`
+  (the in-memory rollup), or `{"file": "relative/to/run"}`. A missing feedback artifact is a
+  clear non-pass that recommends rerunning `11-feedback-loop` — never a silent skip.
+- `judge` — **the harness never calls a model.** Judge criteria close through
+  `<run_dir>/goal-verdict.json`, written by a host framework or a human:
+  `{ "criterion_id", "verdict": "PASS"|"FAIL", "judge", "reasoning", "iteration",
+  "recommendation": "retry"|"block", "recommended_rerun_stages": [] }` (single object, array, or
+  `{"verdicts": []}`). The harness validates and consumes it; without a fresh verdict (an
+  `iteration` older than the current one is stale) the evaluation stops at `ASK_USER`. A FAIL
+  verdict retries the named stages; `"recommendation": "block"` stops for a human.
+
+Any criterion may carry `rerun_stages` — the canonical stages a RETRY should reset.
+
+**Evaluator.** `evaluateGoal(projectRoot, runId, options)` builds the rollup in memory (persists
+nothing), reads only structured JSON (never prose), always layers harness checks over the criteria
+(pending approvals, pending decisions, NEEDS_CONTEXT tasks, guardrail-BLOCKED tasks, unfinished
+tasks, critical feedback issues), and returns `{ status: PASS | RETRY | ASK_USER | BLOCK, score,
+min_score, critical_count, failing_stages, recommended_rerun_stages, reason, criteria,
+harness_checks }`. Precedence is deterministic: humans first (`ASK_USER` — approvals, decisions,
+context, missing judge verdicts), then blocking issues (`BLOCK` — blocked tasks, unremediable
+criticals, judge blocks), then retryable work (`RETRY`), then `PASS` (everything green and
+`score >= min_score`). Critical feedback issues whose `remediation.agent_to_rerun` maps to a
+canonical stage become RETRY targets; criticals with no remediation path are BLOCK.
+`summarizeGoalDecision(evaluation)` renders the one-line operator view.
+
+**Loop runner.** `rstack-agents pipeline loop` runs: one resume-aware pipeline pass (the same
+model-free engine as `pipeline run`) → goal evaluation → decision. On RETRY it resets **only** the
+recommended stages' tasks to PENDING (in-lock, atomic, original file shape preserved; IN_PROGRESS,
+NEEDS_CONTEXT, and BLOCKED tasks are never reset, and attempt budgets still count historical
+`task_started` events, so a reset can never launder attempts past the claim gate) and goes again.
+Three independent brakes, enforced in `src/core/harness/goal-loop.js`, not in prompts:
+
+1. **Iteration bound** — default 3 (`--max-iterations` or `.rstack/rstack.config.json`
+   `loop.maxIterations`), hard cap 20 that no config or flag can exceed.
+2. **No-progress stop** — an iteration that leaves task statuses and the goal evaluation
+   identical (or a RETRY naming no stages) stops as `no_progress` instead of repeating itself.
+3. **Budget cap** — `.rstack/budget.json` `run_budget_usd` against the run's
+   `cumulative_cost_usd`, checked before every iteration.
+
+Human gates from the pipeline pass (`pending_approval`, `ask_user`, `blocked_retry_policy`,
+`missing_contract`) propagate and stop the loop. `--dry-run` reports iteration 1's evaluation and
+decision and persists nothing — no events, no resets, not even the rollup. Only `complete` and
+`dry_run` exit zero, so CI can tell "goal met" from everything else.
+
+**Events (pinned contract, one per loop decision):** `loop_iteration_started` and `goal_evaluated`
+each iteration (the latter carrying `status`, `score`, `critical_count`, `failing_stages`,
+`recommended_rerun_stages`, `reason`), `loop_iteration_retrying_stages` (`stages`, `task_ids`) on
+every reset, and exactly one terminal `loop_completed` (goal met) or `loop_blocked` (`stopped_on`:
+`ask_user | blocked | max_iterations | no_progress | budget_exhausted` or a propagated human gate).
+All appended to `events.jsonl` under the same file lock as the evidence ledger, and rendered by the
+Business Hub feed.
+
 ## Validation commands
 
 Run these after Harness changes:
