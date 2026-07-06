@@ -26,11 +26,75 @@ function renderDecisions(s) {
     var r = run.readiness || {};
     return '<div class="alert-card ' + (r.status === 'FAIL' ? 'fail' : r.status === 'WARN' ? 'warn' : 'pass') + '"><div class="agent-head"><div><div class="strong">' + esc(run.goal || run.runId) + '</div><div class="muted">' + esc(r.message || 'Definition-of-Ready status') + '</div><div class="feed-meta"><span>' + esc(run.profile || '') + '</span><span>' + esc(r.mode || '') + '</span><span>score ' + esc(r.score || 0) + '</span></div></div>' + pill(r.status || 'PASS') + '</div></div>';
   }).join('') || emptyHtml('No readiness data', 'Run sdlc_dor_check or rstack-agents dor after starting an RStack run.'));
+  ensureDecisionLogPanel();
+  renderDecisionLog(decisions);
 }
+
+// ── [wave:command] Decision Log (#94) ──────────────────────────────
+// Beyond the pending queue: the chronological record of decisions a human
+// already made — who resolved or waived it, when, what the call was, and
+// which run it governs. The panel is injected by this module (the page
+// skeleton in ui/pages/index.js is shared across parallel page work).
+function ensureDecisionLogPanel() {
+  if (document.getElementById('decisions-log-panel')) return;
+  var page = document.getElementById('page-decisions');
+  if (!page) return;
+  var grid = page.querySelector('.grid-2');
+  if (!grid) return;
+  grid.insertAdjacentHTML('afterend',
+    '<div class="panel decision-log-panel" id="decisions-log-panel">' +
+      '<div class="panel-head"><span class="panel-title">Decision Log</span><span class="panel-note" id="decisions-log-count"></span></div>' +
+      '<div class="panel-body"><div class="stack-list" id="decisions-log"></div></div>' +
+    '</div>');
+}
+
+function decisionResolvedTs(decision) {
+  return decision.resolved_at || decision.updated_at || decision.created_at || '';
+}
+
+function renderDecisionLog(decisions) {
+  var resolved = decisions.filter(function(item) {
+    var status = item.decision.status;
+    return status === 'resolved' || status === 'waived';
+  }).sort(function(a, b) {
+    return decisionResolvedTs(b.decision).localeCompare(decisionResolvedTs(a.decision));
+  });
+  setText('decisions-log-count', resolved.length + ' resolved or waived');
+  if (!resolved.length) {
+    setHTML('decisions-log', emptyHtml('No resolved decisions yet',
+      'When someone resolves or waives a Decision Queue item, the who / when / what lands here as the audit trail.'));
+    return;
+  }
+  setHTML('decisions-log', resolved.slice(0, 60).map(decisionLogRowHtml).join(''));
+}
+
+function decisionLogRowHtml(item) {
+  var d = item.decision;
+  var who = d.resolved_by || 'unrecorded decider';
+  var verb = d.status === 'waived' ? 'Waived' : 'Resolved';
+  var outcome = d.resolution
+    ? 'Decision: ' + d.resolution
+    : (d.status === 'waived' ? 'Waived without a recorded resolution.' : 'No resolution text recorded.');
+  return '<div class="decision-log-row">' +
+    '<div class="decision-log-when mono">' + esc(fmtTime(decisionResolvedTs(d)) || '-') + '</div>' +
+    '<div class="decision-log-main">' +
+      '<div class="strong">' + esc(d.decision_id + ' — ' + d.question) + '</div>' +
+      '<div class="muted">' + esc(outcome) + '</div>' +
+      '<div class="feed-meta">' +
+        '<span>' + esc(verb + ' by ' + who) + '</span>' +
+        '<span>impact: ' + esc(d.impact || 'scope') + '</span>' +
+        '<span>gated stage ' + esc(d.required_before_stage || '-') + '</span>' +
+        '<button class="chip clickable" tabindex="0" data-runid="' + esc(item.run.runId || '') + '" onclick="openDrawerRow(this)" aria-label="Open run details">run ' + esc((item.run.runId || '').slice(-16)) + '</button>' +
+      '</div>' +
+    '</div>' +
+    pill(d.status === 'waived' ? 'warn' : 'pass', d.status) +
+  '</div>';
+}
+// ── end [wave:command] ─────────────────────────────────────────────
 
 registerPage('decisions', {
   errLabel: 'decisions',
-  sub: 'Decision Queue and Definition-of-Ready status from decisions.json, dor-report.json and readiness.json.',
+  sub: 'Decision Queue, Decision Log and Definition-of-Ready status from decisions.json, dor-report.json and readiness.json.',
   render: renderDecisions
 });
 `;

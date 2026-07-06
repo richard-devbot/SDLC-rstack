@@ -1287,6 +1287,11 @@ tr.clickable:hover td { background: #f8fbff; }
 .exec-stat-l { margin-top: 2px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
 .exec-stat-s { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.35; }
 .exec-stat-v.schema-badge { font-size: 13px; padding-top: 5px; }
-@media (max-width: 900px) { .next-action { grid-template-columns: 1fr; } }
+.decision-log-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 12px; align-items: start;
+  padding: 10px 0; border-bottom: 1px dashed var(--line); }
+.decision-log-row:last-child { border-bottom: none; }
+.decision-log-when { color: var(--muted); font-size: 11px; padding-top: 2px; }
+.decision-log-main .feed-meta { margin-top: 4px; }
+@media (max-width: 900px) { .next-action, .decision-log-row { grid-template-columns: 1fr; } }
 /* end [wave:command] */
 `;
