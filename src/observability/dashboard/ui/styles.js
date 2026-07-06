@@ -1270,6 +1270,32 @@ tr.clickable:hover td { background: #f8fbff; }
 
 @media (max-width: 900px) { .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
+/* [wave:command] Command Center next-action + exec rollup, Decision Log (#94/#156/#215) */
+.next-action-panel, .exec-rollup-panel { margin-bottom: 16px; }
+.next-action { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; }
+.next-action-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center;
+  justify-content: center; font-size: 18px; font-weight: 800; flex-shrink: 0; }
+.next-action-icon.ok { background: #f0fdf4; color: var(--green); }
+.next-action-icon.warn { background: #fff7ed; color: var(--amber); }
+.next-action-icon.danger { background: #fff5f5; color: var(--red); }
+.next-action-icon.info { background: #eff6ff; color: var(--blue); }
+.next-action-text { font-weight: 700; line-height: 1.4; }
+.next-action-source { margin-top: 10px; font-size: 11px; color: var(--faint); font-style: italic; }
+.next-action-source.stale { color: var(--amber, #b7791f); font-style: normal; font-weight: 600; }
+.exec-rollup-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.exec-stat { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 10px 12px; }
+.exec-stat-v { font-size: 22px; font-weight: 800; line-height: 1.2; }
+.exec-stat-l { margin-top: 2px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+.exec-stat-s { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.exec-stat-v.schema-badge { font-size: 13px; padding-top: 5px; }
+.decision-log-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 12px; align-items: start;
+  padding: 10px 0; border-bottom: 1px dashed var(--line); }
+.decision-log-row:last-child { border-bottom: none; }
+.decision-log-when { color: var(--muted); font-size: 11px; padding-top: 2px; }
+.decision-log-main .feed-meta { margin-top: 4px; }
+@media (max-width: 900px) { .next-action, .decision-log-row { grid-template-columns: 1fr; } }
+/* end [wave:command] */
+
 /* [wave:ops] — ops panels: retry state, guardrail depth, context pressure, audit rejections */
 .feed-icon.info { color: var(--blue); background: #eff6ff; }
 .ops-meta { color: var(--amber); font-weight: 700; }
