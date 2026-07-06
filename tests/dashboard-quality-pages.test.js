@@ -308,6 +308,74 @@ test('traceability page explains which stage produces the registry when no spec 
   assert.equal(pagesApi.fetchCalls.length, 0, 'no report fetch without a spec-bearing run');
 });
 
+// ── #91: Security threat registry ──
+
+const THREAT_MODEL = {
+  contract_version: '1.1',
+  trust_boundaries: [{ id: 'TB-001', name: 'browser → API', data_classification: 'CONFIDENTIAL' }],
+  threats: [
+    {
+      id: 'THR-001',
+      stride_category: 'Spoofing',
+      title: 'Session token forgery',
+      description: 'Attacker forges a session token to impersonate a user.',
+      affected_component: 'auth-service',
+      dread_score: { overall: 8.2 },
+      risk_level: 'HIGH',
+      mitigation: { description: 'Sign tokens with rotated keys', type: 'PREVENT', effort: 'MEDIUM' },
+    },
+    {
+      id: 'THR-002',
+      stride_category: 'InformationDisclosure',
+      title: 'Verbose error leaks stack traces',
+      affected_component: 'api-gateway',
+      dread_score: { overall: 4.1 },
+      risk_level: 'LOW',
+    },
+  ],
+  threat_summary: { total_threats: 2, critical_count: 0, high_count: 1, medium_count: 0, low_count: 1, mitigations_required: 1 },
+};
+
+test('security page renders the STRIDE registry, severity heatmap and mitigation progress from threat_model.json', async () => {
+  const pagesApi = loadPages({ report: { stages: { '12-security-threat-model': THREAT_MODEL }, deliverables: {} } });
+  pagesApi.render('security', { runs: [{ runId: 'run-sec-1', stageReports: ['12-security-threat-model'], tasks: [] }] });
+  await tick();
+  const registry = pagesApi.html('security-threat-registry');
+  assert.match(registry, /Session token forgery/);
+  assert.match(registry, /Spoofing/);
+  assert.match(registry, /HIGH/);
+  assert.match(registry, /auth-service/);
+  assert.match(registry, /DREAD 8\.2/);
+  assert.match(registry, /mitigation planned/);
+  assert.match(registry, /no mitigation recorded/);   // THR-002 has none
+  const heatmap = pagesApi.html('security-threat-heatmap');
+  assert.match(heatmap, /<b>1<\/b><span>high<\/span>/);
+  assert.match(heatmap, /<b>1<\/b><span>low<\/span>/);
+  assert.match(heatmap, /Spoofing: 1/);
+  assert.match(heatmap, /1 of 2 threats have a recorded mitigation/);
+  assert.match(heatmap, /Trust boundaries/);
+  // 1 open HIGH → gate needs review, and it says why.
+  assert.match(pagesApi.html('security-release-gate'), /needs review/);
+  assert.match(pagesApi.html('security-release-gate'), /1 critical\/high threat open/);
+});
+
+test('security release gate goes green only when no critical/high threats are open', async () => {
+  const clean = { threats: [{ id: 'T1', risk_level: 'LOW', title: 'Minor', mitigation: { type: 'DETECT' } }] };
+  const pagesApi = loadPages({ report: { stages: { '12-security-threat-model': clean }, deliverables: {} } });
+  pagesApi.render('security', { runs: [{ runId: 'run-sec-2', stageReports: ['12-security-threat-model'], tasks: [] }] });
+  await tick();
+  assert.match(pagesApi.html('security-release-gate'), /No critical or high threats open/);
+});
+
+test('security page explains which stage produces the threat model and never claims a clean gate without one', () => {
+  const pagesApi = loadPages();
+  pagesApi.render('security', { runs: [{ runId: 'r1', stageReports: [], tasks: [] }] });
+  assert.match(pagesApi.html('security-threat-heatmap'), /Stage 12 \(security threat model\) writes threat_model\.json/);
+  assert.match(pagesApi.html('security-release-gate'), /Release gate unknown/);
+  assert.doesNotMatch(pagesApi.html('security-release-gate'), /No security blocker/);
+  assert.equal(pagesApi.fetchCalls.length, 0);
+});
+
 // ── bundle safety: the assembled client still compiles with the wave changes ──
 
 test('assembled client bundle compiles with the quality-wave page modules', () => {
