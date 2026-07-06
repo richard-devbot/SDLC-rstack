@@ -14,6 +14,7 @@ import {
   readGoalEvidence,
   summarizeGoalDecision,
   validateGoalEvaluation,
+  validateStageGoalEvaluation,
   AGENT_GOAL_JUDGE,
   GOAL_STATUSES,
 } from '../src/core/harness/goal-check.js';
@@ -709,6 +710,91 @@ test('validateGoalEvaluation: complete section passes; missing fields fail with 
   const absent = validateGoalEvaluation(null);
   assert.equal(absent.ok, false);
   assert.equal(absent.checks[0].name, 'goal_evaluation_is_object');
+});
+
+test('validateStageGoalEvaluation: non-stage-11 tasks and goal-less runs stay untouched (#196)', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
+  const runDir = seedRun(projectRoot, 'run-a', { tasks: [task('001', 'PASS')] });
+
+  // A task that never targets 11-feedback-loop contributes no checks at all.
+  const other = await validateStageGoalEvaluation({ runDir, stageIds: ['07-code'] });
+  assert.equal(other.ok, true);
+  assert.equal(other.checks.length, 0);
+  assert.equal(other.goal_active, false);
+
+  // A stage-11 task on a run with no active goal keeps the section optional —
+  // a single informational PASS, never a FAIL.
+  const noGoal = await validateStageGoalEvaluation({ runDir, stageIds: ['09-deployment', '11-feedback-loop'] });
+  assert.equal(noGoal.ok, true);
+  assert.equal(noGoal.goal_active, false);
+  assert.equal(noGoal.checks.length, 1);
+  assert.equal(noGoal.checks[0].name, 'goal_evaluation_not_required');
+  assert.equal(noGoal.checks[0].status, 'PASS');
+
+  // Junk stageIds shapes are tolerated, mirroring validateBuilderCompleteness.
+  const junk = await validateStageGoalEvaluation({ runDir, stageIds: 'nonsense' });
+  assert.equal(junk.ok, true);
+  assert.equal(junk.checks.length, 0);
+});
+
+test('validateStageGoalEvaluation: a goal-driven run FAILs a missing or malformed goal_evaluation (#196)', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
+  const goal = { goal_id: 'fixture', criteria: [{ id: 'c1', kind: 'judge', question: 'Is it done?' }] };
+
+  // Feedback artifact missing entirely.
+  const missingDir = seedRun(projectRoot, 'run-missing', { goal });
+  const missing = await validateStageGoalEvaluation({ runDir: missingDir, stageIds: ['11-feedback-loop'] });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.goal_active, true);
+  assert.equal(missing.goal_source, 'goal.json');
+  assert.ok(missing.issues.some((check) => check.name === 'goal_evaluation_feedback_artifact'));
+
+  // Feedback present but carrying no goal_evaluation section.
+  const absentDir = seedRun(projectRoot, 'run-absent', { goal, feedback: cleanFeedback });
+  const absent = await validateStageGoalEvaluation({ runDir: absentDir, stageIds: ['11-feedback-loop'] });
+  assert.equal(absent.ok, false);
+  assert.ok(absent.issues.some((check) => check.name === 'goal_evaluation_is_object'));
+
+  // Malformed section: the named shape checks surface as issues.
+  const malformedDir = seedRun(projectRoot, 'run-malformed', {
+    goal,
+    feedback: { ...cleanFeedback, goal_evaluation: { status: 'GREAT', consistency_score: 'high' } },
+  });
+  const malformed = await validateStageGoalEvaluation({ runDir: malformedDir, stageIds: ['11-feedback-loop'] });
+  assert.equal(malformed.ok, false);
+  const failedNames = malformed.issues.map((check) => check.name);
+  assert.ok(failedNames.includes('goal_evaluation_status_allowed'));
+  assert.ok(failedNames.includes('goal_evaluation_consistency_score_numeric'));
+  assert.ok(failedNames.includes('goal_evaluation_has_reason'));
+});
+
+test('validateStageGoalEvaluation: well-formed section passes; loop events mark a --goal recipe run as goal-driven (#196)', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
+  const goodSection = {
+    goal_id: 'fixture', status: 'PASS', consistency_score: 92.5, critical_count: 0,
+    failing_stages: [], recommended_rerun_stages: [], requires_human_decision: false,
+    reason: 'All criteria met with evidence.',
+    criteria: [{ criterion_id: 'c1', result: 'met', evidence: ['tasks.json'] }],
+  };
+  const goalDir = seedRun(projectRoot, 'run-good', {
+    goal: { goal_id: 'fixture', criteria: [{ id: 'c1', kind: 'judge', question: 'Is it done?' }] },
+    feedback: { ...cleanFeedback, goal_evaluation: goodSection },
+  });
+  const good = await validateStageGoalEvaluation({ runDir: goalDir, stageIds: ['11-feedback-loop'] });
+  assert.equal(good.ok, true, JSON.stringify(good.issues));
+  assert.equal(good.goal_active, true);
+  assert.ok(good.checks.some((check) => check.name === 'goal_evaluation_feedback_artifact' && check.status === 'PASS'));
+
+  // A `pipeline loop --goal <recipe>` run never copies goal.json into the run
+  // dir — the pinned loop events are the structured proof a goal is active.
+  const loopDir = seedRun(projectRoot, 'run-loop', {
+    events: [{ type: 'loop_iteration_started', iteration: 1, max_iterations: 3 }],
+    feedback: cleanFeedback,
+  });
+  const loop = await validateStageGoalEvaluation({ runDir: loopDir, stageIds: ['11-feedback-loop'] });
+  assert.equal(loop.goal_active, true);
+  assert.match(loop.goal_source, /loop event/);
+  assert.equal(loop.ok, false, 'a goal-driven run without goal_evaluation must FAIL validation');
 });
 
 test('summarizeGoalDecision is one operator-readable line', async () => {
