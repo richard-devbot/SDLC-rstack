@@ -136,6 +136,45 @@ export function deriveRunTimeline(events, tasks) {
   return segments.sort((a, b) => (parseTs(a.started_at) ?? Infinity) - (parseTs(b.started_at) ?? Infinity));
 }
 
+/**
+ * Persisted token totals from metrics.json (#83), or null for legacy runs.
+ * The presence of a `cumulative_tokens` object is the marker that the run was
+ * written by the incremental telemetry path — only that path (or an explicit
+ * caller) ever materializes it, so legacy runs keep falling back to event
+ * recompute even after unrelated metrics updates touch the file.
+ */
+export function persistedTokenTotals(metrics) {
+  const tokens = metrics?.cumulative_tokens;
+  if (!tokens || typeof tokens !== 'object' || Array.isArray(tokens)) return null;
+  const input = Number(tokens.input);
+  const output = Number(tokens.output);
+  const total = Number(tokens.total);
+  const safeInput = Number.isFinite(input) ? input : 0;
+  const safeOutput = Number.isFinite(output) ? output : 0;
+  return {
+    input: safeInput,
+    output: safeOutput,
+    total: Number.isFinite(total) ? total : safeInput + safeOutput,
+  };
+}
+
+/**
+ * Run totals, preferring persisted cumulative metrics (#83): when metrics.json
+ * carries incremental cost/token totals they are authoritative — O(1) instead
+ * of re-parsing the event stream, and they survive event rotation/archival.
+ * Legacy runs (no persisted totals) recompute from events exactly as before.
+ * Duration, task outcomes, guardrails, and quality always come from events.
+ */
+export function resolveRunTotals(events, metrics = {}) {
+  const totals = deriveRunTotals(events);
+  const persisted = persistedTokenTotals(metrics);
+  if (persisted) {
+    totals.tokens = persisted.total;
+    totals.cost_usd = Math.round((Number(metrics.cumulative_cost_usd) || 0) * 10000) / 10000;
+  }
+  return totals;
+}
+
 /** Whole-run totals from the event stream. */
 export function deriveRunTotals(events) {
   const totals = {

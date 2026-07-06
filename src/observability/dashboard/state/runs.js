@@ -3,7 +3,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CANONICAL_SDLC_STAGES } from '../../../core/harness/stages.js';
 import { cleanOrphanedTmpFiles } from '../../../core/harness/safe-write.js';
-import { deriveRunTimeline, deriveRunTotals, deriveStageElapsed } from '../../metrics/derive.js';
+import { deriveRunTimeline, deriveStageElapsed, resolveRunTotals } from '../../metrics/derive.js';
 import { stageReportIndex } from './stage-reports.js';
 import { readJson, readJsonTracked, readJsonlTracked } from './files.js';
 
@@ -189,7 +189,9 @@ export async function getRunsForRoot(projectRoot, options = {}) {
       stageReports: await stageReportIndex(runDir),
       activityTimeline: buildActivityTimeline(events),
       timeline: deriveRunTimeline(events, rawTasks),
-      totals: deriveRunTotals(events),
+      // Persisted cumulative metrics win over event recompute (#83); legacy
+      // runs without them still derive totals from events.
+      totals: resolveRunTotals(events, metrics),
       stageElapsed: deriveStageElapsed(events, rawTasks),
       derivedStatus: deriveRunStatus(manifest, events),
       integrity,
