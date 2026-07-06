@@ -287,6 +287,7 @@ export function normalizeGoalEvaluation(raw) {
     iteration: null,
     status: null,
     criteria: [],
+    conflicts: [],
     issues,
   };
   if (raw == null) return section;
@@ -334,6 +335,28 @@ export function normalizeGoalEvaluation(raw) {
       maintenance_category: MAINTENANCE_CATEGORIES.includes(entry.maintenance_category) ? entry.maintenance_category : null,
     });
   }
+  // Conflicting duplicate criterion_ids (differing result or recommendation)
+  // are ambiguous — first-entry-wins would let a "met" duplicate shadow a
+  // later "not_met". Consume NONE of them: drop every entry for the id and
+  // record the conflict so the criterion lands on the ASK_USER path.
+  const grouped = new Map();
+  for (const criterion of section.criteria) {
+    if (!grouped.has(criterion.criterion_id)) grouped.set(criterion.criterion_id, []);
+    grouped.get(criterion.criterion_id).push(criterion);
+  }
+  const kept = [];
+  for (const [criterionId, entries] of grouped) {
+    const conflicting = entries.some((entry) => entry.result !== entries[0].result || entry.recommendation !== entries[0].recommendation);
+    if (conflicting) {
+      const reason = `conflicting duplicate goal_evaluation.criteria entries for criterion_id ${criterionId} (${entries.map((entry) => entry.result).join(' vs ')}) — ambiguous, none consumed`;
+      issues.push(reason);
+      section.conflicts.push({ criterion_id: criterionId, reason });
+      continue;
+    }
+    // Identical duplicates carry no ambiguity — keep the first.
+    kept.push(entries[0]);
+  }
+  section.criteria = kept;
   return section;
 }
 
@@ -366,8 +389,10 @@ export function validateGoalEvaluation(raw) {
   push('goal_evaluation_reason_meaningful', reasonOk, reasonOk ? 'present' : 'reason must be at least 10 characters');
 
   const normalized = normalizeGoalEvaluation(raw);
-  const criteriaIssues = normalized.issues.filter((issue) => issue.includes('criteria'));
+  const conflictReasons = normalized.conflicts.map((conflict) => conflict.reason);
+  const criteriaIssues = normalized.issues.filter((issue) => issue.includes('criteria') && !conflictReasons.includes(issue));
   push('goal_evaluation_criteria_well_formed', criteriaIssues.length === 0, criteriaIssues.length ? criteriaIssues.join('; ') : `${normalized.criteria.length} criteria entr(ies)`);
+  push('goal_evaluation_criteria_no_conflicting_duplicates', normalized.conflicts.length === 0, normalized.conflicts.length ? conflictReasons.join('; ') : 'no conflicting duplicates');
 
   return { ok: checks.every((check) => check.status === 'PASS'), checks, issues: checks.filter((check) => check.status === 'FAIL') };
 }
@@ -403,6 +428,9 @@ export function goalVerdictsFromFeedback(feedback, { runDir, projectRoot, iterat
       (withinBase(runDir, candidate) || withinBase(projectRoot, candidate)) && isRealFile(candidate)
     ));
   };
+  // Conflicting duplicate entries were dropped during normalization — surface
+  // them as rejections so the ASK_USER path names the ambiguity.
+  for (const conflict of section.conflicts) rejected.push(conflict);
   for (const criterion of section.criteria) {
     if (criterion.result === 'unknown') {
       rejected.push({ criterion_id: criterion.criterion_id, reason: 'result is "unknown" — a host framework or human must judge' });

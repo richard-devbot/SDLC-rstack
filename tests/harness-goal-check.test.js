@@ -635,6 +635,47 @@ test('goalVerdictsFromFeedback maps results into the verdict protocol and reject
   assert.deepEqual(rejected.map((item) => item.criterion_id).sort(), ['dunno', 'noproof']);
 });
 
+test('conflicting duplicate criterion_id entries are consumed by NEITHER side -> ASK_USER + FAIL check', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-goal-'));
+  const runDir = seedRun(projectRoot, 'run-a', { tasks: [task('001', 'PASS')], goal: judgedGoal });
+  const evidencePath = seedDesignArtifact(runDir);
+  const stageDir = path.join(runDir, 'artifacts', 'stages', '11-feedback-loop');
+  mkdirSync(stageDir, { recursive: true });
+  // met first, not_met second — first-entry-wins would silently PASS the goal.
+  writeFileSync(path.join(stageDir, 'feedback.json'), JSON.stringify(feedbackWithGoalEvaluation([
+    { criterion_id: 'design-review', result: 'met', evidence: [evidencePath] },
+    { criterion_id: 'design-review', result: 'not_met', evidence: [evidencePath] },
+  ])));
+  const evaluation = await evaluateGoal(projectRoot, 'run-a');
+  assert.equal(evaluation.status, 'ASK_USER');
+  assert.match(evaluation.reason, /conflicting duplicate/);
+  assert.deepEqual(evaluation.agent_goal_evaluation.consumed, []);
+
+  const validated = validateGoalEvaluation({
+    status: 'PASS', consistency_score: 95, critical_count: 0,
+    failing_stages: [], recommended_rerun_stages: [], requires_human_decision: false,
+    reason: 'Conflicting duplicates below.',
+    criteria: [
+      { criterion_id: 'design-review', result: 'met', evidence: ['a.json'] },
+      { criterion_id: 'design-review', result: 'not_met', evidence: ['a.json'] },
+    ],
+  });
+  assert.equal(validated.ok, false);
+  assert.ok(validated.issues.some((check) => check.name === 'goal_evaluation_criteria_no_conflicting_duplicates'));
+
+  // Identical duplicates are not a conflict — the first is kept.
+  const identical = validateGoalEvaluation({
+    status: 'PASS', consistency_score: 95, critical_count: 0,
+    failing_stages: [], recommended_rerun_stages: [], requires_human_decision: false,
+    reason: 'Identical duplicates below.',
+    criteria: [
+      { criterion_id: 'design-review', result: 'met', evidence: ['a.json'] },
+      { criterion_id: 'design-review', result: 'met', evidence: ['a.json'] },
+    ],
+  });
+  assert.equal(identical.ok, true);
+});
+
 test('normalizeGoalEvaluation tolerates junk shapes and reports issues instead of throwing', () => {
   assert.equal(normalizeGoalEvaluation(null).present, false);
   assert.equal(normalizeGoalEvaluation('nonsense').criteria.length, 0);
