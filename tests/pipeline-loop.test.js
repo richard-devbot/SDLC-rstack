@@ -125,6 +125,22 @@ test('resetStagesForRetry resets only selected-stage tasks, atomically, preservi
   assert.equal(metrics.stage_status['07-code'], 'PENDING', 'stale stage status cleared');
 });
 
+test('resetStagesForRetry only overrides stage_status for stages where a task was actually reset', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-loop-'));
+  const runDir = seedRun(projectRoot, 'run-a', {
+    tasks: [
+      task('001', 'BLOCKED', '06-architecture'), // gated — nothing resettable in this stage
+      task('002', 'PASS', '07-code'),
+    ],
+    metrics: { stage_status: { '06-architecture': 'FAILED', '07-code': 'PASS' } },
+  });
+  const reset = await resetStagesForRetry(projectRoot, 'run-a', ['06-architecture', '07-code']);
+  assert.deepEqual(reset, ['002']);
+  const metrics = JSON.parse(readFileSync(path.join(runDir, 'metrics.json'), 'utf8'));
+  assert.equal(metrics.stage_status['07-code'], 'PENDING');
+  assert.equal(metrics.stage_status['06-architecture'], 'FAILED', 'a stage with only gated tasks keeps its real status');
+});
+
 // ── The loop ─────────────────────────────────────────────────────────────────
 
 test('retry then pass: loop resets the recommended stage, reruns it, and completes with the full event trail', async () => {

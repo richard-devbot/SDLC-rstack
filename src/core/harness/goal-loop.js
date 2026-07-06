@@ -235,6 +235,7 @@ export async function resetStagesForRetry(projectRoot, runId, stageIds) {
   const runDir = runDirectory(projectRoot, runId);
   const tasksPath = join(runDir, 'tasks.json');
   const resetTaskIds = [];
+  const resetStageIds = new Set();
 
   await withFileLock(tasksPath, async () => {
     let raw;
@@ -248,18 +249,23 @@ export async function resetStagesForRetry(projectRoot, runId, stageIds) {
     for (const task of tasks) {
       const status = String(task?.status ?? '').toUpperCase();
       if (!RESETTABLE_TASK_STATUSES.has(status)) continue;
-      if (!taskStageIds(task).some((stageId) => stageSet.has(stageId))) continue;
+      const matched = taskStageIds(task).filter((stageId) => stageSet.has(stageId));
+      if (!matched.length) continue;
       task.status = 'PENDING';
       resetTaskIds.push(task.id);
+      for (const stageId of matched) resetStageIds.add(stageId);
     }
     await writeJsonAtomic(tasksPath, wrapped ? raw : tasks);
   });
 
   // Clear the stage-status overrides too, or the rollup would keep reporting
   // the stale PASS/FAIL from before the reset (updateRunMetrics is locked).
-  if (resetTaskIds.length) {
+  // Only stages where a task was ACTUALLY reset — a selected stage whose only
+  // tasks were gated (IN_PROGRESS/NEEDS_CONTEXT/BLOCKED) keeps its real
+  // status, or the dashboard would report PENDING work that never restarted.
+  if (resetStageIds.size) {
     await updateRunMetrics(runDir, {
-      stage_status: Object.fromEntries([...stageSet].map((stageId) => [stageId, 'PENDING'])),
+      stage_status: Object.fromEntries([...resetStageIds].map((stageId) => [stageId, 'PENDING'])),
     });
   }
   return resetTaskIds;
