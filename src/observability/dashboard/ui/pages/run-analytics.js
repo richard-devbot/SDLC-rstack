@@ -68,7 +68,7 @@ function renderTrendTable(s) {
   var rows = (s.trends && s.trends.runs) || [];
   setText('analytics-trend-count', rows.length + ' runs');
   setHTML('analytics-trend-table', rows.map(function(row) {
-    return '<tr class="clickable" tabindex="0" data-runid="' + esc(row.runId) + '" onclick="openDrawerRow(this)" aria-label="Open run details">' +
+    return '<tr class="clickable" tabindex="0" role="button" data-runid="' + esc(row.runId) + '" onclick="openDrawerRow(this)" aria-label="Open run details">' +
       '<td><div class="strong">' + esc((row.goal || row.runId).slice(0, 60)) + '</div><div class="faint mono">' + esc(String(row.created_at || '').slice(0, 16)) + '</div></td>' +
       '<td class="mono">' + fmtDur(row.duration_ms) + '</td>' +
       '<td class="mono">' + (row.tool_calls || 0) + '</td>' +

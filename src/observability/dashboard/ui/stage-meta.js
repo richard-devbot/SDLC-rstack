@@ -3,7 +3,7 @@
 // Single source of stage metadata for the dashboard client (#95).
 //
 // Stage ids and order come from the canonical harness list
-// (src/core/harness/stages.js) at serve time — the dashboard never keeps its
+// (src/core/harness/stages.js) at process start (any restart regenerates it) — the dashboard never keeps its
 // own stage list. What lives here is purely presentational decoration per
 // canonical stage id: the Workflow Map business framing, the Studio personas
 // (shared with the 3D studio), and the Run Report card chrome. Ids are
@@ -224,7 +224,7 @@ export const STUDIO_PERSONAS = Object.freeze(pickTable('studio'));
 // modules. Every stage table the client uses is generated from the canonical
 // list here — pages must not declare their own.
 export const stageMetaScript = `
-// ── stage meta (generated at serve time from src/core/harness/stages.js) ──
+// ── stage meta (generated at process start from src/core/harness/stages.js) ──
 var STAGE_IDS = ${JSON.stringify(STAGE_IDS)};
 var WORKFLOW_STAGE_META = ${JSON.stringify(pickTable('workflow'), null, 2)};
 var STAGE_PERSONAS = ${JSON.stringify(pickTable('studio'), null, 2)};

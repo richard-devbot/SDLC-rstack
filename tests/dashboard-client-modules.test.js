@@ -24,6 +24,18 @@ test('served client bundle contains every page module', () => {
   }
 });
 
+test('served bundle is syntactically valid JS and inline-script safe (#216 review F1)', () => {
+  const bundle = clientScript(3008);
+  // 20 page modules get edited in parallel and live inside template literals
+  // that eslint cannot see into — a syntax error in any of them would pass
+  // tests yet kill the whole dashboard at load. Compiling (not executing) the
+  // bundle catches that here instead of in the browser.
+  assert.doesNotThrow(() => new Function(bundle), 'assembled client bundle must compile');
+  // The assembler does no escaping, so a literal </script anywhere in a module
+  // would terminate the inline <script> tag mid-bundle and break the page.
+  assert.ok(!bundle.includes('</script'), 'bundle must not contain a literal </script sequence');
+});
+
 test('bundle keeps the shared lib, drawer and core sections', () => {
   const bundle = clientScript(3008);
   assert.match(bundle, /── shared lib ─/);

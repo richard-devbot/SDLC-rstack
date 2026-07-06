@@ -65,7 +65,7 @@ test('stage metadata exists in exactly one source in the served bundle', () => {
     const declarations = [...bundle.matchAll(new RegExp(`var ${name} =`, 'g'))];
     assert.equal(declarations.length, 1, `${name} declared exactly once (in the generated stage-meta section)`);
   }
-  assert.match(bundle, /generated at serve time from src\/core\/harness\/stages\.js/);
+  assert.match(bundle, /generated at process start from src\/core\/harness\/stages\.js/);
 });
 
 test('Studio 3D personas are injected from the same stage-meta source', () => {
