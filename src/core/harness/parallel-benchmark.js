@@ -248,7 +248,9 @@ const KNOWN_PARALLEL_KEYS = new Set(['enabled', 'target', 'groups', 'require_ben
  *   "parallel_groups": {
  *     "enabled": false,                 // gate result; only true when evidenced
  *     "target": 0.40,                   // required improvement fraction [0,1)
- *     "require_benchmark": true,        // enabled:true must be backed by a benchmark artifact
+ *     "require_benchmark": true,        // declared intent (not yet enforced): once #208 wires
+ *                                       // parallel execution, enabled:true should require a
+ *                                       // benchmark artifact — today only its type is validated
  *     "groups": [["12-...","13-...","14-..."]]
  *   }
  *

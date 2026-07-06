@@ -514,6 +514,10 @@ presentational step — the data flows now.
 `enabled` should only be set `true` once a benchmark artifact shows the group
 clears `target`. Config validation flags non-data-independent groups, an
 out-of-range `target`, unknown keys, and `enabled: true` with no groups.
+`require_benchmark` is **declared intent, not yet enforced** — its type is
+validated, but nothing today blocks `enabled: true` without a benchmark artifact
+because the runner is still sequential (the gate is a recommendation). Enforcing
+it belongs with the parallel-execution wiring (#208).
 
 ## Validation commands
 
