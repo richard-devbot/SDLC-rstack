@@ -6,6 +6,19 @@
 
 export const liveFeedScript = `
 // ── page: live-feed ────────────────────────────────────────────────
+// [wave:ops] shared helper. Declared here because live-feed.js is the
+// EARLIEST-concatenated of the wave:ops page modules in ui/client.js
+// (live-feed → approvals → alerts-guardrails), so the later ops modules can
+// call it without leaning on whole-bundle function hoisting. Injects a
+// section once into a page body: page modules own their panels but not
+// ui/pages/index.js, so late-added panels mount themselves on first render.
+function opsEnsureSection(pageId, markerId, html) {
+  if (document.getElementById(markerId)) return;
+  var page = document.getElementById('page-' + pageId);
+  if (!page) return;
+  page.insertAdjacentHTML('beforeend', html);
+}
+
 // July harness vocabulary (#215) gets distinct glyphs so the audit story
 // reads at a glance: checkpoints (CP), context pressure (CX), approval audit
 // (AU), memory writes (MB), metrics drift (MX), retries (RT), guardrails
@@ -44,9 +57,13 @@ function opsFeedMeta(item) {
     case 'stage_checkpoint_after_saved':
       return d.verified === true ? 'verified' : d.verified === false ? 'unverified' : '';
     case 'approval_audit_failed':
-      return (d.issues || []).length ? (d.issues || []).length + ' audit issue(s)' : '';
+      // Forged records can carry a non-array issues field — count only real lists.
+      return Array.isArray(d.issues) && d.issues.length ? d.issues.length + ' audit issue(s)' : '';
     case 'retry_decision':
-      return d.decision || '';
+      // Pinned #123 shape: action ∈ complete|retry|exhausted|human_context|block,
+      // next_status is the task transition the harness made.
+      if (!d.action && !d.next_status) return '';
+      return (d.action || '?') + (d.next_status ? ' → ' + d.next_status : '');
     case 'task_retry_scheduled':
     case 'task_retry_exhausted':
     case 'task_human_context_required':
@@ -56,7 +73,9 @@ function opsFeedMeta(item) {
     case 'episode_memory_skipped_untrusted':
       return d.write_policy || '';
     case 'goal_evaluated':
-      return d.criteria_total != null ? (d.criteria_met != null ? d.criteria_met : '?') + '/' + d.criteria_total + ' criteria' : '';
+      // Real pipeline-loop.js fields: iteration/max_iterations + failing_stages.
+      if (d.iteration != null) return 'iteration ' + d.iteration + (d.max_iterations != null ? '/' + d.max_iterations : '');
+      return Array.isArray(d.failing_stages) && d.failing_stages.length ? d.failing_stages.length + ' failing stage(s)' : '';
     default:
       return '';
   }

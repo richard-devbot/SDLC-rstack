@@ -32,13 +32,13 @@ const JULY_EVENTS = [
   { type: 'stage_checkpoint_after_saved', stage_id: '06-architecture', task_id: '003-architecture', verified: false, ts: '2026-07-06T12:10:05.000Z' },
   { type: 'context_pressure_warning', source: 'memory_summary', metric: 'chars', size: 61000, threshold: 40000, blocking: false, task_id: '004-implementation', ts: '2026-07-06T12:13:00.000Z' },
   { type: 'task_retry_scheduled', task_id: '005-testing', attempt: 1, max_attempts: 2, reason: 'validator requested another attempt', ts: '2026-07-06T12:31:00.000Z' },
-  { type: 'retry_decision', task_id: '005-testing', decision: 'BLOCKED', reason: 'attempt budget exhausted', ts: '2026-07-06T12:35:00.000Z' },
+  { type: 'retry_decision', task_id: '005-testing', stage_id: '08-testing', attempt: 2, max_attempts: 2, retry_recommendation: 'retry_builder', action: 'exhausted', next_status: 'BLOCKED', reason: 'attempt budget exhausted', issues: [], ts: '2026-07-06T12:35:00.000Z' },
   { type: 'guardrail_triggered', task_id: '005-testing', limit_name: 'maxTaskAttempts', current_value: 2, limit_value: 2, ts: '2026-07-06T12:35:01.000Z' },
   { type: 'approval_audit_failed', record_id: 'forged-1', artifact: 'guardrail-override:005-testing', status: 'APPROVED', issues: ['approval_actor_present: approver missing or empty'], reason: 'approval record failed the consistency audit — treated as absent, gated work stays gated', ts: '2026-07-06T12:36:00.000Z' },
   { type: 'episode_memory_written', task_id: '003-architecture', trusted: true, ts: '2026-07-06T12:37:00.000Z' },
   { type: 'episode_memory_skipped_untrusted', task_id: '005-testing', reason: 'validator status FAIL under validator-approved-only', write_policy: 'validator-approved-only', ts: '2026-07-06T12:38:00.000Z' },
   { type: 'metrics_write_failed', task_id: '004-implementation', operation: 'telemetry_increment', error: 'EACCES', ts: '2026-07-06T12:39:00.000Z' },
-  { type: 'goal_evaluated', iteration: 1, recommendation: 'RETRY', criteria_met: 1, criteria_total: 2, ts: '2026-07-06T12:40:00.000Z' },
+  { type: 'goal_evaluated', iteration: 1, max_iterations: 3, goal_id: 'ship-the-mvp', status: 'FAIL', score: 0.5, critical_count: 1, failing_stages: ['08-testing'], recommended_rerun_stages: ['07-code', '08-testing'], reason: 'test coverage below target', ts: '2026-07-06T12:40:00.000Z' },
   // Unknown event type: must not throw and must not fabricate a feed line.
   { type: 'mystery_signal_from_the_future', task_id: '005-testing', ts: '2026-07-06T12:41:00.000Z' },
 ];
@@ -125,8 +125,8 @@ test('feed renders a line for every July signal event type, with honest wording'
   assert.match(byType.episode_memory_written.summary, /Episode memory written for 003-architecture \(trusted\)/);
   assert.match(byType.episode_memory_skipped_untrusted.summary, /Episode memory skipped for 005-testing — validator status FAIL under validator-approved-only \(policy: validator-approved-only\)/);
   assert.match(byType.metrics_write_failed.summary, /Metrics write failed \(telemetry_increment\) — persisted totals are behind the events/);
-  assert.match(byType.retry_decision.summary, /Retry decision for 005-testing: BLOCKED — attempt budget exhausted/);
-  assert.match(byType.goal_evaluated.summary, /Goal evaluated \(iteration 1\) — 1\/2 criteria met, recommendation RETRY/);
+  assert.match(byType.retry_decision.summary, /Retry decision for 005-testing: exhausted → BLOCKED — attempt budget exhausted/);
+  assert.match(byType.goal_evaluated.summary, /🎯 Goal ship-the-mvp evaluated: FAIL \(score 0\.5\) — test coverage below target/);
   assert.match(byType.task_retry_scheduled.summary, /Retry 1\/2 scheduled — 005-testing/);
 
   // Unknown types keep degrading exactly as before: dropped, never invented.
@@ -143,23 +143,27 @@ test('feed levels for the new vocabulary distinguish blocked, failed and warning
   assert.equal(levels.episode_memory_written, 'info');
   assert.equal(levels.episode_memory_skipped_untrusted, 'warn');
   assert.equal(levels.metrics_write_failed, 'warn');
-  assert.equal(levels.retry_decision, 'blocked'); // decision: BLOCKED
-  assert.equal(levels.goal_evaluated, 'warn'); // recommendation: RETRY
+  assert.equal(levels.retry_decision, 'blocked'); // next_status: BLOCKED
+  assert.equal(levels.goal_evaluated, 'warn'); // status: FAIL
 });
 
-test('goal_evaluated with recommendation DONE reads as pass; legacy shape keeps the old summary', () => {
+test('goal_evaluated reads pass/fail from the real pipeline-loop status field', () => {
+  // pipeline-loop.js emits { iteration, max_iterations, goal_id, status,
+  // score, critical_count, failing_stages, recommended_rerun_stages, reason }.
+  // status is the source of truth — PASS reads green, anything else warns.
   const feed = buildActivityFeed([{
     runId: 'run-goal', projectRoot: '/tmp/p', manifest: { goal: 'g' },
     events: [
-      { type: 'goal_evaluated', iteration: 3, recommendation: 'DONE', criteria_met: 2, criteria_total: 2, ts: '2026-07-06T13:00:00.000Z' },
-      { type: 'goal_evaluated', goal_id: 'legacy-goal', status: 'PASS', score: 0.9, ts: '2026-07-06T13:01:00.000Z' },
+      { type: 'goal_evaluated', iteration: 3, max_iterations: 3, goal_id: 'met-goal', status: 'PASS', score: 0.95, critical_count: 0, failing_stages: [], reason: 'all criteria met', ts: '2026-07-06T13:00:00.000Z' },
+      { type: 'goal_evaluated', iteration: 1, max_iterations: 3, goal_id: 'early-goal', status: 'FAIL', score: 0.4, critical_count: 2, failing_stages: ['07-code'], reason: 'criteria unmet', ts: '2026-07-06T13:01:00.000Z' },
     ],
   }]);
-  const done = feed.find((entry) => entry.summary.includes('recommendation DONE'));
-  assert.equal(done.level, 'pass');
-  const legacy = feed.find((entry) => entry.summary.includes('legacy-goal'));
-  assert.match(legacy.summary, /Goal legacy-goal evaluated: PASS/);
-  assert.equal(legacy.level, 'pass');
+  const met = feed.find((entry) => entry.summary.includes('met-goal'));
+  assert.match(met.summary, /🎯 Goal met-goal evaluated: PASS \(score 0\.95\)/);
+  assert.equal(met.level, 'pass');
+  const early = feed.find((entry) => entry.summary.includes('early-goal'));
+  assert.match(early.summary, /🎯 Goal early-goal evaluated: FAIL \(score 0\.4\)/);
+  assert.equal(early.level, 'warn');
 });
 
 test('feed items carry structured data for the ops panels — only fields the event had', () => {
@@ -217,14 +221,43 @@ test('retry state panel shows the blocked task with attempts, decision and reaso
   const html = els.get('ops-retry-list').innerHTML;
   assert.match(html, /005-testing/);
   assert.match(html, /08-testing/);
-  assert.match(html, /budget exhausted/); // retry_decision BLOCKED wins as latest state
-  assert.match(html, /attempt 1\/2/);
-  assert.match(html, /decision: BLOCKED/);
+  assert.match(html, /budget exhausted/); // action: exhausted wins as the latest state
+  assert.match(html, /attempt 2\/2/); // the exhausted decision carries the final attempt count
+  assert.match(html, /decision: exhausted → BLOCKED/);
   assert.match(html, /attempt budget exhausted/);
   assert.match(html, /task status: BLOCKED/);
   assert.equal(els.get('ops-retry-count').textContent, '1 task(s) in retry flow');
   // Healthy tasks stay out of the retry panel.
   assert.ok(!html.includes('003-architecture'));
+});
+
+test('retry panel distinguishes a validator block from budget exhaustion — no fabricated cause', () => {
+  // Two BLOCKED tasks the harness reports with different retry_decision actions:
+  //   005 exhausted its attempt budget (action: exhausted → "budget exhausted")
+  //   006 was blocked by the validator (action: block → "validator blocked")
+  // Both carry next_status BLOCKED; keying on next_status alone would mislabel
+  // the validator block as budget exhaustion. The panel must not.
+  const events = [
+    { type: 'retry_decision', task_id: '005-testing', stage_id: '08-testing', attempt: 2, max_attempts: 2, retry_recommendation: 'retry_builder', action: 'exhausted', next_status: 'BLOCKED', reason: 'attempt budget exhausted', ts: '2026-07-06T12:35:00.000Z' },
+    { type: 'retry_decision', task_id: '006-deploy', stage_id: '09-deployment', attempt: 1, max_attempts: 2, retry_recommendation: 'block', action: 'block', next_status: 'BLOCKED', reason: 'validator blocked — a human decision is required', ts: '2026-07-06T12:36:00.000Z' },
+  ];
+  const state = fixtureState();
+  state.runs[0].tasks.push({ id: '006-deploy', status: 'BLOCKED', stageId: '09-deployment' });
+  state.feed = buildActivityFeed([{ ...FIXTURE_RUN, events }]);
+
+  const { document, els } = createDom(PAGE_IDS);
+  loadRenderers(document).renderAlertsGuardrails(state);
+  const html = els.get('ops-retry-list').innerHTML;
+
+  const i5 = html.indexOf('005-testing');
+  const i6 = html.indexOf('006-deploy');
+  assert.ok(i5 !== -1 && i6 !== -1 && i5 < i6, 'both blocked tasks render, in task order');
+  const exhaustedCard = html.slice(i5, i6);
+  const validatorCard = html.slice(i6);
+  assert.match(exhaustedCard, /budget exhausted/);
+  assert.match(validatorCard, /validator blocked/);
+  // The validator block is never dressed up as a budget-exhaustion cause.
+  assert.ok(!validatorCard.includes('budget exhausted'), 'a validator block must not be labelled budget exhausted');
 });
 
 test('guardrail panel shows limit vs value and says plainly no override is on file', () => {

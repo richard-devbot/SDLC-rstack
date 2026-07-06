@@ -12,15 +12,8 @@
 
 export const alertsGuardrailsScript = `
 // ── page: alerts-guardrails ────────────────────────────────────────────────
-// Injects a section once into a page body. Page modules own their panels but
-// not ui/pages/index.js, so late-added panels mount themselves on first render.
-function opsEnsureSection(pageId, markerId, html) {
-  if (document.getElementById(markerId)) return;
-  var page = document.getElementById('page-' + pageId);
-  if (!page) return;
-  page.insertAdjacentHTML('beforeend', html);
-}
-
+// Panel injection uses opsEnsureSection, declared in pages/live-feed.js — the
+// earliest-concatenated wave:ops module in the served bundle.
 var OPS_ALERTS_PANELS_HTML =
   '<div class="panel" id="ops-retry-panel" style="margin-top:16px">' +
     '<div class="panel-head"><span class="panel-title">Retry State</span><span class="panel-note" id="ops-retry-count"></span></div>' +
@@ -65,34 +58,69 @@ var OPS_RETRY_EVENT_TYPES = {
   task_human_context_required: 'human_required'
 };
 
+// retry_decision action → panel state (pinned #123 contract:
+// action ∈ complete|retry|exhausted|human_context|block).
+var OPS_DECISION_STATES = {
+  retry: 'scheduled',
+  exhausted: 'exhausted',
+  human_context: 'human_required',
+  block: 'validator_blocked',
+  complete: 'resolved'
+};
+
 function opsRetryStateLabel(state) {
   if (state === 'scheduled') return pill('warn', 'retry scheduled');
   if (state === 'exhausted') return pill('fail', 'budget exhausted');
   if (state === 'human_required') return pill('blocked', 'human input required');
-  if (state === 'failed') return pill('fail', 'failed');
+  if (state === 'validator_blocked') return pill('blocked', 'validator blocked');
+  if (state === 'resolved') return pill('pass', 'resolved');
+  if (state === 'blocked_unknown') return pill('blocked', 'blocked');
   return pill('info', state || 'unknown');
 }
 
 // Latest retry signal per task for one run, folded from the recent feed.
-// Oldest-first so the newest event wins each task's current state.
+// Oldest-first; at EQUAL timestamps the action-specific event
+// (task_retry_exhausted / _scheduled / _human_context_required) outranks the
+// paired retry_decision — the emitter appends both in the same tick, decision
+// first, and the specific event is the final word on the state. Without this
+// tiebreak an exhausted task could render under the decision's mapping alone.
 function opsRetryStateForRun(run, feed) {
-  var byTask = {};
-  feed.slice().reverse().forEach(function(item) {
+  var items = [];
+  feed.forEach(function(item) {
     if (item.runId !== run.runId) return;
-    var d = item.data || {};
-    if (!d.task_id) return;
-    var mapped = OPS_RETRY_EVENT_TYPES[item.type];
-    if (mapped) {
-      byTask[d.task_id] = { state: mapped, attempt: d.attempt, maxAttempts: d.max_attempts, reason: d.reason, ts: item.ts };
-      return;
-    }
+    if (item.type !== 'retry_decision' && !OPS_RETRY_EVENT_TYPES[item.type]) return;
+    if (!item.data || !item.data.task_id) return;
+    items.push(item);
+  });
+  items.sort(function(a, b) {
+    var byTs = String(a.ts || '').localeCompare(String(b.ts || ''));
+    if (byTs !== 0) return byTs;
+    return (a.type === 'retry_decision' ? 0 : 1) - (b.type === 'retry_decision' ? 0 : 1);
+  });
+  var byTask = {};
+  items.forEach(function(item) {
+    var d = item.data;
+    var prev = byTask[d.task_id] || {};
     if (item.type === 'retry_decision') {
-      var decision = String(d.decision || '').toUpperCase();
-      var state = decision === 'BLOCKED' ? 'exhausted'
-        : decision === 'NEEDS_CONTEXT' ? 'human_required'
-        : decision === 'FAIL' || decision === 'FAILED' ? 'failed' : 'scheduled';
-      var prev = byTask[d.task_id] || {};
-      byTask[d.task_id] = { state: state, attempt: prev.attempt, maxAttempts: prev.maxAttempts, reason: d.reason || prev.reason, decision: decision, ts: item.ts };
+      byTask[d.task_id] = {
+        state: OPS_DECISION_STATES[String(d.action || '').toLowerCase()] || prev.state || 'unknown',
+        attempt: d.attempt != null ? d.attempt : prev.attempt,
+        maxAttempts: d.max_attempts != null ? d.max_attempts : prev.maxAttempts,
+        reason: d.reason || prev.reason,
+        action: d.action || prev.action,
+        nextStatus: d.next_status || prev.nextStatus,
+        ts: item.ts
+      };
+    } else {
+      byTask[d.task_id] = {
+        state: OPS_RETRY_EVENT_TYPES[item.type],
+        attempt: d.attempt != null ? d.attempt : prev.attempt,
+        maxAttempts: d.max_attempts != null ? d.max_attempts : prev.maxAttempts,
+        reason: d.reason || prev.reason,
+        action: prev.action,
+        nextStatus: prev.nextStatus,
+        ts: item.ts
+      };
     }
   });
   return byTask;
@@ -102,12 +130,18 @@ function opsRetryRowHtml(run, task, info) {
   var attempts = info && info.attempt != null
     ? 'attempt ' + info.attempt + (info.maxAttempts != null ? '/' + info.maxAttempts : '')
     : '';
+  var decisionMeta = info && (info.action || info.nextStatus)
+    ? 'decision: ' + (info.action || '?') + (info.nextStatus ? ' → ' + info.nextStatus : '')
+    : '';
   return '<div class="alert-card ' + (info && info.state === 'scheduled' ? 'warn' : 'critical') + '"><div class="agent-head"><div>' +
     '<div class="strong mono">' + esc(task.id) + (task.stageId ? ' <span class="muted">(' + esc(task.stageId) + ')</span>' : '') + '</div>' +
     (info && info.reason ? '<div class="muted">' + esc(info.reason) + '</div>' : '') +
-    (!info && task.status === 'BLOCKED' ? '<div class="muted">Task is BLOCKED; its retry events are outside the recent event window.</div>' : '') +
-    '<div class="feed-meta"><span>' + esc((run.runId || '').slice(-16)) + '</span>' + (attempts ? '<span>' + esc(attempts) + '</span>' : '') + (info && info.decision ? '<span>decision: ' + esc(info.decision) + '</span>' : '') + '<span>task status: ' + esc(task.status || 'READY') + '</span></div>' +
-    '</div>' + opsRetryStateLabel(info ? info.state : (task.status === 'BLOCKED' ? 'exhausted' : 'unknown')) + '</div></div>';
+    (!info ? '<div class="muted">Task is BLOCKED — cause outside the recent event window (validator, DoR, destructive-gate or attempt budget; no retry evidence in view).</div>' : '') +
+    '<div class="feed-meta"><span>' + esc((run.runId || '').slice(-16)) + '</span>' + (attempts ? '<span>' + esc(attempts) + '</span>' : '') + (decisionMeta ? '<span>' + esc(decisionMeta) + '</span>' : '') + '<span>task status: ' + esc(task.status || 'READY') + '</span></div>' +
+    // "budget exhausted" is earned only by real task_retry_exhausted /
+    // exhausted-decision evidence — a BLOCKED task without in-window events
+    // gets the generic blocked pill, never a fabricated cause.
+    '</div>' + opsRetryStateLabel(info ? info.state : 'blocked_unknown') + '</div></div>';
 }
 
 function renderOpsRetryPanel(s) {

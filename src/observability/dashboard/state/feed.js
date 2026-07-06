@@ -83,14 +83,13 @@ function opsEventSummary(ev) {
     case 'metrics_write_failed':
       return `Metrics write failed${ev.operation ? ` (${ev.operation})` : ''} — persisted totals are behind the events; run totals fall back to event recompute`;
     case 'retry_decision':
-      return `Retry decision for ${ev.task_id ?? 'task'}: ${ev.decision ?? '?'}${ev.reason ? ` — ${ev.reason}` : ''}`;
-    case 'goal_evaluated':
-      // #195 evaluator shape (iteration + criteria counts). The legacy
-      // status/score shape keeps its existing plain-language summary.
-      if (ev.criteria_total != null || ev.recommendation != null) {
-        return `🎯 Goal evaluated${ev.iteration != null ? ` (iteration ${ev.iteration})` : ''} — ${ev.criteria_met ?? '?'}/${ev.criteria_total ?? '?'} criteria met${ev.recommendation ? `, recommendation ${ev.recommendation}` : ''}`;
-      }
-      return null;
+      // Pinned #123 emitter contract: { task_id, stage_id, attempt,
+      // max_attempts, retry_recommendation, action, next_status, reason,
+      // issues[] } with action ∈ complete|retry|exhausted|human_context|block.
+      return `Retry decision for ${ev.task_id ?? 'task'}: ${ev.action ?? '?'}${ev.next_status ? ` → ${ev.next_status}` : ''}${ev.reason ? ` — ${ev.reason}` : ''}`;
+    // goal_evaluated keeps its shared plain-language summary (goal_id /
+    // status / score / reason — the real pipeline-loop.js emitter fields);
+    // the ops layer only attaches the structured data below.
     default:
       return null;
   }
@@ -115,10 +114,10 @@ function fmtCount(value) {
 const OPS_EVENT_DATA_FIELDS = {
   guardrail_triggered: ['task_id', 'limit_name', 'current_value', 'limit_value', 'reason'],
   guardrail_overridden: ['task_id', 'artifact'],
-  task_retry_scheduled: ['task_id', 'attempt', 'max_attempts', 'reason'],
-  task_retry_exhausted: ['task_id', 'attempt', 'max_attempts', 'reason'],
-  task_human_context_required: ['task_id', 'attempt', 'max_attempts', 'reason'],
-  retry_decision: ['task_id', 'decision', 'reason'],
+  task_retry_scheduled: ['task_id', 'stage_id', 'attempt', 'max_attempts', 'retry_recommendation', 'reason'],
+  task_retry_exhausted: ['task_id', 'stage_id', 'attempt', 'max_attempts', 'retry_recommendation', 'reason'],
+  task_human_context_required: ['task_id', 'stage_id', 'attempt', 'max_attempts', 'retry_recommendation', 'reason'],
+  retry_decision: ['task_id', 'stage_id', 'attempt', 'max_attempts', 'retry_recommendation', 'action', 'next_status', 'reason'],
   context_pressure_warning: ['task_id', 'source', 'metric', 'size', 'threshold', 'blocking', 'stage_id'],
   approval_audit_failed: ['record_id', 'artifact', 'status', 'issues', 'reason'],
   stage_checkpoint_before_saved: ['stage_id', 'task_id', 'verified'],
@@ -126,7 +125,7 @@ const OPS_EVENT_DATA_FIELDS = {
   episode_memory_written: ['task_id', 'trusted'],
   episode_memory_skipped_untrusted: ['task_id', 'reason', 'write_policy'],
   metrics_write_failed: ['task_id', 'operation', 'error'],
-  goal_evaluated: ['iteration', 'recommendation', 'criteria_met', 'criteria_total', 'status', 'score', 'goal_id'],
+  goal_evaluated: ['iteration', 'max_iterations', 'goal_id', 'status', 'score', 'critical_count', 'failing_stages', 'recommended_rerun_stages'],
 };
 
 function opsEventData(ev) {
@@ -150,9 +149,11 @@ function eventLevel(ev) {
   if (ev.type === 'task_human_context_required') return 'blocked';
   if (ev.type === 'task_blocked_by_validator') return 'blocked';
   if (ev.type === 'retry_decision') {
-    const decision = String(ev.decision ?? '').toUpperCase();
-    if (decision === 'BLOCKED' || decision === 'NEEDS_CONTEXT') return 'blocked';
-    if (decision === 'FAIL' || decision === 'FAILED') return 'fail';
+    // next_status is the task transition the harness actually made (#123):
+    // PASS | FAIL (re-claimable) | BLOCKED | NEEDS_CONTEXT.
+    const nextStatus = String(ev.next_status ?? '').toUpperCase();
+    if (nextStatus === 'BLOCKED' || nextStatus === 'NEEDS_CONTEXT') return 'blocked';
+    if (nextStatus === 'PASS') return 'pass';
     return 'warn';
   }
   if (/^retry_/.test(String(ev.type ?? ''))) return 'warn';
@@ -164,9 +165,7 @@ function eventLevel(ev) {
   if (ev.type === 'episode_memory_written') return 'info';
   if (ev.type === 'episode_memory_skipped_untrusted') return 'warn';
   if (ev.type === 'metrics_write_failed') return 'warn';
-  if (ev.type === 'goal_evaluated') {
-    return (ev.status === 'PASS' || String(ev.recommendation ?? '').toUpperCase() === 'DONE') ? 'pass' : 'warn';
-  }
+  if (ev.type === 'goal_evaluated') return ev.status === 'PASS' ? 'pass' : 'warn';
   if (ev.type === 'loop_iteration_retrying_stages') return 'warn';
   if (ev.type === 'loop_completed') return 'pass';
   if (ev.type === 'loop_blocked') return 'blocked';

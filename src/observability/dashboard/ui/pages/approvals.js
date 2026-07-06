@@ -32,7 +32,10 @@ function renderApprovals(s) {
 
 function opsAuditRejectionHtml(item) {
   var d = item.data || {};
-  var issues = d.issues || [];
+  // This panel renders records that already failed a trust audit — the
+  // issues field itself is hostile input. A forged non-array value is shown
+  // as a single line instead of throwing into the page error banner.
+  var issues = Array.isArray(d.issues) ? d.issues : (d.issues != null ? [String(d.issues)] : []);
   return '<div class="alert-card critical"><div class="agent-head"><div>' +
     '<div class="strong mono">' + esc(d.artifact || 'unknown artifact') + '</div>' +
     '<div class="muted">' + esc(d.reason || 'Record failed the consistency audit — treated as absent; the gate stayed closed.') + '</div>' +
