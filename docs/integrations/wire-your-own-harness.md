@@ -17,11 +17,14 @@ flags) and read the verdict:
 | exit `0` | allow — verdict JSON on stdout |
 | exit `2` | block — verdict JSON on stdout, human-readable reason on stderr |
 
-That is the whole adapter contract. Claude Code is wired automatically by
+That is the whole guard contract. Claude Code is wired automatically by
 `init --framework claude-code` (see [claude-code.md](claude-code.md)); Pi has
-a native extension. For **codex, gemini-cli, or your own agent loop**, you
-don't have to figure out the wiring yourself — paste the guided prompt below
-into your coding agent and let it wire its own harness.
+a native extension; Tau's adapter wires the guard itself on its `tool_call`
+hook (see [tau.md](tau.md)). For **codex, gemini-cli, or your own agent
+loop**, you don't have to figure out the wiring yourself — paste the guided
+prompt below into your coding agent and let it wire its own harness. If you
+are writing a full adapter (tools + guard), the complete conformance
+checklist is [adapter-contract.md](adapter-contract.md).
 
 ## The paste-in prompt
 

@@ -17,7 +17,8 @@ src/
 │
 ├── integrations/         framework adapters — RStack plugs into the host, not vice versa
 │   ├── pi/               Pi native adapter (TypeScript extension)
-│   └── operator/         Operator native adapter (Python, bridges via bin/rstack-operator-bridge.ts)
+│   ├── operator/         Operator adapter (Python, bridges via bin/rstack-bridge.ts)
+│   └── tau/              Tau adapter (Python, contributed by Jeomon — bridge + self-wiring guard hook)
 │
 ├── notifications/        webhook delivery — Slack, Teams, Discord
 ├── memory/               episodic memory, retrieval fusion, diagnostics

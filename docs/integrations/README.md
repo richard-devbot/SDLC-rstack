@@ -15,7 +15,13 @@ npx rstack-agents init --framework pi       # or be explicit
 | Pi | [pi.md](pi.md) | `src/integrations/pi/rstack-sdlc.ts` (native TypeScript extension) |
 | Claude Code | [claude-code.md](claude-code.md) | `sdlc-automation` plugin + PreToolUse `rstack-agents guard` hook |
 | Operator | [operator.md](operator.md) | `src/integrations/operator/rstack_sdlc.py` (Python, bridges to Node) |
+| Tau | [tau.md](tau.md) | `src/integrations/tau/rstack_sdlc.py` (Python, bridges to Node + self-wiring guard hook) |
 | Anything else | [custom.md](custom.md) | The `.rstack/` state contract + Node bridge |
+
+Writing a new adapter? The conformance checklist every adapter must satisfy —
+tool surface, bridge protocol, guard wiring, hub launch, env passthrough —
+lives in [adapter-contract.md](adapter-contract.md), enforced by
+`tests/bridge-conformance.test.js`.
 
 Runtime enforcement (destructive gate + validator sandbox) is framework-neutral:
 any harness with a tool-call hook wires it via `rstack-agents guard` — see
@@ -37,8 +43,9 @@ npx rstack-business   # multi-project observability on :3008
 `init` without `--framework` picks:
 1. `.claude/` directory exists → **claude-code**
 2. `operator.json` or `operator_settings.json` exists → **operator**
-3. `package.json` references Pi (`@earendil-works/*` or a `pi` key) → **pi**
-4. otherwise → **custom**
+3. `tau.json`, `tau_settings.json`, or `.tau/` exists → **tau**
+4. `package.json` references Pi (`@earendil-works/*` or a `pi` key) → **pi**
+5. otherwise → **custom**
 
 ## Environment configuration (all frameworks)
 

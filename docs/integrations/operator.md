@@ -4,8 +4,10 @@
 
 Operator (Python agent harness) loads `rstack_sdlc.py`, which exposes the same
 `sdlc_*` tools as the Pi adapter. No SDLC logic is reimplemented in Python —
-each tool shells out to the Node bridge (`bin/rstack-operator-bridge.ts`),
-which reuses the TypeScript adapter verbatim.
+each tool shells out to the generic Node bridge (`bin/rstack-bridge.ts`),
+which reuses the TypeScript adapter verbatim
+(`bin/rstack-operator-bridge.ts` remains as a back-compat alias).
+Conformance: [adapter-contract.md](adapter-contract.md).
 
 ## Host requirements
 

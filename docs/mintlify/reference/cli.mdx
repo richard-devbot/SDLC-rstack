@@ -143,7 +143,8 @@ Decision Queue and DoR details: [Decision Readiness](/reference/decision-readine
 |---|---|
 | `rstack-business` | Run the Business Hub server directly: `rstack-business --port 3008 --project .` |
 | `rstack-observer` | Compatibility alias that opens the same Business Hub |
-| `rstack-operator-bridge` | Node bridge the Operator (Python) adapter shells out to per tool call |
+| `rstack-bridge` | Generic Node bridge any non-TypeScript adapter (Operator, Tau, custom) shells out to per tool call; `--list` prints the tool registry |
+| `rstack-operator-bridge` | Back-compat alias for `rstack-bridge` with the `operator` invocation id |
 
 ## npm scripts
 

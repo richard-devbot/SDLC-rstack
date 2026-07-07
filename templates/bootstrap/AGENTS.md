@@ -42,7 +42,7 @@ Any tool can call the governed harness via shell:
 
 ```bash
 RSTACK_PROJECT_ROOT="$(pwd)" \
-  npx tsx node_modules/rstack-agents/bin/rstack-operator-bridge.ts <tool_name> '<json-params>'
+  npx tsx node_modules/rstack-agents/bin/rstack-bridge.ts <tool_name> '<json-params>'
 ```
 
 Tools include: `sdlc_start`, `sdlc_clarify`, `sdlc_plan`, `sdlc_approve`, `sdlc_build_next`, `sdlc_validate`, `sdlc_status`, `sdlc_trace`, `sdlc_rollback`. Run with no arguments to list all.
