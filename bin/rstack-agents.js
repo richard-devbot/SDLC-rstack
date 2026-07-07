@@ -21,6 +21,7 @@ import { envScan, formatEnvScan } from '../src/commands/env-scan.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
 import { runGuardCommand, readStdinText } from '../src/commands/guard.js';
+import { runDoctor, formatDoctorReport, DOCTOR_FRAMEWORKS } from '../src/commands/doctor.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
 import { notifyAll, resolveChannels, formatSlackStageMessage } from '../src/notifications/index.js';
 import { autoLaunchBusinessHub } from '../src/hooks/auto-launch.js';
@@ -421,6 +422,33 @@ program
       else process.stdout.write(formatBackendInventory(inventory, { reportPath }));
     } catch (err) {
       log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('doctor')
+  .description('Verify RStack is set up and enforcement is LIVE on this machine: environment, .rstack config, framework wiring, a real guard self-test (destructive→block / safe→allow), and hub health. Every problem prints its fix. Exit 1 on any FAIL.')
+  .option('-f, --framework <framework>', `host framework to check wiring for: ${DOCTOR_FRAMEWORKS.join(' | ')} (auto-detected if omitted)`)
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--json', 'print the structured report as JSON for CI')
+  .action(async (opts) => {
+    try {
+      if (opts.framework && !DOCTOR_FRAMEWORKS.includes(opts.framework)) {
+        log.error(`Unknown framework "${opts.framework}". Expected one of: ${DOCTOR_FRAMEWORKS.join(', ')}`);
+        process.exit(1);
+      }
+      const report = await runDoctor({ framework: opts.framework, project: opts.project });
+      if (opts.json) {
+        process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+      } else {
+        console.log(formatDoctorReport(report, { color: process.stdout.isTTY === true }));
+      }
+      process.exit(report.exitCode);
+    } catch (err) {
+      // Defensive: doctor should never crash, but if something truly unexpected
+      // escapes, surface it as a failure rather than a stack trace.
+      log.error(`doctor encountered an unexpected error: ${err.message}`);
       process.exit(1);
     }
   });
