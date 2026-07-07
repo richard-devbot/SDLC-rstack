@@ -135,16 +135,17 @@ test('doctor', async (t) => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  await t.test('tau adapter absence is a defensive FAIL, never a crash', async () => {
+  await t.test('tau adapter (shipped) PASSes and never crashes', async () => {
     const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-tau-'));
     seedRstack(root);
     const { json } = await runDoctor(['--framework', 'tau', '--project', root, '--json'], { cwd: root });
 
-    assert.ok(json, 'doctor produced parseable JSON (did not crash) for an unbuilt tau adapter');
+    assert.ok(json, 'doctor produced parseable JSON (did not crash) for the tau framework');
+    // Tau ships as a first-class adapter (#243), so presence resolves to PASS.
     const adapter = checkByName(json, 'tau adapter present');
-    assert.equal(adapter.status, 'FAIL');
-    assert.ok(adapter.detail.includes('tau'), 'FAIL names the missing tau adapter');
-    // The shared bridge still resolves.
+    assert.equal(adapter.status, 'PASS');
+    assert.ok(adapter.detail.includes('tau'), 'detail names the tau adapter path');
+    // The shared bridge resolves too.
     assert.equal(checkByName(json, 'bridge reachable').status, 'PASS');
 
     rmSync(root, { recursive: true, force: true });
