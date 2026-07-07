@@ -94,6 +94,12 @@ code you added and the three verdict JSON lines as evidence.
 
 ## Notes for adapter authors
 
+- **Full adapter contract.** Wiring the guard covers enforcement. To expose the
+  `sdlc_*` tools as well (the complete adapter, like Operator or Tau), follow
+  [adapter-contract.md](adapter-contract.md) — the checklist for tool surface,
+  bridge protocol, hub launch, and config passthrough, backed by a conformance
+  test. The Tau adapter (`src/integrations/tau/rstack_sdlc.py`) is a compact
+  reference that also demonstrates the guard `tool_call` hook.
 - **One source of truth.** The guard reuses the harness classifiers
   (`src/core/harness/destructive-actions.js`, `validator-sandbox.js`) and the
   audited approval path (#133) — do not re-implement classification in your
