@@ -17,6 +17,7 @@ import {
   GENERIC_VALIDATOR_PROFILE,
   loadValidatorRegistry,
   resolveValidatorProfile,
+  validatorDelegationCheck,
 } from '../src/core/harness/validator-registry.js';
 
 const CRITICAL_STAGES = [
@@ -159,4 +160,25 @@ test('malformed override file falls back loudly to defaults', async () => {
     console.error = originalError;
     rmSync(projectRoot, { recursive: true, force: true });
   }
+});
+
+// #222: honest transparency + mechanically-safe deliverable enforcement.
+
+test('validatorDelegationCheck records ownership honestly — PASS, never a fabricated check pass', () => {
+  const profile = DEFAULT_VALIDATOR_REGISTRY['12-security-threat-model'];
+  const check = validatorDelegationCheck(profile);
+  assert.equal(check.name, 'validator_profile_selected');
+  assert.equal(check.status, 'PASS'); // "profile resolved & recorded", not "checks passed"
+  assert.match(check.evidence, /validator\.12-security-threat-model owns this stage/);
+  assert.match(check.evidence, /delegated/i);
+  assert.match(check.evidence, /#72/); // names the epic that owns semantic enforcement
+  // Every declared required_check is named — nothing silently dropped.
+  for (const rc of profile.required_checks) assert.ok(check.evidence.includes(rc), `names ${rc}`);
+});
+
+test('validatorDelegationCheck on the generic profile names its minimal delegated checks', () => {
+  const check = validatorDelegationCheck(GENERIC_VALIDATOR_PROFILE);
+  assert.equal(check.status, 'PASS');
+  assert.match(check.evidence, /validator\.generic owns this stage/);
+  for (const rc of GENERIC_VALIDATOR_PROFILE.required_checks) assert.ok(check.evidence.includes(rc));
 });
