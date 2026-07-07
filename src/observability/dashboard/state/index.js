@@ -13,6 +13,7 @@ import { buildStageTrends, persistedTokenTotals } from '../../metrics/derive.js'
 import { buildPeople, buildPresence } from './people.js';
 import { buildBusinessFlexState } from './business-flex.js';
 import { buildDecisionState } from './decisions.js';
+import { buildEnvironmentState } from './environment.js';
 import { validateProjectConfigs } from '../../../core/harness/config-validation.js';
 // [wave:command] imports — pipeline rollup enrichment (#94 / #156 / #215)
 import { readPipelineState, buildPipelineState } from '../../../core/harness/pipeline-state.js';
@@ -103,6 +104,9 @@ export async function buildFullState(projectRoot, options = {}) {
     presence,
     businessFlex: buildBusinessFlexState(runs),
     decisions: await buildDecisionState(runs),
+    // Environment & Integrations (#238): defensive by contract — absent
+    // report/integrations/.env files are honest empty state, never a crash.
+    environment: await buildEnvironmentState(projectRoot, runs, queueApprovals),
     diagnostics: {
       ...buildDiagnostics(runs, roots, indexMeta),
       // Config validation (#151): invalid .rstack config values are surfaced
