@@ -17,6 +17,7 @@ import { loadPipelineStatus, formatPipelineStatus } from '../src/commands/pipeli
 import { runPipeline, formatRunReport } from '../src/commands/pipeline-run.js';
 import { runGoalLoop, formatLoopReport, loadGoalDefinition } from '../src/commands/pipeline-loop.js';
 import { adoptProject, formatAdoptionReport } from '../src/commands/adopt.js';
+import { envScan, formatEnvScan } from '../src/commands/env-scan.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
 import { runGuardCommand, readStdinText } from '../src/commands/guard.js';
@@ -273,6 +274,27 @@ program
       process.stderr.write(`[rstack guard] internal error before classification (allowing): ${err.message}\n`);
       process.stdout.write(`${JSON.stringify({ decision: 'allow', category: null, reason: 'unclassifiable input (guard internal error)', context: null, tool: null })}\n`);
       process.exit(0);
+    }
+  });
+
+const envCmd = program
+  .command('env')
+  .description('Environment intake helpers for stage 00 (#237)');
+
+envCmd
+  .command('scan')
+  .description('Read-only project scan: toolchain/docs/tests/ci/deploy signals + a proposed run mode with evidence and env-var setup needs')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--json', 'print the structured scan report as JSON')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const report = await envScan(projectRoot);
+      if (opts.json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+      else console.log(formatEnvScan(report));
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
     }
   });
 
