@@ -92,6 +92,29 @@ export function appendApprovalAudit(projectRoot, entry) {
   return auditTail;
 }
 
+// --- Append-only env-write audit log (#238) ---------------------------------
+//
+// Every /api/env-write attempt — approved, approval-required, or denied —
+// lands as one JSONL line in .rstack/env-writes-audit.jsonl. Entries carry
+// the key name, actor, outcome and the VALUE LENGTH only: the plaintext
+// value never reaches this file (or any other persisted surface).
+export function envWriteAuditPath(projectRoot) {
+  return join(projectRoot, '.rstack', 'env-writes-audit.jsonl');
+}
+
+let envAuditTail = Promise.resolve();
+
+export function appendEnvWriteAudit(projectRoot, entry) {
+  envAuditTail = envAuditTail.then(async () => {
+    await mkdir(join(projectRoot, '.rstack'), { recursive: true });
+    await appendFile(envWriteAuditPath(projectRoot), JSON.stringify(entry) + '\n', { flag: 'a' });
+  }, async () => {
+    await mkdir(join(projectRoot, '.rstack'), { recursive: true });
+    await appendFile(envWriteAuditPath(projectRoot), JSON.stringify(entry) + '\n', { flag: 'a' });
+  });
+  return envAuditTail;
+}
+
 // --- ETag / 304 support -----------------------------------------------------
 export function etagFor(payload) {
   return '"' + createHash('sha256').update(payload).digest('base64url') + '"';

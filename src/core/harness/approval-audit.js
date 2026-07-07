@@ -25,7 +25,11 @@ import { rstackStateDir } from './runs.js';
 // synonym, because every gate compares against 'APPROVED' exactly and a
 // lax audit would let casing confusion mask a forged or corrupted record.
 export const RUN_APPROVAL_STATUSES = Object.freeze(['APPROVED', 'REJECTED', 'PENDING', 'CONSUMED']);
-export const QUEUE_APPROVAL_STATUSES = Object.freeze(['pending', 'approved', 'rejected']);
+// 'consumed' (#238) mirrors the run-level CONSUMED marker for queue-only
+// gates (Business Hub env writes): a spent one-shot approval keeps its
+// record but can never satisfy trustedApprovedArtifacts again — the gate
+// requires exactly 'approved'.
+export const QUEUE_APPROVAL_STATUSES = Object.freeze(['pending', 'approved', 'rejected', 'consumed']);
 
 // Sources that claim the record came through the Business Hub HTTP path.
 // Those records must carry token-verified actor evidence (#161/#168): the
