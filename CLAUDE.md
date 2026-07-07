@@ -24,6 +24,11 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-07 | **Universal enforcement guard**: `rstack-agents guard` — framework-neutral gate any host hook can call (stdin Claude Code PreToolUse JSON or flags; exit 0 allow / exit 2 block), reusing the harness classifier + validator sandbox + #133 audited per-task approvals (zero duplicated logic); `RSTACK_VALIDATOR_CONTEXT=1` beats `--context builder` (no flag escape), destructive-with-unresolvable-task fails CLOSED, raw text sniffed as bash before the fail-open path; `init --framework claude-code` installs the PreToolUse hook idempotently; `docs/integrations/wire-your-own-harness.md` paste-in prompt for codex/gemini/custom. **Claude Code is now enforced, not template-only.** Adversarial review: 0 findings | 1, 2 | #227, PR #234 |
+| 2026-07-07 | **Docs truth & discovery**: real counts everywhere (68 skills — a stray untracked `skills/logs` dir had inflated local counts; 723 tests; 196 agents per validate), complete README CLI table (14 commands + 2 bins), "Govern an existing codebase" section, roadmap rewritten shipped-vs-future, "any framework" reworded to verified enforcement tiers, mintlify (61 files) + loop-recipes ship in tarball (10.1→6.6MB), new `reference/pipeline.mdx` | 2 | #223, PR #233 |
+| 2026-07-07 | **Governance enforcement closeout**: destructive-action gate wired into the live Pi `tool_call` hook (centralized classifier + audited `destructive-action:<taskId>` approvals, fails closed, blocked-event ledger write failures logged not swallowed); context-pressure classified at prompt-assembly (`phase:"pre_execution"`) before model spend; honest validator-profile delegation record naming the owning specialist + delegated required_checks (first slice of #222 — real PASS/FAIL evaluation stays open, semantic = #72) | 1 | #210 #212 #222(partial), PR #230 |
+| 2026-07-07 | **Agent-prompt / harness sync**: builder.md documents the cost/context/execution/routing telemetry blocks (routing honestly marked recorded-not-extracted) + the destructive-approval NEEDS_CONTEXT path; validator.md points at registry profiles as guidance (enforcement = #222/#72); 11-feedback-loop over-stamp rejection rule + canonical paths | 1, 4 | #226, PR #232 |
+| 2026-07-07 | **Repo hygiene**: `specs/` → `docs/internal-specs/` (history-following, still unshipped); untracked `identity.md` → `docs/audits/`, stale `outputs/`/`logs/`/`skills/logs` archived out of tree | 4 | #224, PR #231 |
 | 2026-07-06 | **Context pressure warnings**: detect-only classifier (`context-pressure.js`) with configurable thresholds (builder prompt / memory block / artifact + stage summaries / token ratio) validated per #151, pinned `context_pressure_warning` event (`source` field; emits ONLY what the code actually does — no `memory_pruned` claim without pruning), best-effort at validate (a throw can never fail validation), `context_pressure` rollup in pipeline-state + status CLI; closes BLE-6 — **epics #130 + #134 both closed: backend loop-engineering program (BLE-1→6) fully shipped** | 4 | #136, PR #211 (pre-execution wiring → #212) |
 | 2026-07-06 | **Destructive-action classifier**: centralized `classifyDestructiveAction` (broad-delete, git-force, publish, deploy, secret-write, protected-config-write, db-destroy incl. ORM/CLI forms) — single in-repo source of truth for builder + validator contexts, obfuscation-tested (env-prefix, /bin/rm, --force-with-lease…), no false positives on safe commands; `evaluateDestructiveAction` requires an audited `destructive-action:<taskId>` approval via the #133 path (cross-run replay rejected). Validator sandbox keeps its stricter deny-outright policy (documented divergence) | 1 | #131, PR #209 (enforcement wiring + sandbox convergence → #210) |
 | 2026-07-06 | **Parallel-execution benchmark**: `bench-parallel.mjs` + `parallel-benchmark.js` — SEQ vs PAR timing for data-independent stage groups (default 12/13/14), evidence gate `parallel_groups.enabled` only at ≥40% measured improvement (fails safe to disabled on any bad input), real data-independence detection, 6-stage cap rejects loudly, honest mock-vs-real labeling in the run artifact the Hub indexes; runner stays sequential — execution wiring is #208 | 2, 4 | #159, PR #207 |
@@ -70,17 +75,27 @@ Work top-down. File a GitHub issue before any branch (Richardson's rule: issues 
 #137, #159, #131, #136, #200 (PRs #198/#201/#202/#199/#206/#207/#209/#211/#205). Epics #130
 (BLE-5) and #134 (BLE-6) closed; the backend loop-engineering program (BLE-1→6) is fully shipped.
 
-1. **Backend follow-up batch** (small, wire-the-last-mile; all filed from adversarial reviews):
-   #210 (destructive-gate enforcement path + sandbox convergence — the classifier is dead code
-   until invoked), #208 (parallel-group execution in the runner — make the #159 evidence gate
-   live), #212 (context-pressure at prompt-assembly time), #203 (atomic checkpoint restore),
-   #213 (memory skip-event observability). Goals 1, 4.
-2. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
+**v2.0.0 waves A+B COMPLETE (2026-07-07):** PRs #230/#231/#232/#233/#234 merged (issues
+#223/#224/#226/#227 closed; #210/#212 closed; #225 closed INVALID — `managers` +
+`enforce_in_express` are live gates, do not re-file). Main green: 756 tests. Framework story
+is now "enforced on Pi, Operator, Claude Code (guard hook); guided self-wiring elsewhere".
+
+1. **v2.0.0 Wave C (release mechanics)** — bump package.json+lock to 2.0.0, README badge,
+   CHANGELOG 2.0.0 entry (user-facing, 1.8.0 → 2.0.0), then Richardson pushes the v2.0.0 tag
+   (publish.yml runs gates + npm publish). Goals 1, 2.
+2. **#222 (remainder)** — mechanical PASS/FAIL evaluation of validator required_checks
+   (files_modified_exist, tests_run_evidence, builder_contract_complete, no_placeholder_stubs);
+   semantic checks stay under epic #72. Goal 1.
+3. **2.1.x governance batch**: #228 (required_stage_approvals + every-stage flag — top
+   enterprise ask), #229 (exposure CLI verbs: pipeline rollback / checkpoint status / config
+   validate / approvals audit / memory inspect), #208 (parallel-group execution), #203
+   (atomic checkpoint restore), #213 (memory skip-event observability). Goals 1, 2, 4.
+4. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
    after the #95 page-module split. Goal 2.
-3. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
-4. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
+5. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
+6. UI backlog #90–#97 (security registry depth, compliance/cost depth, client.js split + a11y,
     E2E tests, dark stages). Goal 2.
-5. Roadmap/governance research epics #72–#79 (validator independence #72 is referenced by the
+7. Roadmap/governance research epics #72–#79 (validator independence #72 is referenced by the
    08-testing agent text; attestation #73; traceability drift #74). Research-scale. Goals 1, 2.
 
 UI ↔ backend alignment note (2026-07-04 review): the dashboard approve path writes run-level
