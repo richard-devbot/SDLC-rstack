@@ -19,6 +19,7 @@ import { runGoalLoop, formatLoopReport, loadGoalDefinition } from '../src/comman
 import { adoptProject, formatAdoptionReport } from '../src/commands/adopt.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
+import { runGuardCommand, readStdinText } from '../src/commands/guard.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
 import { notifyAll, resolveChannels, formatSlackStageMessage } from '../src/notifications/index.js';
 import { autoLaunchBusinessHub } from '../src/hooks/auto-launch.js';
@@ -246,6 +247,32 @@ pipelineCmd
     } catch (err) {
       log.error(err.message);
       process.exit(1);
+    }
+  });
+
+program
+  .command('guard')
+  .description('Framework-neutral enforcement guard: classify one pending tool call and allow (exit 0) or block (exit 2). Reads Claude Code PreToolUse JSON on stdin, or takes --tool/--command/--path flags. Wire it into any harness tool-call hook.')
+  .option('--tool <name>', 'tool name (bash, write, edit, ...) when passing flags instead of stdin JSON')
+  .option('--command <command>', 'shell command to classify (implies --tool bash)')
+  .option('--path <path>', 'write/edit target path to classify (implies --tool write)')
+  .option('--context <context>', 'agent context: builder | validator | reviewer | security (default: RSTACK_AGENT_CONTEXT env, else builder; RSTACK_VALIDATOR_CONTEXT=1 always wins)')
+  .option('--task <taskId>', 'task id keying the destructive-action approval (default: RSTACK_TASK_ID env)')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('-r, --run-id <runId>', 'run whose audited approvals gate destructive actions (defaults to latest run)')
+  .option('--explain', 'classify only: print the verdict, skip the approval lookup, always exit 0')
+  .action(async (opts) => {
+    try {
+      const usesFlags = opts.tool !== undefined || opts.command !== undefined || opts.path !== undefined;
+      const stdinText = usesFlags ? '' : await readStdinText();
+      process.exit(await runGuardCommand(opts, { stdinText }));
+    } catch (err) {
+      // The guard must never hard-fail a hook: an unexpected error here means
+      // nothing was classified — allow loudly (destructive-time failures are
+      // already blocked inside runGuard, which never throws).
+      process.stderr.write(`[rstack guard] internal error before classification (allowing): ${err.message}\n`);
+      process.stdout.write(`${JSON.stringify({ decision: 'allow', category: null, reason: 'unclassifiable input (guard internal error)', context: null, tool: null })}\n`);
+      process.exit(0);
     }
   });
 
