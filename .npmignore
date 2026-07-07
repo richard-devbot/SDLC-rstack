@@ -1,7 +1,7 @@
 # Workspace artifacts
 .rstack/
 outputs/
-specs/
+docs/internal-specs/
 logs/
 
 # Legacy/private local workspaces are not part of the Pi-first package
