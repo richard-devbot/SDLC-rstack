@@ -15,7 +15,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "validate": "node bin/rstack-agents.js validate",
     "lint": "eslint src/ bin/ tests/",
-    "prepublishOnly": "npm run lint && npm test && npm run validate",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm test && npm run validate",
     "observer": "node bin/rstack-observer.js",
     "observer:dev": "node --watch bin/rstack-business.js",
     "business": "node bin/rstack-business.js",
