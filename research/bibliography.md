@@ -4,6 +4,13 @@
 
 This bibliography records the sources used to ground the RStack SDLC research narrative. It separates standards, prior-art implementations, empirical productivity evidence, security references, and RStack primary-source artifacts so the paper can cite claims without reconstructing context later.
 
+## Software engineering foundations
+
+### Beginning Software Engineering (Stephens)
+- **Reference:** Rod Stephens, *Beginning Software Engineering*, 2nd Edition. Wrox/Wiley, 2022. ISBN 978-1-119-90170-9.
+- **Why it matters to RStack:** RStack's canonical SDLC grounding. The 15-stage pipeline's quality gates map directly to the book: requirements quality attributes and MoSCoW prioritization (Ch. 4) in 02-requirements, the five-level testing taxonomy and black/white/gray-box methods in 08-testing, deliberate cutover strategy in 09-deployment, defect analysis in 10-summary, the maintenance taxonomy (perfective/adaptive/corrective/preventive) in 11-feedback-loop, and the study-before-modify principle (Ch. 11) in the brownfield adopted-run contract.
+- **RStack connection:** Cited throughout the stage agents; grounds the paper's claim that the pipeline encodes established software-engineering practice rather than ad-hoc agent prompts.
+
 ## Standards and governance references
 
 ### NIST AI Risk Management Framework
@@ -104,8 +111,8 @@ This bibliography records the sources used to ground the RStack SDLC research na
 ### RStack SDLC repository
 - **Reference:** `richard-devbot/SDLC-rstack`.
 - **URL:** https://github.com/richard-devbot/SDLC-rstack
-- **Current audited HEAD:** `b559aa4` — `CodeRabbit Generated Unit Tests: Add generated unit tests (#69)`.
-- **Current package:** `rstack-agents@1.8.0`.
+- **Current audited HEAD:** main as of 2026-07-07 (v2.0.0 release: governed loop enforced in code — PRs #230–#234; 756 tests).
+- **Current package:** `rstack-agents@2.0.0`.
 - **Why it matters:** Primary source for architecture, implementation, tests, docs, and development history.
 
 ### RStack README

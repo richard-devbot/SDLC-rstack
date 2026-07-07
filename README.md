@@ -3,7 +3,7 @@
 <!-- owner: RStack developed by Richardson Gunde -->
 
 <p align="center">
-  <img src="sdlc-rstack-logo.png" alt="SDLC RSTACK" width="280" />
+  <img src="https://raw.githubusercontent.com/richard-devbot/SDLC-rstack/main/assets/sdlc-rstack-logo.png" alt="SDLC RSTACK" width="280" />
 </p>
 
 <p align="center">
@@ -12,9 +12,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.9.0--rc-orange" alt="v1.9.0-rc"/>
+  <img src="https://img.shields.io/badge/version-2.0.0-brightgreen" alt="v2.0.0"/>
   <img src="https://img.shields.io/badge/agents-196%20validated-brightgreen" alt="196 agents"/>
-  <img src="https://img.shields.io/badge/tests-723%20pass-brightgreen" alt="723 tests"/>
+  <img src="https://img.shields.io/badge/tests-756%20pass-brightgreen" alt="756 tests"/>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"/>
 </p>
 
@@ -22,11 +22,21 @@
 
 RStack sits on top of Pi, Claude Code, Operator, Codex-style CLIs, Gemini-style CLIs, or a custom harness and gives agent teams a repeatable lifecycle with approvals, builder/validator contracts, evidence, memory, budget envelopes, and a live Business Hub.
 
-**Enforcement tiers:** full runtime enforcement on Pi and Operator (live tool-call gating). Claude Code enforcement lands via the `rstack-agents guard` PreToolUse hook ([#227](https://github.com/richard-devbot/SDLC-rstack/issues/227)). Every other harness gets the governed contracts, state, and Business Hub, plus a guided recipe to wire the guard into its own hook system.
+**Enforcement tiers:** full runtime enforcement on Pi and Operator (live tool-call gating), and on Claude Code via the `rstack-agents guard` PreToolUse hook (installed by `init`). Every other harness gets the governed contracts, state, and Business Hub, plus a guided recipe to wire the guard into its own hook system ([wire-your-own-harness](docs/integrations/wire-your-own-harness.md)).
 
 ```text
 clarify → plan → spec → approve → build → validate → release-readiness → learn
 ```
+
+## Meet the studio
+
+Your AI software team in one place — builders, validators, the skills rack, and live delivery status. **[Open the interactive 3D workspace →](https://raw.githack.com/richard-devbot/SDLC-rstack/main/assets/rstack-workspace-v8.html)** — drag to look around, scroll to zoom, click any room to explore, or take the guided tour where each specialist introduces itself.
+
+<p align="center">
+  <a href="https://raw.githack.com/richard-devbot/SDLC-rstack/main/assets/rstack-workspace-v8.html">
+    <img src="https://raw.githubusercontent.com/richard-devbot/SDLC-rstack/main/assets/rstack-workspace-preview.png" alt="RStack interactive agent workspace — builders and validators studio" width="800"/>
+  </a>
+</p>
 
 ## Table of contents
 
@@ -469,7 +479,7 @@ npm run validate
 Latest verified branch state:
 
 ```text
-npm test          # 723 pass, 0 fail
+npm test          # 756 pass, 0 fail
 npm run lint      # pass
 npm run validate  # All 196 agents passed validation
 npm pack --dry-run  # package includes templates/bootstrap/
