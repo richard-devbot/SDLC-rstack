@@ -24,8 +24,11 @@ import { join } from 'node:path';
 
 import { scanRepository } from '../core/adopt/scan.js';
 import { rstackStateDir } from '../core/harness/runs.js';
+// Single source of truth for run modes: the harness report validator (#237)
+// enforces the same enum this scan proposes — they can never drift.
+import { RUN_MODES } from '../core/harness/environment-report.js';
 
-export const RUN_MODES = Object.freeze(['greenfield', 'brownfield', 'feature']);
+export { RUN_MODES };
 
 async function readJsonIfPresent(filePath) {
   try {

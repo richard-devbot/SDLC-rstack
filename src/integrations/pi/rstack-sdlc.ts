@@ -12,6 +12,9 @@ import { fileURLToPath } from "node:url";
 import { getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
 import { validateBuilderContract, validateBuilderCompleteness } from "../../core/harness/contracts.js";
 import { validateStageGoalEvaluation } from "../../core/harness/goal-check.js";
+// #237: environment_report.json shape check — best-effort WARN at stage-00
+// validation, never a verdict flip (context-pressure precedent).
+import { environmentReportCheck } from "../../core/harness/environment-report.js";
 import { taskStageIds } from "../../core/harness/pipeline-state.js";
 import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
@@ -1860,6 +1863,18 @@ export default function (pi: ExtensionAPI) {
         });
         checks.push(...goalGate.checks);
         if (!goalGate.ok) status = "FAIL";
+        // Environment-report shape check (#237): stage 00 only. Best-effort —
+        // the check is PASS or WARN by construction (never FAIL, never in
+        // issues[]), and a throw here can NEVER fail validation. Legacy
+        // reports (pre-#237 shape) only warn; malformed intake-v2 fields
+        // (run_mode, user_preferences, setup_needs) are named in evidence.
+        if (taskStageIds(task).includes("00-environment")) {
+          try {
+            checks.push(await environmentReportCheck(join(runsDir(projectRoot), manifest.run_id)));
+          } catch (envReportError) {
+            console.error("Failed to check environment report shape:", envReportError);
+          }
+        }
         const validation = {
           task_id: task.id,
           validator: "rstack-pi-extension",
