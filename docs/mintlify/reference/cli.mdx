@@ -120,6 +120,23 @@ $ rstack-agents validate
 
 The catalog ships **196 agents, 68 skills, 72 plugins, 36 prompts**.
 
+---
+
+### Pipeline and governance commands
+
+| Command | Purpose |
+|---|---|
+| `pipeline status` | Show pipeline status for a run, with one recommended next action |
+| `pipeline run` | Advance the run: skip DONE work, re-enter retryable tasks, stop at human gates |
+| `pipeline loop` | Bounded goal loop — advance, evaluate the goal, rerun recommended stages |
+| `adopt` | Adopt an existing codebase — harvest evidence into a resumable pipeline run |
+| `inventory` | Generate a backend control-plane registry report |
+| `decisions` | List, add, resolve, or waive run-level Decision Queue items |
+| `dor` | Run the Definition-of-Ready gate for a run and target stage |
+
+Flags and exit codes for the pipeline commands: [Pipeline CLI](/reference/pipeline).
+Decision Queue and DoR details: [Decision Readiness](/reference/decision-readiness).
+
 ## The dashboard binaries
 
 | Binary | Purpose |
