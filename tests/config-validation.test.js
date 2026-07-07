@@ -10,8 +10,10 @@ import {
   validateNotificationsConfig,
   validatePolicyConfig,
   validateMemoryConfig,
+  validateIntegrationsConfig,
   validateProjectConfigs,
 } from '../src/core/harness/config-validation.js';
+import { INTEGRATIONS_TEMPLATE } from '../src/integrations/init.js';
 
 function seedProject(files = {}) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-config-'));
@@ -79,4 +81,60 @@ test('malformed JSON and non-object configs are reported as file-level problems'
 test('missing config files are normal, not problems', async () => {
   const projectRoot = seedProject();
   assert.deepEqual(await validateProjectConfigs(projectRoot), []);
+});
+
+// #237: .rstack/integrations.json — intake config for ticketing/docs/notifications.
+
+test('integrations.json: valid shapes produce zero issues (init template included)', () => {
+  assert.deepEqual(validateIntegrationsConfig({
+    ticketing: { provider: 'jira', base_url: 'https://x.atlassian.net', project_key: 'PROJ' },
+    docs: { provider: 'confluence', space_key: 'ENG' },
+    notifications: { channel: 'slack' },
+  }), []);
+  assert.deepEqual(validateIntegrationsConfig({ ticketing: { provider: 'file-based' } }), []);
+  assert.deepEqual(validateIntegrationsConfig({}), []);
+  // The template init writes must validate clean — "_comment" keys are ignored.
+  assert.deepEqual(validateIntegrationsConfig(INTEGRATIONS_TEMPLATE), []);
+});
+
+test('integrations.json: credential-shaped keys are a validation error pointing at .env', () => {
+  const issues = validateIntegrationsConfig({
+    ticketing: { provider: 'jira', api_token: 'abc123' },
+    jira_password: 'hunter2',
+    docs: { provider: 'confluence', access_secret: 'x' },
+  });
+  for (const field of ['ticketing.api_token', 'jira_password', 'docs.access_secret']) {
+    assert.ok(issues.some((issue) => issue.field === field && /secrets belong in \.env/.test(issue.problem)), `expected secret error for ${field}`);
+  }
+});
+
+test('integrations.json: shape problems name the exact field', () => {
+  const issues = validateIntegrationsConfig({
+    ticketing: { provider: 'trello', base_url: 42 },
+    docs: 'confluence',
+    notifications: { channel: 'carrier-pigeon', extra: 'x' },
+    tickets: {},
+  });
+  assert.ok(issues.some((issue) => issue.field === 'ticketing.provider' && /jira \| github \| azure_devops \| linear \| file-based/.test(issue.problem)));
+  assert.ok(issues.some((issue) => issue.field === 'ticketing.base_url' && /non-empty string/.test(issue.problem)));
+  assert.ok(issues.some((issue) => issue.field === 'docs' && /must be an object/.test(issue.problem)));
+  assert.ok(issues.some((issue) => issue.field === 'notifications.channel' && /slack \| teams \| discord \| none/.test(issue.problem)));
+  assert.ok(issues.some((issue) => issue.field === 'notifications.extra' && /unknown key/.test(issue.problem)));
+  assert.ok(issues.some((issue) => issue.field === 'tickets' && /unknown section/.test(issue.problem)));
+  assert.ok(issues.some((issue) => issue.field === 'ticketing.provider' || issue.field === 'ticketing'), 'ticketing provider enum enforced');
+});
+
+test('integrations.json: ticketing section without a provider is flagged', () => {
+  const issues = validateIntegrationsConfig({ ticketing: { base_url: 'https://x.atlassian.net' } });
+  assert.ok(issues.some((issue) => issue.field === 'ticketing.provider' && /required/.test(issue.problem)));
+});
+
+test('integrations.json is registered in CONFIG_FILES — problems surface from validateProjectConfigs', async () => {
+  const projectRoot = seedProject({
+    'integrations.json': { ticketing: { provider: 'jira', api_token: 'leaked' } },
+  });
+  const problems = await validateProjectConfigs(projectRoot);
+  const secret = problems.find((problem) => problem.file.endsWith('integrations.json') && problem.field === 'ticketing.api_token');
+  assert.ok(secret, 'secret-key error must surface through the config registry');
+  assert.match(secret.problem, /secrets belong in \.env/);
 });
