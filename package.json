@@ -12,9 +12,10 @@
   },
   "scripts": {
     "test": "npx tsx --test tests/*.test.js",
+    "typecheck": "tsc -p tsconfig.json",
     "validate": "node bin/rstack-agents.js validate",
     "lint": "eslint src/ bin/ tests/",
-    "prepublishOnly": "npm run lint && npm test && npm run validate",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm test && npm run validate",
     "observer": "node bin/rstack-observer.js",
     "observer:dev": "node --watch bin/rstack-business.js",
     "business": "node bin/rstack-business.js",
@@ -84,8 +85,10 @@
     "typebox": "^1.1.38"
   },
   "devDependencies": {
+    "@types/node": "^18.19.130",
     "eslint": "^9.0.0",
-    "pkg": "^5.8.1"
+    "pkg": "^5.8.1",
+    "typescript": "^5.9.3"
   },
   "bugs": {
     "url": "https://github.com/richard-devbot/SDLC-rstack/issues"

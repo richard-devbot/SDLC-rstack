@@ -1054,6 +1054,18 @@ async function readJsonl(path: string): Promise<any[]> {
 }
 
 export default function (pi: ExtensionAPI) {
+  // Pi SDK 0.79.x removed `pi.tools` (the by-name registry of registered
+  // tools). Commands that want to invoke a tool's execute() directly (e.g.
+  // /sdlc-rollback delegating to the sdlc_rollback tool) capture the tool
+  // definitions here as they register, then look them up by name. `registerTool`
+  // still forwards to `pi.registerTool` so the LLM-facing registration is
+  // unchanged — this only adds a local handle for intra-extension reuse.
+  const registeredTools: Record<string, { execute: (...args: any[]) => Promise<any> }> = {};
+  const registerTool = <T extends { name: string }>(tool: T): void => {
+    registeredTools[tool.name] = tool as unknown as { execute: (...args: any[]) => Promise<any> };
+    pi.registerTool(tool as any);
+  };
+
   pi.on("resources_discover", async () => {
     const projectRoot = findProjectRoot();
     const skillPaths = projectSkillDirs(projectRoot).filter((path) => existsSync(path));
@@ -1150,7 +1162,7 @@ export default function (pi: ExtensionAPI) {
     return undefined;
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_spec",
     label: "RStack Spec Manager",
     description: "Read or update a specific SDLC artifact (vision, requirements, architecture, etc.) in the run specs directory.",
@@ -1196,7 +1208,7 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_approve",
     label: "RStack Approval Gate",
     description: "Capture human approval or rejection for a specific artifact or SDLC stage.",
@@ -1267,7 +1279,7 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_orchestrate",
     label: "RStack Orchestrate",
     description: "Load the RStack orchestrator, builder, and validator agent instructions into the active task. Use this before coding with RStack.",
@@ -1281,7 +1293,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_start",
     label: "RStack Start SDLC Run",
     description: "Start a clean .rstack/runs lifecycle for building, testing, validating, and shipping software with agent teams.",
@@ -1331,7 +1343,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_clarify",
     label: "RStack Clarify",
     description: "Capture product-owner answers before planning so RStack does not guess important requirements.",
@@ -1373,7 +1385,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_decisions",
     label: "RStack Decision Queue",
     description: "List or add run-level decisions that must be resolved before later SDLC stages.",
@@ -1408,7 +1420,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_decide",
     label: "RStack Resolve Decision",
     description: "Resolve or waive a pending Decision Queue item.",
@@ -1434,7 +1446,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_dor_check",
     label: "RStack Definition of Ready",
     description: "Evaluate unresolved decisions and write dor-report.json/readiness.json for the selected run.",
@@ -1451,7 +1463,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_plan",
     label: "RStack Plan",
     description: "Create a full software lifecycle plan and task graph for the active RStack run.",
@@ -1535,7 +1547,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_build_next",
     label: "RStack Build Next",
     description: "Prepare the next pending builder task with specialist context and an output contract.",
@@ -1778,7 +1790,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_validate",
     label: "RStack Validate",
     description: "Validate an RStack task contract and produce a read-only validation report.",
@@ -1919,11 +1931,10 @@ export default function (pi: ExtensionAPI) {
       // Task ids (e.g. "007-documentation") are plan ids, not canonical stage
       // ids — consumers (reporter stage aggregation, alerts, stage matrix,
       // per-stage cost maps) key by canonical stage.
-      const canonicalStageIds = [...new Set(
-        (task.stage_artifacts ?? [])
-          .map((artifact: any) => artifact?.stage_id)
-          .filter((id: any) => typeof id === "string" && getCanonicalStage(id)),
-      )];
+      const stageIdCandidates: string[] = ((task.stage_artifacts ?? []) as any[])
+        .map((artifact: any) => artifact?.stage_id)
+        .filter((id: any): id is string => typeof id === "string" && Boolean(getCanonicalStage(id)));
+      const canonicalStageIds: string[] = [...new Set<string>(stageIdCandidates)];
       if (canonicalStageIds.length === 0 && getCanonicalStage(task.id)) canonicalStageIds.push(task.id);
 
       await appendEvent(projectRoot, manifest.run_id, { type: "task_validated", task_id: task.id, status });
@@ -2181,7 +2192,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_agents",
     label: "RStack Agents",
     description: "List RStack package-local and project-local agents/skills by domain for routing and team assembly.",
@@ -2213,7 +2224,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_delegate",
     label: "RStack Delegate",
     description: "Spawn one or more RStack agents as isolated Pi subprocesses. Supports single or bounded parallel delegation. Validators default to read-only tools.",
@@ -2252,7 +2263,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_status",
     label: "RStack Status",
     description: "Show active RStack run status, task progress, registry counts, and next recommended action.",
@@ -2281,7 +2292,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_memory",
     label: "RStack Memory",
     description: "Search or append RStack project learnings used by future SDLC runs.",
@@ -2307,7 +2318,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_dashboard",
     label: "RStack Dashboard",
     description: "Generate static HTML dashboard for RStack run and open it in the browser.",
@@ -2334,7 +2345,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_trace",
     label: "RStack Trace",
     description: "Deep-dive CLI LangSmith-like trace view of tool calls and results for a single task.",
@@ -2362,7 +2373,10 @@ export default function (pi: ExtensionAPI) {
         }
       }
       if (!taskId) {
-        return { content: [{ type: "text", text: "No active task found to trace." }] };
+        return {
+          content: [{ type: "text", text: "No active task found to trace." }],
+          details: { run_id: runId, task_id: undefined, trace_html: "" },
+        };
       }
 
       const taskEvents: any[] = [];
@@ -2397,7 +2411,10 @@ export default function (pi: ExtensionAPI) {
       
       if (taskEvents.length === 0) {
         lines.push(`(No events recorded yet for task ${taskId})`);
-        return { content: [{ type: "text", text: lines.join("\n") }] };
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          details: { run_id: runId, task_id: taskId, trace_html: "" },
+        };
       }
 
       const startEvent = taskEvents.find((e: any) => e.type === "task_started");
@@ -2492,7 +2509,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "sdlc_rollback",
     label: "RStack Rollback",
     description: "Rollback the specified SDLC stage to its last recorded checkpoint, restoring directory state.",
@@ -2535,7 +2552,7 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("Stage ID is required for rollback.", "error");
         return;
       }
-      const res = await pi.tools.sdlc_rollback.execute("cmd", { stage_id: stageId });
+      const res = await registeredTools.sdlc_rollback.execute("cmd", { stage_id: stageId });
       ctx.ui.notify(String(res.content[0].text), "info");
     },
   });
@@ -2548,7 +2565,7 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("Stage ID is required for rollback.", "error");
         return;
       }
-      const res = await pi.tools.sdlc_rollback.execute("cmd", { stage_id: stageId });
+      const res = await registeredTools.sdlc_rollback.execute("cmd", { stage_id: stageId });
       ctx.ui.notify(String(res.content[0].text), "info");
     },
   });
@@ -2581,7 +2598,7 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("No active RStack run found.", "error");
         return;
       }
-      const res = await pi.tools.sdlc_dashboard.execute("cmd", { run_id: runId });
+      const res = await registeredTools.sdlc_dashboard.execute("cmd", { run_id: runId });
       ctx.ui.notify(String(res.content[0].text), "info");
     },
   });
@@ -2595,7 +2612,7 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("No active RStack run found.", "error");
         return;
       }
-      const res = await pi.tools.sdlc_dashboard.execute("cmd", { run_id: runId });
+      const res = await registeredTools.sdlc_dashboard.execute("cmd", { run_id: runId });
       ctx.ui.notify(String(res.content[0].text), "info");
     },
   });
@@ -2604,7 +2621,7 @@ export default function (pi: ExtensionAPI) {
     description: "Prints detailed trace for the current or specified task.",
     handler: async (args, ctx) => {
       const taskId = args[0];
-      const res = await pi.tools.sdlc_trace.execute("cmd", { task_id: taskId });
+      const res = await registeredTools.sdlc_trace.execute("cmd", { task_id: taskId });
       console.log(res.content[0].text);
     },
   });
@@ -2613,7 +2630,7 @@ export default function (pi: ExtensionAPI) {
     description: "Prints detailed trace for the current or specified task.",
     handler: async (args, ctx) => {
       const taskId = args[0];
-      const res = await pi.tools.sdlc_trace.execute("cmd", { task_id: taskId });
+      const res = await registeredTools.sdlc_trace.execute("cmd", { task_id: taskId });
       console.log(res.content[0].text);
     },
   });

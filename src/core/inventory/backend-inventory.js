@@ -252,7 +252,11 @@ async function collectPiRuntimeItems(items, { packageRoot }) {
   if (!(await exists(extensionPath))) return;
   const content = await readFile(extensionPath, 'utf8');
 
-  for (const toolName of regexMatches(content, /pi\.registerTool\(\{\s*name:\s*["']([^"']+)["']/gs)) {
+  // Matches the tool registration call. Pi SDK 0.79.x removed `pi.tools`, so
+  // the adapter now registers through a thin local `registerTool(...)` wrapper
+  // (which still forwards to pi.registerTool); accept both the wrapper form and
+  // the historical `pi.registerTool({ ... })` form.
+  for (const toolName of regexMatches(content, /(?:pi\.)?registerTool\(\{\s*name:\s*["']([^"']+)["']/gs)) {
     items.push(makeItem({
       kind: 'tool',
       name: toolName,
