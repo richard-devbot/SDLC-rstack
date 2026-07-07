@@ -115,6 +115,8 @@ Every builder task writes:
 
 `memory_summary.evidence` and each `stage_summaries[].evidence` must cite command output, artifact paths, or files inspected. Validators fail PASS builders that omit these summaries.
 
+The contract also accepts optional `cost`, `context`, `execution`, and `routing` telemetry blocks (objects); the harness extracts cost/context/execution into the run's `metrics.json` at validate time, and the loop budget cap enforces on that recorded spend.
+
 Write it to the active task directory: `$RSTACK_RUN_DIR/tasks/<task_id>/builder.json`.
 
 ## 7. Validator contract
