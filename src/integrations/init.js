@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { registerProject } from '../core/tracker/registry.js';
 import { budgetPolicyForProfile, profileConfig } from '../core/profiles.js';
 
-export const FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'custom']);
+export const FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'tau', 'custom']);
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -28,6 +28,7 @@ export const BOOTSTRAP_BY_FRAMEWORK = Object.freeze({
   'claude-code': ['CLAUDE.md', 'SOUL.md', 'HEARTBEAT.md'],
   pi: ['SOUL.md', 'HEARTBEAT.md'],
   operator: ['SOUL.md', 'HEARTBEAT.md'],
+  tau: ['SOUL.md', 'HEARTBEAT.md'],
   custom: ['AGENTS.md', 'SOUL.md', 'HEARTBEAT.md'],
 });
 
@@ -36,6 +37,7 @@ export async function detectFramework(projectRoot) {
   const root = resolve(projectRoot);
   if (existsSync(join(root, '.claude'))) return 'claude-code';
   if (existsSync(join(root, 'operator.json')) || existsSync(join(root, 'operator_settings.json'))) return 'operator';
+  if (existsSync(join(root, 'tau.json')) || existsSync(join(root, 'tau_settings.json')) || existsSync(join(root, '.tau'))) return 'tau';
   const pkgPath = join(root, 'package.json');
   if (existsSync(pkgPath)) {
     try {
@@ -231,6 +233,34 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
     report.nextSteps.push(
       'Install the package: npm install rstack-agents (the Python adapter shells out to its Node bridge)',
       'Merge rstack-operator.example.json into your Operator settings.json extensions list',
+      'Requirements on this host: node + npx on PATH, npm install run once in the package directory',
+      'Open the dashboard: npx rstack-business',
+    );
+  }
+
+  if (fw === 'tau') {
+    const adapterPath = packageRoot
+      ? join(packageRoot, 'src', 'integrations', 'tau', 'rstack_sdlc.py')
+      : 'node_modules/rstack-agents/src/integrations/tau/rstack_sdlc.py';
+    const settingsPath = join(root, 'rstack-tau.example.json');
+    const example = JSON.stringify({
+      extensions: {
+        list: [{
+          path: adapterPath,
+          settings: {
+            worker_command: '',
+            default_model: '',
+            escalated_model: '',
+            slack_webhook: '',
+          },
+        }],
+      },
+    }, null, 2) + '\n';
+    await writeIfMissing(settingsPath, example, 'rstack-tau.example.json', report);
+    report.nextSteps.push(
+      'Install the package: npm install rstack-agents (the Tau adapter shells out to its Node bridge)',
+      'Merge rstack-tau.example.json into your Tau settings.json extensions list',
+      'Loading the extension is the wiring: its tool_call hook routes terminal/write/edit through `rstack-agents guard` (destructive gate + validator sandbox) — no separate host hook config needed.',
       'Requirements on this host: node + npx on PATH, npm install run once in the package directory',
       'Open the dashboard: npx rstack-business',
     );

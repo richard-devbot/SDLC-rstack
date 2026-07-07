@@ -193,8 +193,31 @@ test('init framework detection and setup', async (t) => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  await t.test('detects tau from tau.json', async () => {
+    const root = tmpProject('rstack-init-tau-detect-');
+    writeFileSync(join(root, 'tau.json'), '{}');
+    assert.equal(await detectFramework(root), 'tau');
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('init tau writes example settings pointing at the Python adapter', async () => {
+    const root = tmpProject('rstack-init-tauset-');
+    const report = await initFramework(root, 'tau', { packageRoot: '/opt/rstack' });
+    assert.equal(report.framework, 'tau');
+    const example = JSON.parse(readFileSync(join(root, 'rstack-tau.example.json'), 'utf8'));
+    assert.equal(example.extensions.list[0].path, join('/opt/rstack', 'src', 'integrations', 'tau', 'rstack_sdlc.py'));
+    assert.ok(Object.keys(example.extensions.list[0].settings).includes('slack_webhook'));
+    // Tau scaffolds SOUL.md + HEARTBEAT.md only, like Pi/Operator.
+    assert.ok(existsSync(join(root, 'SOUL.md')));
+    assert.ok(existsSync(join(root, 'HEARTBEAT.md')));
+    assert.ok(!existsSync(join(root, 'CLAUDE.md')));
+    assert.deepEqual([...BOOTSTRAP_BY_FRAMEWORK.tau], ['SOUL.md', 'HEARTBEAT.md']);
+    assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents guard')), 'guidance mentions the guard hook');
+    rmSync(root, { recursive: true, force: true });
+  });
+
   await t.test('FRAMEWORKS list is the published contract', () => {
-    assert.deepEqual([...FRAMEWORKS], ['pi', 'claude-code', 'operator', 'custom']);
+    assert.deepEqual([...FRAMEWORKS], ['pi', 'claude-code', 'operator', 'tau', 'custom']);
   });
 
   await t.test('init with lean-mvp profile writes correct profile and budget files', async () => {

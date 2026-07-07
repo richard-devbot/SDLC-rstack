@@ -3,7 +3,7 @@
  * rstack-agents CLI entry point.
  *
  * Commands:
- *   rstack-agents init [--framework pi|claude-code|operator|custom]
+ *   rstack-agents init [--framework pi|claude-code|operator|tau|custom]
  *   rstack-agents list <agents|skills|plugins>
  *   rstack-agents inventory [--json]
  *   rstack-agents add plugin <name>
