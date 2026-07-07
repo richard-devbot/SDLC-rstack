@@ -1,0 +1,315 @@
+// owner: RStack developed by Richardson Gunde
+//
+// rstack-agents guard (#227): the framework-neutral enforcement guard.
+//
+// Any harness with a tool-call hook (Claude Code PreToolUse, codex/gemini
+// equivalents, custom loops) pipes the pending tool call through this command
+// and treats the exit code as the verdict:
+//
+//   exit 0 → allow (verdict JSON on stdout)
+//   exit 2 → block (verdict JSON on stdout, human reason on stderr — the
+//            Claude Code PreToolUse convention: exit 2 blocks the call and
+//            feeds stderr back to the model)
+//
+// This command REUSES the harness enforcement modules — it duplicates zero
+// classification logic (#131: one source of truth):
+//
+//   - validator/reviewer/security contexts → validator-sandbox.js policy:
+//     any write/destructive/publish/secret-path op is denied outright, no
+//     approval or RSTACK_ALLOW_DESTRUCTIVE escape hatch (mirrors the Pi
+//     tool_call hook exactly).
+//   - builder context → destructive-actions.js classifyDestructiveAction;
+//     destructive actions are gated on the audited per-task
+//     `destructive-action:<taskId>` approval via guardrails.js
+//     evaluateDestructiveAction (the #133 trusted-approval path — cross-run
+//     replay rejected). RSTACK_ALLOW_DESTRUCTIVE=1 is honored exactly like
+//     the Pi path (builder gate only, never the validator sandbox).
+//
+// Failure policy (documented, deliberate):
+//   - A destructive action that cannot resolve a task id, a run, or its
+//     approvals FAILS CLOSED — blocked, with a reason explaining how to
+//     provide --task / an approval.
+//   - Input that cannot be classified AT ALL (empty stdin, no flags, junk)
+//     FAILS OPEN with a stderr warning — a guard that hard-errors on every
+//     hook call would get uninstalled, which is worse than allowing an
+//     unclassifiable call. Raw non-JSON text is first sniffed as a shell
+//     command, so destructive-looking raw input still hits the gate; the
+//     fail-open path is reachable only when there is literally nothing to
+//     classify.
+
+import { readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+
+import { classifyDestructiveAction } from '../core/harness/destructive-actions.js';
+import { evaluateDestructiveAction } from '../core/harness/guardrails.js';
+import { evaluateValidatorAction, isValidatorContext } from '../core/harness/validator-sandbox.js';
+import { resolveRunId, runDirectory } from '../core/harness/runs.js';
+
+export const GUARD_CONTEXTS = Object.freeze(['builder', 'validator', 'reviewer', 'security']);
+
+// Contexts governed by the validator sandbox (deny-outright, no override).
+const VALIDATOR_CLASS = new Set(['validator', 'reviewer', 'security']);
+
+export const EXIT_ALLOW = 0;
+export const EXIT_BLOCK = 2;
+
+/** Env var a harness sets on subprocesses to declare the agent context. */
+export const GUARD_CONTEXT_ENV = 'RSTACK_AGENT_CONTEXT';
+
+/** Env var a harness sets so the guard knows which task's approval gates a destructive action. */
+export const GUARD_TASK_ENV = 'RSTACK_TASK_ID';
+
+/**
+ * Resolve the effective agent context. Precedence:
+ *   1. RSTACK_VALIDATOR_CONTEXT=1 (the delegate-stamped sandbox env) always
+ *      wins — a sandboxed subprocess must not escape by passing
+ *      `--context builder` (the flag travels with the hook command, the env
+ *      travels with the subprocess).
+ *   2. --context flag.
+ *   3. RSTACK_AGENT_CONTEXT env.
+ *   4. builder.
+ * An unrecognized explicit value falls through to builder (the caller warns).
+ */
+export function resolveGuardContext(flag, env = process.env) {
+  if (isValidatorContext(env)) return 'validator';
+  const explicit = String(flag ?? env[GUARD_CONTEXT_ENV] ?? '').trim().toLowerCase();
+  if (GUARD_CONTEXTS.includes(explicit)) return explicit;
+  return 'builder';
+}
+
+/**
+ * Parse hook input into a { toolName, input } tool-call shape. Accepts:
+ *   - Claude Code PreToolUse JSON: { tool_name, tool_input: {...} }
+ *   - Pi-style: { toolName, input: {...} } or { tool, input }
+ *   - shorthand: { command: "..." }
+ *   - raw non-JSON text → sniffed as a bash command (so destructive-looking
+ *     raw input still classifies instead of failing open)
+ * Returns { ok, toolName, input, sniffed?, empty? }. ok:false means there is
+ * nothing classifiable at all.
+ */
+export function parseHookInput(raw) {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (!text) return { ok: false, empty: true, toolName: null, input: null };
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const toolName = typeof parsed.tool_name === 'string' ? parsed.tool_name
+        : typeof parsed.toolName === 'string' ? parsed.toolName
+          : typeof parsed.tool === 'string' ? parsed.tool : null;
+      const input = parsed.tool_input && typeof parsed.tool_input === 'object' ? parsed.tool_input
+        : parsed.input && typeof parsed.input === 'object' ? parsed.input
+          : typeof parsed.command === 'string' ? { command: parsed.command }
+            : {};
+      const inferred = toolName ?? (typeof input.command === 'string' ? 'bash' : null);
+      return { ok: true, toolName: inferred, input };
+    }
+    // Valid JSON but not an object (a number, a string, an array) — nothing
+    // classifiable in it.
+    return { ok: false, empty: false, toolName: null, input: null };
+  } catch {
+    // Not JSON: sniff the raw text as a shell command. This keeps the
+    // fail-open path honest — `rm -rf /` piped as plain text still blocks.
+    return { ok: true, sniffed: true, toolName: 'bash', input: { command: text } };
+  }
+}
+
+function verdictOf(decision, { category = null, reason, context, tool = null, extra = {} }) {
+  return { decision, category, reason, context, tool, ...extra };
+}
+
+/**
+ * Run the guard decision. Options mirror the CLI flags; `stdinText` is the
+ * raw hook payload used when no --tool/--command/--path flag is given.
+ * Returns { verdict, exitCode, warnings } and never throws.
+ */
+export async function runGuard({
+  tool, command, path, context: contextFlag, task, project, runId,
+  explain = false, stdinText = '', env = process.env, cwd = process.cwd(),
+} = {}) {
+  const warnings = [];
+  const context = resolveGuardContext(contextFlag, env);
+  const explicit = String(contextFlag ?? env[GUARD_CONTEXT_ENV] ?? '').trim().toLowerCase();
+  if (explicit && !GUARD_CONTEXTS.includes(explicit)) {
+    warnings.push(`unknown context '${explicit}' — defaulting to '${context}'`);
+  }
+
+  // Resolve the action under test: explicit flags win over stdin.
+  let toolName = null;
+  let input = null;
+  if (tool !== undefined || command !== undefined || path !== undefined) {
+    toolName = tool ?? (command !== undefined ? 'bash' : 'write');
+    input = {};
+    if (command !== undefined) input.command = String(command);
+    if (path !== undefined) input.file_path = String(path);
+  } else {
+    const parsed = parseHookInput(stdinText);
+    if (!parsed.ok) {
+      // Nothing classifiable at all — fail open with a loud warning (see the
+      // failure-policy note in the header).
+      warnings.push(parsed.empty
+        ? 'no input to classify (empty stdin, no --tool/--command/--path flags) — allowing'
+        : 'input parsed as JSON but contains no recognizable tool call — allowing');
+      return {
+        verdict: verdictOf('allow', { reason: 'unclassifiable input', context }),
+        exitCode: EXIT_ALLOW,
+        warnings,
+      };
+    }
+    if (parsed.sniffed) warnings.push('input was not valid JSON — classified the raw text as a shell command');
+    toolName = parsed.toolName;
+    input = parsed.input;
+  }
+
+  // Validator sandbox contexts: deny-outright policy, no approval path, and
+  // RSTACK_ALLOW_DESTRUCTIVE is deliberately NOT consulted (mirrors the Pi
+  // tool_call hook ordering exactly).
+  if (VALIDATOR_CLASS.has(context)) {
+    const sandbox = evaluateValidatorAction({ toolName, input });
+    const decision = sandbox.allowed ? 'allow' : 'block';
+    const reason = sandbox.allowed
+      ? `${context} context: read-safe action allowed`
+      : `RStack validator sandbox blocked '${toolName}': ${sandbox.reason}`;
+    if (explain) {
+      return {
+        verdict: verdictOf(decision, { category: sandbox.allowed ? null : 'validator-sandbox', reason: `explain mode: ${reason}`, context, tool: toolName, extra: { explain: true } }),
+        exitCode: EXIT_ALLOW,
+        warnings,
+      };
+    }
+    return {
+      verdict: verdictOf(decision, { category: sandbox.allowed ? null : 'validator-sandbox', reason, context, tool: toolName }),
+      exitCode: sandbox.allowed ? EXIT_ALLOW : EXIT_BLOCK,
+      warnings,
+    };
+  }
+
+  // Builder context: classify via the single source of truth (#131).
+  const classified = classifyDestructiveAction({ toolName: toolName ?? '', input });
+
+  if (explain) {
+    return {
+      verdict: verdictOf(classified.destructive ? 'block' : 'allow', {
+        category: classified.category,
+        reason: classified.destructive
+          ? `explain mode (approval lookup skipped): ${classified.reason} — would require an approved 'destructive-action:<taskId>' artifact or RSTACK_ALLOW_DESTRUCTIVE=1`
+          : 'explain mode: non-destructive action',
+        context,
+        tool: toolName,
+        extra: { explain: true },
+      }),
+      exitCode: EXIT_ALLOW,
+      warnings,
+    };
+  }
+
+  if (!classified.destructive) {
+    return {
+      verdict: verdictOf('allow', { reason: 'non-destructive action', context, tool: toolName }),
+      exitCode: EXIT_ALLOW,
+      warnings,
+    };
+  }
+
+  // Same escape hatch, same scope as the Pi hook: builder gate only.
+  if (env.RSTACK_ALLOW_DESTRUCTIVE === '1') {
+    return {
+      verdict: verdictOf('allow', {
+        category: classified.category,
+        reason: `RSTACK_ALLOW_DESTRUCTIVE=1 override — destructive action (${classified.category}) allowed without approval`,
+        context,
+        tool: toolName,
+      }),
+      exitCode: EXIT_ALLOW,
+      warnings,
+    };
+  }
+
+  // Destructive: gate on the audited per-task approval. Every failure from
+  // here on FAILS CLOSED — a destructive action with unresolvable state is
+  // blocked, never waved through.
+  const taskId = task ?? env[GUARD_TASK_ENV];
+  if (!taskId) {
+    return {
+      verdict: verdictOf('block', {
+        category: classified.category,
+        reason: `destructive action (${classified.category}) blocked: no task id to key the approval on — pass --task <taskId> or set ${GUARD_TASK_ENV}, then approve 'destructive-action:<taskId>' via sdlc_approve or the Business Hub. ${classified.reason}`,
+        context,
+        tool: toolName,
+      }),
+      exitCode: EXIT_BLOCK,
+      warnings,
+    };
+  }
+
+  try {
+    const projectRoot = resolve(project ?? cwd);
+    const selectedRun = await resolveRunId(projectRoot, runId);
+    let approvals = [];
+    try {
+      const parsed = JSON.parse(await readFile(join(runDirectory(projectRoot, selectedRun), 'approvals.json'), 'utf8'));
+      if (Array.isArray(parsed)) approvals = parsed;
+    } catch {
+      // Missing or corrupt approvals.json means NO trusted approvals — the
+      // gate below fails closed on an empty set.
+    }
+    const gate = evaluateDestructiveAction({ action: classified, taskId, approvals, expectedRunId: selectedRun });
+    if (gate.allowed) {
+      return {
+        verdict: verdictOf('allow', {
+          category: classified.category,
+          reason: `destructive action (${classified.category}) approved via audited '${gate.approval_artifact}' record on run ${selectedRun}`,
+          context,
+          tool: toolName,
+          extra: { approval_artifact: gate.approval_artifact, run_id: selectedRun },
+        }),
+        exitCode: EXIT_ALLOW,
+        warnings,
+      };
+    }
+    return {
+      verdict: verdictOf('block', {
+        category: classified.category,
+        reason: gate.reason,
+        context,
+        tool: toolName,
+        extra: { approval_artifact: gate.approval_artifact, run_id: selectedRun },
+      }),
+      exitCode: EXIT_BLOCK,
+      warnings,
+    };
+  } catch (error) {
+    // Run resolution failed (no run, invalid run id, unreadable state):
+    // fail closed with actionable guidance.
+    return {
+      verdict: verdictOf('block', {
+        category: classified.category,
+        reason: `destructive action (${classified.category}) blocked: could not resolve run approvals (${error.message}) — start a run or pass --run-id, then approve 'destructive-action:${taskId}'. Fail closed.`,
+        context,
+        tool: toolName,
+      }),
+      exitCode: EXIT_BLOCK,
+      warnings,
+    };
+  }
+}
+
+/** Read the full hook payload from stdin; empty string when stdin is a TTY. */
+export async function readStdinText(stream = process.stdin) {
+  if (stream.isTTY) return '';
+  let data = '';
+  stream.setEncoding('utf8');
+  for await (const chunk of stream) data += chunk;
+  return data;
+}
+
+/**
+ * CLI wrapper: prints the single-line verdict JSON on stdout, warnings and
+ * the block reason on stderr, and returns the exit code. Never throws.
+ */
+export async function runGuardCommand(opts = {}, { stdinText = '', env = process.env, cwd = process.cwd(), stdout = process.stdout, stderr = process.stderr } = {}) {
+  const { verdict, exitCode, warnings } = await runGuard({ ...opts, stdinText, env, cwd });
+  for (const warning of warnings) stderr.write(`[rstack guard] ${warning}\n`);
+  stdout.write(`${JSON.stringify(verdict)}\n`);
+  if (exitCode === EXIT_BLOCK) stderr.write(`[rstack guard] BLOCKED: ${verdict.reason}\n`);
+  return exitCode;
+}
