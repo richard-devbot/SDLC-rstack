@@ -19,6 +19,8 @@ import { execFileSync } from 'node:child_process';
 import { buildEnvironmentState, ENV_WRITE_ARTIFACT_PREFIX } from '../src/observability/dashboard/state/environment.js';
 import { environmentScript } from '../src/observability/dashboard/ui/pages/environment.js';
 import { clientScript } from '../src/observability/dashboard/ui/client.js';
+import { buildActivityFeed } from '../src/observability/dashboard/state/feed.js';
+import { liveFeedScript } from '../src/observability/dashboard/ui/pages/live-feed.js';
 
 function tempRoot({ git = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'rstack-env-state-'));
@@ -153,6 +155,30 @@ test('env-write queue approvals are filtered by artifact prefix and mapped with 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('env_key_written feed line carries key/actor/length — never a value field', () => {
+  const feed = buildActivityFeed([{
+    runId: 'run-1',
+    projectRoot: '/tmp/p',
+    manifest: { goal: 'g' },
+    events: [{
+      ts: '2026-07-07T10:00:00.000Z',
+      type: 'env_key_written',
+      key: 'JIRA_TOKEN',
+      actor: 'rich',
+      masked_value_length: 26,
+    }],
+  }]);
+  const item = feed.find((entry) => entry.type === 'env_key_written');
+  assert.ok(item, 'event renders in the feed');
+  assert.match(item.summary, /JIRA_TOKEN/);
+  assert.match(item.summary, /rich/);
+  assert.match(item.summary, /never logged/);
+  assert.deepEqual(item.data, { key: 'JIRA_TOKEN', actor: 'rich', masked_value_length: 26 });
+  assert.equal(item.level, 'info');
+  // Live-feed icon registered for the type.
+  assert.match(liveFeedScript, /env_key_written: 'EV'/);
 });
 
 test('page module registers and the bundle stays compilable with it included', () => {
