@@ -2,9 +2,9 @@
 
 Operator (a Python AI-agent harness, https://github.com/…/operator) loads this as
 an extension and exposes the same `sdlc_*` tools the Pi adapter provides. Each tool
-shells out to the Node bridge (bin/rstack-operator-bridge.ts), which reuses the
+shells out to the generic Node bridge (bin/rstack-bridge.ts), which reuses the
 existing TypeScript adapter and harness verbatim — no SDLC logic is reimplemented
-in Python.
+in Python. Conformance contract: docs/integrations/adapter-contract.md.
 
 Requirements on the host:
   - node + npx on PATH
@@ -33,7 +33,7 @@ from operator_use.extension.types import ToolDefinition
 from operator_use.tool.types import ToolKind, ToolResult
 
 PKG_ROOT = Path(__file__).resolve().parents[3]  # src/integrations/operator/ -> package root
-BRIDGE = PKG_ROOT / "bin" / "rstack-operator-bridge.ts"
+BRIDGE = PKG_ROOT / "bin" / "rstack-bridge.ts"
 
 # settings.json key → environment variable consumed by the TS adapter/harness.
 _CONFIG_ENV = {
@@ -183,6 +183,28 @@ class RollbackParams(BaseModel):
     run_id: Optional[str] = Field(None, description="Run ID to target.")
 
 
+class DecisionsParams(BaseModel):
+    run_id: Optional[str] = None
+    question: Optional[str] = Field(None, description="When provided, add this as a pending decision.")
+    impact: Optional[Literal["architecture", "security", "budget", "scope", "delivery"]] = "scope"
+    required_before_stage: Optional[str] = Field(None, description="Canonical stage that requires this decision first.")
+    recommendation: Optional[str] = None
+    owner: Optional[str] = None
+
+
+class DecideParams(BaseModel):
+    run_id: Optional[str] = None
+    decision_id: str
+    status: Optional[Literal["resolved", "waived"]] = "resolved"
+    resolution: str
+    resolved_by: Optional[str] = None
+
+
+class DorCheckParams(BaseModel):
+    run_id: Optional[str] = None
+    target_stage: Optional[str] = Field(None, description="Canonical stage to check readiness for.")
+
+
 # name → (description, params model)
 _TOOLS: dict[str, tuple[str, type[BaseModel]]] = {
     "sdlc_orchestrate": ("Load the RStack orchestrator, builder, and validator agent instructions into the active task. Use this before coding with RStack.", OrchestrateParams),
@@ -200,6 +222,9 @@ _TOOLS: dict[str, tuple[str, type[BaseModel]]] = {
     "sdlc_dashboard": ("Generate static HTML dashboard for RStack run and open it in the browser.", DashboardParams),
     "sdlc_trace": ("Deep-dive CLI LangSmith-like trace view of tool calls and results for a single task.", TraceParams),
     "sdlc_rollback": ("Rollback the specified SDLC stage to its last recorded checkpoint, restoring directory state.", RollbackParams),
+    "sdlc_decisions": ("List or add run-level decisions that must be resolved before later SDLC stages.", DecisionsParams),
+    "sdlc_decide": ("Resolve or waive a pending Decision Queue item.", DecideParams),
+    "sdlc_dor_check": ("Evaluate unresolved decisions and write dor-report.json/readiness.json for the selected run.", DorCheckParams),
 }
 
 
@@ -217,7 +242,7 @@ def extension(api) -> None:
             return ToolResult.error(invocation_id, f"RStack: bridge not found at {BRIDGE}.")
 
         project_root = str(getattr(ctx, "cwd", None) or os.getcwd())
-        env = {**os.environ, **config_env, "RSTACK_PROJECT_ROOT": project_root}
+        env = {**os.environ, **config_env, "RSTACK_PROJECT_ROOT": project_root, "RSTACK_BRIDGE_CALLER": "operator"}
 
         proc = await asyncio.create_subprocess_exec(
             npx, "tsx", str(BRIDGE), tool, json.dumps(params),
