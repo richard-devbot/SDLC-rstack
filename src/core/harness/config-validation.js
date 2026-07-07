@@ -183,12 +183,85 @@ export function validateMemoryConfig(parsed) {
   return issues;
 }
 
+// #237: .rstack/integrations.json — endpoints and identifiers ONLY, so the
+// file is safe to commit. Credential-shaped keys are a hard validation error
+// (secrets belong in .env), enforced BEFORE any shape leniency. Keys starting
+// with "_" are comment slots and always ignored.
+export const INTEGRATION_TICKETING_PROVIDERS = Object.freeze(['jira', 'github', 'azure_devops', 'linear', 'file-based']);
+export const INTEGRATION_DOCS_PROVIDERS = Object.freeze(['confluence', 'none']);
+export const INTEGRATION_NOTIFICATION_CHANNELS = Object.freeze(['slack', 'teams', 'discord', 'none']);
+const SECRETISH_KEY = /token|secret|password|api[_-]?key|credential/i;
+
+function collectSecretKeyIssues(value, path, issues) {
+  if (!isPlainObject(value)) return;
+  for (const [key, nested] of Object.entries(value)) {
+    if (key.startsWith('_')) continue;
+    const fieldPath = path ? `${path}.${key}` : key;
+    if (SECRETISH_KEY.test(key)) {
+      issues.push({ field: fieldPath, problem: 'credential-shaped key — secrets belong in .env (e.g. JIRA_API_TOKEN as an environment variable), NEVER in .rstack/integrations.json; remove this field' });
+      continue;
+    }
+    collectSecretKeyIssues(nested, fieldPath, issues);
+  }
+}
+
+function checkIntegrationSection(parsed, section, knownFields, issues) {
+  const value = parsed[section];
+  if (value == null) return null;
+  if (!isPlainObject(value)) {
+    issues.push({ field: section, problem: 'must be an object — this section is ignored' });
+    return null;
+  }
+  for (const [key, fieldValue] of Object.entries(value)) {
+    if (key.startsWith('_') || SECRETISH_KEY.test(key)) continue; // secret keys already reported above
+    if (!(key in knownFields)) {
+      issues.push({ field: `${section}.${key}`, problem: `unknown key — expected ${Object.keys(knownFields).join(' | ')}; this key is ignored` });
+      continue;
+    }
+    const allowed = knownFields[key];
+    if (typeof fieldValue !== 'string' || !fieldValue.trim()) {
+      issues.push({ field: `${section}.${key}`, problem: `must be a non-empty string, got ${JSON.stringify(fieldValue)}` });
+    } else if (Array.isArray(allowed) && !allowed.includes(fieldValue)) {
+      issues.push({ field: `${section}.${key}`, problem: `unknown value "${fieldValue}" — expected ${allowed.join(' | ')}` });
+    }
+  }
+  return value;
+}
+
+export function validateIntegrationsConfig(parsed) {
+  const issues = [];
+  collectSecretKeyIssues(parsed, '', issues);
+  for (const key of Object.keys(parsed)) {
+    if (key.startsWith('_')) continue;
+    if (!['ticketing', 'docs', 'notifications'].includes(key)) {
+      issues.push({ field: key, problem: 'unknown section — expected ticketing | docs | notifications; this section is ignored' });
+    }
+  }
+  const ticketing = checkIntegrationSection(parsed, 'ticketing', {
+    provider: INTEGRATION_TICKETING_PROVIDERS,
+    base_url: 'string',
+    project_key: 'string',
+  }, issues);
+  if (ticketing && ticketing.provider == null) {
+    issues.push({ field: 'ticketing.provider', problem: `required when ticketing is configured — expected ${INTEGRATION_TICKETING_PROVIDERS.join(' | ')}` });
+  }
+  checkIntegrationSection(parsed, 'docs', {
+    provider: INTEGRATION_DOCS_PROVIDERS,
+    space_key: 'string',
+  }, issues);
+  checkIntegrationSection(parsed, 'notifications', {
+    channel: INTEGRATION_NOTIFICATION_CHANNELS,
+  }, issues);
+  return issues;
+}
+
 const CONFIG_FILES = [
   { name: 'rstack.config.json', validate: validateRstackConfig },
   { name: 'budget.json', validate: validateBudgetConfig },
   { name: 'notifications.json', validate: validateNotificationsConfig },
   { name: 'policy.json', validate: validatePolicyConfig },
   { name: 'memory-config.json', validate: validateMemoryConfig },
+  { name: 'integrations.json', validate: validateIntegrationsConfig },
 ];
 
 export async function validateProjectConfigs(projectRoot, { warn = false } = {}) {

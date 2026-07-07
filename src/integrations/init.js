@@ -57,7 +57,7 @@ async function countPriorRuns(stateDir) {
 // State init adopts an existing .rstack/ — but a business user expects init to
 // mean "clean slate", so an adopted workspace with stale runs must say so
 // loudly, and --fresh must offer a non-destructive way out (#99).
-const ARCHIVABLE_STATE = ['runs', 'approvals.jsonl', 'memory', 'registry', 'rstack.config.json', 'budget.json'];
+const ARCHIVABLE_STATE = ['runs', 'approvals.jsonl', 'memory', 'registry', 'rstack.config.json', 'budget.json', 'integrations.json'];
 
 async function archiveExistingState(stateDir, report) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -120,6 +120,25 @@ async function scaffoldBootstrapFiles(projectRoot, framework, report) {
   }
 }
 
+// #237: commented-defaults intake template. Endpoints and identifiers ONLY —
+// validateIntegrationsConfig rejects credential-shaped keys, so tokens can
+// never land here. "_comment" keys are ignored by the validator.
+export const INTEGRATIONS_TEMPLATE = Object.freeze({
+  _comment: 'RStack integrations intake (#237): endpoints and identifiers ONLY. Secrets (API tokens, passwords) belong in .env — credential-shaped keys in this file fail config validation.',
+  ticketing: {
+    _comment: 'provider: jira | github | azure_devops | linear | file-based. Jira also takes base_url + project_key here; JIRA_API_TOKEN stays in .env.',
+    provider: 'file-based',
+  },
+  docs: {
+    _comment: 'provider: confluence | none (+ space_key). CONFLUENCE_* env vars stay in .env.',
+    provider: 'none',
+  },
+  notifications: {
+    _comment: 'channel: slack | teams | discord | none. Webhook URLs stay in env (RSTACK_SLACK_WEBHOOK, RSTACK_TEAMS_WEBHOOK, RSTACK_DISCORD_WEBHOOK).',
+    channel: 'none',
+  },
+});
+
 const ENV_HINTS = [
   'RSTACK_SLACK_WEBHOOK   — webhook URL for Slack / Teams / Discord notifications',
   'RSTACK_BUSINESS_PORT   — Business Hub dashboard port (default 3008)',
@@ -147,6 +166,12 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
     join(root, '.rstack', 'budget.json'),
     JSON.stringify(budgetPolicyForProfile(activeProfile.profile), null, 2) + '\n',
     `.rstack/budget.json (${activeProfile.profile} budget policy)`,
+    report,
+  );
+  await writeIfMissing(
+    join(root, '.rstack', 'integrations.json'),
+    JSON.stringify(INTEGRATIONS_TEMPLATE, null, 2) + '\n',
+    '.rstack/integrations.json (ticketing/docs/notifications intake — endpoints only, secrets stay in .env)',
     report,
   );
   await registerProject(root);

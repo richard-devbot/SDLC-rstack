@@ -63,12 +63,15 @@ criteria to the project's domain and user roles.
 ## TOOL RESOLUTION — Interactive Decision
 
 ### Step 1: Check Previous Decisions
-Read `$RSTACK_RUN_DIR/artifacts/environment_report.json` and check `user_preferences.ticketing_platform`.
-If the user ALREADY chose a ticketing platform in Agent 00 → use that choice directly.
-Do NOT re-ask.
+Read, in order:
+1. `.rstack/integrations.json` → `ticketing.provider` (plus `base_url` / `project_key` for Jira). Endpoints and identifiers only — API tokens are ALWAYS env vars, never in this file.
+2. `$RSTACK_RUN_DIR/artifacts/environment_report.json` → `user_preferences.ticketing_platform`, and any `setup_needs` entry with `kind: "ticketing"` (its `required_vars` name the env vars to check; `satisfied: true` means credentials are already present).
+
+If either source names a platform → use that choice directly. Do NOT re-ask.
+If a Decision Queue item for ticketing setup was resolved (`rstack-agents decisions`), honor its resolution.
 
 ### Step 2: If No Previous Decision Exists
-If environment_report.json doesn't exist or `user_preferences.ticketing_platform` is not set,
+If neither `.rstack/integrations.json` nor `user_preferences.ticketing_platform` names a platform,
 present the following options to the user:
 
 ```

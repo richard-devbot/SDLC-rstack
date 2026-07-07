@@ -132,6 +132,28 @@ test('init framework detection and setup', async (t) => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  await t.test('init writes the integrations.json intake template — never overwrites an edited one (#237)', async () => {
+    const root = tmpProject('rstack-init-integrations-');
+    const first = await initFramework(root, 'custom', { packageRoot: PACKAGE_ROOT });
+    const integrationsPath = join(root, '.rstack', 'integrations.json');
+    assert.ok(existsSync(integrationsPath), '.rstack/integrations.json template created');
+    assert.ok(first.created.some((item) => item.includes('integrations.json')));
+    const template = JSON.parse(readFileSync(integrationsPath, 'utf8'));
+    assert.equal(template.ticketing.provider, 'file-based');
+    assert.equal(template.docs.provider, 'none');
+    assert.equal(template.notifications.channel, 'none');
+    assert.match(template._comment, /Secrets .* belong in \.env/i);
+    // No credential-shaped keys anywhere in the shipped template.
+    assert.ok(!/token|password|credential|api[_-]?key"/i.test(Object.keys(template).join(' ')));
+
+    // Idempotent: a user-edited file is never overwritten.
+    writeFileSync(integrationsPath, JSON.stringify({ ticketing: { provider: 'github' } }));
+    const second = await initFramework(root, 'custom', { packageRoot: PACKAGE_ROOT });
+    assert.ok(second.skipped.some((item) => item.includes('integrations.json')));
+    assert.equal(JSON.parse(readFileSync(integrationsPath, 'utf8')).ticketing.provider, 'github');
+    rmSync(root, { recursive: true, force: true });
+  });
+
   await t.test('init claude-code writes settings.json with the PreToolUse guard hook when none exists', async () => {
     const root = tmpProject('rstack-init-guard-hook-');
     mkdirSync(join(root, '.claude'), { recursive: true });
