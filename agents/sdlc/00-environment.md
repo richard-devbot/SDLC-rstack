@@ -87,21 +87,35 @@ mkdir -p "$RUN_BASE/tasks"
 mkdir -p "$RUN_BASE/artifacts/code/backend" "$RUN_BASE/artifacts/code/frontend"
 ```
 
-**Step 4: Present options for missing tools** — use AskUserQuestion if critical tools are missing.
+**Step 4: Run-mode & setup intake** — detect first, never guess:
+```bash
+npx --yes rstack-agents env scan --json
+```
+1. Propose the run mode from `proposed_run_mode` + `run_mode_evidence`, then confirm it with ONE Decision Queue item (never an open-ended question): Pi `sdlc_decisions` add, or `rstack-agents decisions --add "Confirm run mode: <proposed> — <top evidence line>" --impact scope --before 01-transcript`.
+2. Record the confirmed intake in environment_report.json: `run_mode`, `run_mode_evidence`, `user_preferences` (e.g. `ticketing_platform`, `deployment_platform`, `notification_channel` — only what the user actually chose), and `setup_needs` from the scan.
+3. For each UNSATISFIED setup_need, add ONE decision gated on the stage that consumes it — never earlier, so nothing over-blocks: ticketing → `--before 05-jira`, deployment → `--before 09-deployment`, notifications → `--before 10-summary`. Name the missing env vars in the question; never ask for their values — secrets stay in `.env`, never in any report or config.
+4. NEEDS_CONTEXT stays reserved for true blockers (no run, filesystem failure). Setup questions ride the Decision Queue and the pipeline keeps moving.
+5. Adopted runs: refine-never-regenerate still applies — merge these fields into the harvested report, preserving its `source`, `evidence`, and `adopted_at`.
+
+**Step 5: Present options for missing tools** — use AskUserQuestion if critical tools are missing.
 Offer: install now / use Docker fallback / use file-based fallback / skip.
 Never block pipeline — always produce the report.
 
-**Step 5: Write environment_report.json**:
+**Step 6: Write environment_report.json**:
 ```json
 {
   "tools": {"git": true, "node": true, "docker": false, "gh": true},
   "env_vars": {"GITHUB_TOKEN": true, "JIRA_TOKEN": false},
-  "user_preferences": {},
+  "run_mode": "brownfield",
+  "run_mode_evidence": [".git/refs/heads — commit history present", "manifest files present: package.json"],
+  "user_preferences": {"ticketing_platform": "github"},
+  "setup_needs": [{"kind": "ticketing", "platform": "github", "required_vars": ["GITHUB_TOKEN"], "satisfied": true}],
   "fallbacks": {"docker": "file-based deployment config"},
   "pipeline_ready": true,
   "status": "PASS"
 }
 ```
+`run_mode` must be `greenfield` | `brownfield` | `feature`; the validator warns on any malformed intake field (legacy reports without them stay valid).
 
 Write to: `$RUN_BASE/artifacts/stages/00-environment/environment_report.json` (canonical), then copy to legacy `$RUN_BASE/artifacts/environment_report.json` for compatibility.
 
@@ -147,6 +161,7 @@ Before reporting DONE, verify:
 - Does `environment_report.json` exist and is `pipeline_ready` either `true` or `false` with clear fallbacks?
 - Are all detected tools listed with actual version numbers, not just true/false?
 - Is every missing tool documented with a specific fallback?
+- Is `run_mode` one of greenfield | brownfield | feature with real evidence, and is every unsatisfied setup_need queued as a decision gated on its consuming stage (05-jira / 09-deployment / 10-summary)?
 
 If any answer is NO — fix it before reporting status. A fast DONE_WITH_CONCERNS is better than a wrong DONE.
 
