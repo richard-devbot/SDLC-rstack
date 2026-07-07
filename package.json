@@ -7,6 +7,7 @@
   "bin": {
     "rstack-agents": "bin/rstack-agents.js",
     "rstack-observer": "bin/rstack-observer.js",
+    "rstack-bridge": "bin/rstack-bridge.ts",
     "rstack-operator-bridge": "bin/rstack-operator-bridge.ts",
     "rstack-business": "bin/rstack-business.js"
   },
