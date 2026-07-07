@@ -16,7 +16,7 @@ This roadmap aligns RStack with current AI-driven SDLC and spec-driven developme
 
 - Package-local Pi extension with clean install surface.
 - Orchestrator, builder, validator operating model.
-- 196 packaged agents, 156 skills, 36 prompts, 72 plugins.
+- 196 packaged agents, 68 skills, 36 prompts, 72 plugins.
 - `.rstack/runs/<run_id>/` state for manifest, plan, tasks, specs, approvals, traceability, builder contracts, validator contracts, memory, and events.
 - `sdlc_spec` manages durable spec artifacts; `sdlc_approve` records explicit human validation gates.
 - `.rstack/registry/{registry,agents,skills,plugins,routing}.json` is generated on demand for routing visibility.

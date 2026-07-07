@@ -8,7 +8,7 @@
  *  - docs/github-issues/ phase files (PHASE-0 through PHASE-5)
  *  - docs/github-issues/README.md index completeness
  *  - docs/github-issues/backend-loop-engineering-v1/ files
- *  - README.md roadmap links resolve to existing files
+ *  - README.md roadmap lists only unshipped work and links live issues
  *  - CHANGELOG.md v1.9.0-rc and Unreleased entries
  *  - docs/AUDIT-CURRENT-STATE.md and docs/LOOP-ENGINEERING-UPGRADE-PLAN.md
  */
@@ -427,32 +427,35 @@ test('backend-loop-engineering-v1 issue files have RStack owner label', async ()
 // README.md — roadmap table and link resolution
 // ---------------------------------------------------------------------------
 
-test('README.md roadmap table references all 6 phase spec files', async () => {
+test('README.md roadmap lists only unshipped work — no phase spec links', async () => {
   const text = await readRepoFile('README.md');
 
-  for (const relPath of PHASE_FILES) {
-    // README.md uses markdown links like (docs/github-issues/PHASE-0-harness-bridge.md)
-    const fileBasename = path.basename(relPath);
-    assert.ok(
-      text.includes(fileBasename),
-      `README.md roadmap table should reference ${fileBasename}`,
-    );
-  }
+  // The v1.9 loop-engineering phases (0-4) shipped; the README roadmap must
+  // not present them as planned work anymore.
+  assert.ok(
+    !/docs\/github-issues\/PHASE-\d+/.test(text),
+    'README.md roadmap must not link shipped phase spec files as planned work',
+  );
+  assert.ok(!text.includes('🗺 planned'), 'README.md must not mark shipped phases as planned');
+  assert.ok(
+    text.includes('### Shipped in 1.9 / 2.0'),
+    'README.md must carry a Shipped in 1.9 / 2.0 note for the delivered phases',
+  );
+  assert.ok(
+    text.includes('docs/HARNESS.md'),
+    'README.md shipped note must point at docs/HARNESS.md as the authoritative reference',
+  );
 });
 
-test('README.md roadmap phase file links resolve to existing files', async () => {
+test('README.md roadmap references the live tracking issues', async () => {
   const text = await readRepoFile('README.md');
-  // Extract phase file links from the roadmap table
-  const linkPattern = /\(docs\/github-issues\/PHASE-\d+-[\w-]+\.md\)/g;
-  const linkMatches = [...text.matchAll(linkPattern)].map((m) => m[0].slice(1, -1));
-
-  assert.ok(linkMatches.length >= 6, `Expected at least 6 phase links in README.md, got ${linkMatches.length}`);
-
-  const missing = [];
-  for (const link of linkMatches) {
-    if (!existsSync(path.join(REPO_ROOT, link))) missing.push(link);
+  // Remaining roadmap items are tracked as GitHub issues, not local spec files.
+  for (const issue of ['208', '71', '228', '229']) {
+    assert.ok(
+      text.includes(`SDLC-rstack/issues/${issue}`),
+      `README.md roadmap should link issue #${issue}`,
+    );
   }
-  assert.deepEqual(missing, [], 'All phase links in README.md roadmap must resolve to existing files');
 });
 
 test('README.md references CONTRIBUTING.md in the roadmap section', async () => {
@@ -463,11 +466,12 @@ test('README.md references CONTRIBUTING.md in the roadmap section', async () => 
   );
 });
 
-test('README.md references docs/LOOP-ENGINEERING-UPGRADE-PLAN.md', async () => {
-  const text = await readRepoFile('README.md');
+test('docs/LOOP-ENGINEERING-UPGRADE-PLAN.md still exists as the historical design record', async () => {
+  // The README shipped note points at docs/HARNESS.md instead, but the
+  // original design document must stay on disk for provenance.
   assert.ok(
-    text.includes('LOOP-ENGINEERING-UPGRADE-PLAN.md'),
-    'README.md should reference docs/LOOP-ENGINEERING-UPGRADE-PLAN.md',
+    existsSync(path.join(REPO_ROOT, 'docs', 'LOOP-ENGINEERING-UPGRADE-PLAN.md')),
+    'docs/LOOP-ENGINEERING-UPGRADE-PLAN.md must exist',
   );
 });
 
@@ -716,13 +720,17 @@ test('all phase file Estimated effort comments are present', async () => {
   }
 });
 
-test('CONTRIBUTING.md docs link to docs/github-issues/ directory', async () => {
-  // CONTRIBUTING.md should not reference docs/github-issues/ since it's a contributor guide,
-  // but README.md must reference it — test README actually links the issues dir
+test('README.md tracks remaining roadmap work on GitHub, not local issue specs', async () => {
+  // The shipped phases' local spec files stay in docs/github-issues/ for
+  // provenance, but the README roadmap now links the live issue tracker.
   const text = await readRepoFile('README.md');
   assert.ok(
-    text.includes('docs/github-issues/'),
-    'README.md must link to the docs/github-issues/ directory for contributors',
+    !text.includes('docs/github-issues/'),
+    'README.md should not point contributors at the shipped local issue specs',
+  );
+  assert.ok(
+    text.includes('SDLC-rstack/issues/'),
+    'README.md roadmap must link the live GitHub issue tracker',
   );
 });
 

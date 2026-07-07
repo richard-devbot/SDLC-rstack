@@ -341,7 +341,7 @@ lbl(W//2, y9+26, 'Agents, skills and plugins invoked per stage  ·  All outputs 
 
 abw = int(lw*0.38)
 sub_box(lx+16, y9+36, abw, 130, 'Asset Registry  ·  agents/  prompts/')
-asset_items = [('196','Agents'),('156','Skills'),('72','Plugins'),('36','Prompts')]
+asset_items = [('196','Agents'),('68','Skills'),('72','Plugins'),('36','Prompts')]
 cw2 = (abw - 5*8) // 4
 for i, (num, al) in enumerate(asset_items):
     cx2 = lx+16+8+i*(cw2+8)

@@ -7,20 +7,22 @@
 </p>
 
 <p align="center">
-  <strong>A governed AI-SDLC operating layer for any coding framework.</strong><br/>
+  <strong>A governed AI-SDLC operating layer for AI coding harnesses.</strong><br/>
   Since 2026 &nbsp;·&nbsp; MIT &nbsp;·&nbsp; <a href="https://github.com/richard-devbot/SDLC-rstack">richard-devbot/SDLC-rstack</a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.9.0--rc-orange" alt="v1.9.0-rc"/>
   <img src="https://img.shields.io/badge/agents-196%20validated-brightgreen" alt="196 agents"/>
-  <img src="https://img.shields.io/badge/tests-357%20pass-brightgreen" alt="357 tests"/>
+  <img src="https://img.shields.io/badge/tests-723%20pass-brightgreen" alt="723 tests"/>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"/>
 </p>
 
 ---
 
 RStack sits on top of Pi, Claude Code, Operator, Codex-style CLIs, Gemini-style CLIs, or a custom harness and gives agent teams a repeatable lifecycle with approvals, builder/validator contracts, evidence, memory, budget envelopes, and a live Business Hub.
+
+**Enforcement tiers:** full runtime enforcement on Pi and Operator (live tool-call gating). Claude Code enforcement lands via the `rstack-agents guard` PreToolUse hook ([#227](https://github.com/richard-devbot/SDLC-rstack/issues/227)). Every other harness gets the governed contracts, state, and Business Hub, plus a guided recipe to wire the guard into its own hook system.
 
 ```text
 clarify → plan → spec → approve → build → validate → release-readiness → learn
@@ -29,6 +31,7 @@ clarify → plan → spec → approve → build → validate → release-readine
 ## Table of contents
 
 - [Quick start](#quick-start)
+- [Govern an existing codebase](#govern-an-existing-codebase)
 - [Choose your framework](#choose-your-framework)
 - [Configure your team](#configure-your-team)
 - [Agent identity and standby automation](#agent-identity-and-standby-automation)
@@ -78,6 +81,20 @@ npx rstack-agents init --profile enterprise-webapp
 
 ---
 
+## Govern an existing codebase
+
+Brownfield is first-class. `adopt` scans your repo read-only and harvests real artifacts (README, tests, CI config, deploy manifests) into a resumable pipeline run — stages with evidence are marked DONE, gaps are left open, and nothing is invented. Work then resumes from reality, not from scratch.
+
+```bash
+npx rstack-agents adopt --dry-run   # print the stage-population plan, write nothing
+npx rstack-agents adopt             # harvest evidence into an adoption run
+npx rstack-agents pipeline run      # advance from the gaps, stopping at human gates
+```
+
+Full guide: [docs/brownfield-adoption.md](docs/brownfield-adoption.md). To keep iterating toward a goal after adoption, see the loop recipes in [docs/loop-recipes.md](docs/loop-recipes.md).
+
+---
+
 ## Choose your framework
 
 RStack is a plugin layer — install your AI coding framework first, then run `init`.
@@ -111,7 +128,7 @@ Full contract: [docs/integrations/custom.md](docs/integrations/custom.md)
 
 ## Configure your team
 
-RStack ships a large catalog (196 agents, 156+ skills, 72 plugins), but you configure only what your project needs.
+RStack ships a large catalog (196 agents, 68 skills, 72 plugins), but you configure only what your project needs.
 
 ### 1. Pick a profile
 
@@ -358,39 +375,48 @@ The dashboard derives everything from real `.rstack` files — no fake demo stat
 
 | Command | Purpose |
 |---|---|
-| `rstack-agents init --profile business-flex` | Set up profile, budget, bootstrap files, framework glue, and Business Hub registry |
-| `rstack-agents init --fresh` | Archive prior `.rstack/` state and start clean |
-| `rstack-agents hub` | Start/open the dashboard |
-| `rstack-agents list agents\|skills\|plugins` | Browse packaged catalog |
+| `rstack-agents init --profile business-flex` | Set up profile, budget, bootstrap files, framework glue, and Business Hub registry (`--fresh` archives prior `.rstack/` state and starts clean) |
+| `rstack-agents list agents\|skills\|plugins` | Browse the packaged catalog |
 | `rstack-agents add plugin <name>` | Copy a packaged plugin into `.rstack/plugins/` |
+| `rstack-agents validate` | Validate packaged agent definitions — frontmatter, duplicate names, hook paths |
+| `rstack-agents hub` | Ensure the Business Hub is running on :3008 and open it |
 | `rstack-agents notify --test` | Test Slack/Teams/Discord/Telegram/WhatsApp notifications |
-| `rstack-agents validate` | Validate packaged and local agent definitions |
-| `rstack-business --port 3008 --project .` | Run the dashboard directly |
+| `rstack-agents inventory` | Generate a backend control-plane registry report |
+| `rstack-agents adopt` | Adopt an existing codebase — harvest evidence into a resumable pipeline run (`--dry-run` plans without writing) |
+| `rstack-agents decisions` | List, add, resolve, or waive run-level Decision Queue items |
+| `rstack-agents dor` | Run the Definition-of-Ready gate for a run and target stage |
+| `rstack-agents pipeline status` | Show pipeline status for the latest or selected run, with one recommended next action |
+| `rstack-agents pipeline run` | Advance the run from current state: skip DONE work, re-enter retryable tasks, stop at human gates |
+| `rstack-agents pipeline loop` | Bounded goal loop: advance, evaluate the goal, rerun recommended stages until PASS, a human gate, or a spent bound |
+| `rstack-business --port 3008 --project .` | Run the dashboard server directly |
+| `rstack-observer` | Deprecated alias — opens the same Business Hub |
+
+Pipeline command flags and exit codes: [docs/mintlify/reference/pipeline.mdx](docs/mintlify/reference/pipeline.mdx).
 
 ---
 
 ## Known limitations and roadmap
 
+### Shipped in 1.9 / 2.0
+
+The loop-engineering program that earlier READMEs listed as planned has shipped: the harness ↔ loop-runner bridge, resume-aware pipeline state and `pipeline run`, deterministic retry plus the stage-specific validator registry, the bounded goal loop (`pipeline loop`), and persisted per-stage cost/token observability. The authoritative reference for all of it — run state, contracts, guardrails, checkpoints, metrics — is [`docs/HARNESS.md`](docs/HARNESS.md).
+
 ### Current limitations
 
-- **Actual token/cost capture:** host frameworks execute model calls, so real usage needs host-side reporting or provider adapters.
+- **Actual token/cost capture:** per-stage cost and token totals persist from builder contracts at validate time; provider-level usage still needs host-side reporting or provider adapters.
 - **Physical pack pruning:** profiles narrow routing today; a future pack installer should reduce project-local agent/plugin footprint.
-- **Validator enforcement:** validator tool policy is encoded in RStack packets, but strict enforcement depends on the host sandbox.
+- **Runtime enforcement tiers:** live tool-call gating runs on Pi and Operator; Claude Code and other harnesses get contracts, state, and validate-time checks until the `rstack-agents guard` hook ships ([#227](https://github.com/richard-devbot/SDLC-rstack/issues/227)).
 - **MCP/A2A:** `.rstack` is adapter-friendly, but a native MCP/A2A server is still a future slice.
 
-### Roadmap — v1.9.0 (contributions welcome)
+### Roadmap (contributions welcome)
 
-| # | Feature | Status |
-|---|---------|--------|
-| [Phase 0](docs/github-issues/PHASE-0-harness-bridge.md) | **Harness ↔ Loop Runner Bridge** — SDLC agents emit `builder.json`/`validation.json` to the harness run directory | 🗺 planned |
-| [Phase 1](docs/github-issues/PHASE-1-pipeline-state.md) | **Pipeline State & Restart Recovery** — resume-aware pipeline runner, skip DONE stages | 🗺 planned |
-| [Phase 2](docs/github-issues/PHASE-2-retry-validation.md) | **Per-Agent Retry + Maker/Checker Validation** — retry wrapper, Haiku validator agents | 🗺 planned |
-| [Phase 3](docs/github-issues/PHASE-3-goal-loop.md) | **Goal Condition + True Pipeline Loop** — loop until `consistency_score >= 90` | 🗺 planned |
-| [Phase 4](docs/github-issues/PHASE-4-cost-observability.md) | **Cost Tracking & Observability** — cost footer standard, per-stage cost report | 🗺 planned |
-| [Phase 5](docs/github-issues/PHASE-5-parallel-safety.md) | **Parallel Safety & Worktree Isolation** — git worktree for code agent | 🗺 planned |
-| — | Pack installer — physically copy only selected packs into `.rstack/` | 🗺 future |
-
-See [`docs/github-issues/`](docs/github-issues/) for detailed issue specs. See [`docs/LOOP-ENGINEERING-UPGRADE-PLAN.md`](docs/LOOP-ENGINEERING-UPGRADE-PLAN.md) for the full design.
+| Feature | Ref |
+|---------|-----|
+| **Parallel execution enforcement** — wire benchmarked data-independent stage groups into the pipeline runner | [#208](https://github.com/richard-devbot/SDLC-rstack/issues/208) |
+| **Pack installer** — physically copy only selected packs into `.rstack/` | future |
+| **RStack Spec v1alpha1** — JSON schemas + conformance examples | [#71](https://github.com/richard-devbot/SDLC-rstack/issues/71) |
+| **Stage-blanket approvals** — `required_stage_approvals` + `approvals.every_stage` per-stage human gates | [#228](https://github.com/richard-devbot/SDLC-rstack/issues/228) |
+| **Exposure CLI verbs** — `pipeline rollback`, checkpoint status, config validate, approvals audit, memory inspect | [#229](https://github.com/richard-devbot/SDLC-rstack/issues/229) |
 
 **Contributions are welcome.** Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for branching rules, CI requirements, IP policy, and CodeRabbit guidelines before opening a PR.
 
@@ -443,7 +469,7 @@ npm run validate
 Latest verified branch state:
 
 ```text
-npm test          # 357 pass, 0 fail
+npm test          # 723 pass, 0 fail
 npm run lint      # pass
 npm run validate  # All 196 agents passed validation
 npm pack --dry-run  # package includes templates/bootstrap/

@@ -1,0 +1,5 @@
+# Keep the published npm package lean: ship the docs source (.mdx, nav JSON,
+# referenced assets) but not local dev/build artifacts or backups.
+assets/backups/
+package-lock.json
+node_modules/
