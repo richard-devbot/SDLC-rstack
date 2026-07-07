@@ -24,6 +24,9 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-07 | **Dead-easy cross-harness setup**: `rstack-agents doctor [--framework] [--json]` — env + config + per-framework wiring checks with exact per-FAIL fixes, a **live guard self-test** (blocks `rm -rf`, allows `ls` → proves enforcement is live on the machine), hub health, and a self-dependency tripwire (npm-i-inside-repo); `docs/integrations/testing-matrix.md` scratch-dir-first recipes per framework. Verified e2e: scratch `init --framework tau` → `doctor` = 10 PASS/0 FAIL | 2 | #244, PR #247 |
+| 2026-07-07 | **Generic bridge + Tau adapter + conformance contract**: `bin/rstack-bridge.ts` (framework-neutral, `RSTACK_BRIDGE_CALLER`, `--list`), operator-bridge → back-compat alias; `src/integrations/tau/rstack_sdlc.py` (Jeomon George's contribution, credited) shelling to the bridge + guard `tool_call` hook; `init --framework tau`; **both Python adapters synced to the full 18-tool Pi surface** (closed the Operator 15→18 gap); `docs/integrations/adapter-contract.md` + `tests/bridge-conformance.test.js` pin every adapter to the Pi registry. Framework story: native (Pi) \| bridge+hook (Operator, Tau) \| guard-hook (Claude Code) \| guided (rest) | 2 | #243 #246, PR #248 |
+| 2026-07-07 | **Static type-check gate + Pi SDK 0.79.x drift fix**: first real `tsc` gate (`typescript`+`@types/node`+`tsconfig.json`, NodeNext/loose, `npm run typecheck` in prepublish + CI); fixed all 13 drift errors — the `pi.tools`-removed migration to a local `registerTool` capture map (behavior-preserving, LLM registration unchanged), `AgentToolResult.details` required, `@types/node` for ChildProcess, index-type narrowing; mock-pi updated to real 0.79.x API + command-path regression test so drift fails CI next time. **The editor "red lines" are now real CI signal.** | 1, 4 | #242, PR #249 |
 | 2026-07-07 | **Hub Environment & Integrations page + approval-gated `.env` writes** (2.1 wave): `src/core/harness/env-file.js` (parse/update preserving comments+quotes, `listEnvKeys` returns names+lengths only — never values, `isEnvGitignored` via git check-ignore→.gitignore fallback→fail-closed); `POST /api/env-write` two-step gate (classify secret-write → PENDING queue approval `destructive-action:env-write:<KEY>` + 409, value persisted nowhere → approve on Approvals page → resubmit → consume-then-write one-shot, crash-safe → env-writes-audit.jsonl key/actor/length only + `env_key_written` event); `POST /api/decide` resolve/waive decisions from the Hub; new "Environment" page (Operate); managers + enforce_in_express documented as live gates (closes #225 doc residual). Two independent adversarial reviews: 0 blocking (nits → #241) | 2, 1 | #238, PR #240 |
 | 2026-07-07 | **Interactive environment intake** (2.1 wave): `rstack-agents env scan [--json]` reuses adopt scanner detectors (zero duplication) → proposes run mode + evidence + `setup_needs[]`; environment_report v2 with `validateEnvironmentReport` (legacy warn-only, run_mode enum-enforced, credential-keys rejected) wired WARN-by-construction into stage-00 validate; `.rstack/integrations.json` (endpoints only, secret-named keys = error → .env) registered in CONFIG_FILES + init template; 00-environment detect-first intake raises setup needs as Decision-Queue items gated on the CONSUMING stage (ticketing→05, deploy→09, notify→10); 05-jira reads integrations.json first | 3, 2 | #237, PR #239 |
 | 2026-07-07 | **v2.0.0 release prep**: version 2.0.0 (package + lock), CHANGELOG [2.0.0] "governed loop enforced in code" entry (Unreleased → v2.1 planning, pinned tests updated), `assets/` with logo + interactive THREE.js 3D workspace + rendered preview, README "Meet the studio" section (clickable preview → live raw.githack view; absolute image URLs so npm renders them), Stephens citation added to research bibliography + stale snapshot stamps refreshed. **Awaiting: Richardson pushes the v2.0.0 tag → publish.yml → npm** | 2 | #235, PR #236 |
@@ -83,10 +86,16 @@ pushed the v2.0.0 tag; `npm view rstack-agents` = 2.0.0. #225 closed INVALID —
 `enforce_in_express` are live gates, do not re-file. Framework story is "enforced on Pi,
 Operator, Claude Code (guard hook); guided self-wiring elsewhere".
 
-**2.1 wave 1 COMPLETE (2026-07-07):** onboard & operate — PRs #239 (#237 environment intake:
-env scan, report v2, integrations.json, decision-driven setup) + #240 (#238 Hub Environment
-page, approval-gated .env writes, /api/decide) merged. Main green: 815 tests. #241 filed
-(minor hub-hardening nits from the #240 review — non-blocking).
+**2.1 wave 1 COMPLETE (2026-07-07):** onboard & operate — PRs #239 (#237 environment intake) +
+#240 (#238 Hub Environment page, approval-gated .env writes) merged.
+
+**2.1 wave 2 COMPLETE (2026-07-07):** cross-harness / dead-easy setup — PRs #249 (#242 typecheck
+gate + Pi drift), #248 (#243 generic bridge + Tau adapter + conformance, closed #246), #247
+(#244 `doctor` + testing-matrix) merged. Main green: **833 tests**, typecheck 0 errors. Verified
+e2e: scratch `init --framework tau` → `doctor --framework tau` = 10 PASS/0 FAIL (adapter +
+bridge + live guard self-test all PASS). #241 (hub nits) still open. NOTE: two duplicate
+builders occurred this wave (one #243, one #242) — resolved by keeping the superset branch and
+discarding the other; watch for this.
 
 1. **#222 (remainder)** — mechanical PASS/FAIL evaluation of validator required_checks
    (files_modified_exist, tests_run_evidence, builder_contract_complete, no_placeholder_stubs);
