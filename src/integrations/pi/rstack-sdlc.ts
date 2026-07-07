@@ -1919,11 +1919,10 @@ export default function (pi: ExtensionAPI) {
       // Task ids (e.g. "007-documentation") are plan ids, not canonical stage
       // ids — consumers (reporter stage aggregation, alerts, stage matrix,
       // per-stage cost maps) key by canonical stage.
-      const canonicalStageIds = [...new Set(
-        (task.stage_artifacts ?? [])
-          .map((artifact: any) => artifact?.stage_id)
-          .filter((id: any) => typeof id === "string" && getCanonicalStage(id)),
-      )];
+      const stageIdCandidates: string[] = ((task.stage_artifacts ?? []) as any[])
+        .map((artifact: any) => artifact?.stage_id)
+        .filter((id: any): id is string => typeof id === "string" && Boolean(getCanonicalStage(id)));
+      const canonicalStageIds: string[] = [...new Set<string>(stageIdCandidates)];
       if (canonicalStageIds.length === 0 && getCanonicalStage(task.id)) canonicalStageIds.push(task.id);
 
       await appendEvent(projectRoot, manifest.run_id, { type: "task_validated", task_id: task.id, status });
@@ -2362,7 +2361,10 @@ export default function (pi: ExtensionAPI) {
         }
       }
       if (!taskId) {
-        return { content: [{ type: "text", text: "No active task found to trace." }] };
+        return {
+          content: [{ type: "text", text: "No active task found to trace." }],
+          details: { run_id: runId, task_id: undefined, trace_html: "" },
+        };
       }
 
       const taskEvents: any[] = [];
@@ -2397,7 +2399,10 @@ export default function (pi: ExtensionAPI) {
       
       if (taskEvents.length === 0) {
         lines.push(`(No events recorded yet for task ${taskId})`);
-        return { content: [{ type: "text", text: lines.join("\n") }] };
+        return {
+          content: [{ type: "text", text: lines.join("\n") }],
+          details: { run_id: runId, task_id: taskId, trace_html: "" },
+        };
       }
 
       const startEvent = taskEvents.find((e: any) => e.type === "task_started");
