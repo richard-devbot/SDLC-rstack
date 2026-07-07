@@ -488,27 +488,33 @@ test('README.md contains Current limitations and Roadmap subsections', async () 
 // CHANGELOG.md — v1.9.0-rc and Unreleased entries
 // ---------------------------------------------------------------------------
 
-test('CHANGELOG.md has [Unreleased] v1.9.0 planning section', async () => {
+test('CHANGELOG.md has [Unreleased] v2.1 planning section', async () => {
   const text = await readRepoFile('CHANGELOG.md');
   assert.ok(
-    text.includes('[Unreleased]') && text.includes('v1.9.0 planning'),
-    'CHANGELOG.md must have an [Unreleased] — v1.9.0 planning section',
+    text.includes('[Unreleased]') && text.includes('v2.1 planning'),
+    'CHANGELOG.md must have an [Unreleased] — v2.1 planning section',
   );
 });
 
-test('CHANGELOG.md [Unreleased] section mentions all 5 loop engineering features', async () => {
+test('CHANGELOG.md has [2.0.0] release entry documenting the enforced governed loop', async () => {
   const text = await readRepoFile('CHANGELOG.md');
+  assert.match(
+    text,
+    /\[2\.0\.0\] - \d{4}-\d{2}-\d{2}/,
+    'CHANGELOG.md [2.0.0] must have ISO date format YYYY-MM-DD',
+  );
   const features = [
-    'builder.json',          // Harness bridge
-    'retry',                 // Per-agent retry
-    'consistency_score',     // Goal-conditioned loop
-    'OPERATING-STANDARD',    // Cost/context footer standard
-    'worktree',              // Parallel safety
+    'rstack-agents guard',   // Universal enforcement guard
+    'PreToolUse',            // Claude Code hook adapter
+    'wire-your-own-harness', // Guided recipe for other frameworks
+    'pipeline loop',         // Goal-conditioned loop
+    'checkpoint',            // Critical-stage restore points
+    'adopt',                 // Brownfield adoption
   ];
   for (const feature of features) {
     assert.ok(
       text.includes(feature),
-      `CHANGELOG.md [Unreleased] section should mention ${feature}`,
+      `CHANGELOG.md [2.0.0] entry should mention ${feature}`,
     );
   }
 });
