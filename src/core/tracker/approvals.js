@@ -2,7 +2,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { withFileLock, writeFileAtomic, writeJsonAtomic } from '../harness/safe-write.js';
-import { isSafeRunId, isSafeArtifactName, validateApprovalRecord } from '../harness/approval-audit.js';
+import { isSafeRunId, isSafeArtifactName, validateApprovalRecord, trustedApprovedArtifacts } from '../harness/approval-audit.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -232,6 +232,53 @@ export async function resolveApproval(projectRoot, id, decision, resolvedBy, opt
   }
 
   return true;
+}
+
+// One-shot consumption for queue-only gates (#238, Business Hub env writes).
+// Atomically — inside the queue lock — verify there is a TRUSTED approved
+// record for `artifact` (same audit path as every gate:
+// trustedApprovedArtifacts with casing 'queue', which runs the per-record
+// validation AND the replay/ordering history checks), then flip it to
+// 'consumed'. A second consumption attempt finds no approved record and
+// returns null: forged, malformed, rejected, replayed, or already-spent
+// approvals can never be consumed. Returns the record as it stood BEFORE
+// consumption (approver evidence for the caller's audit trail) or null.
+export async function consumeApprovedQueueArtifact(projectRoot, artifact) {
+  if (!safeArtifact(artifact)) return null;
+  return withFileLock(queuePath(projectRoot), async () => {
+    const all = await readApprovals(projectRoot);
+    const history = all.filter((approval) => approval?.artifact === artifact);
+    if (!trustedApprovedArtifacts(history, { casing: 'queue' }).has(artifact)) return null;
+    const latest = history[history.length - 1];
+    const idx = all.lastIndexOf(latest);
+    const now = new Date().toISOString();
+    all[idx] = { ...latest, status: 'consumed', consumedAt: now, updatedAt: now };
+    await writeQueue(projectRoot, all);
+    return latest;
+  });
+}
+
+// Idempotently ensure a PENDING queue entry exists for a queue-only gate.
+// An entry already pending is returned untouched (its ts is not churned by
+// repeated requests); any other latest state (absent, rejected, consumed)
+// becomes a fresh pending request — a new write attempt is a new ask, and
+// the manager can reject it again. Never stores anything beyond the entry
+// metadata passed in (#238: the env value must never reach this file).
+export async function ensurePendingQueueApproval(projectRoot, entry) {
+  const id = entry.id || approvalQueueId(entry);
+  const existing = (await readApprovals(projectRoot)).find((approval) => approval.id === id);
+  if (existing && (!existing.status || existing.status === 'pending')) return existing;
+  return appendApproval(projectRoot, {
+    ...entry,
+    id,
+    status: 'pending',
+    ts: new Date().toISOString(),
+    // Clear any prior resolution evidence so a re-requested gate cannot
+    // wear the previous decision's approver like a badge.
+    resolvedBy: undefined,
+    resolvedAt: undefined,
+    actor: undefined,
+  });
 }
 
 export async function resolveQueuedApprovalForArtifact(projectRoot, { runId, taskId, artifact, decision, resolvedBy, skipRunWrite = true }) {

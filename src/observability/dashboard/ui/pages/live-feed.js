@@ -32,6 +32,7 @@ var OPS_FEED_ICONS = {
   episode_memory_written: 'MB',
   episode_memory_skipped_untrusted: 'MB',
   metrics_write_failed: 'MX',
+  env_key_written: 'EV',
   retry_decision: 'RT',
   task_retry_scheduled: 'RT',
   task_retry_exhausted: 'RT',
@@ -70,6 +71,10 @@ function opsFeedMeta(item) {
       return d.attempt != null && d.max_attempts != null ? 'attempt ' + d.attempt + '/' + d.max_attempts : '';
     case 'episode_memory_written':
       return d.trusted === true ? 'trusted' : d.trusted === false ? 'untrusted' : '';
+    case 'env_key_written':
+      // Pinned #238 shape: key/actor/masked_value_length — never the value.
+      if (!d.key) return '';
+      return d.key + (d.masked_value_length != null ? ' (' + d.masked_value_length + ' chars)' : '');
     case 'episode_memory_skipped_untrusted':
       return d.write_policy || '';
     case 'goal_evaluated':

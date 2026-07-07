@@ -31,6 +31,7 @@ import { costBudgetScript } from './pages/cost-budget.js';
 import { alertsGuardrailsScript } from './pages/alerts-guardrails.js';
 import { traceabilityScript } from './pages/traceability.js';
 import { teamLayersScript } from './pages/team-layers.js';
+import { environmentScript } from './pages/environment.js';
 import { diagnosticsScript } from './pages/diagnostics.js';
 
 export function clientScript(port) {
@@ -57,6 +58,7 @@ export function clientScript(port) {
     alertsGuardrailsScript,
     traceabilityScript,
     teamLayersScript,
+    environmentScript,
     diagnosticsScript,
     coreScript(port),
   ].join('\n');

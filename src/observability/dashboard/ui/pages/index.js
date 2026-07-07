@@ -20,6 +20,7 @@ export const pages = [
   ['alerts-guardrails', '06', 'Alerts & Guardrails', 'Operate'],
   ['team', '11', 'Team & Presence', 'Operate'],
   ['team-layers', '08', 'Team & Layers', 'Operate'],
+  ['environment', '21', 'Environment & Integrations', 'Operate'],
   ['diagnostics', '09', 'Diagnostics', 'Operate'],
 ];
 
@@ -249,6 +250,21 @@ function pageBody(id) {
     'alerts-guardrails': '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Alerts</span><span class="panel-note" id="alerts-count"></span></div><div class="panel-body"><div class="stack-list" id="alerts-list"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Blocked Gates</span><span class="panel-note" id="blocked-count"></span></div><div class="panel-body"><div class="stack-list" id="blocked-list"></div></div></div></div>',
     traceability: '<div id="traceability-list"></div>',
     'team-layers': '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Stack Layers</span></div><div class="panel-body"><div class="grid-3" id="layers-grid"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Framework Breakdown</span></div><div class="table-wrap"><table><thead><tr><th>Framework</th><th>Runs</th><th>Pass</th><th>Fail</th><th>Cost</th></tr></thead><tbody id="framework-table"></tbody></table></div></div></div>',
+    environment: [
+      '<div id="env-gitignore-banner"></div>',
+      '<div class="grid-2" style="margin-top:12px">',
+      '<div class="panel"><div class="panel-head"><span class="panel-title">Environment Report</span></div><div class="panel-body" id="env-report-body"></div></div>',
+      '<div class="panel"><div class="panel-head"><span class="panel-title">Integrations &amp; Notifications</span></div><div class="panel-body" id="env-integrations-body"></div></div>',
+      '</div>',
+      '<div class="panel" style="margin-top:16px"><div class="panel-head"><span class="panel-title">.env Keys</span><span class="panel-note" id="env-keys-count"></span>',
+      '<button class="tb-chip" onclick="envStartNewKey()">Set a new key</button></div>',
+      '<div class="table-wrap"><table><thead><tr><th>Key</th><th>Status</th><th>Length</th><th>Approval</th><th></th></tr></thead><tbody id="env-keys-table"></tbody></table></div>',
+      '<div class="panel-body"><div id="env-write-msg" class="muted"></div></div></div>',
+      '<div class="grid-2" style="margin-top:16px">',
+      '<div class="panel"><div class="panel-head"><span class="panel-title">Env Write Approvals</span><span class="panel-note" id="env-approvals-count"></span></div><div class="panel-body"><div class="stack-list" id="env-approvals-list"></div></div></div>',
+      '<div class="panel"><div class="panel-head"><span class="panel-title">Pending Decisions</span><span class="panel-note" id="env-decisions-count"></span></div><div class="panel-body"><div class="stack-list" id="env-decisions-list"></div></div></div>',
+      '</div>',
+    ].join(''),
     diagnostics: '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Data Health</span></div><div class="panel-body" id="diagnostics-health"></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Source Roots</span></div><div class="panel-body"><div class="stack-list" id="diagnostics-roots"></div></div></div></div><div class="panel" style="margin-top:16px"><div class="panel-head"><span class="panel-title">Data Integrity &amp; Config Validation</span></div><div class="panel-body" id="diagnostics-integrity"></div></div>',
   };
   return bodies[id] ?? '';

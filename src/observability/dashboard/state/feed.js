@@ -82,6 +82,12 @@ function opsEventSummary(ev) {
       return `Episode memory skipped for ${ev.task_id ?? 'task'} — ${ev.reason ?? 'write policy refused the episode'}${ev.write_policy ? ` (policy: ${ev.write_policy})` : ''}`;
     case 'metrics_write_failed':
       return `Metrics write failed${ev.operation ? ` (${ev.operation})` : ''} — persisted totals are behind the events; run totals fall back to event recompute`;
+    case 'env_key_written': {
+      // Pinned #238 emitter contract: { key, actor, masked_value_length } —
+      // the value itself never reaches the event stream.
+      const length = Number.isFinite(Number(ev.masked_value_length)) ? `${ev.masked_value_length}-char ` : '';
+      return `.env key ${ev.key ?? '?'} written via the Business Hub by ${ev.actor ?? 'unknown'} (${length}value — never logged) after a one-shot approval`;
+    }
     case 'retry_decision':
       // Pinned #123 emitter contract: { task_id, stage_id, attempt,
       // max_attempts, retry_recommendation, action, next_status, reason,
@@ -126,6 +132,7 @@ const OPS_EVENT_DATA_FIELDS = {
   episode_memory_skipped_untrusted: ['task_id', 'reason', 'write_policy'],
   metrics_write_failed: ['task_id', 'operation', 'error'],
   goal_evaluated: ['iteration', 'max_iterations', 'goal_id', 'status', 'score', 'critical_count', 'failing_stages', 'recommended_rerun_stages'],
+  env_key_written: ['key', 'actor', 'masked_value_length'],
 };
 
 function opsEventData(ev) {
@@ -165,6 +172,7 @@ function eventLevel(ev) {
   if (ev.type === 'episode_memory_written') return 'info';
   if (ev.type === 'episode_memory_skipped_untrusted') return 'warn';
   if (ev.type === 'metrics_write_failed') return 'warn';
+  if (ev.type === 'env_key_written') return 'info';
   if (ev.type === 'goal_evaluated') return ev.status === 'PASS' ? 'pass' : 'warn';
   if (ev.type === 'loop_iteration_retrying_stages') return 'warn';
   if (ev.type === 'loop_completed') return 'pass';
