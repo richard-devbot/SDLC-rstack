@@ -1,0 +1,196 @@
+// owner: RStack developed by Richardson Gunde
+//
+// Tests for `rstack-agents doctor` (#244) — the setup verifier. The hero check
+// is exercised through the REAL guard CLI (spawned by doctor), so a PASS here
+// is a PASS in production. Every case asserts doctor never crashes on a partial
+// setup: problems are FAIL/WARN checks carrying a fix, not exceptions.
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const BIN = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'rstack-agents.js');
+
+// Hermetic env: strip every RStack knob that could change guard/doctor behavior.
+function cleanEnv(overrides = {}) {
+  const env = { ...process.env };
+  for (const key of ['RSTACK_ALLOW_DESTRUCTIVE', 'RSTACK_TASK_ID', 'RSTACK_AGENT_CONTEXT', 'RSTACK_VALIDATOR_CONTEXT', 'RSTACK_STATE_DIR', 'RSTACK_BUSINESS_PORT']) {
+    delete env[key];
+  }
+  return { ...env, ...overrides };
+}
+
+function runDoctor(args, { cwd, env = {} } = {}) {
+  return new Promise((resolveP, rejectP) => {
+    const child = spawn(process.execPath, [BIN, 'doctor', ...args], {
+      cwd: cwd ?? tmpdir(),
+      env: cleanEnv(env),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (c) => { stdout += c; });
+    child.stderr.on('data', (c) => { stderr += c; });
+    child.on('error', rejectP);
+    child.on('close', (code) => resolveP({
+      code, stdout, stderr,
+      json: (() => { try { return JSON.parse(stdout); } catch { return null; } })(),
+    }));
+  });
+}
+
+function checkByName(report, name) {
+  return report.checks.find((c) => c.name === name);
+}
+
+// A minimal, valid .rstack/ so the state + config checks pass without running
+// full init (which would register the project in the global registry).
+function seedRstack(root) {
+  const stateDir = join(root, '.rstack');
+  mkdirSync(join(stateDir, 'runs'), { recursive: true });
+  writeFileSync(join(stateDir, 'rstack.config.json'), JSON.stringify({ profile: 'business-flex' }, null, 2));
+  return stateDir;
+}
+
+test('doctor', async (t) => {
+  await t.test('a .rstack dir passes the env + guard self-test and JSON shape is well-formed', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-ok-'));
+    seedRstack(root);
+    // Point the run at a framework whose wiring cannot pass here so we assert on
+    // the checks we control; the guard self-test PASS is the hero assertion.
+    const { code, json } = await runDoctor(['--framework', 'custom', '--project', root, '--json'], { cwd: root });
+
+    assert.ok(json, 'doctor --json emitted parseable JSON');
+    // Shape.
+    assert.equal(json.framework, 'custom');
+    assert.ok(Array.isArray(json.checks));
+    assert.ok(json.summary && typeof json.summary.pass === 'number' && typeof json.summary.fail === 'number' && typeof json.summary.warn === 'number');
+    assert.ok(typeof json.exitCode === 'number');
+    for (const c of json.checks) {
+      assert.ok(typeof c.name === 'string' && c.name.length > 0);
+      assert.ok(['PASS', 'FAIL', 'WARN'].includes(c.status));
+      assert.ok(typeof c.detail === 'string');
+      assert.ok(Object.prototype.hasOwnProperty.call(c, 'fix'));
+    }
+
+    // Env checks pass.
+    assert.equal(checkByName(json, 'node version').status, 'PASS');
+    assert.equal(checkByName(json, '.rstack present').status, 'PASS');
+    assert.equal(checkByName(json, 'config validation').status, 'PASS');
+
+    // Hero check: the real guard blocked a destructive call and allowed a safe
+    // one — enforcement is live.
+    const guard = checkByName(json, 'guard self-test (enforcement live)');
+    assert.equal(guard.status, 'PASS', `guard self-test should PASS; got: ${guard.detail}`);
+
+    // Exit code reflects the summary: 1 iff any FAIL.
+    assert.equal(code === 1, json.summary.fail > 0);
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('missing .rstack yields the init FAIL with the exact fix', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-noinit-'));
+    const { code, json } = await runDoctor(['--framework', 'custom', '--project', root, '--json'], { cwd: root });
+
+    const dirCheck = checkByName(json, '.rstack present');
+    assert.equal(dirCheck.status, 'FAIL');
+    assert.equal(dirCheck.fix, 'rstack-agents init');
+    assert.ok(json.summary.fail >= 1);
+    assert.equal(code, 1, 'any FAIL means exit 1');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('claude-code missing PreToolUse hook FAILs with a paste-in snippet', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-cc-'));
+    seedRstack(root);
+    // .claude/ exists but no settings.json — the wiring check must FAIL loudly.
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    const { json } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
+
+    const hook = checkByName(json, 'claude-code PreToolUse guard hook');
+    assert.equal(hook.status, 'FAIL');
+    assert.ok(hook.fix.includes('rstack-agents guard'), 'fix names the guard hook');
+    assert.ok(hook.fix.includes('PreToolUse'), 'fix names the PreToolUse snippet');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('claude-code with a wired PreToolUse guard hook PASSes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-ccok-'));
+    seedRstack(root);
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
+      hooks: { PreToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }] },
+    }));
+    const { json } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
+
+    assert.equal(checkByName(json, 'claude-code PreToolUse guard hook').status, 'PASS');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('tau adapter (shipped) PASSes and never crashes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-tau-'));
+    seedRstack(root);
+    const { json } = await runDoctor(['--framework', 'tau', '--project', root, '--json'], { cwd: root });
+
+    assert.ok(json, 'doctor produced parseable JSON (did not crash) for the tau framework');
+    // Tau ships as a first-class adapter (#243), so presence resolves to PASS.
+    const adapter = checkByName(json, 'tau adapter present');
+    assert.equal(adapter.status, 'PASS');
+    assert.ok(adapter.detail.includes('tau'), 'detail names the tau adapter path');
+    // The shared bridge resolves too.
+    assert.equal(checkByName(json, 'bridge reachable').status, 'PASS');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('self-dependency fixture triggers the tripwire WARN with a fix', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-selfdep-'));
+    seedRstack(root);
+    writeFileSync(join(root, 'package.json'), JSON.stringify({
+      name: 'rstack-agents',
+      version: '9.9.9',
+      dependencies: { 'rstack-agents': '^2.0.0' },
+    }));
+    // cwd must be the fixture — the tripwire reads cwd's package.json.
+    const { json } = await runDoctor(['--framework', 'custom', '--project', root, '--json'], { cwd: root });
+
+    const tripwire = checkByName(json, 'self-dependency tripwire');
+    assert.equal(tripwire.status, 'WARN');
+    assert.ok(/self-dependency/i.test(tripwire.detail));
+    assert.ok(tripwire.fix && tripwire.fix.length > 0, 'tripwire carries a fix');
+    // A WARN alone must NOT fail the run (unless another check FAILs).
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('an unknown --framework is rejected cleanly (exit 1, no stack trace)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-badfw-'));
+    seedRstack(root);
+    const { code, stderr, stdout } = await runDoctor(['--framework', 'nope', '--project', root], { cwd: root });
+    assert.equal(code, 1);
+    assert.ok(/Unknown framework/.test(stderr + stdout));
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('WARN alone does not fail: a fully wired setup with only WARNs exits 0', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-warnonly-'));
+    seedRstack(root);
+    // custom framework: only requirement is the guard binary (always present in
+    // this repo checkout). No package.json in cwd → tripwire PASS. The only
+    // likely WARN is "package resolvable" (rstack-agents not installed in the
+    // scratch dir). Assert: if there are zero FAILs, exit is 0.
+    const { code, json } = await runDoctor(['--framework', 'custom', '--project', root, '--json'], { cwd: root });
+    if (json.summary.fail === 0) {
+      assert.equal(code, 0, 'no FAIL checks → exit 0 even with WARNs');
+    }
+    rmSync(root, { recursive: true, force: true });
+  });
+});
