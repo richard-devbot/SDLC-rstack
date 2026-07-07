@@ -14,7 +14,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.9.0--rc-orange" alt="v1.9.0-rc"/>
   <img src="https://img.shields.io/badge/agents-196%20validated-brightgreen" alt="196 agents"/>
-  <img src="https://img.shields.io/badge/tests-357%20pass-brightgreen" alt="357 tests"/>
+  <img src="https://img.shields.io/badge/tests-723%20pass-brightgreen" alt="723 tests"/>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"/>
 </p>
 
@@ -111,7 +111,7 @@ Full contract: [docs/integrations/custom.md](docs/integrations/custom.md)
 
 ## Configure your team
 
-RStack ships a large catalog (196 agents, 156+ skills, 72 plugins), but you configure only what your project needs.
+RStack ships a large catalog (196 agents, 68 skills, 72 plugins), but you configure only what your project needs.
 
 ### 1. Pick a profile
 
@@ -442,7 +442,7 @@ npm run validate
 Latest verified branch state:
 
 ```text
-npm test          # 357 pass, 0 fail
+npm test          # 723 pass, 0 fail
 npm run lint      # pass
 npm run validate  # All 196 agents passed validation
 npm pack --dry-run  # package includes templates/bootstrap/

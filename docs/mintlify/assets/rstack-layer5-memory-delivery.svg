@@ -52,10 +52,10 @@
     <g transform="translate(15, 55)">
       <circle cx="12" cy="15" r="8" fill="#F0FDF4" />
       <text x="28" y="18" class="card-title">2. Assets &amp; Routing</text>
-      <text x="28" y="30" class="card-subtitle">196 Agents · 156 Skills</text>
+      <text x="28" y="30" class="card-subtitle">196 Agents · 68 Skills</text>
       <text x="0" y="48" class="bullet-text">• Combined index maps in registry/</text>
       <text x="0" y="62" class="bullet-text">• 196 core &amp; specialist agents</text>
-      <text x="0" y="76" class="bullet-text">• 156 skills (deploy, review, OWASP)</text>
+      <text x="0" y="76" class="bullet-text">• 68 skills (deploy, review, OWASP)</text>
       <text x="0" y="90" class="bullet-text">• 72 domain-specific plugin packs</text>
       <text x="0" y="104" class="bullet-text">• 36 prompts commands registry</text>
       <text x="0" y="118" class="bullet-text">• Dynamic routing stage ➔ agent</text>

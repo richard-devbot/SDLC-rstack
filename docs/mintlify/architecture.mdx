@@ -32,7 +32,7 @@ The system has nine distinct layers:
 | **Governance + Security + Memory** | Approval gates, guardrails, secret scanning, injection detection, episodic memory |
 | **Observability** | Live dashboard server (port 3008), run reporter, 19 tracked event types |
 | **Notifications & Handoff** | Slack/Discord/Teams webhooks; structured agent-to-agent context relay via `handoff.md` |
-| **Asset Registry & Run State** | 196 agents · 156 skills · 72 plugins; resumable run state with checkpoint/rollback |
+| **Asset Registry & Run State** | 196 agents · 68 skills · 72 plugins; resumable run state with checkpoint/rollback |
 
 ---
 
@@ -95,7 +95,7 @@ flowchart TD
 
     subgraph ASSETS["Asset Registry"]
         AGENTS["196 Agents\ncore · sdlc · specialists"]
-        SKILLS["156 Skills\nOWASP · code-review · deploy · docs"]
+        SKILLS["68 Skills\nOWASP · code-review · deploy · docs"]
         PLUGINS["72 Plugins\nbackend · frontend · devops · security"]
         PROMPTS["36 Prompts\ncommand-style workflows"]
     end
@@ -473,7 +473,7 @@ created_at · evidence_paths
 
 ## Layer 6 — Asset registry
 
-**Counts:** 196 agents · 156 skills · 72 plugins · 36 prompts
+**Counts:** 196 agents · 68 skills · 72 plugins · 36 prompts
 
 ### Agent hierarchy
 

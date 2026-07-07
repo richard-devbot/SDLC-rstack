@@ -142,7 +142,7 @@
 <text x="1207" y="352" font-size="9" fill="#065f46bb" text-anchor="middle">handoff.md · next_agent_hints · stage_summaries</text>
 <rect x="1044" y="374" width="326" height="48" rx="6" fill="#eff6ff" stroke="#1e40af25" stroke-width="1"/>
 <text x="1207" y="394" font-size="11" fill="#1e40af" text-anchor="middle" font-weight="600">Asset Registry</text>
-<text x="1207" y="410" font-size="9" fill="#1e40afbb" text-anchor="middle">196 agents · 156 skills · 72 plugins · 36 prompts</text>
+<text x="1207" y="410" font-size="9" fill="#1e40afbb" text-anchor="middle">196 agents · 68 skills · 72 plugins · 36 prompts</text>
 <rect x="20" y="458" width="1360" height="66" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1.5"/>
 <text x="700" y="473" font-size="11" fill="#374151" text-anchor="middle" font-weight="700">Cross-Cutting Concerns  —  Active Across All Stages</text>
 <rect x="34" y="480" width="434" height="36" rx="6" fill="#dbeafe" stroke="#1e40af30" stroke-width="1"/>
@@ -156,5 +156,5 @@
 <text x="1147" y="508" font-size="9" fill="#5b21b6cc" text-anchor="middle">episodes.jsonl · recallEpisodes() · validator-gated writes · 4096-token cap</text>
 <rect x="0" y="532" width="1400" height="168" fill="#0f172a"/>
 <text x="700" y="556" font-size="13" fill="white" text-anchor="middle" font-weight="700">RStack SDLC Platform  ·  v1.0.1 / Pi Extension v0.3.0  ·  @earendil-works/pi-coding-agent  ·  npm install rstack-agents</text>
-<text x="700" y="577" font-size="11" fill="#94a3b8" text-anchor="middle">Asset Registry: 196 Agents  ·  156 Skills  ·  72 Plugins  ·  36 Prompts  ·  github.com/richard-devbot/SDLC-rstack</text>
+<text x="700" y="577" font-size="11" fill="#94a3b8" text-anchor="middle">Asset Registry: 196 Agents  ·  68 Skills  ·  72 Plugins  ·  36 Prompts  ·  github.com/richard-devbot/SDLC-rstack</text>
 </svg>
