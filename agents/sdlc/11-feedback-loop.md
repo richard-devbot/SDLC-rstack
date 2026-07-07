@@ -284,6 +284,10 @@ grep '"loop_iteration_started"' "$RUN_BASE/events.jsonl" 2>/dev/null | tail -1
 ```
    Use that event's `iteration` value as `goal_evaluation.iteration`. If the
    run has no loop events, omit `iteration` (one-shot evaluation).
+   Never stamp AHEAD: a per-criterion `iteration` GREATER than the current
+   loop iteration is rejected as over-stamped/malformed — the harness refuses
+   to consume the criterion and routes it to ASK_USER with a re-run
+   instruction. Copy the CURRENT `loop_iteration_started` value, exactly.
 
 3. Fill the top-level fields from your own analysis (Tasks 1–7):
    - `status`: `PASS` (goal met) | `RETRY` (rework can close the gap) |
@@ -340,8 +344,8 @@ Top 5 Critical Issues:
   ...
 
 Would you like to:
-  1. View the full consistency report ($RSTACK_RUN_DIR/artifacts/feedback/consistency_report.json)
-  2. View the remediation plan ($RSTACK_RUN_DIR/artifacts/feedback/REMEDIATION_PLAN.md)
+  1. View the full consistency report ($RSTACK_RUN_DIR/artifacts/stages/11-feedback-loop/feedback.json)
+  2. View the remediation plan ($RSTACK_RUN_DIR/artifacts/stages/11-feedback-loop/REMEDIATION_PLAN.md)
   3. Auto-remediate what can be fixed (re-run affected agents)
   4. Accept current state and finalize the pipeline
   5. Export findings as CSV for external tracking
@@ -424,7 +428,7 @@ Create: `$RUN_BASE/artifacts/stages/11-feedback-loop/feedback.json` (canonical),
       }
     ]
   },
-  "remediation_plan_path": "$RSTACK_RUN_DIR/artifacts/feedback/REMEDIATION_PLAN.md",
+  "remediation_plan_path": "$RSTACK_RUN_DIR/artifacts/stages/11-feedback-loop/REMEDIATION_PLAN.md",
   "previous_agent": "summary_agent",
   "pipeline_status": "REVIEWED_AND_COMPLETE"
 }
@@ -468,8 +472,8 @@ has made their interactive choice, print:
  Pipeline Consistency Score: XX/100 (HEALTHY|NEEDS_ATTENTION|CRITICAL_GAPS)
  Issues: X CRITICAL | Y WARNING | Z INFO
 
- Consistency Report: $RSTACK_RUN_DIR/artifacts/feedback/consistency_report.json
- Remediation Plan:   $RSTACK_RUN_DIR/artifacts/feedback/REMEDIATION_PLAN.md
+ Consistency Report: $RSTACK_RUN_DIR/artifacts/stages/11-feedback-loop/feedback.json
+ Remediation Plan:   $RSTACK_RUN_DIR/artifacts/stages/11-feedback-loop/REMEDIATION_PLAN.md
  Project Summary:    $RSTACK_RUN_DIR/artifacts/PROJECT_COMPLETE_SUMMARY.md
  Executive View:     $RSTACK_RUN_DIR/artifacts/EXECUTIVE_DASHBOARD.md
 ========================================
@@ -553,7 +557,7 @@ Every AskUserQuestion from this agent follows this structure:
 
 STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
 
-DONE: consistency_report.json and REMEDIATION_PLAN.md written. Pipeline score calculated.
+DONE: feedback.json and REMEDIATION_PLAN.md written (canonical stage path + legacy copies). Pipeline score calculated.
 DONE_WITH_CONCERNS: review complete but CRITICAL issues found — user must decide whether to remediate or accept.
 BLOCKED: majority of upstream contracts missing (pipeline likely incomplete).
 NEEDS_CONTEXT: ask ONE question about a critical finding that needs user context to interpret.
