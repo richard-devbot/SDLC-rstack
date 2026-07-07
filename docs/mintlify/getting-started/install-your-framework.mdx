@@ -22,9 +22,10 @@ npx rstack-agents init        # auto-detects your framework
 
 | Framework | Integration | What you get |
 |---|---|---|
-| **Pi** | 🟢 Native adapter | All 15 `sdlc_*` tools, lifecycle hooks, gating, auto-launch dashboard |
+| **Pi** | 🟢 Native adapter | All 18 `sdlc_*` tools, lifecycle hooks, gating, auto-launch dashboard |
 | **Claude Code** | 🟢 First-class | `init` writes a usage guide + a SessionStart hook; plugin commands |
 | **Operator** | 🟢 First-class | Python adapter bridges to the same harness; auto-launch dashboard |
+| **Tau** | 🟢 First-class | Python adapter (community, by Jeomon) bridges to the same harness; guard enforcement self-wires on Tau's `tool_call` hook |
 | **Codex CLI** | 🟡 Asset-based | RStack agents/skills as context via `AGENTS.md`; no native tool gating |
 | **Gemini CLI** | 🟡 Asset-based | RStack agents/skills as context via `GEMINI.md`; no native tool gating |
 | **Any other harness** | 🟡 Universal | The `.rstack/` state contract + a Node bridge any tool can call |
@@ -116,6 +117,39 @@ Details: [Claude Code adapter](/adapters/claude-code).
 </Steps>
 
 Details: [Operator adapter](/adapters/universal).
+
+---
+
+## Tau
+
+Tau ([github.com/Jeomon/Tau](https://github.com/Jeomon/Tau)) is a Python
+agent framework with a blocking `tool_call` hook — so RStack's enforcement
+guard wires itself when the adapter loads. Adapter contributed by Jeomon.
+
+<Steps>
+  <Step title="Install Tau + Node">
+    RStack's Tau adapter shells out to the same Node bridge as Operator, so
+    you need `node` and `npx` on `PATH`.
+  </Step>
+  <Step title="Add RStack + init">
+    ```bash
+    cd your-project
+    npm install rstack-agents
+    npx rstack-agents init --framework tau
+    ```
+    `init` writes `rstack-tau.example.json` (auto-detected from `tau.json`,
+    `tau_settings.json`, or a `.tau/` directory).
+  </Step>
+  <Step title="Wire the adapter into Tau settings">
+    Merge the `extensions.list` entry from `rstack-tau.example.json` into
+    your Tau `settings.json`. Loading the extension registers all `sdlc_*`
+    tools **and** routes Tau's `terminal`/`write`/`edit` tools through
+    `rstack-agents guard` — destructive actions block until a
+    `destructive-action:<taskId>` approval exists.
+  </Step>
+</Steps>
+
+Details: [Universal adapter](/adapters/universal).
 
 ---
 

@@ -32,7 +32,7 @@ Every RStack tool is callable from the terminal via the bridge — the same
 harness your framework would drive:
 
 ```bash
-alias rstack-tool="RSTACK_PROJECT_ROOT=\"\$(pwd)\" npx tsx node_modules/rstack-agents/bin/rstack-operator-bridge.ts"
+alias rstack-tool="RSTACK_PROJECT_ROOT=\"\$(pwd)\" npx tsx node_modules/rstack-agents/bin/rstack-bridge.ts"
 
 rstack-tool sdlc_start '{"goal":"Build a health-check API endpoint"}'
 rstack-tool sdlc_plan '{}'

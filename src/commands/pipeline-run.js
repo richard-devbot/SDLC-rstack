@@ -121,14 +121,14 @@ export function planNextAction({ state, tasks, events, approvals, guardrails, ta
   return { action: 'claim', task_id: candidate.id, retry: false, detail: `Start next pending task ${candidate.id} — prepare its builder packet.` };
 }
 
-// Default tool invoker: shells the model-free tool through the operator
-// bridge. Injectable so tests never spawn subprocesses.
+// Default tool invoker: shells the model-free tool through the generic
+// framework bridge. Injectable so tests never spawn subprocesses.
 export function bridgeInvoker(projectRoot) {
-  const bridge = resolve(__dirname, '..', '..', 'bin', 'rstack-operator-bridge.ts');
+  const bridge = resolve(__dirname, '..', '..', 'bin', 'rstack-bridge.ts');
   return (toolName, params) => new Promise((resolvePromise, rejectPromise) => {
     const child = spawn('npx', ['tsx', bridge, toolName, JSON.stringify(params)], {
       cwd: projectRoot,
-      env: { ...process.env, RSTACK_PROJECT_ROOT: projectRoot, RSTACK_NO_BUSINESS_HUB: '1', RSTACK_NO_BROWSER: '1' },
+      env: { ...process.env, RSTACK_PROJECT_ROOT: projectRoot, RSTACK_BRIDGE_CALLER: 'pipeline-run', RSTACK_NO_BUSINESS_HUB: '1', RSTACK_NO_BROWSER: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

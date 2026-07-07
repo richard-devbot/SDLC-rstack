@@ -1,10 +1,27 @@
-"""RStack SDLC — Operator adapter.
+"""RStack SDLC — Tau adapter.
 
-Operator (a Python AI-agent harness, https://github.com/…/operator) loads this as
-an extension and exposes the same `sdlc_*` tools the Pi adapter provides. Each tool
-shells out to the generic Node bridge (bin/rstack-bridge.ts), which reuses the
-existing TypeScript adapter and harness verbatim — no SDLC logic is reimplemented
-in Python. Conformance contract: docs/integrations/adapter-contract.md.
+Contributed by Jeomon (https://github.com/Jeomon) — thank you! This file is
+his community Tau adapter, adopted with the bridge path updated to the
+generic bin/rstack-bridge.ts and the tool surface synced to the Pi adapter
+registry (the conformance contract in docs/integrations/adapter-contract.md).
+
+Tau (https://github.com/Jeomon/Tau) is a Python agent framework and terminal
+coding assistant with the same extension shape as Operator: a plain Python
+file exporting `register(tau)`, Pydantic-schema tools, and a `tool_call`
+event hook that can block execution before it happens. This adapter reuses
+that shape twice:
+
+  1. Every `sdlc_*` tool shells out to the Node bridge
+     (bin/rstack-bridge.ts), which reuses the existing TypeScript adapter
+     and harness verbatim — no SDLC logic is reimplemented in Python.
+  2. Tau's built-in `terminal` / `write` / `edit` tools are routed through
+     `rstack-agents guard` on the `tool_call` hook, the same framework-neutral
+     enforcement gate Claude Code wires via PreToolUse (destructive-action
+     gate + validator sandbox — see docs/integrations/wire-your-own-harness.md).
+     Tau's `ToolCallEventResult(block=True, ...)` return value is exactly the
+     "cancel before execution" mechanism that guard wiring needs, so — unlike
+     Operator or Claude Code — no host-side hook config is required; loading
+     this extension is the wiring.
 
 Requirements on the host:
   - node + npx on PATH
@@ -17,6 +34,8 @@ Optional configuration (settings.json → extensions.list[].settings, or env):
   slack_webhook    → RSTACK_SLACK_WEBHOOK
   state_dir        → RSTACK_STATE_DIR
   allow_destructive→ RSTACK_ALLOW_DESTRUCTIVE
+
+owner: RStack developed by Richardson Gunde; Tau adapter contributed by Jeomon
 """
 from __future__ import annotations
 
@@ -29,10 +48,10 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from operator_use.extension.types import ToolDefinition
-from operator_use.tool.types import ToolKind, ToolResult
+from tau.hooks import ToolCallEventResult
+from tau.tool.types import Tool, ToolContext, ToolExecutionMode, ToolInvocation, ToolKind, ToolResult
 
-PKG_ROOT = Path(__file__).resolve().parents[3]  # src/integrations/operator/ -> package root
+PKG_ROOT = Path(__file__).resolve().parents[3]  # src/integrations/tau/ -> package root
 BRIDGE = PKG_ROOT / "bin" / "rstack-bridge.ts"
 
 # settings.json key → environment variable consumed by the TS adapter/harness.
@@ -45,13 +64,21 @@ _CONFIG_ENV = {
     "allow_destructive": "RSTACK_ALLOW_DESTRUCTIVE",
 }
 
+# Tau built-in tool name → (guard tool_name, param field carrying the target).
+# `read`, `glob`, `grep`, `ls` are read-only and are not routed through the gate.
+_GUARD_TOOL_MAP = {
+    "terminal": ("Bash", "cmd"),
+    "write": ("Write", "path"),
+    "edit": ("Edit", "path"),
+}
+
 
 def _launch_business_hub() -> None:
-    """Bring the Business Hub live when an Operator session loads this extension.
+    """Bring the Business Hub live when a Tau session loads this extension.
 
-    Same contract as the Pi adapter: health-check :3008, spawn detached if
-    down, open the browser. Best-effort — never blocks or fails the session.
-    Opt out with RSTACK_NO_BUSINESS_HUB=1.
+    Same contract as the Pi and Operator adapters: health-check :3008, spawn
+    detached if down, open the browser. Best-effort — never blocks or fails
+    the session. Opt out with RSTACK_NO_BUSINESS_HUB=1.
     """
     if os.environ.get("RSTACK_NO_BUSINESS_HUB") == "1" or os.environ.get("CI"):
         return
@@ -228,52 +255,30 @@ _TOOLS: dict[str, tuple[str, type[BaseModel]]] = {
 }
 
 
-def extension(api) -> None:
-    cfg = api.config or {}
-    config_env = {
-        env: str(cfg[key]) for key, env in _CONFIG_ENV.items() if cfg.get(key) is not None
-    }
+async def _run_bridge(tool: str, params: dict, cwd: str, invocation_id: str, config_env: dict[str, str]) -> ToolResult:
+    npx = shutil.which("npx")
+    if npx is None:
+        return ToolResult.error(invocation_id, "RStack: `npx` not found on PATH. Install Node.js and run `npm install` in the rstack-sdlc package.")
+    if not BRIDGE.is_file():
+        return ToolResult.error(invocation_id, f"RStack: bridge not found at {BRIDGE}.")
 
-    async def _run_bridge(tool: str, params: dict, ctx, invocation_id: str) -> ToolResult:
-        npx = shutil.which("npx")
-        if npx is None:
-            return ToolResult.error(invocation_id, "RStack: `npx` not found on PATH. Install Node.js and run `npm install` in the rstack-sdlc package.")
-        if not BRIDGE.is_file():
-            return ToolResult.error(invocation_id, f"RStack: bridge not found at {BRIDGE}.")
+    env = {**os.environ, **config_env, "RSTACK_PROJECT_ROOT": cwd, "RSTACK_BRIDGE_CALLER": "tau"}
 
-        project_root = str(getattr(ctx, "cwd", None) or os.getcwd())
-        env = {**os.environ, **config_env, "RSTACK_PROJECT_ROOT": project_root, "RSTACK_BRIDGE_CALLER": "operator"}
+    proc = await asyncio.create_subprocess_exec(
+        npx, "tsx", str(BRIDGE), tool, json.dumps(params),
+        cwd=str(PKG_ROOT), env=env,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    out, err = await proc.communicate()
+    stdout = out.decode("utf-8", "replace").strip()
+    stderr = err.decode("utf-8", "replace").strip()
 
-        proc = await asyncio.create_subprocess_exec(
-            npx, "tsx", str(BRIDGE), tool, json.dumps(params),
-            cwd=str(PKG_ROOT), env=env,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        out, err = await proc.communicate()
-        stdout = out.decode("utf-8", "replace").strip()
-        stderr = err.decode("utf-8", "replace").strip()
+    if proc.returncode != 0:
+        detail = stderr or stdout or f"exit {proc.returncode}"
+        return ToolResult.error(invocation_id, f"RStack {tool} failed: {detail}")
 
-        if proc.returncode != 0:
-            detail = stderr or stdout or f"exit {proc.returncode}"
-            return ToolResult.error(invocation_id, f"RStack {tool} failed: {detail}")
-
-        text = _extract_text(stdout)
-        return ToolResult.ok(invocation_id, text)
-
-    def _make_execute(tool: str):
-        async def _execute(params: BaseModel, invocation, ctx, context=None) -> ToolResult:
-            payload = params.model_dump(exclude_none=True)
-            return await _run_bridge(tool, payload, ctx, invocation.id)
-        return _execute
-
-    for name, (description, model) in _TOOLS.items():
-        api.register_tool(ToolDefinition(
-            name=name,
-            description=description,
-            parameters=model,
-            execute=_make_execute(name),
-            kind=ToolKind.Automation,
-        ))
+    text = _extract_text(stdout)
+    return ToolResult.ok(invocation_id, text)
 
 
 def _extract_text(stdout: str) -> str:
@@ -295,3 +300,79 @@ def _extract_text(stdout: str) -> str:
                 return joined
         return json.dumps(data, indent=2)
     return stdout
+
+
+class _BridgeTool(Tool):
+    """One `sdlc_*` tool; `execute` shells out to the shared Node bridge."""
+
+    def __init__(self, name: str, description: str, schema: type[BaseModel], config_env: dict[str, str]):
+        super().__init__(
+            name=name,
+            description=description,
+            schema=schema,
+            kind=ToolKind.Execute,
+            execution_mode=ToolExecutionMode.Sequential,
+        )
+        self._config_env = config_env
+
+    async def execute(
+        self,
+        invocation: ToolInvocation,
+        tool_execution_update_callback=None,
+        signal=None,
+        context: Optional[ToolContext] = None,
+    ) -> ToolResult:
+        cwd = str(getattr(context, "cwd", None) or os.getcwd())
+        params = {k: v for k, v in (invocation.params or {}).items() if v is not None}
+        return await _run_bridge(self.name, params, cwd, invocation.id, self._config_env)
+
+
+async def _run_guard(guard_tool_name: str, tool_input: dict, cwd: str) -> tuple[bool, str]:
+    """Classify one pending tool call via `rstack-agents guard`.
+
+    Fails OPEN (allows the call) only when `npx` itself is unreachable — the
+    guard binary is never reachable, so refusing to load the extension would
+    be worse than skipping enforcement for that one session. Any exit code
+    other than 2 is treated as allow, matching the documented guard contract.
+    """
+    npx = shutil.which("npx")
+    if npx is None:
+        return True, ""
+
+    payload = json.dumps({"tool_name": guard_tool_name, "tool_input": tool_input}).encode("utf-8")
+    proc = await asyncio.create_subprocess_exec(
+        npx, "--yes", "rstack-agents", "guard", "--context", "builder", "--project", cwd,
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        env=os.environ, cwd=cwd,
+    )
+    out, err = await proc.communicate(payload)
+    if proc.returncode == 2:
+        reason = (
+            err.decode("utf-8", "replace").strip()
+            or out.decode("utf-8", "replace").strip()
+            or "RStack guard blocked this tool call."
+        )
+        return False, reason
+    return True, ""
+
+
+def register(tau) -> None:
+    cfg = tau.config or {}
+    config_env = {
+        env: str(cfg[key]) for key, env in _CONFIG_ENV.items() if cfg.get(key) is not None
+    }
+
+    for name, (description, model) in _TOOLS.items():
+        tau.register_tool(_BridgeTool(name, description, model, config_env))
+
+    @tau.on("tool_call")
+    async def _rstack_guard(event, ctx):
+        mapping = _GUARD_TOOL_MAP.get(event.tool_name)
+        if mapping is None:
+            return None
+        guard_tool_name, field = mapping
+        tool_input = {field: (event.input or {}).get(field, "")}
+        allowed, reason = await _run_guard(guard_tool_name, tool_input, str(ctx.cwd))
+        if not allowed:
+            return ToolCallEventResult(block=True, reason=reason)
+        return None

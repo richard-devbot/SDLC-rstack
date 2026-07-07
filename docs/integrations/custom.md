@@ -7,22 +7,26 @@ integrate at one of two levels.
 
 ## Level 1 — reuse the Node bridge (recommended)
 
-Shell out to the bridge once per tool call, exactly like the Operator adapter
-does:
+Shell out to the bridge once per tool call, exactly like the Operator and Tau
+adapters do:
 
 ```bash
 RSTACK_PROJECT_ROOT=/path/to/project \
-  npx tsx node_modules/rstack-agents/bin/rstack-operator-bridge.ts <tool_name> '<json-params>'
+  npx tsx node_modules/rstack-agents/bin/rstack-bridge.ts <tool_name> '<json-params>'
 ```
 
 - stdout: the tool's result object as JSON
 - stderr + exit 1: errors
 - Tools: `sdlc_start`, `sdlc_plan`, `sdlc_build_next`, `sdlc_validate`,
   `sdlc_approve`, `sdlc_status`, `sdlc_trace`, `sdlc_rollback`, and more —
-  run with no arguments to list them.
+  run with `--list` for the full listing.
+- Set `RSTACK_BRIDGE_CALLER=<your-framework>` so tool invocations carry your
+  framework's id.
 
 This gives you the full governed harness (stages, contracts, evidence,
-checkpoints, approvals, memory) with zero reimplementation.
+checkpoints, approvals, memory) with zero reimplementation. Before you ship
+an adapter, walk the conformance checklist in
+[adapter-contract.md](adapter-contract.md).
 
 ## Level 2 — speak the state contract directly
 

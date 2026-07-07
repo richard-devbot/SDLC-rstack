@@ -38,6 +38,19 @@ test('init framework detection and setup', async (t) => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  await t.test('detects tau from tau settings/config markers', async () => {
+    for (const marker of ['tau.json', 'tau_settings.json']) {
+      const root = tmpProject('rstack-init-tau-');
+      writeFileSync(join(root, marker), '{}');
+      assert.equal(await detectFramework(root), 'tau', `${marker} detected as tau`);
+      rmSync(root, { recursive: true, force: true });
+    }
+    const dirRoot = tmpProject('rstack-init-tau-dir-');
+    mkdirSync(join(dirRoot, '.tau'), { recursive: true });
+    assert.equal(await detectFramework(dirRoot), 'tau', '.tau/ directory detected as tau');
+    rmSync(dirRoot, { recursive: true, force: true });
+  });
+
   await t.test('detects pi from package.json dependencies', async () => {
     const root = tmpProject('rstack-init-pi-');
     writeFileSync(join(root, 'package.json'), JSON.stringify({
@@ -193,8 +206,21 @@ test('init framework detection and setup', async (t) => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  await t.test('init tau writes example settings pointing at the adapter, with guard guidance', async () => {
+    const root = tmpProject('rstack-init-tauset-');
+    const report = await initFramework(root, 'tau', { packageRoot: '/opt/rstack' });
+    const example = JSON.parse(readFileSync(join(root, 'rstack-tau.example.json'), 'utf8'));
+    assert.equal(example.extensions.list[0].path, join('/opt/rstack', 'src', 'integrations', 'tau', 'rstack_sdlc.py'));
+    assert.ok(Object.keys(example.extensions.list[0].settings).includes('slack_webhook'));
+    assert.ok(existsSync(join(root, 'SOUL.md')), 'SOUL.md bootstrap created');
+    assert.ok(!existsSync(join(root, 'CLAUDE.md')), 'tau init should not create CLAUDE.md');
+    assert.ok(report.nextSteps.some((step) => step.includes('settings.json')));
+    assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents guard')), 'guidance explains the tool_call guard wiring');
+    rmSync(root, { recursive: true, force: true });
+  });
+
   await t.test('FRAMEWORKS list is the published contract', () => {
-    assert.deepEqual([...FRAMEWORKS], ['pi', 'claude-code', 'operator', 'custom']);
+    assert.deepEqual([...FRAMEWORKS], ['pi', 'claude-code', 'operator', 'tau', 'custom']);
   });
 
   await t.test('init with lean-mvp profile writes correct profile and budget files', async () => {
