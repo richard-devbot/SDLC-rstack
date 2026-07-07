@@ -602,3 +602,48 @@ This is distinct from and does not replace the validator sandbox (`validator-san
 which stays the stricter authority for validator/reviewer/security contexts (any mutation denied,
 no approval path). Refactoring the sandbox to consume this classifier is a deliberate follow-up —
 the two encode different policies (gate-with-approval vs deny-outright).
+
+## Environment & secrets writes (Business Hub, #238)
+
+`POST /api/env-write` on the Business Hub sets keys in the project's `.env` behind the SAME
+destructive-action gate every builder faces — the hub dogfoods its own governance.
+
+**Two-step approval contract** (the plaintext value is never persisted pre-approval):
+
+1. **Request.** The hub validates the key (`^[A-Z][A-Z0-9_]*$`), the value (string, ≤ 4 KiB), and
+   that `.env` is gitignored (`git check-ignore`; a non-ignored `.env` refuses with
+   `409 gitignore_required` — a committed `.env` leaks every secret in it). The write classifies as
+   `secret-write` through the central classifier (`classifyDestructiveAction`, #131). With no
+   trusted approval on file, a PENDING entry for the artifact
+   `destructive-action:env-write:<KEY>` lands in the `.rstack/approvals.jsonl` queue (it renders on
+   the Approvals page like any other gate) and the request returns `409 approval_required`.
+   **The value is discarded** — it exists only in the requester's browser tab.
+2. **Approve.** A manager approves the artifact through the normal path (`/api/approve` or
+   `sdlc_approve`). Everything that governs approvals applies for free: `policy.json` **`managers`**
+   (`assertManagerAllowed` — when set, only listed identities may approve) and
+   **`enforce_in_express`** are LIVE gates, and the dashboard path stamps token-verified actor
+   evidence (#133).
+3. **Write.** Re-submitting the request finds the approval via the audited path
+   (`trustedApprovedArtifacts`, queue casing — per-record validation plus the replay/ordering
+   history checks; forged, malformed, rejected or replayed records are treated as absent), then
+   **consumes it atomically in-lock** (`consumeApprovedQueueArtifact` flips the record to
+   `consumed`) *before* the `.env` write. One-shot: a second write to the same key needs a fresh
+   approval. The consume-then-write order is crash-safe — a crash after consumption loses the
+   approval, never the gate. The write itself is locked + atomic and preserves untouched `.env`
+   lines verbatim (`src/core/harness/env-file.js`).
+
+**What is persisted:** `.rstack/env-writes-audit.jsonl` (append-only: ts, key, actor, outcome,
+value LENGTH) and an `env_key_written` event (`{ key, actor, masked_value_length }`) on the latest
+run's `events.jsonl` when a run exists (skipped silently otherwise — run event streams are
+run-scoped; the audit file is the run-independent record).
+
+**What is never persisted or served:** the plaintext value — not in state snapshots (the
+Environment page lists key names + lengths only), not in events, not in audit files, not in logs,
+not in any GET or POST response body. The only place the value lands is `.env` itself, after
+approval.
+
+`POST /api/decide` (resolve/waive Decision Queue items from the hub) sits behind the same trust
+boundary as `/api/approve`: approval token required (both routes are DISABLED with 403 when no
+`RSTACK_APPROVAL_TOKEN`/`_FILE` is configured — fail closed), CSRF origin check, JSON content type,
+64 KB body cap, per-IP rate limit. It routes to the harness `decide()` — never a second
+implementation.
