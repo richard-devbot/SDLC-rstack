@@ -1,6 +1,6 @@
 /**
  * rstack-agents init — one-command setup of RStack SDLC in any project,
- * for any host framework (Pi, Claude Code, Operator, or custom).
+ * for any host framework (Pi, Claude Code, Operator, Tau, or custom).
  *
  * Design rules:
  *   - Idempotent: running twice is safe; existing files are never overwritten.
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { registerProject } from '../core/tracker/registry.js';
 import { budgetPolicyForProfile, profileConfig } from '../core/profiles.js';
 
-export const FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'custom']);
+export const FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'tau', 'custom']);
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -28,6 +28,7 @@ export const BOOTSTRAP_BY_FRAMEWORK = Object.freeze({
   'claude-code': ['CLAUDE.md', 'SOUL.md', 'HEARTBEAT.md'],
   pi: ['SOUL.md', 'HEARTBEAT.md'],
   operator: ['SOUL.md', 'HEARTBEAT.md'],
+  tau: ['SOUL.md', 'HEARTBEAT.md'],
   custom: ['AGENTS.md', 'SOUL.md', 'HEARTBEAT.md'],
 });
 
@@ -36,6 +37,7 @@ export async function detectFramework(projectRoot) {
   const root = resolve(projectRoot);
   if (existsSync(join(root, '.claude'))) return 'claude-code';
   if (existsSync(join(root, 'operator.json')) || existsSync(join(root, 'operator_settings.json'))) return 'operator';
+  if (existsSync(join(root, 'tau.json')) || existsSync(join(root, 'tau_settings.json')) || existsSync(join(root, '.tau'))) return 'tau';
   const pkgPath = join(root, 'package.json');
   if (existsSync(pkgPath)) {
     try {
@@ -236,11 +238,39 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
     );
   }
 
+  if (fw === 'tau') {
+    const settingsPath = join(root, 'rstack-tau.example.json');
+    const adapterPath = packageRoot
+      ? join(packageRoot, 'src', 'integrations', 'tau', 'rstack_sdlc.py')
+      : 'node_modules/rstack-agents/src/integrations/tau/rstack_sdlc.py';
+    const example = JSON.stringify({
+      extensions: {
+        list: [{
+          path: adapterPath,
+          settings: {
+            worker_command: '',
+            default_model: '',
+            escalated_model: '',
+            slack_webhook: '',
+          },
+        }],
+      },
+    }, null, 2) + '\n';
+    await writeIfMissing(settingsPath, example, 'rstack-tau.example.json', report);
+    report.nextSteps.push(
+      'Install the package: npm install rstack-agents (the Python adapter shells out to its Node bridge)',
+      'Merge rstack-tau.example.json into your Tau settings.json extensions list',
+      'Requirements on this host: node + npx on PATH, npm install run once in the package directory',
+      'Enforcement: loading the extension IS the wiring — the adapter routes Tau\'s terminal/write/edit tools through `rstack-agents guard` on the tool_call hook (destructive gate + validator sandbox, exit 2 = block).',
+      'Open the dashboard: npx rstack-business',
+    );
+  }
+
   if (fw === 'custom') {
     report.nextSteps.push(
       'RStack state lives in .rstack/ — any agent framework that writes the run contract can plug in.',
-      'Adapter contract: read docs/integrations/custom.md in the rstack-agents package.',
-      'Reuse the Node bridge for tool calls: npx tsx node_modules/rstack-agents/bin/rstack-operator-bridge.ts <tool> \'<json>\'',
+      'Adapter contract: read docs/integrations/custom.md and docs/integrations/adapter-contract.md in the rstack-agents package.',
+      'Reuse the Node bridge for tool calls: npx tsx node_modules/rstack-agents/bin/rstack-bridge.ts <tool> \'<json>\'',
       'Auto-launch the dashboard from your harness session hook: npx rstack-agents hub',
     );
   }
