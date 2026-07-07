@@ -1123,7 +1123,11 @@ export default function (pi: ExtensionAPI) {
           category: destructive.verdict?.category ?? null,
           reason: destructive.verdict?.reason ?? null,
           approval_artifact: destructiveApprovalArtifact(destructive.taskId),
-        }).catch(() => {});
+        }).catch((err) => {
+          // The block must stand even if the ledger write fails, but a lost
+          // security audit event must never disappear silently.
+          console.error("Failed to record destructive_action_blocked event:", err);
+        });
       }
       return {
         block: true,
