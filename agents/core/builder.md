@@ -205,6 +205,8 @@ Load these before executing domain work. Use `cat [package-local path] | head -4
 - `skills/ship/SKILL.md` — test + review + bump version + push + create PR
 - `skills/security-owasp/SKILL.md` — OWASP Top 10, STRIDE, secrets archaeology
 
+**Destructive actions are gated by the harness, not just by the careful skill.** If the task requires a classified-destructive action (recursive/forced delete, git force-push or hard reset, package/release publish, infra deploy, write to a secret/credential path, write to a protected config path, DB drop/delete/truncate/reset), the gate requires an audited `destructive-action:<task_id>` approval record in the run's approvals.json before the action may proceed. If that approval is missing, stop with `NEEDS_CONTEXT` requesting it (approved via sdlc_approve or the Business Hub) — do not retry the action hoping it passes.
+
 ### Domain-specific
 - `skills/plan-eng-review/SKILL.md` — lock in architecture, data flow, edge cases, test coverage
 - `skills/bounty-hunting/SKILL.md` — find and fix code smells, debt, misconfigurations
@@ -254,9 +256,19 @@ npm test 2>/dev/null || pytest -x -q 2>/dev/null || go test ./... 2>/dev/null
   "files_modified": ["path/to/file1", "path/to/file2"],
   "tests_run": [{"command": "npm test", "status": "PASS", "evidence": "summary output"}],
   "risks": [],
-  "next_steps": []
+  "next_steps": [],
+  "cost": {"actual_usd": 0.42, "input_tokens": 12000, "output_tokens": 3000, "total_tokens": 15000},
+  "context": {"profile": "builder", "workflow": "sdlc", "tokens_used": 42000, "tokens_available": 200000},
+  "execution": {"tools_used": ["Read", "Edit", "Bash"], "tool_calls": 18},
+  "routing": {"specialist": "direct execution"}
 }
 ```
+
+The `cost` / `context` / `execution` / `routing` blocks are OPTIONAL, but when present each must be an object (shape-checked at validate). Emit them — the harness extracts the first three into the run's `metrics.json` at validate time, and the loop budget cap brakes on real recorded spend; a run with no cost telemetry cannot be budget-braked accurately:
+- `cost` — USD spend + tokens (`actual_usd` wins over `estimated_usd`) → `cumulative_tokens` and per-stage `stage_cost_usd`/`stage_tokens`.
+- `context` — context-window gauges; `tokens_used`/`tokens_available` feed the context-pressure warnings.
+- `execution` — `tools_used` is distinct tool NAMES; `tool_calls` is total INVOCATIONS → `cumulative_tool_calls` and the `maxToolCallsPerTask` guardrail check.
+- `routing` — which specialist path handled the task (recorded for observability, not extracted into metrics).
 
 Write to: `$RSTACK_RUN_DIR/tasks/<task_id>/builder.json`
 
