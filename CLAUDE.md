@@ -24,6 +24,7 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-07 | **v2.0.0 release prep**: version 2.0.0 (package + lock), CHANGELOG [2.0.0] "governed loop enforced in code" entry (Unreleased → v2.1 planning, pinned tests updated), `assets/` with logo + interactive THREE.js 3D workspace + rendered preview, README "Meet the studio" section (clickable preview → live raw.githack view; absolute image URLs so npm renders them), Stephens citation added to research bibliography + stale snapshot stamps refreshed. **Awaiting: Richardson pushes the v2.0.0 tag → publish.yml → npm** | 2 | #235, PR #236 |
 | 2026-07-07 | **Universal enforcement guard**: `rstack-agents guard` — framework-neutral gate any host hook can call (stdin Claude Code PreToolUse JSON or flags; exit 0 allow / exit 2 block), reusing the harness classifier + validator sandbox + #133 audited per-task approvals (zero duplicated logic); `RSTACK_VALIDATOR_CONTEXT=1` beats `--context builder` (no flag escape), destructive-with-unresolvable-task fails CLOSED, raw text sniffed as bash before the fail-open path; `init --framework claude-code` installs the PreToolUse hook idempotently; `docs/integrations/wire-your-own-harness.md` paste-in prompt for codex/gemini/custom. **Claude Code is now enforced, not template-only.** Adversarial review: 0 findings | 1, 2 | #227, PR #234 |
 | 2026-07-07 | **Docs truth & discovery**: real counts everywhere (68 skills — a stray untracked `skills/logs` dir had inflated local counts; 723 tests; 196 agents per validate), complete README CLI table (14 commands + 2 bins), "Govern an existing codebase" section, roadmap rewritten shipped-vs-future, "any framework" reworded to verified enforcement tiers, mintlify (61 files) + loop-recipes ship in tarball (10.1→6.6MB), new `reference/pipeline.mdx` | 2 | #223, PR #233 |
 | 2026-07-07 | **Governance enforcement closeout**: destructive-action gate wired into the live Pi `tool_call` hook (centralized classifier + audited `destructive-action:<taskId>` approvals, fails closed, blocked-event ledger write failures logged not swallowed); context-pressure classified at prompt-assembly (`phase:"pre_execution"`) before model spend; honest validator-profile delegation record naming the owning specialist + delegated required_checks (first slice of #222 — real PASS/FAIL evaluation stays open, semantic = #72) | 1 | #210 #212 #222(partial), PR #230 |
@@ -80,9 +81,8 @@ Work top-down. File a GitHub issue before any branch (Richardson's rule: issues 
 `enforce_in_express` are live gates, do not re-file). Main green: 756 tests. Framework story
 is now "enforced on Pi, Operator, Claude Code (guard hook); guided self-wiring elsewhere".
 
-1. **v2.0.0 Wave C (release mechanics)** — bump package.json+lock to 2.0.0, README badge,
-   CHANGELOG 2.0.0 entry (user-facing, 1.8.0 → 2.0.0), then Richardson pushes the v2.0.0 tag
-   (publish.yml runs gates + npm publish). Goals 1, 2.
+1. **v2.0.0 SHIP** — everything is merged (PR #236); the ONLY remaining step is Richardson
+   pushing the `v2.0.0` tag (publish.yml runs gates + npm publish). Goals 1, 2.
 2. **#222 (remainder)** — mechanical PASS/FAIL evaluation of validator required_checks
    (files_modified_exist, tests_run_evidence, builder_contract_complete, no_placeholder_stubs);
    semantic checks stay under epic #72. Goal 1.
