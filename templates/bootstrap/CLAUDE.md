@@ -57,9 +57,24 @@ npx rstack-agents hub
 
 Opens the Business Hub on port 3008 — run timelines, approvals, routing proof, and budget visibility.
 
-## Hooks (optional)
+## Hooks
 
-`init` may have written a SessionStart hook snippet at `.claude/rstack-hub-hook.json`. Merge it into `.claude/settings.json` **only if** you want the hub to open each session. RStack never overwrites your existing settings.
+`init` writes `.claude/settings.json` when it does not exist; if yours already exists, the same snippet lands at `.claude/rstack-hooks.json` for you to merge. RStack never overwrites your existing settings.
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "npx -y rstack-agents hub" }] }],
+    "PreToolUse": [{
+      "matcher": "Bash|Write|Edit",
+      "hooks": [{ "type": "command", "command": "npx --yes rstack-agents guard --context builder" }]
+    }]
+  }
+}
+```
+
+- **SessionStart** (optional) — opens the Business Hub each session.
+- **PreToolUse** (enforcement) — routes every Bash/Write/Edit call through `rstack-agents guard`: destructive actions (recursive deletes, force pushes, publishes, deploys, secret writes, db drops) block with exit 2 until a `destructive-action:<taskId>` approval exists on the run; validator/reviewer/security contexts are read-only. Set `RSTACK_TASK_ID` to the active task so approvals resolve. `RSTACK_ALLOW_DESTRUCTIVE=1` skips the destructive gate (never the validator sandbox).
 
 Disable auto-launch:
 

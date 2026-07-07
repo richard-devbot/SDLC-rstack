@@ -54,6 +54,7 @@ Hub: http://localhost:3008 (or disabled)
 
 ## Related hooks
 
-- **Claude Code SessionStart** — optional Business Hub auto-launch via `.claude/rstack-hub-hook.json` (merge into your settings; never required).
+- **Claude Code SessionStart** — optional Business Hub auto-launch via `.claude/rstack-hooks.json` (merge into your settings; never required).
+- **Claude Code PreToolUse** — enforcement guard: `npx --yes rstack-agents guard --context builder` blocks destructive tool calls without an approval (written by `init --framework claude-code`).
 - **Pi lifecycle hooks** — native `sdlc_*` tool gating when using the Pi extension.
 - Disable hub auto-launch: `RSTACK_NO_BUSINESS_HUB=1` or `RSTACK_NO_BROWSER=1`.

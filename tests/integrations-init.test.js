@@ -10,7 +10,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detectFramework, initFramework, FRAMEWORKS, BOOTSTRAP_BY_FRAMEWORK } from '../src/integrations/init.js';
+import { detectFramework, initFramework, FRAMEWORKS, BOOTSTRAP_BY_FRAMEWORK, CLAUDE_CODE_HOOKS } from '../src/integrations/init.js';
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -129,6 +129,35 @@ test('init framework detection and setup', async (t) => {
     assert.ok(second.skipped.some((item) => item.includes('SOUL.md')));
     assert.ok(second.skipped.some((item) => item.includes('HEARTBEAT.md')));
     assert.equal(readFileSync(join(root, '.claude', 'rstack-sdlc.md'), 'utf8'), doc, 'existing file untouched');
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('init claude-code writes settings.json with the PreToolUse guard hook when none exists', async () => {
+    const root = tmpProject('rstack-init-guard-hook-');
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    const report = await initFramework(root, 'claude-code', { packageRoot: PACKAGE_ROOT });
+    const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8'));
+    assert.deepEqual(settings, CLAUDE_CODE_HOOKS, 'settings.json matches the pinned hook contract');
+    const pre = settings.hooks.PreToolUse[0];
+    assert.equal(pre.matcher, 'Bash|Write|Edit');
+    assert.equal(pre.hooks[0].command, 'npx --yes rstack-agents guard --context builder');
+    assert.ok(settings.hooks.SessionStart, 'hub auto-launch hook preserved alongside the guard');
+    assert.ok(report.created.some((item) => item.includes('guard')), 'guard enforcement reported as created');
+    assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents guard')), 'guidance mentions the guard');
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('init claude-code never touches an existing settings.json — snippet + guidance instead', async () => {
+    const root = tmpProject('rstack-init-guard-existing-');
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    const existing = JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'my-own-guard' }] }] } }, null, 2);
+    writeFileSync(join(root, '.claude', 'settings.json'), existing);
+
+    const report = await initFramework(root, 'claude-code', { packageRoot: PACKAGE_ROOT });
+    assert.equal(readFileSync(join(root, '.claude', 'settings.json'), 'utf8'), existing, 'existing hooks block untouched');
+    const snippet = JSON.parse(readFileSync(join(root, '.claude', 'rstack-hooks.json'), 'utf8'));
+    assert.deepEqual(snippet, CLAUDE_CODE_HOOKS, 'mergeable snippet written next to settings.json');
+    assert.ok(report.nextSteps.some((step) => step.includes('rstack-hooks.json')), 'guidance points at the snippet');
     rmSync(root, { recursive: true, force: true });
   });
 

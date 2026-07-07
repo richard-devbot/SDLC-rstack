@@ -202,7 +202,8 @@ RStack does not require hooks. Enable only what you want:
 
 | Hook | What it does | How to enable |
 |---|---|---|
-| Claude SessionStart | Auto-launch Business Hub on session start | Merge `.claude/rstack-hub-hook.json` into `.claude/settings.json` |
+| Claude SessionStart | Auto-launch Business Hub on session start | Merge `.claude/rstack-hooks.json` into `.claude/settings.json` |
+| Claude PreToolUse | Enforcement guard — destructive gate + validator sandbox at tool-call time | Written by `init --framework claude-code`; snippet in `docs/integrations/claude-code.md` |
 | Pi lifecycle | Tool gating, stage events, contract enforcement | Automatic when using Pi extension |
 | HEARTBEAT.md | Periodic approval/budget/stall checks | Wire into your harness cron or idle trigger |
 

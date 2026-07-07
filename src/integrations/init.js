@@ -166,23 +166,24 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
   if (fw === 'claude-code') {
     const docPath = join(root, '.claude', 'rstack-sdlc.md');
     await writeIfMissing(docPath, CLAUDE_CODE_DOC, '.claude/rstack-sdlc.md', report);
-    // Auto-launch the Business Hub on every Claude Code session. We only
-    // create settings.json when it doesn't exist — never rewrite the user's.
+    // Hooks: Business Hub auto-launch on SessionStart, and the enforcement
+    // guard (#227) on PreToolUse — Bash/Write/Edit calls route through
+    // `rstack-agents guard`, which reuses the harness destructive gate and
+    // validator sandbox and blocks with exit 2. We only create settings.json
+    // when it doesn't exist — never rewrite (or merge into) the user's; if it
+    // already exists we drop the snippet next to it and print guidance.
     const settingsPath = join(root, '.claude', 'settings.json');
-    const hookSettings = JSON.stringify({
-      hooks: {
-        SessionStart: [{ hooks: [{ type: 'command', command: 'npx -y rstack-agents hub' }] }],
-      },
-    }, null, 2) + '\n';
-    const wroteSettings = await writeIfMissing(settingsPath, hookSettings, '.claude/settings.json (SessionStart → Business Hub auto-launch)', report);
+    const hookSettings = JSON.stringify(CLAUDE_CODE_HOOKS, null, 2) + '\n';
+    const wroteSettings = await writeIfMissing(settingsPath, hookSettings, '.claude/settings.json (SessionStart → Business Hub, PreToolUse → rstack-agents guard enforcement)', report);
     if (!wroteSettings) {
-      await writeIfMissing(join(root, '.claude', 'rstack-hub-hook.json'), hookSettings, '.claude/rstack-hub-hook.json (merge into your settings.json hooks)', report);
-      report.nextSteps.push('Your .claude/settings.json already exists — merge the SessionStart hook from .claude/rstack-hub-hook.json so the dashboard pops up each session.');
+      await writeIfMissing(join(root, '.claude', 'rstack-hooks.json'), hookSettings, '.claude/rstack-hooks.json (merge into your settings.json hooks)', report);
+      report.nextSteps.push('Your .claude/settings.json already exists — RStack never edits it. Merge the hooks from .claude/rstack-hooks.json: SessionStart opens the Business Hub, PreToolUse enforces the destructive gate + validator sandbox via `rstack-agents guard`.');
     }
     report.nextSteps.push(
       'Install the Claude Code plugin: /plugin install sdlc-automation (or add the marketplace repo)',
       'Run /sdlc-start in Claude Code to drive the full pipeline',
       'The Business Hub auto-opens each session (SessionStart hook) — or run: npx rstack-agents hub',
+      'Enforcement: the PreToolUse hook routes Bash/Write/Edit through `rstack-agents guard` — destructive actions block until a destructive-action:<taskId> approval exists (docs/integrations/claude-code.md).',
     );
   }
 
@@ -231,6 +232,23 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
   return report;
 }
 
+/**
+ * Claude Code hooks installed by init (exported so tests and docs pin the
+ * exact shape). SessionStart auto-launches the Business Hub; PreToolUse is
+ * the enforcement guard (#227): every Bash/Write/Edit call is classified by
+ * `rstack-agents guard`, which exits 2 to block (destructive gate + validator
+ * sandbox) — the same harness policy the Pi tool_call hook enforces.
+ */
+export const CLAUDE_CODE_HOOKS = Object.freeze({
+  hooks: {
+    SessionStart: [{ hooks: [{ type: 'command', command: 'npx -y rstack-agents hub' }] }],
+    PreToolUse: [{
+      matcher: 'Bash|Write|Edit',
+      hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }],
+    }],
+  },
+});
+
 const CLAUDE_CODE_DOC = `# RStack SDLC — Claude Code integration
 
 <!-- owner: RStack developed by Richardson Gunde -->
@@ -243,6 +261,15 @@ This project uses RStack for governed SDLC runs. State lives in \`.rstack/\`.
 - \`/sdlc-status\` — which agents completed, which are pending
 - \`/sdlc-resume\` — resume from a specific agent
 - \`/sdlc-agent <name>\` — run one SDLC agent in isolation
+
+## Enforcement
+
+The PreToolUse hook in \`.claude/settings.json\` routes Bash/Write/Edit calls
+through \`rstack-agents guard\`: destructive actions (recursive deletes, force
+pushes, publishes, deploys, secret writes, db drops) block until a
+\`destructive-action:<taskId>\` approval exists on the run, and
+validator/reviewer/security contexts are read-only. Details:
+\`docs/integrations/claude-code.md\` in the rstack-agents package.
 
 ## Dashboard
 
