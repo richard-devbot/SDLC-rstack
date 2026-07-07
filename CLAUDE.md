@@ -24,6 +24,8 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-07 | **Hub Environment & Integrations page + approval-gated `.env` writes** (2.1 wave): `src/core/harness/env-file.js` (parse/update preserving comments+quotes, `listEnvKeys` returns names+lengths only — never values, `isEnvGitignored` via git check-ignore→.gitignore fallback→fail-closed); `POST /api/env-write` two-step gate (classify secret-write → PENDING queue approval `destructive-action:env-write:<KEY>` + 409, value persisted nowhere → approve on Approvals page → resubmit → consume-then-write one-shot, crash-safe → env-writes-audit.jsonl key/actor/length only + `env_key_written` event); `POST /api/decide` resolve/waive decisions from the Hub; new "Environment" page (Operate); managers + enforce_in_express documented as live gates (closes #225 doc residual). Two independent adversarial reviews: 0 blocking (nits → #241) | 2, 1 | #238, PR #240 |
+| 2026-07-07 | **Interactive environment intake** (2.1 wave): `rstack-agents env scan [--json]` reuses adopt scanner detectors (zero duplication) → proposes run mode + evidence + `setup_needs[]`; environment_report v2 with `validateEnvironmentReport` (legacy warn-only, run_mode enum-enforced, credential-keys rejected) wired WARN-by-construction into stage-00 validate; `.rstack/integrations.json` (endpoints only, secret-named keys = error → .env) registered in CONFIG_FILES + init template; 00-environment detect-first intake raises setup needs as Decision-Queue items gated on the CONSUMING stage (ticketing→05, deploy→09, notify→10); 05-jira reads integrations.json first | 3, 2 | #237, PR #239 |
 | 2026-07-07 | **v2.0.0 release prep**: version 2.0.0 (package + lock), CHANGELOG [2.0.0] "governed loop enforced in code" entry (Unreleased → v2.1 planning, pinned tests updated), `assets/` with logo + interactive THREE.js 3D workspace + rendered preview, README "Meet the studio" section (clickable preview → live raw.githack view; absolute image URLs so npm renders them), Stephens citation added to research bibliography + stale snapshot stamps refreshed. **Awaiting: Richardson pushes the v2.0.0 tag → publish.yml → npm** | 2 | #235, PR #236 |
 | 2026-07-07 | **Universal enforcement guard**: `rstack-agents guard` — framework-neutral gate any host hook can call (stdin Claude Code PreToolUse JSON or flags; exit 0 allow / exit 2 block), reusing the harness classifier + validator sandbox + #133 audited per-task approvals (zero duplicated logic); `RSTACK_VALIDATOR_CONTEXT=1` beats `--context builder` (no flag escape), destructive-with-unresolvable-task fails CLOSED, raw text sniffed as bash before the fail-open path; `init --framework claude-code` installs the PreToolUse hook idempotently; `docs/integrations/wire-your-own-harness.md` paste-in prompt for codex/gemini/custom. **Claude Code is now enforced, not template-only.** Adversarial review: 0 findings | 1, 2 | #227, PR #234 |
 | 2026-07-07 | **Docs truth & discovery**: real counts everywhere (68 skills — a stray untracked `skills/logs` dir had inflated local counts; 723 tests; 196 agents per validate), complete README CLI table (14 commands + 2 bins), "Govern an existing codebase" section, roadmap rewritten shipped-vs-future, "any framework" reworded to verified enforcement tiers, mintlify (61 files) + loop-recipes ship in tarball (10.1→6.6MB), new `reference/pipeline.mdx` | 2 | #223, PR #233 |
@@ -76,20 +78,25 @@ Work top-down. File a GitHub issue before any branch (Richardson's rule: issues 
 #137, #159, #131, #136, #200 (PRs #198/#201/#202/#199/#206/#207/#209/#211/#205). Epics #130
 (BLE-5) and #134 (BLE-6) closed; the backend loop-engineering program (BLE-1→6) is fully shipped.
 
-**v2.0.0 waves A+B COMPLETE (2026-07-07):** PRs #230/#231/#232/#233/#234 merged (issues
-#223/#224/#226/#227 closed; #210/#212 closed; #225 closed INVALID — `managers` +
-`enforce_in_express` are live gates, do not re-file). Main green: 756 tests. Framework story
-is now "enforced on Pi, Operator, Claude Code (guard hook); guided self-wiring elsewhere".
+**v2.0.0 SHIPPED to npm (2026-07-07):** waves A+B+C merged (PRs #230-#234, #236); Richardson
+pushed the v2.0.0 tag; `npm view rstack-agents` = 2.0.0. #225 closed INVALID — `managers` +
+`enforce_in_express` are live gates, do not re-file. Framework story is "enforced on Pi,
+Operator, Claude Code (guard hook); guided self-wiring elsewhere".
 
-1. **v2.0.0 SHIP** — everything is merged (PR #236); the ONLY remaining step is Richardson
-   pushing the `v2.0.0` tag (publish.yml runs gates + npm publish). Goals 1, 2.
-2. **#222 (remainder)** — mechanical PASS/FAIL evaluation of validator required_checks
+**2.1 wave 1 COMPLETE (2026-07-07):** onboard & operate — PRs #239 (#237 environment intake:
+env scan, report v2, integrations.json, decision-driven setup) + #240 (#238 Hub Environment
+page, approval-gated .env writes, /api/decide) merged. Main green: 815 tests. #241 filed
+(minor hub-hardening nits from the #240 review — non-blocking).
+
+1. **#222 (remainder)** — mechanical PASS/FAIL evaluation of validator required_checks
    (files_modified_exist, tests_run_evidence, builder_contract_complete, no_placeholder_stubs);
    semantic checks stay under epic #72. Goal 1.
-3. **2.1.x governance batch**: #228 (required_stage_approvals + every-stage flag — top
+2. **2.1.x governance batch**: #228 (required_stage_approvals + every-stage flag — top
    enterprise ask), #229 (exposure CLI verbs: pipeline rollback / checkpoint status / config
    validate / approvals audit / memory inspect), #208 (parallel-group execution), #203
-   (atomic checkpoint restore), #213 (memory skip-event observability). Goals 1, 2, 4.
+   (atomic checkpoint restore), #213 (memory skip-event observability), #241 (hub-hardening
+   nits). Goals 1, 2, 4.
+3. **Release 2.1.0** when the wave feels complete — version bump + CHANGELOG + tag.
 4. **#156 (remainder)** — pipeline next-action on Command Center + schema-version visibility;
    after the #95 page-module split. Goal 2.
 5. **#71** — publish RStack Spec v1alpha1 (JSON schemas + conformance examples). Goals 1, 2.
