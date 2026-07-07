@@ -70,6 +70,8 @@ npx rstack-agents init --profile business-flex
 
 `init` auto-detects `pi | claude-code | operator | custom`, creates `.rstack/`, scaffolds bootstrap files (`SOUL.md`, `HEARTBEAT.md`, and framework-specific `CLAUDE.md` or `AGENTS.md`), registers the project with the Business Hub, writes framework glue, and **never overwrites existing files**.
 
+**Verify your setup:** run `npx rstack-agents doctor` — it checks your environment, config, and framework wiring, and runs a live guard self-test to prove enforcement is working. Every problem prints its fix. Per-framework "test in 5 minutes" recipes: [docs/integrations/testing-matrix.md](docs/integrations/testing-matrix.md).
+
 If `.rstack/` already exists, `init` adopts it and preserves all prior runs. To start clean instead (nothing is deleted):
 
 ```bash
@@ -386,6 +388,7 @@ The dashboard derives everything from real `.rstack` files — no fake demo stat
 | Command | Purpose |
 |---|---|
 | `rstack-agents init --profile business-flex` | Set up profile, budget, bootstrap files, framework glue, and Business Hub registry (`--fresh` archives prior `.rstack/` state and starts clean) |
+| `rstack-agents doctor [--framework <x>]` | Verify setup and prove enforcement is live (env, config, framework wiring, guard self-test, hub health); prints a fix per FAIL, `--json` for CI |
 | `rstack-agents list agents\|skills\|plugins` | Browse the packaged catalog |
 | `rstack-agents add plugin <name>` | Copy a packaged plugin into `.rstack/plugins/` |
 | `rstack-agents validate` | Validate packaged agent definitions — frontmatter, duplicate names, hook paths |
