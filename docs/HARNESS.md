@@ -82,6 +82,19 @@ Partial entries deep-merge over the defaults per stage; overrides for canonical 
 
 `sdlc_validate` resolves the profile from the task's canonical stage targets and records it in `validation.json` as `validator_profile` (`stage_id`, `validator`, `model_hint`, `required_checks`) alongside the existing `validator` field, plus an informational `validator_profile_selected` check. Executing `required_checks` per profile is future work — the recorded profile is the routing contract.
 
+## Environment intake (#237)
+
+Stage 00 runs an interactive intake instead of guessing project context. Detection is `rstack-agents env scan [--json]` — a read-only wrap of the adopt scanner that adds:
+
+- `proposed_run_mode`: `greenfield` | `brownfield` | `feature`, with `run_mode_evidence[]` naming the exact markers (adoption markers in the latest run → brownfield; an adoption run alongside later runs → feature; git history + manifests with no `.rstack` runs → brownfield; else greenfield).
+- `setup_needs[]`: `{ kind, platform, required_vars[], satisfied }` derived from `.rstack/integrations.json` platform choices vs env-var presence (names only — values are never read into any report).
+
+**environment_report.json v2 (additive)** — the report may carry `run_mode`, `run_mode_evidence[]`, `user_preferences` (string map, e.g. `ticketing_platform`), and `setup_needs[]`. `src/core/harness/environment-report.js` validates the shape: legacy fields warn-only (pre-#237 reports never start failing), intake fields strictly typed when present, credential-shaped `user_preferences` keys rejected. `sdlc_validate` runs it best-effort for stage-00 tasks as the `environment_report_shape` check — PASS or WARN by construction, never a verdict flip, and a throw can never fail validation (context-pressure precedent).
+
+**`.rstack/integrations.json`** — endpoints and identifiers ONLY (registered in the config-validation registry): `ticketing {provider: jira|github|azure_devops|linear|file-based, base_url?, project_key?}`, `docs {provider?: confluence|none, space_key?}`, `notifications {channel?: slack|teams|discord|none}`. Any key shaped like a credential (token/secret/password/api key) is a validation error — secrets live in `.env`. `init` writes a self-documenting template when the file is missing (`_comment` keys are ignored by the validator).
+
+**Decision-driven setup** — stage 00 confirms the run mode via ONE Decision Queue item (required before `01-transcript`), and each unsatisfied setup_need becomes a decision gated on the stage that consumes it (ticketing → `05-jira`, deployment → `09-deployment`, notifications → `10-summary`), so the DOR gate blocks exactly the work that needs the answer and nothing earlier. NEEDS_CONTEXT stays reserved for true blockers.
+
 ## Evidence ledger
 
 Raw runtime events are appended to `events.jsonl`. Validator-grounded task evidence is appended to `evidence.jsonl` with:
