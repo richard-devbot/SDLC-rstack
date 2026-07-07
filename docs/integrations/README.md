@@ -13,9 +13,14 @@ npx rstack-agents init --framework pi       # or be explicit
 | Framework | Guide | Adapter |
 |---|---|---|
 | Pi | [pi.md](pi.md) | `src/integrations/pi/rstack-sdlc.ts` (native TypeScript extension) |
-| Claude Code | [claude-code.md](claude-code.md) | `sdlc-automation` plugin + `.claude/rstack-sdlc.md` |
+| Claude Code | [claude-code.md](claude-code.md) | `sdlc-automation` plugin + PreToolUse `rstack-agents guard` hook |
 | Operator | [operator.md](operator.md) | `src/integrations/operator/rstack_sdlc.py` (Python, bridges to Node) |
 | Anything else | [custom.md](custom.md) | The `.rstack/` state contract + Node bridge |
+
+Runtime enforcement (destructive gate + validator sandbox) is framework-neutral:
+any harness with a tool-call hook wires it via `rstack-agents guard` — see
+[wire-your-own-harness.md](wire-your-own-harness.md) for a paste-in guided
+prompt that makes your coding agent do the wiring.
 
 Notifications for all of them: **Slack, Teams, Discord, Telegram, WhatsApp** —
 see [webhooks.md](webhooks.md).
