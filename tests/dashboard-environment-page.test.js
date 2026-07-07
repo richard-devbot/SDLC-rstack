@@ -103,7 +103,7 @@ test('v2 report fields (#237) surface; newest run wins; malformed JSON never cra
     const state = await buildEnvironmentState(root, [older, corrupt, newest], []);
     assert.equal(state.report.runId, 'run-3', 'newest run with a parseable report wins');
     assert.equal(state.report.run_mode, 'brownfield');
-    assert.deepEqual(state.report.user_preferences, { ticketing_platform: 'jira' }, 'unknown preference fields are not copied');
+    assert.deepEqual(state.report.user_preferences, { ticketing_platform: 'jira' }, 'credential-shaped preference fields are never copied');
     assert.deepEqual(state.report.setup_needs, [
       { kind: 'ticketing', platform: 'jira', required_vars: ['JIRA_TOKEN'], satisfied: false },
     ], 'junk setup_needs entries dropped');
@@ -120,17 +120,21 @@ test('env keys carry names and lengths only; integrations copied selectively; we
   try {
     writeFileSync(join(root, '.env'), 'API_SECRET="super-secret-value"\n');
     mkdirSync(join(root, '.rstack'), { recursive: true });
+    // The shipped #237 schema (INTEGRATIONS_TEMPLATE): ticketing/docs/
+    // notifications sections. A stray credential-shaped field must not ride.
     writeFileSync(join(root, '.rstack', 'integrations.json'), JSON.stringify({
-      jira: { base_url: 'https://acme.atlassian.net', project_key: 'RST', api_token: 'oops-a-secret' },
-      tracker: 'jira',
+      ticketing: { provider: 'jira', base_url: 'https://acme.atlassian.net', project_key: 'RST', api_token: 'oops-a-secret' },
+      docs: { provider: 'confluence', space_key: 'ENG' },
+      notifications: { channel: 'slack' },
     }));
     writeFileSync(join(root, '.rstack', 'notifications.json'), JSON.stringify({
       channels: { slack: { webhook: 'https://hooks.slack.com/services/T000/B000/supersecret' } },
     }));
     const state = await buildEnvironmentState(root, [], []);
     assert.deepEqual(state.env.keys, [{ key: 'API_SECRET', set: true, length: 18 }]);
-    assert.deepEqual(state.integrations.jira, { base_url: 'https://acme.atlassian.net', project_key: 'RST' });
-    assert.equal(state.integrations.tracker, 'jira');
+    assert.deepEqual(state.integrations.ticketing, { provider: 'jira', base_url: 'https://acme.atlassian.net', project_key: 'RST' });
+    assert.deepEqual(state.integrations.docs, { provider: 'confluence', space_key: 'ENG' });
+    assert.deepEqual(state.integrations.notifications, { channel: 'slack' });
     assert.deepEqual(state.notifications.channels, ['slack'], 'channel names only');
     const serialized = JSON.stringify(state);
     assert.ok(!serialized.includes('super-secret-value'), 'env value never in the snapshot');

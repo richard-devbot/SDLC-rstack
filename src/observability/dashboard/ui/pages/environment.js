@@ -185,25 +185,33 @@ function envReportHtml(report) {
       : emptyHtml('No setup needs recorded', 'A v2 report (issue #237) lists unsatisfied integration setup here.'));
 }
 
+function envIntegrationSectionHtml(title, section, detail) {
+  var configured = section && section.provider && section.provider !== 'none' && section.provider !== 'file-based';
+  return '<div class="alert-card ' + (configured ? 'pass' : 'warn') + '"><div class="agent-head"><div>' +
+    '<div class="strong">' + esc(title) + '</div>' +
+    '<div class="muted mono">' + esc(detail || 'not configured') + '</div>' +
+    '</div>' + pill(configured ? 'pass' : 'warn', section && section.provider ? section.provider : 'unset') + '</div></div>';
+}
+
 function envIntegrationsHtml(environment) {
   var integrations = environment.integrations;
   var channels = (environment.notifications && environment.notifications.channels) || [];
   var parts = [];
-  if (integrations && integrations.jira) {
-    parts.push('<div class="alert-card pass"><div class="agent-head"><div><div class="strong">Jira</div><div class="muted mono">' +
-      esc((integrations.jira.base_url || 'no base_url') + (integrations.jira.project_key ? ' · ' + integrations.jira.project_key : '')) +
-      '</div></div>' + pill('pass', 'configured') + '</div></div>');
+  if (integrations && integrations.ticketing) {
+    var t = integrations.ticketing;
+    parts.push(envIntegrationSectionHtml('Ticketing', t,
+      (t.provider || 'no provider') + (t.base_url ? ' · ' + t.base_url : '') + (t.project_key ? ' · ' + t.project_key : '')));
   }
-  if (integrations && integrations.confluence) {
-    parts.push('<div class="alert-card pass"><div class="agent-head"><div><div class="strong">Confluence</div><div class="muted mono">' +
-      esc((integrations.confluence.base_url || 'no base_url') + (integrations.confluence.space ? ' · ' + integrations.confluence.space : '')) +
-      '</div></div>' + pill('pass', 'configured') + '</div></div>');
+  if (integrations && integrations.docs) {
+    var docs = integrations.docs;
+    parts.push(envIntegrationSectionHtml('Docs', docs,
+      (docs.provider || 'no provider') + (docs.space_key ? ' · ' + docs.space_key : '')));
   }
-  if (integrations && integrations.tracker) {
-    parts.push('<div class="ops-note">Tracker choice: <span class="strong">' + esc(integrations.tracker) + '</span></div>');
+  if (integrations && integrations.notifications && integrations.notifications.channel) {
+    parts.push('<div class="ops-note">Intake notification channel: <span class="strong">' + esc(integrations.notifications.channel) + '</span></div>');
   }
   if (!parts.length) {
-    parts.push(emptyHtml('No integrations configured', '.rstack/integrations.json holds endpoints and project keys (never credentials — those go to .env below).'));
+    parts.push(emptyHtml('No integrations configured', '.rstack/integrations.json holds providers, endpoints and project keys (never credentials — those go to .env below).'));
   }
   parts.push('<div class="strong" style="margin:10px 0 6px">Notification channels</div>');
   parts.push(channels.length

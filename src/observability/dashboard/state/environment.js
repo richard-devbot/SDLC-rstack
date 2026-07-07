@@ -63,11 +63,18 @@ function normalizeSetupNeeds(setupNeeds) {
   }));
 }
 
+// Mirrors validateEnvironmentReport (#237): preferences are free-form
+// name -> string, but credential-shaped keys are refused by the validator —
+// refuse them here too so a non-validated report cannot smuggle a secret
+// into the snapshot.
+const SECRETISH_KEY = /token|secret|password|passwd|credential|api[-_]?key|private[-_]?key/i;
+
 function normalizeUserPreferences(prefs) {
   if (!isPlainObject(prefs)) return {};
   const out = {};
-  for (const field of ['ticketing_platform', 'deployment_platform', 'notification_channel']) {
-    if (typeof prefs[field] === 'string') out[field] = prefs[field].slice(0, 80);
+  for (const [key, value] of Object.entries(prefs).slice(0, 12)) {
+    if (typeof value !== 'string' || SECRETISH_KEY.test(key)) continue;
+    out[key.slice(0, 60)] = value.slice(0, 80);
   }
   return out;
 }
@@ -113,18 +120,30 @@ async function latestEnvironmentReport(runs) {
   return null;
 }
 
-// .rstack/integrations.json (#237): endpoints and project keys, never
-// credentials. Selective copy — unknown fields stay behind.
+// .rstack/integrations.json (#237, INTEGRATIONS_TEMPLATE in
+// integrations/init.js): { ticketing: { provider, base_url, project_key },
+// docs: { provider, space_key }, notifications: { channel } } — endpoints
+// and identifiers only, never credentials. Selective copy anyway so a
+// mistakenly-pasted secret field never rides the snapshot.
 function compactIntegrations(raw) {
   if (!isPlainObject(raw)) return null;
   const out = {};
-  if (isPlainObject(raw.jira)) {
-    out.jira = { base_url: str(raw.jira.base_url, 200), project_key: str(raw.jira.project_key, 60) };
+  if (isPlainObject(raw.ticketing)) {
+    out.ticketing = {
+      provider: str(raw.ticketing.provider, 60),
+      base_url: str(raw.ticketing.base_url, 200),
+      project_key: str(raw.ticketing.project_key, 60),
+    };
   }
-  if (isPlainObject(raw.confluence)) {
-    out.confluence = { base_url: str(raw.confluence.base_url, 200), space: str(raw.confluence.space, 60) };
+  if (isPlainObject(raw.docs)) {
+    out.docs = {
+      provider: str(raw.docs.provider, 60),
+      space_key: str(raw.docs.space_key, 60),
+    };
   }
-  if (typeof raw.tracker === 'string') out.tracker = raw.tracker.slice(0, 60);
+  if (isPlainObject(raw.notifications)) {
+    out.notifications = { channel: str(raw.notifications.channel, 60) };
+  }
   return Object.keys(out).length ? out : null;
 }
 
