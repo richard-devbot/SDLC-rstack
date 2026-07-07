@@ -25,7 +25,7 @@ import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate
 import { classifyContextPressure, loadProjectContextPressureThresholds } from "../../core/harness/context-pressure.js";
 import { deriveRunTotals } from "../../observability/metrics/derive.js";
 import { VALIDATOR_CONTEXT_ENV, VALIDATOR_RUN_ID_ENV, VALIDATOR_READ_ONLY_TOOLS, evaluateValidatorAction, isValidatorContext, isValidatorRole, isValidatorSandboxDebug } from "../../core/harness/validator-sandbox.js";
-import { loadValidatorRegistry, resolveValidatorProfile } from "../../core/harness/validator-registry.js";
+import { loadValidatorRegistry, resolveValidatorProfile, validatorDelegationCheck } from "../../core/harness/validator-registry.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
 import { prepareRunState, prepareStageFolders, updateRunMetrics } from "../../core/harness/run-state.js";
 import { checkpointEvent, isCriticalStage, loadProjectCriticalStages, rollbackToCheckpoint, saveStageCheckpoint } from "../../core/harness/checkpoints.js";
@@ -1831,13 +1831,18 @@ export default function (pi: ExtensionAPI) {
           ? task.stage_artifacts.map((item: any) => item?.stage_id).filter(Boolean)
           : [];
         const validatorProfile = resolveValidatorProfile(profileStageIds, await loadValidatorRegistry(projectRoot));
-        // Informational only — required_checks execution is future work; recording
-        // which validator should own this task is the contract here.
-        checks.push({
-          name: "validator_profile_selected",
-          status: "PASS",
-          evidence: `${validatorProfile.validator} (stage: ${validatorProfile.stage_id ?? "generic"}, model_hint: ${validatorProfile.model_hint})`,
-        });
+        // #222 transparency: record which validator owns this stage and which
+        // required_checks are delegated to it (specialist judgment, epic #72) —
+        // never a fabricated pass of those semantic checks. The mechanical
+        // deliverable enforcement is added below, once the builder contract is
+        // loaded.
+        checks.push(validatorDelegationCheck(validatorProfile));
+        // Deliverable presence is NOT re-checked here: the builder-completeness
+        // gate (validateBuilderContract) already fails a task that lacks a
+        // stage_summaries entry for each expected stage, so a stage-specific
+        // profile with no recorded deliverable is already blocked upstream. The
+        // remaining validator work — semantic required_checks + on-disk stage
+        // artifact enforcement — is epic #72.
         // Goal-contract gate (#196): on a goal-driven run (goal.json in the
         // run dir, or pinned loop events from a --goal recipe) a task that
         // targets 11-feedback-loop must ship a well-formed goal_evaluation.

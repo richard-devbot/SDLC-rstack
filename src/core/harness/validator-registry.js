@@ -172,3 +172,19 @@ export async function loadValidatorRegistry(projectRoot) {
   }
   return merged;
 }
+
+// #222 (honest transparency slice): record WHICH validator owns this task's
+// stage and WHICH required_checks are delegated to it. The semantic checks
+// (STRIDE coverage, tradeoffs documented, …) require the delegated model
+// validator's judgment; a model-free harness must not fabricate a verdict on
+// them (full enforcement is epic #72). Status PASS means only "the profile was
+// resolved and its ownership recorded" — the evidence states plainly that the
+// listed checks are delegated, never that they passed here.
+export function validatorDelegationCheck(profile) {
+  const checks = Array.isArray(profile?.required_checks) ? profile.required_checks : [];
+  return {
+    name: 'validator_profile_selected',
+    status: 'PASS',
+    evidence: `${profile?.validator ?? GENERIC_VALIDATOR_PROFILE.validator} owns this stage; required checks are delegated to it (specialist judgment — enforced per #72): ${checks.join(', ') || 'none'}`,
+  };
+}
