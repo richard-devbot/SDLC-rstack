@@ -9,6 +9,14 @@ adapter. No SDLC logic is reimplemented in Python — each tool shells out to
 the generic Node bridge (`bin/rstack-bridge.ts`), which reuses the TypeScript
 adapter verbatim. Conformance: [adapter-contract.md](adapter-contract.md).
 
+The adapter also registers a human-facing `/sdlc` slash command (mirroring
+Tau's own `peer` extension pattern) so you don't have to wait on the model to
+call a tool. Type `/sdlc ` and press Tab for subcommand autocomplete (`start`,
+`plan`, `status`, `approve`, ...); `/sdlc <subcommand> <text>` fills the one
+obvious free-text field for that subcommand (e.g. `/sdlc start "add auth"`),
+and `/sdlc <subcommand> {"...": "..."}` accepts full JSON params for anything
+more complex (e.g. `/sdlc delegate {"agent": "...", "task": "..."}`).
+
 **Enforcement comes wired.** Unlike Operator (no blocking hook) or Claude
 Code (hook installed into settings), Tau's `tool_call` event hook can cancel
 a tool call before it executes — and the adapter registers that hook itself.
