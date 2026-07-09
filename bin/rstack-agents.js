@@ -21,6 +21,7 @@ import { envScan, formatEnvScan } from '../src/commands/env-scan.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
 import { runGuardCommand, readStdinText } from '../src/commands/guard.js';
+import { runGateCommand, readStdinText as readGateStdin, GATE_NAMES } from '../src/commands/gate.js';
 import { runObserveCommand, readStdinText as readObserveStdin } from '../src/commands/observe.js';
 import { runContextCommand, readStdinText as readContextStdin } from '../src/commands/context.js';
 import { runNotifyHookCommand, readStdinText as readNotifyStdin } from '../src/commands/notify-hook.js';
@@ -277,6 +278,24 @@ program
       // already blocked inside runGuard, which never throws).
       process.stderr.write(`[rstack guard] internal error before classification (allowing): ${err.message}\n`);
       process.stdout.write(`${JSON.stringify({ decision: 'allow', category: null, reason: 'unclassifiable input (guard internal error)', context: null, tool: null })}\n`);
+      process.exit(0);
+    }
+  });
+
+program
+  .command('gate <name>')
+  .description(`OPT-IN quality-gate preset as a PreToolUse hook (#256): ${GATE_NAMES.join(' | ')}. Reads Claude Code tool JSON on stdin; plan-gate/scope-guard WARN (exit 0), tdd-gate BLOCKs production-code edits with no test (exit 2, overridable via RSTACK_ALLOW_NO_TESTS=1 or an audited no-tests:<taskId>/guardrail-override:<taskId> approval). OFF by default — wire with 'init --gates ...' or .rstack/rstack.config.json hooks.gates. Unknown gate/malformed input → allow.`)
+  .option('--task <taskId>', 'task id keying the tdd-gate override approval (default: RSTACK_TASK_ID env)')
+  .option('-p, --project <path>', 'project root (defaults to RSTACK_PROJECT_ROOT env, else current directory)')
+  .option('-r, --run-id <runId>', 'run whose plan/approvals the gate consults (defaults to RSTACK_RUN_ID env, else latest)')
+  .action(async (name, opts) => {
+    try {
+      const stdinText = await readGateStdin();
+      process.exit(await runGateCommand(name, opts, { stdinText }));
+    } catch (err) {
+      // A gate must NEVER dead-end a session on an unexpected error — allow loudly.
+      process.stderr.write(`[rstack gate] internal error before evaluation (allowing): ${err.message}\n`);
+      process.stdout.write(`${JSON.stringify({ decision: 'allow', gate: String(name ?? ''), reason: 'internal error (allowed)' })}\n`);
       process.exit(0);
     }
   });
