@@ -326,3 +326,19 @@ test('CLI: unknown gate + malformed input exit 0', async () => {
   const malformed = await runGateCli('tdd-gate', { input: 'garbage' });
   assert.equal(malformed.code, 0);
 });
+
+// --- #259 review: fewer false blocks -----------------------------------------
+test('matchesTestForStem: separator-normalized same-stem match (#259, conservative)', () => {
+  assert.equal(matchesTestForStem('get-user.spec.ts', 'get_user'), true, 'same stem, different separator');
+  assert.equal(matchesTestForStem('getUser.test.ts', 'get_user'), true, 'camelCase vs snake_case, same stem');
+  assert.equal(matchesTestForStem('foobar.test.ts', 'foo'), false, 'different module is NOT a match (no substring)');
+  assert.equal(matchesTestForStem('user-profile.test.ts', 'profile'), false, 'different module (profile != user-profile)');
+  assert.equal(matchesTestForStem('unrelated.ts', 'profile'), false, 'non-test-shaped file is not a test');
+});
+
+test('classifyProductionCode: package markers / stories / test-config are skipped (#259)', () => {
+  for (const f of ['src/__init__.py', 'tests/conftest.py', 'setup.py', 'pyproject.toml', 'src/Button.stories.tsx']) {
+    assert.equal(classifyProductionCode(f).production, false, `${f} must be skipped`);
+  }
+  assert.equal(classifyProductionCode('src/logic.ts').production, true, 'real source still gated');
+});

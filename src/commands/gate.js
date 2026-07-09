@@ -143,6 +143,14 @@ export function classifyProductionCode(filePath) {
     || /^appsettings/i.test(name)) {
     return { production: false, reason: 'config/type-declaration file (skip)' };
   }
+  // Python packaging / package markers / test-config that carry no unit-testable
+  // behavior, and Storybook stories (docs/examples). These have no matching test
+  // by design — the docs promise they're skipped, so the code must too. (#259 review)
+  if (/^__init__\.py$/i.test(name) || /^conftest\.py$/i.test(name)
+    || /^setup\.py$/i.test(name) || /^pyproject\.toml$/i.test(name)
+    || /^setup\.cfg$/i.test(name) || /\.stories\.[^.]+$/i.test(name)) {
+    return { production: false, reason: 'package marker / story / test-config file (skip)' };
+  }
   // Type-only / barrel modules carry no behavior to unit-test — skipping them
   // avoids the most common tdd-gate false blocks (a `types.ts` or an `index.ts`
   // re-export). A real logic file simply must not be named exactly these.
@@ -179,14 +187,34 @@ export function testFileCandidates(fileName) {
 export function matchesTestForStem(candidate, stem) {
   const lc = candidate.toLowerCase();
   const s = stem.toLowerCase();
-  return lc === `${s}test${extLower(candidate)}`
+  if (lc === `${s}test${extLower(candidate)}`
     || lc === `${s}tests${extLower(candidate)}`
     || lc === `${s}.test${extLower(candidate)}`
     || lc === `${s}.spec${extLower(candidate)}`
     || lc === `${s}_test${extLower(candidate)}`
     || lc === `${s}spec${extLower(candidate)}`
     || lc === `test_${s}${extLower(candidate)}`
-    || lc === `spec_${s}${extLower(candidate)}`;
+    || lc === `spec_${s}${extLower(candidate)}`) {
+    return true;
+  }
+  // Separator-normalized fallback (#259 review): the exact patterns miss tests
+  // that name the SAME stem with a different separator — `get-user.spec.ts` for
+  // `get_user`, `getUser.test.ts` for `get_user`. Strip separators + the
+  // test/spec marker and compare for EQUALITY (not substring — `foobar.test` is
+  // NOT a test for `foo`, and `user-profile.test` is a different module's test).
+  // Min 3 chars avoids trivial equality. Bias stays conservative: only true
+  // same-stem separator variants match.
+  const norm = (x) => x.replace(/[^a-z0-9]/g, '');
+  const isTestShaped = /(?:[._-](?:test|tests|spec|specs)\.|(?:test|tests|spec|specs)\.|^(?:test|spec)[._-]|\.cy\.)/i.test(lc);
+  if (!isTestShaped) return false;
+  const stemN = norm(s);
+  if (stemN.length < 3) return false;
+  const coreN = norm(
+    lc.slice(0, lc.length - extLower(candidate).length)
+      .replace(/(?:^|[._-])(?:test|tests|spec|specs)(?:[._-]|$)/gi, '')
+      .replace(/\.cy$/i, ''),
+  );
+  return coreN === stemN;
 }
 
 function extLower(name) {
