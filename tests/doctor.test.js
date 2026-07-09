@@ -138,7 +138,39 @@ test('doctor', async (t) => {
     assert.equal(observe.status, 'WARN');
     assert.ok(observe.fix.includes('rstack-agents observe'), 'fix names the observe hook');
     assert.ok(observe.fix.includes('PostToolUse'), 'fix names the PostToolUse snippet');
+    // Context + notification hooks also missing → WARN (additive too). (#255)
+    const context = checkByName(json, 'claude-code context hook');
+    assert.equal(context.status, 'WARN');
+    assert.ok(context.fix.includes('rstack-agents context'), 'fix names the context hook');
+    const notify = checkByName(json, 'claude-code notification hook');
+    assert.equal(notify.status, 'WARN');
+    assert.ok(notify.fix.includes('notify-hook') || notify.fix.includes('init'), 'fix names the notify hook / init');
 
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('claude-code full hook set (#255): guard PASS + observe/context/notification PASS', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-full-'));
+    seedRstack(root);
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    // The exact shape init installs.
+    writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
+      hooks: {
+        SessionStart: [
+          { hooks: [{ type: 'command', command: 'npx -y rstack-agents hub' }] },
+          { hooks: [{ type: 'command', command: 'npx --yes rstack-agents context --source claude-code' }] },
+        ],
+        UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'npx --yes rstack-agents context --source claude-code' }] }],
+        PreToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
+        PostToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents observe --source claude-code' }] }],
+        Notification: [{ hooks: [{ type: 'command', command: 'npx --yes rstack-agents notify-hook --source claude-code' }] }],
+      },
+    }));
+    const { json } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
+    assert.equal(checkByName(json, 'claude-code PreToolUse guard hook').status, 'PASS');
+    assert.equal(checkByName(json, 'claude-code observability hook').status, 'PASS');
+    assert.equal(checkByName(json, 'claude-code context hook').status, 'PASS');
+    assert.equal(checkByName(json, 'claude-code notification hook').status, 'PASS');
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -174,6 +206,8 @@ test('doctor', async (t) => {
     assert.equal(checkByName(json, 'bridge reachable').status, 'PASS');
     // Observability (#251): the shipped tau adapter emits observe events.
     assert.equal(checkByName(json, 'tau observability hook').status, 'PASS');
+    // Context injection (#255): the shipped tau adapter injects context on before_agent_start.
+    assert.equal(checkByName(json, 'tau context hook').status, 'PASS');
 
     rmSync(root, { recursive: true, force: true });
   });
