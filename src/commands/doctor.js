@@ -161,6 +161,13 @@ const OBSERVE_HOOK_SNIPPET = 'Add a PostToolUse hook to .claude/settings.json: '
   + '"command":"npx --yes rstack-agents observe --source claude-code"}]}]}} '
   + '(or run: rstack-agents init --framework claude-code)';
 
+// Context injection (#255) — UserPromptSubmit/SessionStart hooks that inject the
+// RStack packet. Mirrors init.js CLAUDE_CODE_HOOKS.
+const CONTEXT_HOOK_SNIPPET = 'Add a UserPromptSubmit hook to .claude/settings.json: '
+  + '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command",'
+  + '"command":"npx --yes rstack-agents context --source claude-code"}]}]}} '
+  + '(or run: rstack-agents init --framework claude-code)';
+
 function checkClaudeCodeWiring(projectRoot) {
   const settingsPath = join(projectRoot, '.claude', 'settings.json');
   if (!existsSync(settingsPath)) {
@@ -207,7 +214,30 @@ function checkClaudeCodeWiring(projectRoot) {
       'no PostToolUse/Stop/SessionEnd hook invoking `rstack-agents observe` — ordinary terminal work will NOT appear in the Business Hub (enforcement still works)',
       OBSERVE_HOOK_SNIPPET);
 
-  return [guardCheck, observeCheck];
+  // Context injection (#255): a UserPromptSubmit (or SessionStart) hook invoking
+  // `rstack-agents context`. WARN not FAIL — context is additive.
+  const contextHooks = [parsed?.hooks?.UserPromptSubmit, parsed?.hooks?.SessionStart];
+  const contextText = JSON.stringify(contextHooks.filter(Array.isArray));
+  const invokesContext = contextText.includes('rstack-agents') && contextText.includes('context');
+  const contextCheck = invokesContext
+    ? check('claude-code context hook', PASS,
+      'UserPromptSubmit/SessionStart hook injects RStack context via `rstack-agents context` — agents start each prompt run-aware')
+    : check('claude-code context hook', WARN,
+      'no UserPromptSubmit/SessionStart hook invoking `rstack-agents context` — agents will NOT get the RStack run/stage/approval packet (enforcement + observability still work)',
+      CONTEXT_HOOK_SNIPPET);
+
+  // Notification routing (#255): a Notification hook invoking notify-hook. WARN.
+  const notifyHooks = [parsed?.hooks?.Notification];
+  const notifyText = JSON.stringify(notifyHooks.filter(Array.isArray));
+  const invokesNotify = notifyText.includes('rstack-agents') && notifyText.includes('notify-hook');
+  const notifyCheck = invokesNotify
+    ? check('claude-code notification hook', PASS,
+      'Notification hook routes host notifications to your channels via `rstack-agents notify-hook`')
+    : check('claude-code notification hook', WARN,
+      'no Notification hook invoking `rstack-agents notify-hook` — host notifications will NOT reach your Slack/Teams/Discord channels (everything else still works)',
+      'rstack-agents init --framework claude-code (adds the Notification hook)');
+
+  return [guardCheck, observeCheck, contextCheck, notifyCheck];
 }
 
 function checkPiWiring() {
@@ -261,9 +291,10 @@ function checkAdapterWiring(framework) {
 
   const checks = [adapterCheck, checkBridge()];
 
-  // Observability wiring (#251): the tau adapter emits events via
-  // `rstack-agents observe` on its tool hooks. WARN (additive) if absent.
-  if (framework === 'tau') checks.push(checkTauObservability(found));
+  // Observability + context wiring (#251/#255): the tau adapter emits events via
+  // `rstack-agents observe` and injects context via `rstack-agents context`.
+  // WARN (additive) if absent.
+  if (framework === 'tau') checks.push(...checkTauObservability(found));
 
   return checks;
 }
@@ -273,25 +304,38 @@ function checkAdapterWiring(framework) {
 // `rstack-agents observe`. WARN, never FAIL: enforcement is independent.
 function checkTauObservability(adapterPath) {
   if (!adapterPath) {
-    return check('tau observability hook', WARN,
+    return [check('tau observability hook', WARN,
       'tau adapter not found — cannot confirm observability wiring',
-      'Update the package: npm install rstack-agents@latest');
+      'Update the package: npm install rstack-agents@latest')];
   }
   let raw = '';
   try {
     raw = readFileSync(adapterPath, 'utf8');
   } catch (error) {
-    return check('tau observability hook', WARN,
-      `could not read the tau adapter to confirm observability wiring: ${error.message}`, null);
+    return [check('tau observability hook', WARN,
+      `could not read the tau adapter to confirm observability wiring: ${error.message}`, null)];
   }
   const emitsObserve = raw.includes('rstack-agents') && raw.includes('observe')
     && (raw.includes('tool_result') || raw.includes('_emit_observation'));
-  return emitsObserve
+  const observeCheck = emitsObserve
     ? check('tau observability hook', PASS,
       'the tau adapter feeds `rstack-agents observe` on its tool hooks — Tau activity reaches the Business Hub')
     : check('tau observability hook', WARN,
       'the tau adapter does not appear to emit `rstack-agents observe` events — Tau terminal work will NOT appear in the Business Hub (enforcement still works)',
       'Update the package: npm install rstack-agents@latest');
+
+  // Context injection (#255): the tau adapter injects the RStack packet on the
+  // before_agent_start hook. WARN if the wiring is absent (additive).
+  const injectsContext = raw.includes('rstack-agents') && raw.includes('context')
+    && raw.includes('before_agent_start');
+  const contextCheck = injectsContext
+    ? check('tau context hook', PASS,
+      'the tau adapter injects RStack context via `rstack-agents context` on before_agent_start — Tau agents start each turn run-aware')
+    : check('tau context hook', WARN,
+      'the tau adapter does not appear to inject `rstack-agents context` — Tau agents will NOT get the RStack run/stage/approval packet (enforcement + observability still work)',
+      'Update the package: npm install rstack-agents@latest');
+
+  return [observeCheck, contextCheck];
 }
 
 async function checkFrameworkWiring(framework, projectRoot) {

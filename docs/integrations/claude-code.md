@@ -23,12 +23,16 @@ snippet lands at `.claude/rstack-hooks.json` instead, with merge guidance).
 
 ## Enforcement (the guard hook)
 
-`init` writes this into `.claude/settings.json`:
+`init` writes this into `.claude/settings.json` (the full governance hook set, #255):
 
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "npx -y rstack-agents hub" }] }],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "npx -y rstack-agents hub" }] },
+      { "hooks": [{ "type": "command", "command": "npx --yes rstack-agents context --source claude-code" }] }
+    ],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "npx --yes rstack-agents context --source claude-code" }] }],
     "PreToolUse": [{
       "matcher": "Bash|Write|Edit",
       "hooks": [{ "type": "command", "command": "npx --yes rstack-agents guard --context builder" }]
@@ -37,11 +41,39 @@ snippet lands at `.claude/rstack-hooks.json` instead, with merge guidance).
       "matcher": "Bash|Write|Edit",
       "hooks": [{ "type": "command", "command": "npx --yes rstack-agents observe --source claude-code" }]
     }],
+    "PostToolUseFailure": [{
+      "matcher": "Bash|Write|Edit",
+      "hooks": [{ "type": "command", "command": "npx --yes rstack-agents observe --source claude-code" }]
+    }],
+    "SubagentStart": [{ "hooks": [{ "type": "command", "command": "npx --yes rstack-agents observe --source claude-code" }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "npx --yes rstack-agents observe --source claude-code" }] }],
+    "PreCompact": [{ "hooks": [{ "type": "command", "command": "npx --yes rstack-agents observe --source claude-code" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "npx --yes rstack-agents notify-hook --source claude-code" }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "npx --yes rstack-agents observe --source claude-code" }] }],
     "SessionEnd": [{ "hooks": [{ "type": "command", "command": "npx --yes rstack-agents observe --source claude-code" }] }]
   }
 }
 ```
+
+### Full hook map — every event, what it does, what it never does
+
+`PreToolUse` (the guard) is the **only** hook that can block a call. Every other
+hook is strictly additive: it **always exits 0**, **never throws**, **no-ops**
+when there is no active run (or, for notifications, no configured channel), and
+**redacts secrets** — none can ever deny a tool call or disrupt a session.
+
+| Hook event | Command | What it does | What it never does |
+|---|---|---|---|
+| `SessionStart` | `hub` + `context` | Launches the Business Hub; injects the RStack packet (run + stage + blockers + orchestrator pointer) | Never blocks; injects nothing when no run |
+| `UserPromptSubmit` | `context` | Injects the RStack packet as `additionalContext` before each prompt | Never blocks/denies (context hooks can't); never echoes prompt text or secrets |
+| `PreToolUse` | `guard` | Classifies Bash/Write/Edit; **exit 2 blocks** destructive/sandbox violations | The only blocker — everything else exits 0 |
+| `PostToolUse` | `observe` | Records a `tool_result` event | Never blocks; redacts secrets/file content |
+| `PostToolUseFailure` | `observe` | Records an error `tool_result` (`isError:true`) so failures show in the feed | Never blocks |
+| `SubagentStart` | `observe` | Records `subagent_started {agent_type}` — delegated builders/validators appear working | Never blocks |
+| `SubagentStop` | `observe` | Records `subagent_stopped {agent_type}` | Never blocks; not a session shutdown |
+| `PreCompact` | `observe` | Records `context_preserved {trigger}` before context is trimmed | Never blocks; never cancels compaction |
+| `Notification` | `notify-hook` | Routes the host notification to configured channels (Slack/Teams/Discord/...) | Never blocks; no-op when no channel configured; redacts the message |
+| `Stop` / `SessionEnd` | `observe` | Records `session_shutdown` | Never blocks |
 
 Every matched tool call is piped (as PreToolUse JSON) into
 `rstack-agents guard`, which exits `0` to allow or `2` to block — Claude Code
@@ -80,11 +112,12 @@ dashboard (see [Observability](#observability) below).
 
 **What remains Pi-only:** automatic `RSTACK_VALIDATOR_CONTEXT` stamping on
 delegated validator subprocesses (in Claude Code, set the env or `--context`
-yourself when spawning validator work) and session-start orchestrator packet
-injection. Run-event logging of every `tool_call`/`tool_result` into
-`events.jsonl` is now wired via the PostToolUse/Stop/SessionEnd `observe` hooks
-(#251) — see [Observability](#observability). The enforcement policy itself —
-destructive gate + validator sandbox — is identical.
+yourself when spawning validator work). Orchestrator/context packet injection is
+**no longer Pi-only** — the `context` hook (#255) injects it on SessionStart and
+UserPromptSubmit. Run-event logging of `tool_call`/`tool_result` plus subagent,
+compaction, and failure events into `events.jsonl` is wired via the observe hooks
+(#251/#255). The enforcement policy itself — destructive gate + validator
+sandbox — is identical.
 
 ## Verify
 
@@ -116,8 +149,44 @@ file conventions.
 | `.claude/commands/rstack/*.md` | Optional slash-command prompt copies |
 | `skills/**/SKILL.md` | Portable skills used when their trigger matches the task |
 | `plugins/*/plugin.json` | Portable plugin metadata and bundled plugin assets |
-| `.claude/settings.json` hooks | PreToolUse enforcement guard + PostToolUse/Stop/SessionEnd observe writer + SessionStart hub auto-launch |
-| `rstack-agents` | CLI setup, validation, decisions, readiness, hub, guard, observe, and notifications |
+| `.claude/settings.json` hooks | PreToolUse guard + observe (PostToolUse/PostToolUseFailure/Subagent*/PreCompact/Stop/SessionEnd) + context (SessionStart/UserPromptSubmit) + notify-hook (Notification) + SessionStart hub |
+| `rstack-agents` | CLI setup, validation, decisions, readiness, hub, guard, observe, context, notify-hook, and notifications |
+
+## Context injection
+
+The `SessionStart` and `UserPromptSubmit` hooks pipe their payload into
+`rstack-agents context`, which emits a small structural packet in Claude Code's
+`{"hookSpecificOutput":{"hookEventName":"...","additionalContext":"..."}}` shape:
+
+- the active run id + current stage,
+- the count of pending approvals + open decisions (the Decision Queue), and
+- a one-line orchestrator pointer.
+
+So a Claude Code agent starts each prompt RStack-aware — the analog of Pi's
+session-start orchestrator packet, now on every harness. `context` is strictly
+additive: it **can't block or deny** (context hooks never can), it **injects
+nothing** (no stdout) when there is no active run, and it **never injects
+secrets** — the packet is built only from ids/stage/integer counts RStack
+generates, never from prompt text, tool inputs, or decision question text, so
+there is no channel for a credential to reach the model. The injected string is
+capped at ~1KB.
+
+```bash
+# no active run = silent no-op, exit 0, no stdout:
+echo '{"hook_event_name":"UserPromptSubmit","prompt":"hi"}' \
+  | npx rstack-agents context --source claude-code --verbose
+```
+
+## Notifications
+
+The `Notification` hook pipes into `rstack-agents notify-hook`, which forwards the
+host's notification (e.g. "Claude needs your input", "task finished") to every
+configured channel via the notifications router (Slack/Teams/Discord/Telegram/
+WhatsApp). Configure a channel with `RSTACK_SLACK_WEBHOOK` (or Teams/Discord/…
+env vars, or `.rstack/notifications.json`). Best-effort: it **never blocks**,
+**no-ops** when no channel is configured (no parse, no network), redacts secrets
+from the message, and is timeout-bounded per channel — a slow webhook can never
+stall your session.
 
 ## Observability
 
@@ -128,12 +197,19 @@ npx rstack-business
 Run timelines, stage durations, approvals, alerts, and traceability on :3008 —
 aggregated across every project on this machine.
 
-The dashboard derives everything from each run's `events.jsonl`. The
-PostToolUse / Stop / SessionEnd hooks feed `rstack-agents observe`, which
-appends a normalized event for every Bash/Write/Edit call — the SAME shape the
-Pi extension writes (`{ ts, source, type, tool, input | summary }`) plus a
-`source: "claude-code"` label. So ordinary terminal work shows up in the
-Business Hub within one poll cycle, exactly like a Pi run. `observe` is
+The dashboard derives everything from each run's `events.jsonl`. The observe
+hooks feed `rstack-agents observe`, which appends a normalized event — the SAME
+shape the Pi extension writes (`{ ts, source, type, ... }`) plus a
+`source: "claude-code"` label. Coverage (#251/#255):
+
+- `PostToolUse` → `tool_result`, `PostToolUseFailure` → error `tool_result`
+- `SubagentStart` / `SubagentStop` → `subagent_started` / `subagent_stopped`
+  (with `agent_type`) so delegated builders/validators appear in the timeline
+- `PreCompact` → `context_preserved` (with `trigger`) when context is trimmed
+- `Stop` / `SessionEnd` → `session_shutdown`
+
+So terminal work, delegated subagents, tool failures, and compaction all show up
+in the Business Hub within one poll cycle, exactly like a Pi run. `observe` is
 strictly additive: it **never blocks** a tool call (always exits 0), **redacts
 secrets** (secret paths, inline credentials, and file-content fields), and
 **no-ops silently** when there is no active RStack run — it can only add

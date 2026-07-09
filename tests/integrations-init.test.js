@@ -176,17 +176,34 @@ test('init framework detection and setup', async (t) => {
     const pre = settings.hooks.PreToolUse[0];
     assert.equal(pre.matcher, 'Bash|Write|Edit');
     assert.equal(pre.hooks[0].command, 'npx --yes rstack-agents guard --context builder');
-    assert.ok(settings.hooks.SessionStart, 'hub auto-launch hook preserved alongside the guard');
-    // Observability wiring (#251): PostToolUse + Stop + SessionEnd feed observe.
+    // SessionStart runs TWO hooks: the hub launcher AND the context injector (#255).
+    assert.equal(settings.hooks.SessionStart.length, 2, 'hub + context on SessionStart');
+    assert.equal(settings.hooks.SessionStart[0].hooks[0].command, 'npx -y rstack-agents hub', 'hub auto-launch preserved');
+    assert.equal(settings.hooks.SessionStart[1].hooks[0].command, 'npx --yes rstack-agents context --source claude-code', 'context injected at session start');
+    // Context injection (#255): UserPromptSubmit → context.
+    assert.equal(settings.hooks.UserPromptSubmit[0].hooks[0].command, 'npx --yes rstack-agents context --source claude-code');
+    // Observability wiring (#251/#255): the full observe fan-out.
     const post = settings.hooks.PostToolUse[0];
     assert.equal(post.matcher, 'Bash|Write|Edit', 'PostToolUse matches the same tool set as the guard');
     assert.equal(post.hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
+    assert.equal(settings.hooks.PostToolUseFailure[0].hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
+    assert.equal(settings.hooks.SubagentStart[0].hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
+    assert.equal(settings.hooks.SubagentStop[0].hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
+    assert.equal(settings.hooks.PreCompact[0].hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
     assert.equal(settings.hooks.Stop[0].hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
     assert.equal(settings.hooks.SessionEnd[0].hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
+    // Notification routing (#255).
+    assert.equal(settings.hooks.Notification[0].hooks[0].command, 'npx --yes rstack-agents notify-hook --source claude-code');
+    // The guard (enforcement) is unchanged and is the ONLY hook that can block.
+    assert.equal(settings.hooks.PreToolUse[0].hooks[0].command, 'npx --yes rstack-agents guard --context builder');
     assert.ok(report.created.some((item) => item.includes('guard')), 'guard enforcement reported as created');
     assert.ok(report.created.some((item) => item.includes('observe')), 'observe visibility reported as created');
+    assert.ok(report.created.some((item) => item.includes('context')), 'context injection reported as created');
+    assert.ok(report.created.some((item) => item.includes('notify-hook')), 'notification routing reported as created');
     assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents guard')), 'guidance mentions the guard');
     assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents observe')), 'guidance mentions observe');
+    assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents context')), 'guidance mentions context');
+    assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents notify-hook')), 'guidance mentions notify-hook');
     rmSync(root, { recursive: true, force: true });
   });
 

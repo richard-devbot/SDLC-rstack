@@ -231,8 +231,11 @@ RStack does not require hooks. Enable only what you want:
 
 | Hook | What it does | How to enable |
 |---|---|---|
-| Claude SessionStart | Auto-launch Business Hub on session start | Merge `.claude/rstack-hooks.json` into `.claude/settings.json` |
+| Claude SessionStart | Auto-launch Business Hub + inject RStack context | Merge `.claude/rstack-hooks.json` into `.claude/settings.json` |
+| Claude UserPromptSubmit | Inject RStack context packet (`rstack-agents context`) — run + stage + blockers + orchestrator pointer | Written by `init --framework claude-code` |
 | Claude PreToolUse | Enforcement guard — destructive gate + validator sandbox at tool-call time | Written by `init --framework claude-code`; snippet in `docs/integrations/claude-code.md` |
+| Claude PostToolUse / PostToolUseFailure / SubagentStart / SubagentStop / PreCompact / Stop / SessionEnd | Observability writer (`rstack-agents observe`) — tool results, delegated subagents, failures, compaction, session end into the run ledger | Written by `init --framework claude-code` |
+| Claude Notification | Route host notifications to your channels (`rstack-agents notify-hook`) | Written by `init --framework claude-code` |
 | Pi lifecycle | Tool gating, stage events, contract enforcement | Automatic when using Pi extension |
 | HEARTBEAT.md | Periodic approval/budget/stall checks | Wire into your harness cron or idle trigger |
 
@@ -393,6 +396,10 @@ The dashboard derives everything from real `.rstack` files — no fake demo stat
 | `rstack-agents add plugin <name>` | Copy a packaged plugin into `.rstack/plugins/` |
 | `rstack-agents validate` | Validate packaged agent definitions — frontmatter, duplicate names, hook paths |
 | `rstack-agents hub` | Ensure the Business Hub is running on :3008 and open it |
+| `rstack-agents guard` | Enforcement hook: classify one pending tool call, exit 0 allow / exit 2 block (destructive gate + validator sandbox) |
+| `rstack-agents observe` | Observability hook: append a normalized event (tool result, subagent, compaction, session) to the run ledger — never blocks, exit 0 |
+| `rstack-agents context` | Context hook: emit the RStack packet (run + stage + blockers + orchestrator pointer) for UserPromptSubmit/SessionStart — never blocks, exit 0 |
+| `rstack-agents notify-hook` | Notification hook: route a host notification to configured channels — never blocks, exit 0 |
 | `rstack-agents notify --test` | Test Slack/Teams/Discord/Telegram/WhatsApp notifications |
 | `rstack-agents inventory` | Generate a backend control-plane registry report |
 | `rstack-agents adopt` | Adopt an existing codebase — harvest evidence into a resumable pipeline run (`--dry-run` plans without writing) |

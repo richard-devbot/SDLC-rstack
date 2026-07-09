@@ -29,6 +29,24 @@ that shape twice:
      `tool_call` hook also emits a `tool_call` INTENT event even when a call is
      allowed, so activity shows in the dashboard even if the call is later
      blocked. Both are best-effort and can never disrupt a Tau session.
+  4. Full hook-event coverage (#255): Tau's `before_compaction` hook feeds a
+     `context_preserved` event, and its `tool_execution_failure` hook feeds an
+     error `tool_result` — both fire-and-forget via `_observe_bg`. Context
+     injection uses Tau's `before_agent_start` hook: it fetches the RStack
+     context packet (`rstack-agents context`) and prepends it to the turn's
+     system prompt so a Tau agent is RStack-aware, the analog of Claude Code's
+     UserPromptSubmit/SessionStart context hooks. It is best-effort with a hard
+     timeout and returns no override on any failure — it can never block a turn.
+
+Tau events RStack does NOT wire (they do not exist in Tau's hook model):
+  - There is no delegated-SUBAGENT lifecycle event. Tau's `agent_start` /
+    `agent_end` are the per-prompt engine loop, not spawned specialists, so no
+    `subagent_started` / `subagent_stopped` events are emitted on Tau. (On Pi
+    delegation is observed directly; on Claude Code the SubagentStart/Stop hooks
+    cover it.)
+  - There is no NOTIFICATION event. Tau surfaces messages through its own TUI,
+    so the `rstack-agents notify-hook` relay is not wired here; a Tau user who
+    wants channel notifications drives them from RStack stage events instead.
 
 Requirements on the host:
   - node + npx on PATH
@@ -55,7 +73,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from tau.hooks import ToolCallEventResult
+from tau.hooks import BeforeAgentStartEventResult, ToolCallEventResult
 from tau.tool.types import Tool, ToolContext, ToolExecutionMode, ToolInvocation, ToolKind, ToolResult
 
 PKG_ROOT = Path(__file__).resolve().parents[3]  # src/integrations/tau/ -> package root
@@ -403,6 +421,38 @@ def _observe_bg(payload: dict, cwd: str) -> None:
         pass  # never let scheduling failure surface in a session
 
 
+async def _fetch_context(cwd: str) -> str:
+    """Fetch the RStack context packet via `rstack-agents context` (#255).
+
+    Returns the `additionalContext` string, or "" when there is no active run,
+    no context, or anything goes wrong. Best-effort and hard-timeout-bounded:
+    this runs on the before_agent_start critical path, so it must never block a
+    turn — every failure path returns "" and the turn proceeds unchanged.
+    """
+    npx = shutil.which("npx")
+    if npx is None:
+        return ""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            npx, "--yes", "rstack-agents", "context", "--source", "tau", "--project", cwd,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            env=os.environ, cwd=cwd,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+    except Exception:
+        return ""  # context is additive — never let it break or delay a turn
+    text = out.decode("utf-8", "replace").strip()
+    if not text:
+        return ""
+    try:
+        data = json.loads(text)
+        ctx = data.get("hookSpecificOutput", {}).get("additionalContext", "")
+        return str(ctx) if ctx else ""
+    except Exception:
+        return ""
+
+
 def _emit(ctx, text: str, level: str = "info") -> None:
     if getattr(ctx, "ui", None) is not None:
         ctx.ui.notify(text, level)
@@ -536,3 +586,49 @@ def register(tau) -> None:
             str(ctx.cwd),
         )
         return None
+
+    @tau.on("tool_execution_failure")
+    async def _rstack_observe_failure(event, ctx):
+        # Tool crashed (uncaught exception, distinct from a returned error): record
+        # an error tool_result so failures show in the Business Hub feed. (#255)
+        # Fire-and-forget — off the critical path, never disrupts the session.
+        _observe_bg(
+            {
+                "tool_name": getattr(event, "tool_name", "") or "",
+                "hook_event_name": "PostToolUseFailure",
+                "content": getattr(event, "error", "") or "",
+                "is_error": True,
+            },
+            str(ctx.cwd),
+        )
+        return None
+
+    @tau.on("before_compaction")
+    async def _rstack_observe_compaction(event, ctx):
+        # Context is about to be trimmed — record a context_preserved event
+        # (ties to the context-pressure work). trigger mirrors Claude Code's
+        # PreCompact "manual"/"auto". (#255) Fire-and-forget.
+        trigger = "manual" if bool(getattr(event, "manual", False)) else "auto"
+        _observe_bg(
+            {"hook_event_name": "PreCompact", "trigger": trigger},
+            str(ctx.cwd),
+        )
+        return None
+
+    @tau.on("before_agent_start")
+    async def _rstack_inject_context(event, ctx):
+        # Context injection (#255): the analog of Claude Code's
+        # UserPromptSubmit/SessionStart context hooks. Fetch the RStack packet
+        # and prepend it to this turn's system prompt so the Tau agent is
+        # RStack-aware. Best-effort + hard-timeout-bounded (see _fetch_context):
+        # any failure returns no override and the turn proceeds unchanged. This
+        # hook can NEVER block a turn — it only augments the system prompt.
+        try:
+            packet = await _fetch_context(str(ctx.cwd))
+        except Exception:
+            return None
+        if not packet:
+            return None
+        base = getattr(event, "system_prompt", "") or ""
+        combined = f"{packet}\n\n{base}" if base else packet
+        return BeforeAgentStartEventResult(system_prompt=combined)

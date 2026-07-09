@@ -105,6 +105,44 @@ Raw runtime events are appended to `events.jsonl`. Validator-grounded task evide
 
 `src/core/harness/evidence.js` rejects missing `task_id`, `kind`, `status`, or `evidence` fields.
 
+## Hook system — host observability, context & notifications (#227/#251/#255)
+
+RStack exposes four framework-neutral CLI verbs that any host harness wires into its lifecycle hooks. They share one iron contract: **only `guard` can block; every other verb ALWAYS exits 0, never throws, no-ops when there is nothing to do, and redacts secrets.** A hook can never disrupt the session it observes.
+
+| Verb | Host hook (Claude Code) | Blocks? | Writes / does | No-op when |
+|---|---|---|---|---|
+| `rstack-agents guard` | `PreToolUse` | **Yes (exit 2)** | Classifies the pending tool call (destructive gate + validator sandbox); reuses the harness classifier — zero duplicated logic | fails open only on truly unclassifiable input |
+| `rstack-agents observe` | `PostToolUse`, `PostToolUseFailure`, `SubagentStart`, `SubagentStop`, `PreCompact`, `Stop`, `SessionEnd` | No | Appends a normalized event to the active run's `events.jsonl` | no active run |
+| `rstack-agents context` | `SessionStart`, `UserPromptSubmit` | No (can't) | Emits `{"hookSpecificOutput":{...,"additionalContext":"..."}}` — a structural RStack packet (run id + stage, pending approvals + open decisions, orchestrator pointer), capped ~1KB | no active run (emits nothing) |
+| `rstack-agents notify-hook` | `Notification` | No | Forwards the host message to configured channels via `notifications/router.js` (`notifyAll`) | no channel configured |
+
+### observe — normalized event vocabulary
+
+`normalizeObservation` (`src/commands/observe.js`) maps a `hook_event_name` (or Pi-style `type`) to a normalized event, redacts secrets, and truncates values (~1200 chars). Events written:
+
+| Source hook | Normalized event | Extra fields |
+|---|---|---|
+| `PreToolUse` | `tool_call` | `tool`, `input` (sanitized) |
+| `PostToolUse` | `tool_result` | `tool`, `isError`, `summary` |
+| `PostToolUseFailure` | `tool_result` | `isError:true` (default even without an explicit flag) |
+| `SubagentStart` / `SubagentStop` | `subagent_started` / `subagent_stopped` | `agent_type` (optional, redacted) |
+| `PreCompact` | `context_preserved` | `trigger` (optional, redacted) |
+| `Stop` / `SessionEnd` | `session_shutdown` | — |
+
+Every event carries `{ ts, source, type, ... }` — identical to Pi's shape, so the Business Hub renders host activity like a native Pi run. The dashboard rollups filter by known types, so new event types append to the ledger without disturbing any rollup.
+
+### context — the injected packet
+
+`buildContextString` (`src/commands/context.js`) composes ONLY from facts RStack generates (a run id, a canonical stage id, integer counts, a static pointer). It never reads prompt text, tool inputs, or decision question text, so there is no path for a credential to reach the model through this hook. `readPipelineState` supplies `current.stage_id`; `readApprovals`/`pendingApprovals` and `readDecisions`/`summarizeDecisions` supply the blocker counts. Any single read that fails is simply omitted — a missing decisions file never sinks the packet.
+
+### notify-hook — the relay
+
+`runNotifyHook` (`src/commands/notify-hook.js`) parses the host `{message,title}`, redacts + truncates it, and calls `notifyAll` (already fire-and-forget with per-channel error capture and a bounded timeout). It short-circuits to a silent no-op when `hasConfiguredChannels` is false — no parse, no network — so a user without notifications configured pays nothing.
+
+### Other harnesses
+
+The **Tau** adapter (`src/integrations/tau/rstack_sdlc.py`) wires the same coverage on Tau's hook model — `tool_call`/`tool_result` (observe + guard), `tool_execution_failure` (error `tool_result`), `before_compaction` (`context_preserved`), and `before_agent_start` (context injection into the turn's system prompt) — all fire-and-forget except the timeout-bounded context fetch. Tau exposes **no delegated-subagent event and no notification event**, so those are intentionally not wired there (documented in the adapter). Other harnesses wire the same verbs per `docs/integrations/wire-your-own-harness.md`; `rstack-agents doctor` reports which hooks are live per framework.
+
 ## Run metrics (metrics.json)
 
 `<run_dir>/metrics.json` is the persisted cost/duration/token rollup for a run (#83, #135). It is written by `updateRunMetrics` (`src/core/harness/run-state.js`) under a file lock with atomic tmp+rename, so concurrent writers both land. Full schema:

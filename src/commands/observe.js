@@ -44,7 +44,13 @@ const DEFAULT_SOURCE = 'unknown';
 
 // Recognized normalized event types. Anything else is coerced to a generic
 // tool_call so the dashboard's tool-burst rollup still counts the activity.
-const KNOWN_TYPES = new Set(['tool_call', 'tool_result', 'session_shutdown']);
+// #255 adds delegated-subagent lifecycle and context-preservation events so the
+// dashboard shows builders/validators working and records when compaction trims
+// context.
+const KNOWN_TYPES = new Set([
+  'tool_call', 'tool_result', 'session_shutdown',
+  'subagent_started', 'subagent_stopped', 'context_preserved',
+]);
 
 // Inline-secret sniffers: redact obvious credential material even when it is
 // not a file path (a `--token=...`, `AWS_SECRET_ACCESS_KEY=...`, bearer token,
@@ -81,6 +87,17 @@ function redactSecrets(text) {
   let out = text;
   for (const pattern of INLINE_SECRET_PATTERNS) out = out.replace(pattern, REDACTED);
   return out;
+}
+
+/**
+ * Structural labels (agent_type, compaction trigger) are never free text — a
+ * specialist name or "auto"/"manual". Constrain to a safe token so a crafted
+ * payload can't smuggle markup/control chars into events.jsonl (which the
+ * dashboard renders) or a secret past the pattern redactor. (#258 review)
+ */
+function safeLabel(value) {
+  const cleaned = redactSecrets(String(value ?? '')).replace(/[^\w .\-/:]/g, '').trim();
+  return cleaned.slice(0, 64);
 }
 
 /**
@@ -159,8 +176,20 @@ export function normalizeObservation(raw, overrides = {}) {
 
   // Map Claude Code lifecycle hooks to our normalized vocabulary.
   if (!type) {
-    if (hookEvent === 'Stop' || hookEvent === 'SessionEnd' || hookEvent === 'SubagentStop') {
+    if (hookEvent === 'Stop' || hookEvent === 'SessionEnd') {
       type = 'session_shutdown';
+    } else if (hookEvent === 'SubagentStart') {
+      type = 'subagent_started';
+    } else if (hookEvent === 'SubagentStop') {
+      // A delegated builder/validator finishing is a distinct signal from the
+      // top-level session ending — the dashboard shows subagents working. (#255)
+      type = 'subagent_stopped';
+    } else if (hookEvent === 'PreCompact') {
+      type = 'context_preserved';
+    } else if (hookEvent === 'PostToolUseFailure') {
+      // A failed tool call is a tool_result flagged isError so it shows in the
+      // feed alongside successes. (#255)
+      type = 'tool_result';
     } else if (hookEvent === 'PostToolUse' || hookEvent === 'PreToolUse') {
       type = hookEvent === 'PostToolUse' ? 'tool_result' : 'tool_call';
     }
@@ -175,6 +204,30 @@ export function normalizeObservation(raw, overrides = {}) {
   // Session-lifecycle events carry no tool.
   if (type === 'session_shutdown') {
     return { type: 'session_shutdown' };
+  }
+
+  // Delegated-subagent lifecycle: record which specialist started/stopped so the
+  // Business Hub can show builders/validators working. agent_type is a small
+  // structural label; sanitize it defensively (no free text, no secrets).
+  if (type === 'subagent_started' || type === 'subagent_stopped') {
+    const agentType = overrides.agentType
+      ?? parsed?.agent_type
+      ?? parsed?.agentType
+      ?? parsed?.subagent_type
+      ?? parsed?.subagentType
+      ?? null;
+    const event = { type };
+    if (agentType != null) event.agent_type = safeLabel(agentType);
+    return event;
+  }
+
+  // PreCompact: record that the harness is about to trim context. `trigger`
+  // distinguishes an automatic (context-full) compaction from a manual one.
+  if (type === 'context_preserved') {
+    const trigger = overrides.trigger ?? parsed?.trigger ?? parsed?.reason ?? null;
+    const event = { type };
+    if (trigger != null) event.trigger = safeLabel(trigger);
+    return event;
   }
 
   // Default: if we have a tool name (from flags or payload) treat it as a
@@ -202,6 +255,11 @@ export function normalizeObservation(raw, overrides = {}) {
     const isError = overrides.isError
       ?? parsed?.isError
       ?? parsed?.is_error
+      // A PostToolUseFailure hook is a failure by definition — default it to an
+      // error even when the payload omits an explicit is_error flag. Checked
+      // BEFORE the tool_response inference (which returns false, not undefined,
+      // and would otherwise short-circuit this default). (#255)
+      ?? (hookEvent === 'PostToolUseFailure' ? true : undefined)
       ?? (typeof parsed?.tool_response === 'object' ? Boolean(parsed.tool_response?.is_error) : undefined)
       ?? false;
     return {
@@ -250,7 +308,9 @@ function extractResponseText(response) {
 export async function appendObservation(runDir, observation, source) {
   if (!observation) return null;
   const eventPath = join(runDir, 'events.jsonl');
-  const event = { ts: new Date().toISOString(), source: source || DEFAULT_SOURCE, ...observation };
+  // source is env/flag-controlled → constrain it like any structural label so
+  // it can't inject markup/secret into the dashboard-rendered event. (#258 review)
+  const event = { ts: new Date().toISOString(), source: safeLabel(source) || DEFAULT_SOURCE, ...observation };
   await mkdir(dirname(eventPath), { recursive: true });
   await withFileLock(eventPath, async () => {
     await appendFile(eventPath, `${JSON.stringify(event)}\n`);
