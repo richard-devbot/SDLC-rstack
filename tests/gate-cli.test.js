@@ -73,7 +73,7 @@ function runGateCli(name, { input = '', env = {}, cwd, args = [] } = {}) {
 test('classifyProductionCode: production vs skip matrix', () => {
   const production = [
     'src/foo.ts', 'src/UserService.java', 'lib/handler.go', 'app/models/user.py',
-    'src/Component.tsx', 'main.rs', 'src/index.js',
+    'src/Component.tsx', 'main.rs', 'cmd/server/main.go',
   ];
   const skip = [
     'src/foo.test.ts', 'src/foo.spec.ts', 'src/foo.tests.js',
@@ -86,6 +86,9 @@ test('classifyProductionCode: production vs skip matrix', () => {
     'tests/foo.ts', 'src/__tests__/foo.ts', 'test/helper.go',
     'src/fixtures/data.ts', 'src/mocks/api.ts', 'config/app.ts', 'scripts/build.ts',
     'infra/stack.ts', 'deploy/pipeline.ts',
+    // false-block-avoidance skips (adversarial review):
+    'src/index.ts', 'src/types.ts', 'src/foo.types.ts',
+    'db/migrate_001.ts', 'e2e/login.cy.ts',
   ];
   for (const f of production) {
     assert.equal(classifyProductionCode(f).production, true, `${f} should be production`);

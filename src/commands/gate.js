@@ -125,6 +125,7 @@ export function classifyProductionCode(filePath) {
   //         test_foo.py, spec_foo.rb                (prefix)
   if (/[._](?:test|tests|spec|specs)\.[^.]+$/i.test(name)  // .test./.spec./_test./_spec.
     || /(?:Test|Tests|Spec|Specs)\.[^.]+$/.test(name)      // CamelCase FooTest.cs
+    || /\.cy\.[^.]+$/i.test(name)                          // Cypress foo.cy.ts
     || /^(?:test|spec)_/i.test(name)) {                    // test_foo.py / spec_foo.rb
     return { production: false, reason: 'test file (skip)' };
   }
@@ -133,13 +134,20 @@ export function classifyProductionCode(filePath) {
   if (/\.dto\.[^.]+$/i.test(name) || /dto\.[^.]+$/i.test(name) || /DTO/.test(name)) {
     return { production: false, reason: 'DTO file (skip)' };
   }
-  if (/migration/i.test(name)) {
+  // migration / migrate_0001 / CreateUsersMigration — both spellings.
+  if (/migration/i.test(name) || /(?:^|[._-])migrate[._-]/i.test(name)) {
     return { production: false, reason: 'migration file (skip)' };
   }
   if (/\.config\.[^.]+$/i.test(name) || /\.d\.ts$/i.test(name)
     || /^tsconfig/i.test(name) || /^(?:program|startup)\./i.test(name)
     || /^appsettings/i.test(name)) {
     return { production: false, reason: 'config/type-declaration file (skip)' };
+  }
+  // Type-only / barrel modules carry no behavior to unit-test — skipping them
+  // avoids the most common tdd-gate false blocks (a `types.ts` or an `index.ts`
+  // re-export). A real logic file simply must not be named exactly these.
+  if (/^index\.[^.]+$/i.test(name) || /^types\.[^.]+$/i.test(name) || /\.types\.[^.]+$/i.test(name)) {
+    return { production: false, reason: 'barrel/type-only module (skip)' };
   }
 
   // --- path-based skips (test/spec/fixture/migration/config/script dirs) ----
