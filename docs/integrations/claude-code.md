@@ -32,7 +32,13 @@ snippet lands at `.claude/rstack-hooks.json` instead, with merge guidance).
     "PreToolUse": [{
       "matcher": "Bash|Write|Edit",
       "hooks": [{ "type": "command", "command": "npx --yes rstack-agents guard --context builder" }]
-    }]
+    }],
+    "PostToolUse": [{
+      "matcher": "Bash|Write|Edit",
+      "hooks": [{ "type": "command", "command": "npx --yes rstack-agents observe --source claude-code" }]
+    }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "npx --yes rstack-agents observe --source claude-code" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "npx --yes rstack-agents observe --source claude-code" }] }]
   }
 }
 ```
@@ -40,6 +46,9 @@ snippet lands at `.claude/rstack-hooks.json` instead, with merge guidance).
 Every matched tool call is piped (as PreToolUse JSON) into
 `rstack-agents guard`, which exits `0` to allow or `2` to block — Claude Code
 blocks the call on exit 2 and shows the guard's stderr reason to the model.
+After the call runs, the PostToolUse hook pipes the same payload into
+`rstack-agents observe`, which records it to the run's `events.jsonl` for the
+dashboard (see [Observability](#observability) below).
 
 **What it enforces at tool-call time:**
 
@@ -69,12 +78,13 @@ blocks the call on exit 2 and shows the guard's stderr reason to the model.
   shell command, so destructive-looking raw input still blocks; a guard that
   hard-errors on every hook call would just get uninstalled.
 
-**What remains Pi-only:** automatic run-event logging of every
-`tool_call`/`tool_result` into `events.jsonl`, automatic
-`RSTACK_VALIDATOR_CONTEXT` stamping on delegated validator subprocesses
-(in Claude Code, set the env or `--context` yourself when spawning validator
-work), and session-start orchestrator packet injection. The enforcement
-policy itself — destructive gate + validator sandbox — is identical.
+**What remains Pi-only:** automatic `RSTACK_VALIDATOR_CONTEXT` stamping on
+delegated validator subprocesses (in Claude Code, set the env or `--context`
+yourself when spawning validator work) and session-start orchestrator packet
+injection. Run-event logging of every `tool_call`/`tool_result` into
+`events.jsonl` is now wired via the PostToolUse/Stop/SessionEnd `observe` hooks
+(#251) — see [Observability](#observability). The enforcement policy itself —
+destructive gate + validator sandbox — is identical.
 
 ## Verify
 
@@ -106,8 +116,8 @@ file conventions.
 | `.claude/commands/rstack/*.md` | Optional slash-command prompt copies |
 | `skills/**/SKILL.md` | Portable skills used when their trigger matches the task |
 | `plugins/*/plugin.json` | Portable plugin metadata and bundled plugin assets |
-| `.claude/settings.json` hooks | PreToolUse enforcement guard + SessionStart hub auto-launch |
-| `rstack-agents` | CLI setup, validation, decisions, readiness, hub, guard, and notifications |
+| `.claude/settings.json` hooks | PreToolUse enforcement guard + PostToolUse/Stop/SessionEnd observe writer + SessionStart hub auto-launch |
+| `rstack-agents` | CLI setup, validation, decisions, readiness, hub, guard, observe, and notifications |
 
 ## Observability
 
@@ -117,3 +127,23 @@ npx rstack-business
 
 Run timelines, stage durations, approvals, alerts, and traceability on :3008 —
 aggregated across every project on this machine.
+
+The dashboard derives everything from each run's `events.jsonl`. The
+PostToolUse / Stop / SessionEnd hooks feed `rstack-agents observe`, which
+appends a normalized event for every Bash/Write/Edit call — the SAME shape the
+Pi extension writes (`{ ts, source, type, tool, input | summary }`) plus a
+`source: "claude-code"` label. So ordinary terminal work shows up in the
+Business Hub within one poll cycle, exactly like a Pi run. `observe` is
+strictly additive: it **never blocks** a tool call (always exits 0), **redacts
+secrets** (secret paths, inline credentials, and file-content fields), and
+**no-ops silently** when there is no active RStack run — it can only add
+visibility, never disrupt your session.
+
+Verify observe is wired:
+
+```bash
+npx rstack-agents doctor --framework claude-code   # includes an "observability wired" check
+# or exercise it directly (no active run = silent no-op, exit 0):
+echo '{"tool_name":"Bash","tool_input":{"command":"ls"},"hook_event_name":"PostToolUse"}' \
+  | npx rstack-agents observe --source claude-code --verbose
+```

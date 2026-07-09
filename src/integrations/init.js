@@ -201,16 +201,17 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
     // already exists we drop the snippet next to it and print guidance.
     const settingsPath = join(root, '.claude', 'settings.json');
     const hookSettings = JSON.stringify(CLAUDE_CODE_HOOKS, null, 2) + '\n';
-    const wroteSettings = await writeIfMissing(settingsPath, hookSettings, '.claude/settings.json (SessionStart → Business Hub, PreToolUse → rstack-agents guard enforcement)', report);
+    const wroteSettings = await writeIfMissing(settingsPath, hookSettings, '.claude/settings.json (SessionStart → Business Hub, PreToolUse → rstack-agents guard enforcement, PostToolUse/Stop/SessionEnd → rstack-agents observe dashboard visibility)', report);
     if (!wroteSettings) {
       await writeIfMissing(join(root, '.claude', 'rstack-hooks.json'), hookSettings, '.claude/rstack-hooks.json (merge into your settings.json hooks)', report);
-      report.nextSteps.push('Your .claude/settings.json already exists — RStack never edits it. Merge the hooks from .claude/rstack-hooks.json: SessionStart opens the Business Hub, PreToolUse enforces the destructive gate + validator sandbox via `rstack-agents guard`.');
+      report.nextSteps.push('Your .claude/settings.json already exists — RStack never edits it. Merge the hooks from .claude/rstack-hooks.json: SessionStart opens the Business Hub, PreToolUse enforces the destructive gate + validator sandbox via `rstack-agents guard`, and PostToolUse/Stop/SessionEnd feed the dashboard via `rstack-agents observe` (best-effort, never blocks).');
     }
     report.nextSteps.push(
       'Install the Claude Code plugin: /plugin install sdlc-automation (or add the marketplace repo)',
       'Run /sdlc-start in Claude Code to drive the full pipeline',
       'The Business Hub auto-opens each session (SessionStart hook) — or run: npx rstack-agents hub',
       'Enforcement: the PreToolUse hook routes Bash/Write/Edit through `rstack-agents guard` — destructive actions block until a destructive-action:<taskId> approval exists (docs/integrations/claude-code.md).',
+      'Observability: the PostToolUse/Stop/SessionEnd hooks feed `rstack-agents observe` — ordinary terminal edits now appear in the Business Hub within one poll cycle, just like on Pi. Observe never blocks and no-ops when there is no active run.',
     );
   }
 
@@ -289,10 +290,17 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
 
 /**
  * Claude Code hooks installed by init (exported so tests and docs pin the
- * exact shape). SessionStart auto-launches the Business Hub; PreToolUse is
- * the enforcement guard (#227): every Bash/Write/Edit call is classified by
- * `rstack-agents guard`, which exits 2 to block (destructive gate + validator
- * sandbox) — the same harness policy the Pi tool_call hook enforces.
+ * exact shape). Three responsibilities:
+ *   - SessionStart auto-launches the Business Hub.
+ *   - PreToolUse is the ENFORCEMENT guard (#227): every Bash/Write/Edit call is
+ *     classified by `rstack-agents guard`, which exits 2 to block (destructive
+ *     gate + validator sandbox) — the same policy the Pi tool_call hook enforces.
+ *   - PostToolUse / Stop / SessionEnd are the OBSERVABILITY writer (#251):
+ *     `rstack-agents observe` appends a normalized tool_result / session event
+ *     to the active run's events.jsonl so the Business Hub mirrors terminal
+ *     activity the way it already does on Pi. Observe NEVER blocks (always
+ *     exits 0) and is a no-op when there is no active run — it can only add
+ *     dashboard visibility, never disrupt a session.
  */
 export const CLAUDE_CODE_HOOKS = Object.freeze({
   hooks: {
@@ -301,6 +309,12 @@ export const CLAUDE_CODE_HOOKS = Object.freeze({
       matcher: 'Bash|Write|Edit',
       hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }],
     }],
+    PostToolUse: [{
+      matcher: 'Bash|Write|Edit',
+      hooks: [{ type: 'command', command: 'npx --yes rstack-agents observe --source claude-code' }],
+    }],
+    Stop: [{ hooks: [{ type: 'command', command: 'npx --yes rstack-agents observe --source claude-code' }] }],
+    SessionEnd: [{ hooks: [{ type: 'command', command: 'npx --yes rstack-agents observe --source claude-code' }] }],
   },
 });
 
@@ -325,6 +339,14 @@ pushes, publishes, deploys, secret writes, db drops) block until a
 \`destructive-action:<taskId>\` approval exists on the run, and
 validator/reviewer/security contexts are read-only. Details:
 \`docs/integrations/claude-code.md\` in the rstack-agents package.
+
+## Observability
+
+The PostToolUse / Stop / SessionEnd hooks route through \`rstack-agents observe\`,
+which appends a normalized event to the active run's \`events.jsonl\` — the same
+shape Pi writes — so the Business Hub mirrors your terminal activity live.
+\`observe\` is best-effort: it never blocks a tool call (always exits 0), redacts
+secrets, and no-ops silently when there is no active RStack run.
 
 ## Dashboard
 
