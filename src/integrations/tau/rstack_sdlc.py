@@ -363,15 +363,19 @@ async def _run_guard(guard_tool_name: str, tool_input: dict, cwd: str) -> tuple[
     return True, ""
 
 
+# Background observe tasks — kept referenced so the event loop can't GC them
+# mid-flight; discarded on completion. (#253)
+_OBSERVE_TASKS: set = set()
+
+
 async def _emit_observation(payload: dict, cwd: str) -> None:
     """Feed one observability event to `rstack-agents observe` (#251).
 
     Best-effort and completely non-disruptive: `observe` always exits 0, no-ops
-    when there is no active run, and redacts secrets. We never await its result
-    beyond letting the subprocess finish, and we swallow every error — a broken
-    observability write must never surface in a Tau session. Mirrors the
-    Pi/Claude Code contract: activity shows in the Business Hub, enforcement is
-    untouched.
+    when there is no active run, and redacts secrets. We swallow every error and
+    bound the subprocess with a hard timeout so a slow/hung write can never
+    stall — this coroutine is only ever scheduled fire-and-forget (see
+    `_observe_bg`), so it is off the tool-call critical path entirely.
     """
     npx = shutil.which("npx")
     if npx is None:
@@ -382,9 +386,21 @@ async def _emit_observation(payload: dict, cwd: str) -> None:
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
             env=os.environ, cwd=cwd,
         )
-        await proc.communicate(json.dumps(payload).encode("utf-8"))
+        await asyncio.wait_for(proc.communicate(json.dumps(payload).encode("utf-8")), timeout=5.0)
     except Exception:
         pass  # observability is additive — never let it break a session
+
+
+def _observe_bg(payload: dict, cwd: str) -> None:
+    """Schedule an observation WITHOUT awaiting it — keeps observe off the
+    tool-call critical path so a slow write never adds latency to a Tau call.
+    Falls back to a no-op if there is no running event loop. (#253)"""
+    try:
+        task = asyncio.ensure_future(_emit_observation(payload, cwd))
+        _OBSERVE_TASKS.add(task)
+        task.add_done_callback(_OBSERVE_TASKS.discard)
+    except Exception:
+        pass  # never let scheduling failure surface in a session
 
 
 def _emit(ctx, text: str, level: str = "info") -> None:
@@ -485,17 +501,14 @@ def register(tau) -> None:
 
     @tau.on("tool_call")
     async def _rstack_guard(event, ctx):
-        # Observability (#251): emit a tool_call INTENT event for every tool,
-        # BEFORE the guard verdict, so activity reaches the Business Hub even
-        # when the call is subsequently blocked. Best-effort — never awaited for
-        # a result, never allowed to raise.
-        try:
-            await _emit_observation(
-                {"tool_name": event.tool_name, "tool_input": event.input or {}, "hook_event_name": "PreToolUse"},
-                str(ctx.cwd),
-            )
-        except Exception:
-            pass
+        # Observability (#251): emit a tool_call INTENT event for every tool so
+        # activity reaches the Business Hub even when the call is subsequently
+        # blocked. Fire-and-forget (#253) — scheduled off the critical path so a
+        # slow observe write can never delay the guard verdict or the tool call.
+        _observe_bg(
+            {"tool_name": event.tool_name, "tool_input": event.input or {}, "hook_event_name": "PreToolUse"},
+            str(ctx.cwd),
+        )
 
         mapping = _GUARD_TOOL_MAP.get(event.tool_name)
         if mapping is None:
@@ -511,18 +524,15 @@ def register(tau) -> None:
     async def _rstack_observe_result(event, ctx):
         # Post-execution observability (#251): Tau exposes a real tool_result
         # hook, so we record the outcome (source="tau") exactly like Pi's
-        # tool_result event. Purely additive — returns None so the result is
-        # never modified, and never raises.
-        try:
-            await _emit_observation(
-                {
-                    "tool_name": event.tool_name,
-                    "hook_event_name": "PostToolUse",
-                    "content": event.content,
-                    "is_error": bool(getattr(event, "is_error", False)),
-                },
-                str(ctx.cwd),
-            )
-        except Exception:
-            pass
+        # tool_result event. Fire-and-forget (#253) — off the critical path, so
+        # the result is returned immediately and a slow write adds no latency.
+        _observe_bg(
+            {
+                "tool_name": event.tool_name,
+                "hook_event_name": "PostToolUse",
+                "content": event.content,
+                "is_error": bool(getattr(event, "is_error", False)),
+            },
+            str(ctx.cwd),
+        )
         return None

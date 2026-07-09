@@ -255,3 +255,29 @@ test('parallel observe writes to one run keep events.jsonl valid JSONL', async (
   assert.equal(events.length, N, 'every parallel append landed, none lost or merged');
   for (const ev of events) assert.equal(ev.type, 'tool_result', 'PostToolUse maps to tool_result');
 });
+
+// --- #253 hotfix: secret redaction must catch underscore/space-separated forms
+test('sanitizeInput redacts the common leak shapes (DB_PASSWORD=, API_TOKEN=, Bearer, AWS)', () => {
+  const leaks = [
+    'export DB_PASSWORD=hunter2 && deploy',
+    'export API_TOKEN=abc123xyz',
+    'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI',
+    'curl -H "Authorization: Bearer sometoken123"',
+    'mycommandpassword=hunter2',
+    '--client-secret=abcdef123456',
+  ];
+  for (const cmd of leaks) {
+    const out = JSON.stringify(sanitizeInput({ command: cmd }));
+    assert.ok(out.includes('[redacted]'), `should redact: ${cmd}`);
+    for (const secret of ['hunter2', 'abc123xyz', 'wJalrXUtnFEMI', 'sometoken123', 'abcdef123456']) {
+      assert.ok(!out.includes(secret), `secret must not leak (${secret}) in: ${cmd}`);
+    }
+  }
+});
+
+test('sanitizeInput does NOT over-redact ordinary prose without key=value', () => {
+  for (const cmd of ['please authenticate the user', 'the token bucket limiter', 'reset password by email', 'npm run test']) {
+    const out = JSON.stringify(sanitizeInput({ command: cmd }));
+    assert.ok(!out.includes('[redacted]'), `should not over-redact: ${cmd}`);
+  }
+});
