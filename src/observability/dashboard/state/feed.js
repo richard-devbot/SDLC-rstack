@@ -7,23 +7,35 @@ export function buildActivityFeed(runs) {
   const activityFeed = [];
 
   for (const run of (runs ?? []).slice(0, 15)) {
+    // Bucket tool_call bursts per minute AND track which harness sourced them
+    // (#251). Pi tool_call events carry no `source`; observe-written events
+    // (claude-code / tau / operator / ...) do. Surfacing the source keeps the
+    // feed honest about WHERE terminal activity came from on any harness.
     const toolBursts = {};
+    const burstSources = {};
     for (const ev of run.events ?? []) {
       if (ev.type !== 'tool_call') continue;
       const min = ev.ts?.slice(0, 16);
       if (!min) continue;
       toolBursts[min] = (toolBursts[min] ?? 0) + 1;
+      const src = typeof ev.source === 'string' && ev.source ? ev.source : 'pi';
+      (burstSources[min] ??= {})[src] = (burstSources[min]?.[src] ?? 0) + 1;
     }
     for (const [min, count] of Object.entries(toolBursts)) {
       if (count >= 3) {
+        // Dominant source label for this burst (honest, real field only).
+        const sources = burstSources[min] ?? {};
+        const dominant = Object.entries(sources).sort((a, b) => b[1] - a[1])[0]?.[0];
+        const via = dominant && dominant !== 'pi' ? ` (via ${dominant})` : '';
         activityFeed.push({
           ts: `${min}:00.000Z`,
-          summary: `${count} tool calls - agent working`,
+          summary: `${count} tool calls - agent working${via}`,
           type: 'tool_burst',
           runId: run.runId,
           projectRoot: run.projectRoot,
           goal: run.manifest?.goal,
           level: 'tool',
+          data: dominant ? { source: dominant } : undefined,
         });
       }
     }
