@@ -22,6 +22,7 @@ import { buildBackendInventory, formatBackendInventory, writeBackendInventory } 
 import { validateCommand } from '../src/commands/validate.js';
 import { runGuardCommand, readStdinText } from '../src/commands/guard.js';
 import { runObserveCommand, readStdinText as readObserveStdin } from '../src/commands/observe.js';
+import { runContextCommand, readStdinText as readContextStdin } from '../src/commands/context.js';
 import { runDoctor, formatDoctorReport, DOCTOR_FRAMEWORKS } from '../src/commands/doctor.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
 import { notifyAll, resolveChannels, formatSlackStageMessage } from '../src/notifications/index.js';
@@ -308,6 +309,33 @@ program
       // Rule (a)/(b): the observer must NEVER disrupt a session. Any failure
       // here — even before observation — exits 0 silently (opt-in verbose only).
       if (opts.verbose) process.stderr.write(`[rstack observe] internal error (ignored): ${err.message}\n`);
+      process.exit(0);
+    }
+  });
+
+program
+  .command('context')
+  .description('Framework-neutral context injector (#255): emit a small RStack situational packet (active run id + current stage, pending approvals + open decisions, an orchestrator pointer) so ANY harness agent is RStack-aware at prompt/session time. Reads a Claude Code UserPromptSubmit/SessionStart hook payload on stdin and prints {"hookSpecificOutput":{...,"additionalContext":"..."}} on stdout. Best-effort: NEVER blocks/denies, always exits 0, injects nothing (no output) when there is no active run, never injects secrets.')
+  .option('--hook-event-name <name>', 'hookEventName to echo in the output shape (default: inferred from the payload, else UserPromptSubmit)')
+  .option('--source <source>', 'harness label (informational only)')
+  .option('-p, --project <path>', 'project root (defaults to RSTACK_PROJECT_ROOT env, else current directory)')
+  .option('-r, --run-id <runId>', 'run to describe (defaults to RSTACK_RUN_ID env, else the latest run)')
+  .option('--verbose', 'print a one-line result to stderr (silent by default)')
+  .action(async (opts) => {
+    try {
+      const stdinText = await readContextStdin();
+      process.exit(await runContextCommand({
+        hookEventName: opts.hookEventName,
+        source: opts.source,
+        project: opts.project,
+        runId: opts.runId,
+        verbose: opts.verbose,
+      }, { stdinText }));
+    } catch (err) {
+      // Rule (a)/(b): the injector must NEVER disrupt a session. Any failure —
+      // even before injection — exits 0 silently (opt-in verbose only). We emit
+      // no stdout so no partial/invalid additionalContext reaches the model.
+      if (opts.verbose) process.stderr.write(`[rstack context] internal error (ignored): ${err.message}\n`);
       process.exit(0);
     }
   });
