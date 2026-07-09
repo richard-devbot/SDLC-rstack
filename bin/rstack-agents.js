@@ -23,6 +23,7 @@ import { validateCommand } from '../src/commands/validate.js';
 import { runGuardCommand, readStdinText } from '../src/commands/guard.js';
 import { runObserveCommand, readStdinText as readObserveStdin } from '../src/commands/observe.js';
 import { runContextCommand, readStdinText as readContextStdin } from '../src/commands/context.js';
+import { runNotifyHookCommand, readStdinText as readNotifyStdin } from '../src/commands/notify-hook.js';
 import { runDoctor, formatDoctorReport, DOCTOR_FRAMEWORKS } from '../src/commands/doctor.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
 import { notifyAll, resolveChannels, formatSlackStageMessage } from '../src/notifications/index.js';
@@ -336,6 +337,32 @@ program
       // even before injection — exits 0 silently (opt-in verbose only). We emit
       // no stdout so no partial/invalid additionalContext reaches the model.
       if (opts.verbose) process.stderr.write(`[rstack context] internal error (ignored): ${err.message}\n`);
+      process.exit(0);
+    }
+  });
+
+program
+  .command('notify-hook')
+  .description('Framework-neutral notification relay (#255): forward a host Notification hook payload to every configured RStack channel (Slack/Teams/Discord/Telegram/WhatsApp). Reads a Claude Code Notification hook payload on stdin, or takes --message/--title. Best-effort: NEVER blocks, always exits 0, no-ops when no channels are configured, secret-redacted.')
+  .option('--message <text>', 'notification message (when passing flags instead of stdin JSON)')
+  .option('--title <text>', 'notification title')
+  .option('--source <source>', 'harness label included in the message (informational)')
+  .option('-p, --project <path>', 'project root (defaults to RSTACK_PROJECT_ROOT env, else current directory)')
+  .option('--verbose', 'print a one-line result to stderr (silent by default)')
+  .action(async (opts) => {
+    try {
+      const usesFlags = opts.message !== undefined;
+      const stdinText = usesFlags ? '' : await readNotifyStdin();
+      process.exit(await runNotifyHookCommand({
+        message: opts.message,
+        title: opts.title,
+        source: opts.source,
+        project: opts.project,
+        verbose: opts.verbose,
+      }, { stdinText }));
+    } catch (err) {
+      // Rule (a)/(b): the relay must NEVER disrupt a session. Any failure exits 0.
+      if (opts.verbose) process.stderr.write(`[rstack notify-hook] internal error (ignored): ${err.message}\n`);
       process.exit(0);
     }
   });
