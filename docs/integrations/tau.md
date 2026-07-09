@@ -85,3 +85,24 @@ Inside Tau: the `/sdlc` slash command (above) and the `sdlc_*` tools. From your
 terminal: the harness-agnostic CLI — `pipeline status`, `pipeline run`,
 `pipeline loop`, `adopt`, `decisions`, `dor`, `doctor`, `npx rstack-business`.
 Full table: [README.md → Everyday commands](README.md#everyday-commands-any-framework).
+
+## Observability, context & notifications (#251/#255)
+
+Loading the extension IS the wiring — the adapter registers Tau's hooks itself
+(no host config). Coverage:
+
+- `tool_call` → `tool_call` intent event + the guard verdict; `tool_result` →
+  `tool_result`; `tool_execution_failure` → an error `tool_result` — all
+  fire-and-forget to `rstack-agents observe` (source `tau`), so terminal
+  activity and failures reach the Business Hub.
+- `before_compaction` → a `context_preserved` event (records when context is
+  trimmed).
+- `before_agent_start` → RStack **context injection**: the packet from
+  `rstack-agents context` (run + stage + blockers + orchestrator pointer) is
+  prepended to the turn's system prompt. Best-effort and timeout-bounded — it
+  can never block or delay a turn.
+
+Everything except the guard is additive and can never disrupt a session. Two
+Claude Code events have **no Tau equivalent** and are deliberately not wired:
+Tau has no delegated-subagent lifecycle event (its `agent_start`/`agent_end` are
+the per-prompt loop, not spawned specialists) and no notification event.
