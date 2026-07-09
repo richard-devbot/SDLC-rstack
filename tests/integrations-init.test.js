@@ -194,6 +194,10 @@ test('init framework detection and setup', async (t) => {
     assert.equal(settings.hooks.SessionEnd[0].hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
     // Notification routing (#255).
     assert.equal(settings.hooks.Notification[0].hooks[0].command, 'npx --yes rstack-agents notify-hook --source claude-code');
+    // Status line (#257): a TOP-LEVEL settings key (sibling of hooks), NOT a hook.
+    assert.equal(settings.statusLine.type, 'command', 'statusLine is a command type');
+    assert.equal(settings.statusLine.command, 'npx --yes rstack-agents statusline --source claude-code', 'statusLine wired to rstack-agents statusline');
+    assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents statusline')), 'guidance mentions the status line');
     // The guard (enforcement) is unchanged and is the ONLY hook that can block.
     assert.equal(settings.hooks.PreToolUse[0].hooks[0].command, 'npx --yes rstack-agents guard --context builder');
     assert.ok(report.created.some((item) => item.includes('guard')), 'guard enforcement reported as created');

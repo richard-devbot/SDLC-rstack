@@ -210,10 +210,10 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
     // Opt-in quality gates (#256): guard stays first in PreToolUse; requested
     // gates are appended after it. No gates → identical to the default shape.
     const hookSettings = JSON.stringify(buildClaudeCodeHooks({ gates: selectedGates }), null, 2) + '\n';
-    const wroteSettings = await writeIfMissing(settingsPath, hookSettings, '.claude/settings.json (SessionStart → Business Hub + rstack-agents context, UserPromptSubmit → context, PreToolUse → rstack-agents guard enforcement, PostToolUse/PostToolUseFailure/SubagentStart/SubagentStop/PreCompact/Stop/SessionEnd → rstack-agents observe, Notification → rstack-agents notify-hook)', report);
+    const wroteSettings = await writeIfMissing(settingsPath, hookSettings, '.claude/settings.json (statusLine → rstack-agents statusline, SessionStart → Business Hub + rstack-agents context, UserPromptSubmit → context, PreToolUse → rstack-agents guard enforcement, PostToolUse/PostToolUseFailure/SubagentStart/SubagentStop/PreCompact/Stop/SessionEnd → rstack-agents observe, Notification → rstack-agents notify-hook)', report);
     if (!wroteSettings) {
       await writeIfMissing(join(root, '.claude', 'rstack-hooks.json'), hookSettings, '.claude/rstack-hooks.json (merge into your settings.json hooks)', report);
-      report.nextSteps.push('Your .claude/settings.json already exists — RStack never edits it. Merge the hooks from .claude/rstack-hooks.json: SessionStart opens the Business Hub and injects RStack context, UserPromptSubmit injects context via `rstack-agents context`, PreToolUse enforces the destructive gate + validator sandbox via `rstack-agents guard`, PostToolUse/PostToolUseFailure/SubagentStart/SubagentStop/PreCompact/Stop/SessionEnd feed the dashboard via `rstack-agents observe`, and Notification routes to your channels via `rstack-agents notify-hook` (all best-effort, only the guard ever blocks).');
+      report.nextSteps.push('Your .claude/settings.json already exists — RStack never edits it. Merge from .claude/rstack-hooks.json: the top-level `statusLine` key draws the RStack status bar via `rstack-agents statusline`, SessionStart opens the Business Hub and injects RStack context, UserPromptSubmit injects context via `rstack-agents context`, PreToolUse enforces the destructive gate + validator sandbox via `rstack-agents guard`, PostToolUse/PostToolUseFailure/SubagentStart/SubagentStop/PreCompact/Stop/SessionEnd feed the dashboard via `rstack-agents observe`, and Notification routes to your channels via `rstack-agents notify-hook` (all best-effort, only the guard ever blocks).');
     }
     report.nextSteps.push(
       'Install the Claude Code plugin: /plugin install sdlc-automation (or add the marketplace repo)',
@@ -223,6 +223,7 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
       'Enforcement: the PreToolUse hook routes Bash/Write/Edit through `rstack-agents guard` — destructive actions block until a destructive-action:<taskId> approval exists (docs/integrations/claude-code.md).',
       'Observability: PostToolUse/PostToolUseFailure/SubagentStart/SubagentStop/PreCompact/Stop/SessionEnd feed `rstack-agents observe` — terminal edits, delegated subagents, failures, and compaction now appear in the Business Hub, just like on Pi. Observe never blocks and no-ops when there is no active run.',
       'Notifications: the Notification hook routes host notifications to your configured channels via `rstack-agents notify-hook` (Slack/Teams/Discord — set RSTACK_SLACK_WEBHOOK etc.). No-op if no channels are configured.',
+      'Status line: the `statusLine` settings key draws a live RStack status bar via `rstack-agents statusline` — active run + stage, ✔approved/⧗pending approvals, ◇open decisions. Display-only, no-op when there is no active run. Audio notifications (TTS) are opt-in and self-wired on the Notification hook — see docs/integrations/claude-code.md.',
       selectedGates.length
         ? `Quality gates (opt-in, #256): ${selectedGates.join(', ')} wired into PreToolUse after guard. tdd-gate BLOCKS production-code edits with no test — override for one call with RSTACK_ALLOW_NO_TESTS=1. See docs/integrations/quality-gates.md.`
         : 'Quality gates (opt-in, #256): OFF. Enable spec-first / test-first / in-scope discipline with `rstack-agents init --framework claude-code --gates plan,tdd,scope`. See docs/integrations/quality-gates.md.',
@@ -333,6 +334,10 @@ const OBSERVE_CMD = 'npx --yes rstack-agents observe --source claude-code';
 const CONTEXT_CMD = 'npx --yes rstack-agents context --source claude-code';
 const NOTIFY_CMD = 'npx --yes rstack-agents notify-hook --source claude-code';
 const GUARD_CMD = 'npx --yes rstack-agents guard --context builder';
+// Status line (#257): a top-level `statusLine` settings key (NOT a hook) — Claude
+// Code runs it on every render tick to draw the RStack status bar. Display-only,
+// always exits 0, no-op when there is no active run.
+const STATUSLINE_CMD = 'npx --yes rstack-agents statusline --source claude-code';
 
 /** The opt-in quality-gate presets (#256). OFF by default — never wired unless requested. */
 export const GATE_PRESETS = Object.freeze(['plan-gate', 'tdd-gate', 'scope-guard']);
@@ -371,6 +376,8 @@ export function buildClaudeCodeHooks({ gates = [] } = {}) {
     });
   }
   return {
+    // Status line (#257): top-level key, sibling of `hooks`. Display-only.
+    statusLine: { type: 'command', command: STATUSLINE_CMD },
     hooks: {
       SessionStart: [
         { hooks: [{ type: 'command', command: 'npx -y rstack-agents hub' }] },
