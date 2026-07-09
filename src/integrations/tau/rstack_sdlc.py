@@ -356,6 +356,51 @@ async def _run_guard(guard_tool_name: str, tool_input: dict, cwd: str) -> tuple[
     return True, ""
 
 
+def _emit(ctx, text: str, level: str = "info") -> None:
+    if getattr(ctx, "ui", None) is not None:
+        ctx.ui.notify(text, level)
+    else:
+        print(text)
+
+
+# Slash-command subcommand name -> full `sdlc_*` tool name (e.g. "start" -> "sdlc_start").
+_SUBCOMMANDS: dict[str, str] = {name[len("sdlc_"):]: name for name in _TOOLS}
+
+# For tools whose params model has one obvious free-text field, `/sdlc <sub> <text>`
+# (no JSON) maps `<text>` onto that field. Tools not listed here require `{...}` JSON.
+_PRIMARY_FIELD: dict[str, str] = {
+    "sdlc_start": "goal",
+    "sdlc_spec": "artifact",
+    "sdlc_approve": "artifact",
+    "sdlc_validate": "task_id",
+    "sdlc_agents": "domain",
+    "sdlc_memory": "action",
+    "sdlc_dashboard": "run_id",
+    "sdlc_trace": "task_id",
+    "sdlc_rollback": "stage_id",
+    "sdlc_decisions": "question",
+    "sdlc_decide": "decision_id",
+    "sdlc_dor_check": "target_stage",
+    "sdlc_orchestrate": "goal",
+    "sdlc_status": "run_id",
+}
+
+
+def _sdlc_argument_completions(text: str) -> list:
+    """Subcommand-name completions for `/sdlc <tab>`; mirrors the peer extension's pattern."""
+    from tau.tui.autocomplete import AutocompleteItem
+
+    parts = text.split()
+    if not parts or (len(parts) == 1 and not text.endswith(" ")):
+        prefix = parts[0] if parts else ""
+        return [
+            AutocompleteItem(label=short, description=_TOOLS[full][0])
+            for short, full in sorted(_SUBCOMMANDS.items())
+            if short.startswith(prefix)
+        ]
+    return []
+
+
 def register(tau) -> None:
     cfg = tau.config or {}
     config_env = {
@@ -364,6 +409,48 @@ def register(tau) -> None:
 
     for name, (description, model) in _TOOLS.items():
         tau.register_tool(_BridgeTool(name, description, model, config_env))
+
+    async def _sdlc_command(ctx, args: list[str]) -> None:
+        if not args:
+            _emit(
+                ctx,
+                "Usage: /sdlc <subcommand> [text | {json}]\n"
+                f"Subcommands: {', '.join(sorted(_SUBCOMMANDS))}",
+            )
+            return
+
+        short = args[0]
+        tool_name = _SUBCOMMANDS.get(short)
+        if tool_name is None:
+            _emit(ctx, f"Unknown sdlc subcommand '{short}'. Try: {', '.join(sorted(_SUBCOMMANDS))}", "error")
+            return
+
+        rest = " ".join(args[1:]).strip()
+        params: dict = {}
+        if rest.startswith("{"):
+            try:
+                params = json.loads(rest)
+            except json.JSONDecodeError as exc:
+                _emit(ctx, f"Invalid JSON params for /sdlc {short}: {exc}", "error")
+                return
+        elif rest:
+            field = _PRIMARY_FIELD.get(tool_name)
+            if field is None:
+                _emit(ctx, f"'/sdlc {short}' needs JSON params, e.g. /sdlc {short} {{\"run_id\": \"...\"}}", "error")
+                return
+            params = {field: rest}
+
+        cwd = str(getattr(ctx, "cwd", None) or os.getcwd())
+        result = await _run_bridge(tool_name, params, cwd, f"sdlc-cmd-{short}", config_env)
+        _emit(ctx, result.content, "error" if result.is_error else "info")
+
+    tau.register_command(
+        "sdlc",
+        "Run an RStack SDLC subcommand (start, plan, status, approve, ...).",
+        _sdlc_command,
+        get_argument_completions=_sdlc_argument_completions,
+        argument_hint="<subcommand> [text | {json}]",
+    )
 
     @tau.on("tool_call")
     async def _rstack_guard(event, ctx):
