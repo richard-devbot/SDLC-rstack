@@ -267,6 +267,7 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
             default_model: '',
             escalated_model: '',
             slack_webhook: '',
+            quality_gates: '',
           },
         }],
       },
@@ -277,6 +278,7 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
       'Merge rstack-tau.example.json into your Tau settings.json extensions list',
       'Requirements on this host: node + npx on PATH, npm install run once in the package directory',
       'Enforcement: loading the extension IS the wiring — the adapter routes Tau\'s terminal/write/edit tools through `rstack-agents guard` on the tool_call hook (destructive gate + validator sandbox, exit 2 = block).',
+      'Quality gates (opt-in, #256): set the `quality_gates` setting (e.g. "plan,tdd,scope") or RSTACK_TAU_GATES to run the presets on write/edit after guard. OFF by default. tdd-gate blocks production edits with no test — override with RSTACK_ALLOW_NO_TESTS=1. See docs/integrations/quality-gates.md.',
       'Open the dashboard: npx rstack-business',
     );
   }
