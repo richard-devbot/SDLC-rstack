@@ -433,6 +433,7 @@ program
   .option('-f, --framework <framework>', `host framework: ${FRAMEWORKS.join(' | ')} (auto-detected if omitted)`)
   .option('--profile <profile>', 'business workflow profile: business-flex | enterprise-webapp | lean-mvp', 'business-flex')
   .option('--fresh', 'archive existing .rstack state (runs, approvals, registry, config) to .rstack/archive/<timestamp>/ and start clean')
+  .option('--gates <list>', 'OPT-IN quality-gate presets to wire into PreToolUse alongside guard (comma-separated: plan,tdd,scope — or plan-gate,tdd-gate,scope-guard). Off by default. tdd-gate BLOCKS production-code edits with no test.')
   .option('-p, --project <path>', 'project root (defaults to current directory)')
   .action(async (opts) => {
     try {
@@ -441,7 +442,10 @@ program
       if (!opts.framework) {
         console.log(chalk.dim(`[rstack] No --framework given — detected: ${framework}`));
       }
-      const report = await initFramework(projectRoot, framework, { packageRoot: resolve(__dirname, '..'), profile: opts.profile, fresh: opts.fresh === true });
+      // Accept both short (plan,tdd,scope) and full (plan-gate,...) names.
+      const gates = (opts.gates ?? '').split(',').map((g) => g.trim()).filter(Boolean)
+        .map((g) => (g.endsWith('-gate') || g.endsWith('-guard') ? g : g === 'scope' ? 'scope-guard' : `${g}-gate`));
+      const report = await initFramework(projectRoot, framework, { packageRoot: resolve(__dirname, '..'), profile: opts.profile, fresh: opts.fresh === true, gates });
       console.log(chalk.bold(`\n[rstack] init complete — framework: ${report.framework}`));
       console.log(chalk.dim(`[rstack] active profile: ${report.profile}`));
       for (const item of report.created) console.log(chalk.green(`  + ${item}`));

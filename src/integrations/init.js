@@ -148,20 +148,27 @@ const ENV_HINTS = [
   'RSTACK_ESCALATED_MODEL — model used when a task needs attempt >= 2',
 ];
 
-export async function initFramework(projectRoot, framework, { packageRoot, profile = 'business-flex', fresh = false } = {}) {
+export async function initFramework(projectRoot, framework, { packageRoot, profile = 'business-flex', fresh = false, gates = [] } = {}) {
   const root = resolve(projectRoot);
   const fw = framework ?? await detectFramework(root);
   if (!FRAMEWORKS.includes(fw)) {
     throw new Error(`Unknown framework "${fw}". Expected one of: ${FRAMEWORKS.join(', ')}`);
   }
+  const selectedGates = normalizeGates(gates);
 
   const activeProfile = profileConfig(profile);
-  const report = { framework: fw, profile: activeProfile.profile, projectRoot: root, created: [], skipped: [], nextSteps: [] };
+  const report = { framework: fw, profile: activeProfile.profile, projectRoot: root, created: [], skipped: [], nextSteps: [], gates: selectedGates };
   await ensureStateDir(root, report, { fresh });
+  // Persist opt-in quality gates (#256) under hooks.gates so the choice is
+  // recorded in config even for hosts that don't consume the Claude Code hooks
+  // file. Off by default: no `hooks` key is written unless gates were requested.
+  const configObject = selectedGates.length
+    ? { ...activeProfile, hooks: { ...(activeProfile.hooks ?? {}), gates: selectedGates } }
+    : activeProfile;
   await writeIfMissing(
     join(root, '.rstack', 'rstack.config.json'),
-    JSON.stringify(activeProfile, null, 2) + '\n',
-    `.rstack/rstack.config.json (${activeProfile.profile} profile)`,
+    JSON.stringify(configObject, null, 2) + '\n',
+    `.rstack/rstack.config.json (${activeProfile.profile} profile${selectedGates.length ? `, gates: ${selectedGates.join(',')}` : ''})`,
     report,
   );
   await writeIfMissing(
@@ -200,7 +207,9 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
     // when it doesn't exist — never rewrite (or merge into) the user's; if it
     // already exists we drop the snippet next to it and print guidance.
     const settingsPath = join(root, '.claude', 'settings.json');
-    const hookSettings = JSON.stringify(CLAUDE_CODE_HOOKS, null, 2) + '\n';
+    // Opt-in quality gates (#256): guard stays first in PreToolUse; requested
+    // gates are appended after it. No gates → identical to the default shape.
+    const hookSettings = JSON.stringify(buildClaudeCodeHooks({ gates: selectedGates }), null, 2) + '\n';
     const wroteSettings = await writeIfMissing(settingsPath, hookSettings, '.claude/settings.json (SessionStart → Business Hub + rstack-agents context, UserPromptSubmit → context, PreToolUse → rstack-agents guard enforcement, PostToolUse/PostToolUseFailure/SubagentStart/SubagentStop/PreCompact/Stop/SessionEnd → rstack-agents observe, Notification → rstack-agents notify-hook)', report);
     if (!wroteSettings) {
       await writeIfMissing(join(root, '.claude', 'rstack-hooks.json'), hookSettings, '.claude/rstack-hooks.json (merge into your settings.json hooks)', report);
@@ -214,6 +223,9 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
       'Enforcement: the PreToolUse hook routes Bash/Write/Edit through `rstack-agents guard` — destructive actions block until a destructive-action:<taskId> approval exists (docs/integrations/claude-code.md).',
       'Observability: PostToolUse/PostToolUseFailure/SubagentStart/SubagentStop/PreCompact/Stop/SessionEnd feed `rstack-agents observe` — terminal edits, delegated subagents, failures, and compaction now appear in the Business Hub, just like on Pi. Observe never blocks and no-ops when there is no active run.',
       'Notifications: the Notification hook routes host notifications to your configured channels via `rstack-agents notify-hook` (Slack/Teams/Discord — set RSTACK_SLACK_WEBHOOK etc.). No-op if no channels are configured.',
+      selectedGates.length
+        ? `Quality gates (opt-in, #256): ${selectedGates.join(', ')} wired into PreToolUse after guard. tdd-gate BLOCKS production-code edits with no test — override for one call with RSTACK_ALLOW_NO_TESTS=1. See docs/integrations/quality-gates.md.`
+        : 'Quality gates (opt-in, #256): OFF. Enable spec-first / test-first / in-scope discipline with `rstack-agents init --framework claude-code --gates plan,tdd,scope`. See docs/integrations/quality-gates.md.',
     );
   }
 
@@ -318,34 +330,75 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
 const OBSERVE_CMD = 'npx --yes rstack-agents observe --source claude-code';
 const CONTEXT_CMD = 'npx --yes rstack-agents context --source claude-code';
 const NOTIFY_CMD = 'npx --yes rstack-agents notify-hook --source claude-code';
+const GUARD_CMD = 'npx --yes rstack-agents guard --context builder';
 
-export const CLAUDE_CODE_HOOKS = Object.freeze({
-  hooks: {
-    SessionStart: [
-      { hooks: [{ type: 'command', command: 'npx -y rstack-agents hub' }] },
-      { hooks: [{ type: 'command', command: CONTEXT_CMD }] },
-    ],
-    UserPromptSubmit: [{ hooks: [{ type: 'command', command: CONTEXT_CMD }] }],
-    PreToolUse: [{
-      matcher: 'Bash|Write|Edit',
-      hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }],
-    }],
-    PostToolUse: [{
-      matcher: 'Bash|Write|Edit',
-      hooks: [{ type: 'command', command: OBSERVE_CMD }],
-    }],
-    PostToolUseFailure: [{
-      matcher: 'Bash|Write|Edit',
-      hooks: [{ type: 'command', command: OBSERVE_CMD }],
-    }],
-    SubagentStart: [{ hooks: [{ type: 'command', command: OBSERVE_CMD }] }],
-    SubagentStop: [{ hooks: [{ type: 'command', command: OBSERVE_CMD }] }],
-    PreCompact: [{ hooks: [{ type: 'command', command: OBSERVE_CMD }] }],
-    Notification: [{ hooks: [{ type: 'command', command: NOTIFY_CMD }] }],
-    Stop: [{ hooks: [{ type: 'command', command: OBSERVE_CMD }] }],
-    SessionEnd: [{ hooks: [{ type: 'command', command: OBSERVE_CMD }] }],
-  },
-});
+/** The opt-in quality-gate presets (#256). OFF by default — never wired unless requested. */
+export const GATE_PRESETS = Object.freeze(['plan-gate', 'tdd-gate', 'scope-guard']);
+
+/** Which host tools each gate matches (only file-target tools; tdd/plan/scope all gate edits/writes). */
+const GATE_MATCHER = 'Write|Edit|MultiEdit';
+
+/**
+ * Normalize a requested-gates value (array or comma string) to the ordered,
+ * de-duped subset of GATE_PRESETS. Unknown names are dropped (never throws).
+ */
+export function normalizeGates(gates) {
+  const requested = Array.isArray(gates)
+    ? gates
+    : typeof gates === 'string' ? gates.split(',') : [];
+  const wanted = new Set(requested.map((g) => String(g).trim().toLowerCase()).filter(Boolean));
+  return GATE_PRESETS.filter((preset) => wanted.has(preset));
+}
+
+/**
+ * Build the Claude Code hooks object. The PreToolUse array ALWAYS starts with
+ * the guard (always-on enforcement); any requested opt-in quality gates are
+ * appended AFTER it, each as a separate `npx rstack-agents gate <name>` hook.
+ * No gates requested → identical to the pre-#256 shape (pinning-test stable).
+ */
+export function buildClaudeCodeHooks({ gates = [] } = {}) {
+  const selected = normalizeGates(gates);
+  const preToolUse = [{
+    matcher: 'Bash|Write|Edit',
+    hooks: [{ type: 'command', command: GUARD_CMD }],
+  }];
+  for (const gate of selected) {
+    preToolUse.push({
+      matcher: GATE_MATCHER,
+      hooks: [{ type: 'command', command: `npx --yes rstack-agents gate ${gate}` }],
+    });
+  }
+  return {
+    hooks: {
+      SessionStart: [
+        { hooks: [{ type: 'command', command: 'npx -y rstack-agents hub' }] },
+        { hooks: [{ type: 'command', command: CONTEXT_CMD }] },
+      ],
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: CONTEXT_CMD }] }],
+      PreToolUse: preToolUse,
+      PostToolUse: [{
+        matcher: 'Bash|Write|Edit',
+        hooks: [{ type: 'command', command: OBSERVE_CMD }],
+      }],
+      PostToolUseFailure: [{
+        matcher: 'Bash|Write|Edit',
+        hooks: [{ type: 'command', command: OBSERVE_CMD }],
+      }],
+      SubagentStart: [{ hooks: [{ type: 'command', command: OBSERVE_CMD }] }],
+      SubagentStop: [{ hooks: [{ type: 'command', command: OBSERVE_CMD }] }],
+      PreCompact: [{ hooks: [{ type: 'command', command: OBSERVE_CMD }] }],
+      Notification: [{ hooks: [{ type: 'command', command: NOTIFY_CMD }] }],
+      Stop: [{ hooks: [{ type: 'command', command: OBSERVE_CMD }] }],
+      SessionEnd: [{ hooks: [{ type: 'command', command: OBSERVE_CMD }] }],
+    },
+  };
+}
+
+/**
+ * The default (no gates) Claude Code hooks — the exact shape init installs when
+ * `--gates` is not passed. Exported (frozen) so tests + docs pin the contract.
+ */
+export const CLAUDE_CODE_HOOKS = Object.freeze(buildClaudeCodeHooks());
 
 const CLAUDE_CODE_DOC = `# RStack SDLC — Claude Code integration
 
