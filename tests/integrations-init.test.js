@@ -10,7 +10,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detectFramework, initFramework, FRAMEWORKS, BOOTSTRAP_BY_FRAMEWORK, CLAUDE_CODE_HOOKS } from '../src/integrations/init.js';
+import { detectFramework, initFramework, FRAMEWORKS, BOOTSTRAP_BY_FRAMEWORK, CLAUDE_CODE_HOOKS, buildClaudeCodeHooks, normalizeGates, GATE_PRESETS } from '../src/integrations/init.js';
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -205,6 +205,62 @@ test('init framework detection and setup', async (t) => {
     assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents context')), 'guidance mentions context');
     assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents notify-hook')), 'guidance mentions notify-hook');
     rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('opt-in quality gates (#256): OFF by default; guard alone in PreToolUse', async () => {
+    const root = tmpProject('rstack-init-gates-off-');
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    const report = await initFramework(root, 'claude-code', { packageRoot: PACKAGE_ROOT });
+    const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8'));
+    // No gates → exactly the pinned default (guard is the only PreToolUse hook).
+    assert.deepEqual(settings, CLAUDE_CODE_HOOKS, 'default shape unchanged when no gates requested');
+    assert.equal(settings.hooks.PreToolUse.length, 1, 'only guard in PreToolUse');
+    assert.equal(report.gates.length, 0, 'no gates recorded');
+    // No hooks.gates persisted in config when none requested.
+    const config = JSON.parse(readFileSync(join(root, '.rstack', 'rstack.config.json'), 'utf8'));
+    assert.ok(!config.hooks?.gates, 'no hooks.gates written by default');
+    assert.ok(report.nextSteps.some((s) => /Quality gates.*OFF/.test(s)), 'guidance says gates are off');
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('opt-in quality gates (#256): --gates appends gate hooks AFTER guard', async () => {
+    const root = tmpProject('rstack-init-gates-on-');
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    const report = await initFramework(root, 'claude-code', { packageRoot: PACKAGE_ROOT, gates: ['plan-gate', 'tdd-gate', 'scope-guard'] });
+    const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8'));
+    const pre = settings.hooks.PreToolUse;
+    assert.equal(pre.length, 4, 'guard + 3 gates');
+    assert.equal(pre[0].hooks[0].command, 'npx --yes rstack-agents guard --context builder', 'guard stays FIRST');
+    assert.equal(pre[1].hooks[0].command, 'npx --yes rstack-agents gate plan-gate');
+    assert.equal(pre[2].hooks[0].command, 'npx --yes rstack-agents gate tdd-gate');
+    assert.equal(pre[3].hooks[0].command, 'npx --yes rstack-agents gate scope-guard');
+    // gate hooks match Write|Edit|MultiEdit (not Bash — gates apply to file edits).
+    assert.equal(pre[1].matcher, 'Write|Edit|MultiEdit');
+    // Every non-PreToolUse hook is identical to the default.
+    for (const key of ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SessionEnd', 'Notification']) {
+      assert.deepEqual(settings.hooks[key], CLAUDE_CODE_HOOKS.hooks[key], `${key} unchanged`);
+    }
+    // Persisted to config for non-Claude-Code hosts.
+    const config = JSON.parse(readFileSync(join(root, '.rstack', 'rstack.config.json'), 'utf8'));
+    assert.deepEqual(config.hooks.gates, ['plan-gate', 'tdd-gate', 'scope-guard']);
+    assert.deepEqual(report.gates, ['plan-gate', 'tdd-gate', 'scope-guard']);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('buildClaudeCodeHooks + normalizeGates contract', () => {
+    assert.deepEqual(GATE_PRESETS, ['plan-gate', 'tdd-gate', 'scope-guard']);
+    assert.deepEqual(buildClaudeCodeHooks(), CLAUDE_CODE_HOOKS, 'no args = frozen default');
+    assert.deepEqual(buildClaudeCodeHooks({ gates: [] }), CLAUDE_CODE_HOOKS, 'empty gates = default');
+    // Order follows GATE_PRESETS regardless of request order; unknowns dropped.
+    const built = buildClaudeCodeHooks({ gates: ['scope-guard', 'unknown', 'plan-gate'] });
+    const cmds = built.hooks.PreToolUse.map((h) => h.hooks[0].command);
+    assert.deepEqual(cmds, [
+      'npx --yes rstack-agents guard --context builder',
+      'npx --yes rstack-agents gate plan-gate',
+      'npx --yes rstack-agents gate scope-guard',
+    ]);
+    assert.deepEqual(normalizeGates('tdd,unknown'), [], 'short names are NOT normalized here (CLI does that) — unknown dropped');
+    assert.deepEqual(normalizeGates('tdd-gate'), ['tdd-gate']);
   });
 
   await t.test('init claude-code never touches an existing settings.json — snippet + guidance instead', async () => {

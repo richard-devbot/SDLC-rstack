@@ -37,6 +37,12 @@ that shape twice:
      system prompt so a Tau agent is RStack-aware, the analog of Claude Code's
      UserPromptSubmit/SessionStart context hooks. It is best-effort with a hard
      timeout and returns no override on any failure — it can never block a turn.
+  5. Opt-in quality gates (#256): when the `quality_gates` extension setting (or
+     RSTACK_TAU_GATES env) names presets (plan-gate/tdd-gate/scope-guard), the
+     `tool_call` hook runs each via `rstack-agents gate <name>` on write/edit
+     tools AFTER guard. OFF by default. Only tdd-gate ever blocks (exit 2), and
+     it is always overridable (RSTACK_ALLOW_NO_TESTS=1 or an audited approval),
+     so a gate can never dead-end a session.
 
 Tau events RStack does NOT wire (they do not exist in Tau's hook model):
   - There is no delegated-SUBAGENT lifecycle event. Tau's `agent_start` /
@@ -96,6 +102,32 @@ _GUARD_TOOL_MAP = {
     "write": ("Write", "path"),
     "edit": ("Edit", "path"),
 }
+
+# Opt-in quality gates (#256). OFF by default; enabled via the extension setting
+# `quality_gates` (comma string or list of plan-gate|tdd-gate|scope-guard) or the
+# RSTACK_TAU_GATES env. Only file-write/edit tools are gated (not `terminal`).
+_GATE_TOOL_MAP = {
+    "write": ("Write", "path"),
+    "edit": ("Edit", "path"),
+}
+_KNOWN_GATES = ("plan-gate", "tdd-gate", "scope-guard")
+
+
+def _resolve_gates() -> list[str]:
+    """Ordered, de-duped list of enabled quality-gate presets. Env/settings both
+    accepted; unknown names dropped. Returns [] when gates are off (the default)."""
+    raw = os.environ.get("RSTACK_TAU_GATES", "")
+    wanted = {g.strip().lower() for g in raw.split(",") if g.strip()}
+    # Normalize short aliases (tdd → tdd-gate, scope → scope-guard).
+    normalized: set[str] = set()
+    for g in wanted:
+        if g in _KNOWN_GATES:
+            normalized.add(g)
+        elif g == "scope":
+            normalized.add("scope-guard")
+        elif g in ("plan", "tdd"):
+            normalized.add(f"{g}-gate")
+    return [g for g in _KNOWN_GATES if g in normalized]
 
 
 def _launch_business_hub() -> None:
@@ -381,6 +413,34 @@ async def _run_guard(guard_tool_name: str, tool_input: dict, cwd: str) -> tuple[
     return True, ""
 
 
+async def _run_gate(gate_name: str, guard_tool_name: str, tool_input: dict, cwd: str) -> tuple[bool, str]:
+    """Run one OPT-IN quality gate via `rstack-agents gate <name>` (#256).
+
+    Same contract as _run_guard: exit 2 blocks (returns False + reason), any
+    other exit allows. Only tdd-gate ever blocks; it is always overridable
+    (RSTACK_ALLOW_NO_TESTS=1 or an audited approval), so this can never
+    dead-end a session. Fails OPEN when npx is unreachable.
+    """
+    npx = shutil.which("npx")
+    if npx is None:
+        return True, ""
+    payload = json.dumps({"tool_name": guard_tool_name, "tool_input": tool_input}).encode("utf-8")
+    proc = await asyncio.create_subprocess_exec(
+        npx, "--yes", "rstack-agents", "gate", gate_name, "--project", cwd,
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        env=os.environ, cwd=cwd,
+    )
+    out, err = await proc.communicate(payload)
+    if proc.returncode == 2:
+        reason = (
+            err.decode("utf-8", "replace").strip()
+            or out.decode("utf-8", "replace").strip()
+            or f"RStack {gate_name} blocked this tool call."
+        )
+        return False, reason
+    return True, ""
+
+
 # Background observe tasks — kept referenced so the event loop can't GC them
 # mid-flight; discarded on completion. (#253)
 _OBSERVE_TASKS: set = set()
@@ -507,6 +567,18 @@ def register(tau) -> None:
     for name, (description, model) in _TOOLS.items():
         tau.register_tool(_BridgeTool(name, description, model, config_env))
 
+    # Opt-in quality gates (#256): a `quality_gates` extension setting is merged
+    # into RSTACK_TAU_GATES so `_resolve_gates()` (env-driven) sees it. OFF
+    # unless configured — the default returns [] and the tool_call hook below
+    # runs guard only, exactly as before.
+    _gates_setting = cfg.get("quality_gates")
+    if _gates_setting is not None:
+        if isinstance(_gates_setting, (list, tuple)):
+            os.environ["RSTACK_TAU_GATES"] = ",".join(str(g) for g in _gates_setting)
+        else:
+            os.environ["RSTACK_TAU_GATES"] = str(_gates_setting)
+    enabled_gates = _resolve_gates()
+
     async def _sdlc_command(ctx, args: list[str]) -> None:
         if not args:
             _emit(
@@ -568,6 +640,20 @@ def register(tau) -> None:
         allowed, reason = await _run_guard(guard_tool_name, tool_input, str(ctx.cwd))
         if not allowed:
             return ToolCallEventResult(block=True, reason=reason)
+
+        # Opt-in quality gates (#256): run AFTER guard, only on file-write/edit
+        # tools, only when enabled. Only tdd-gate ever blocks (exit 2), and it is
+        # always overridable — never a dead-end. plan/scope warn on stderr (which
+        # the model does not see here) and exit 0, so they pass through silently.
+        if enabled_gates:
+            gate_mapping = _GATE_TOOL_MAP.get(event.tool_name)
+            if gate_mapping is not None:
+                gate_tool_name, gate_field = gate_mapping
+                gate_input = {gate_field: (event.input or {}).get(gate_field, "")}
+                for gate_name in enabled_gates:
+                    ok, gate_reason = await _run_gate(gate_name, gate_tool_name, gate_input, str(ctx.cwd))
+                    if not ok:
+                        return ToolCallEventResult(block=True, reason=gate_reason)
         return None
 
     @tau.on("tool_result")

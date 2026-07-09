@@ -174,6 +174,43 @@ test('doctor', async (t) => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  await t.test('quality gates (#256): doctor reports wired gates (PASS, informational)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-gates-'));
+    seedRstack(root);
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          { matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] },
+          { matcher: 'Write|Edit|MultiEdit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents gate tdd-gate' }] },
+        ],
+      },
+    }));
+    const { json, code } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
+    const gates = checkByName(json, 'claude-code quality gates');
+    assert.equal(gates.status, 'PASS', 'gates check is informational PASS, never FAIL');
+    assert.match(gates.detail, /tdd-gate/);
+    // Gates are opt-in — their absence must never fail doctor.
+    assert.notEqual(code, 1, 'wired gates do not fail doctor');
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('quality gates (#256): no gates wired is still PASS (opt-in)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-nogates-'));
+    seedRstack(root);
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
+      },
+    }));
+    const { json } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
+    const gates = checkByName(json, 'claude-code quality gates');
+    assert.equal(gates.status, 'PASS');
+    assert.match(gates.detail, /no opt-in quality gates|--gates/i);
+    rmSync(root, { recursive: true, force: true });
+  });
+
   await t.test('claude-code with guard + observe hooks: both PASS', async () => {
     const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-ccobs-'));
     seedRstack(root);

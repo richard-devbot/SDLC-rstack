@@ -237,7 +237,20 @@ function checkClaudeCodeWiring(projectRoot) {
       'no Notification hook invoking `rstack-agents notify-hook` — host notifications will NOT reach your Slack/Teams/Discord channels (everything else still works)',
       'rstack-agents init --framework claude-code (adds the Notification hook)');
 
-  return [guardCheck, observeCheck, contextCheck, notifyCheck];
+  // Quality gates (#256): OPT-IN, so this is purely INFORMATIONAL — never a
+  // FAIL and never a WARN. We report which presets (if any) are wired into
+  // PreToolUse alongside guard so `doctor` answers "are my gates on?".
+  const preToolUseText = JSON.stringify(Array.isArray(preToolUse) ? preToolUse : []);
+  const wiredGates = ['plan-gate', 'tdd-gate', 'scope-guard'].filter(
+    (g) => preToolUseText.includes(`gate ${g}`),
+  );
+  const gatesCheck = wiredGates.length
+    ? check('claude-code quality gates', PASS,
+      `opt-in quality gates wired: ${wiredGates.join(', ')}${wiredGates.includes('tdd-gate') ? ' (tdd-gate BLOCKS production edits with no test — override: RSTACK_ALLOW_NO_TESTS=1)' : ''}`)
+    : check('claude-code quality gates', PASS,
+      'no opt-in quality gates wired (default). Enable with `rstack-agents init --framework claude-code --gates plan,tdd,scope`');
+
+  return [guardCheck, observeCheck, contextCheck, notifyCheck, gatesCheck];
 }
 
 function checkPiWiring() {

@@ -21,6 +21,7 @@ import { envScan, formatEnvScan } from '../src/commands/env-scan.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
 import { runGuardCommand, readStdinText } from '../src/commands/guard.js';
+import { runGateCommand, readStdinText as readGateStdin, GATE_NAMES } from '../src/commands/gate.js';
 import { runObserveCommand, readStdinText as readObserveStdin } from '../src/commands/observe.js';
 import { runContextCommand, readStdinText as readContextStdin } from '../src/commands/context.js';
 import { runNotifyHookCommand, readStdinText as readNotifyStdin } from '../src/commands/notify-hook.js';
@@ -282,6 +283,24 @@ program
   });
 
 program
+  .command('gate <name>')
+  .description(`OPT-IN quality-gate preset as a PreToolUse hook (#256): ${GATE_NAMES.join(' | ')}. Reads Claude Code tool JSON on stdin; plan-gate/scope-guard WARN (exit 0), tdd-gate BLOCKs production-code edits with no test (exit 2, overridable via RSTACK_ALLOW_NO_TESTS=1 or an audited no-tests:<taskId>/guardrail-override:<taskId> approval). OFF by default — wire with 'init --gates ...' or .rstack/rstack.config.json hooks.gates. Unknown gate/malformed input → allow.`)
+  .option('--task <taskId>', 'task id keying the tdd-gate override approval (default: RSTACK_TASK_ID env)')
+  .option('-p, --project <path>', 'project root (defaults to RSTACK_PROJECT_ROOT env, else current directory)')
+  .option('-r, --run-id <runId>', 'run whose plan/approvals the gate consults (defaults to RSTACK_RUN_ID env, else latest)')
+  .action(async (name, opts) => {
+    try {
+      const stdinText = await readGateStdin();
+      process.exit(await runGateCommand(name, opts, { stdinText }));
+    } catch (err) {
+      // A gate must NEVER dead-end a session on an unexpected error — allow loudly.
+      process.stderr.write(`[rstack gate] internal error before evaluation (allowing): ${err.message}\n`);
+      process.stdout.write(`${JSON.stringify({ decision: 'allow', gate: String(name ?? ''), reason: 'internal error (allowed)' })}\n`);
+      process.exit(0);
+    }
+  });
+
+program
   .command('observe')
   .description('Framework-neutral observability writer (#251): append one normalized tool_call/tool_result/session event to the active run\'s events.jsonl so the Business Hub mirrors terminal activity on ANY harness. Reads a Claude Code PostToolUse/Stop/SessionEnd hook payload on stdin, or takes --event-type/--tool/--summary flags. Best-effort: NEVER blocks, always exits 0. No active run = silent no-op.')
   .option('--event-type <type>', 'normalized event type: tool_call | tool_result | session_shutdown (default: inferred from the payload)')
@@ -414,6 +433,7 @@ program
   .option('-f, --framework <framework>', `host framework: ${FRAMEWORKS.join(' | ')} (auto-detected if omitted)`)
   .option('--profile <profile>', 'business workflow profile: business-flex | enterprise-webapp | lean-mvp', 'business-flex')
   .option('--fresh', 'archive existing .rstack state (runs, approvals, registry, config) to .rstack/archive/<timestamp>/ and start clean')
+  .option('--gates <list>', 'OPT-IN quality-gate presets to wire into PreToolUse alongside guard (comma-separated: plan,tdd,scope — or plan-gate,tdd-gate,scope-guard). Off by default. tdd-gate BLOCKS production-code edits with no test.')
   .option('-p, --project <path>', 'project root (defaults to current directory)')
   .action(async (opts) => {
     try {
@@ -422,7 +442,10 @@ program
       if (!opts.framework) {
         console.log(chalk.dim(`[rstack] No --framework given — detected: ${framework}`));
       }
-      const report = await initFramework(projectRoot, framework, { packageRoot: resolve(__dirname, '..'), profile: opts.profile, fresh: opts.fresh === true });
+      // Accept both short (plan,tdd,scope) and full (plan-gate,...) names.
+      const gates = (opts.gates ?? '').split(',').map((g) => g.trim()).filter(Boolean)
+        .map((g) => (g.endsWith('-gate') || g.endsWith('-guard') ? g : g === 'scope' ? 'scope-guard' : `${g}-gate`));
+      const report = await initFramework(projectRoot, framework, { packageRoot: resolve(__dirname, '..'), profile: opts.profile, fresh: opts.fresh === true, gates });
       console.log(chalk.bold(`\n[rstack] init complete — framework: ${report.framework}`));
       console.log(chalk.dim(`[rstack] active profile: ${report.profile}`));
       for (const item of report.created) console.log(chalk.green(`  + ${item}`));
