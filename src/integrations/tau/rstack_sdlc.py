@@ -22,6 +22,13 @@ that shape twice:
      "cancel before execution" mechanism that guard wiring needs, so — unlike
      Operator or Claude Code — no host-side hook config is required; loading
      this extension is the wiring.
+  3. Observability (#251): Tau's post-execution `tool_result` hook feeds
+     `rstack-agents observe`, which appends a normalized `tool_result` event to
+     the active run's events.jsonl (the same shape Pi writes, source="tau") so
+     the Business Hub mirrors Tau terminal activity. The pre-execution
+     `tool_call` hook also emits a `tool_call` INTENT event even when a call is
+     allowed, so activity shows in the dashboard even if the call is later
+     blocked. Both are best-effort and can never disrupt a Tau session.
 
 Requirements on the host:
   - node + npx on PATH
@@ -356,6 +363,30 @@ async def _run_guard(guard_tool_name: str, tool_input: dict, cwd: str) -> tuple[
     return True, ""
 
 
+async def _emit_observation(payload: dict, cwd: str) -> None:
+    """Feed one observability event to `rstack-agents observe` (#251).
+
+    Best-effort and completely non-disruptive: `observe` always exits 0, no-ops
+    when there is no active run, and redacts secrets. We never await its result
+    beyond letting the subprocess finish, and we swallow every error — a broken
+    observability write must never surface in a Tau session. Mirrors the
+    Pi/Claude Code contract: activity shows in the Business Hub, enforcement is
+    untouched.
+    """
+    npx = shutil.which("npx")
+    if npx is None:
+        return
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            npx, "--yes", "rstack-agents", "observe", "--source", "tau", "--project", cwd,
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            env=os.environ, cwd=cwd,
+        )
+        await proc.communicate(json.dumps(payload).encode("utf-8"))
+    except Exception:
+        pass  # observability is additive — never let it break a session
+
+
 def _emit(ctx, text: str, level: str = "info") -> None:
     if getattr(ctx, "ui", None) is not None:
         ctx.ui.notify(text, level)
@@ -454,6 +485,18 @@ def register(tau) -> None:
 
     @tau.on("tool_call")
     async def _rstack_guard(event, ctx):
+        # Observability (#251): emit a tool_call INTENT event for every tool,
+        # BEFORE the guard verdict, so activity reaches the Business Hub even
+        # when the call is subsequently blocked. Best-effort — never awaited for
+        # a result, never allowed to raise.
+        try:
+            await _emit_observation(
+                {"tool_name": event.tool_name, "tool_input": event.input or {}, "hook_event_name": "PreToolUse"},
+                str(ctx.cwd),
+            )
+        except Exception:
+            pass
+
         mapping = _GUARD_TOOL_MAP.get(event.tool_name)
         if mapping is None:
             return None
@@ -462,4 +505,24 @@ def register(tau) -> None:
         allowed, reason = await _run_guard(guard_tool_name, tool_input, str(ctx.cwd))
         if not allowed:
             return ToolCallEventResult(block=True, reason=reason)
+        return None
+
+    @tau.on("tool_result")
+    async def _rstack_observe_result(event, ctx):
+        # Post-execution observability (#251): Tau exposes a real tool_result
+        # hook, so we record the outcome (source="tau") exactly like Pi's
+        # tool_result event. Purely additive — returns None so the result is
+        # never modified, and never raises.
+        try:
+            await _emit_observation(
+                {
+                    "tool_name": event.tool_name,
+                    "hook_event_name": "PostToolUse",
+                    "content": event.content,
+                    "is_error": bool(getattr(event, "is_error", False)),
+                },
+                str(ctx.cwd),
+            )
+        except Exception:
+            pass
         return None
