@@ -28,6 +28,29 @@ checkpoints, approvals, memory) with zero reimplementation. Before you ship
 an adapter, walk the conformance checklist in
 [adapter-contract.md](adapter-contract.md).
 
+**Wire enforcement** into your host's tool-call hook so destructive actions are
+gated (the same guard Pi/Claude Code/Tau use):
+
+```bash
+echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/x"}}' | npx rstack-agents guard --context builder   # exit 2 = block
+```
+
+[wire-your-own-harness.md](wire-your-own-harness.md) has a paste-in prompt your
+coding agent can follow to do the wiring for you.
+
+## Verify
+
+```bash
+npx rstack-agents init --framework custom
+npx rstack-agents doctor --framework custom
+```
+
+`doctor` checks the environment, `.rstack/` config, that the bridge and guard
+are reachable, and runs a live guard self-test — every failure prints its fix.
+The harness-agnostic CLI (`pipeline status/run/loop`, `adopt`, `decisions`,
+`dor`, `npx rstack-business`) works regardless of host:
+[README.md → Everyday commands](README.md#everyday-commands-any-framework).
+
 ## Level 2 — speak the state contract directly
 
 All state lives under `.rstack/runs/<run_id>/`:

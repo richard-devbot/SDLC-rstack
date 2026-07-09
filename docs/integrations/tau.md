@@ -64,11 +64,24 @@ is forwarded to the bridge per tool call.
 ## Verify
 
 ```bash
+npx rstack-agents doctor --framework tau
+```
+
+All-PASS confirms the adapter, the Node bridge, the guard self-test, and the
+hub — every failure prints its fix. To exercise the bridge directly:
+
+```bash
 RSTACK_PROJECT_ROOT=$(pwd) npx tsx node_modules/rstack-agents/bin/rstack-bridge.ts sdlc_status '{}'
 ```
 
-A JSON run summary on stdout means the bridge, adapter, and harness all work.
-Then, inside a Tau session, ask it to run
-`rm -rf /tmp/rstack-guard-check` — the guard should block it with a
-`destructive-action:<taskId>` approval reason, proving the `tool_call` hook
-is live.
+A JSON run summary means the bridge, adapter, and harness all work. Then,
+inside a Tau session, ask it to run `rm -rf /tmp/rstack-guard-check` — the
+guard blocks it with a `destructive-action:<taskId>` reason, proving the
+`tool_call` hook is live.
+
+## Everyday commands
+
+Inside Tau: the `/sdlc` slash command (above) and the `sdlc_*` tools. From your
+terminal: the harness-agnostic CLI — `pipeline status`, `pipeline run`,
+`pipeline loop`, `adopt`, `decisions`, `dor`, `doctor`, `npx rstack-business`.
+Full table: [README.md → Everyday commands](README.md#everyday-commands-any-framework).

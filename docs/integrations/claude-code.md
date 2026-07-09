@@ -76,7 +76,15 @@ blocks the call on exit 2 and shows the guard's stderr reason to the model.
 work), and session-start orchestrator packet injection. The enforcement
 policy itself — destructive gate + validator sandbox — is identical.
 
-Try it:
+## Verify
+
+```bash
+npx rstack-agents doctor --framework claude-code
+```
+
+This checks the PreToolUse hook is wired and runs a live guard self-test
+(blocks `rm -rf`, allows `ls`); a missing hook prints the exact snippet to add.
+Try the guard by hand too:
 
 ```bash
 npx rstack-agents guard --explain --command "rm -rf /tmp/x"   # classify only, exit 0

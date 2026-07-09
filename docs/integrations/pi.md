@@ -15,6 +15,15 @@ npx rstack-agents init --framework pi
 
 That's it. The next Pi session in this project has every `sdlc_*` tool.
 
+## Verify
+
+```bash
+npx rstack-agents doctor --framework pi
+```
+
+All-PASS means the extension is discoverable, the guard self-test blocked a
+destructive command, and the hub is reachable. Every failure prints its fix.
+
 ## What you get
 
 | Tool | Purpose |
@@ -41,3 +50,11 @@ Slash commands: `/sdlc`, `/sdlc-agents`, `/sdlc-dashboard`, `/sdlc-trace`,
 
 `sdlc_delegate` spawns builder agents with a Pi-compatible CLI. Configure via
 `RSTACK_WORKER_COMMAND`, `RSTACK_DEFAULT_MODEL`, `RSTACK_ESCALATED_MODEL`.
+
+## Everyday commands
+
+Inside a Pi session you drive RStack with the `sdlc_*` tools and `/sdlc*`
+slash commands above. From your terminal, the harness-agnostic CLI works too —
+`pipeline status`, `pipeline run`, `pipeline loop`, `adopt`, `decisions`,
+`dor`, `doctor`, and `npx rstack-business`. See the full table in
+[README.md → Everyday commands](README.md#everyday-commands-any-framework).

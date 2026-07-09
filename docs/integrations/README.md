@@ -38,6 +38,42 @@ contracts, evidence, approvals — and the same Business Hub dashboard:
 npx rstack-business   # multi-project observability on :3008
 ```
 
+## Everyday commands (any framework)
+
+These CLI commands work the same on every harness — they operate on `.rstack/`
+state directly, so they behave identically whether you run Pi, Claude Code,
+Operator, Tau, or a custom host. Run them from your project root.
+
+| Command | What it does |
+|---|---|
+| `npx rstack-agents init [--framework <x>]` | Set up RStack in this project (auto-detects the host) |
+| `npx rstack-agents doctor [--framework <x>]` | Verify setup + prove enforcement is live; every failure prints its fix. Run this first |
+| `npx rstack-agents pipeline status` | Authoritative run state in the terminal (`--json` for machines, `--regenerate` to rebuild) |
+| `npx rstack-agents pipeline run [--dry-run]` | Advance the run: skip DONE work, re-claim retryable failures, stop at every human gate |
+| `npx rstack-agents pipeline loop --goal <file>` | Bounded goal loop (default 3 iterations, hard cap 20, budget brake, no-progress stop) |
+| `npx rstack-agents adopt [--dry-run]` | Brownfield: harvest an existing codebase into stages 00–06 (`--dry-run` writes nothing) |
+| `npx rstack-agents decisions [--add\|--resolve\|--waive]` | Manage the Decision Queue that gates later stages |
+| `npx rstack-agents dor --stage <id>` | Run the Definition-of-Ready gate for a stage |
+| `npx rstack-agents env scan [--json]` | Detect run mode + tools + setup needs for stage 00 |
+| `npx rstack-agents guard` | The enforcement gate any tool-call hook calls (stdin PreToolUse JSON → exit 0 allow / exit 2 block) |
+| `npx rstack-agents notify --test` | Send a test message to every configured notification channel |
+| `npx rstack-agents list agents\|skills\|plugins` | Browse the packaged catalog |
+| `npx rstack-agents validate` | Validate all packaged agent definitions |
+| `npx rstack-business` | Launch the Business Hub dashboard on :3008 |
+
+**First five minutes on any harness** — copy-paste, run outside this repo:
+
+```bash
+mkdir ~/rstack-test && cd ~/rstack-test          # a scratch project, NOT the rstack-agents repo
+npm install rstack-agents
+npx rstack-agents init --framework <pi|claude-code|operator|tau|custom>
+npx rstack-agents doctor --framework <same>       # all PASS = you are ready
+npx rstack-business                                # watch runs live on :3008
+```
+
+Per-framework "test in 5 minutes" walkthroughs (with a real governed action)
+live in [testing-matrix.md](testing-matrix.md).
+
 ## Detection rules
 
 `init` without `--framework` picks:
