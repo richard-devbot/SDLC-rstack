@@ -233,3 +233,25 @@ test('sanitizeInput: drops secret keys, omits content, keeps safe paths', () => 
   assert.ok(String(out.content).includes('omitted'));
   assert.equal(out.command, 'ls');
 });
+
+// --- concurrency: parallel bursts must keep events.jsonl valid -------------
+// PostToolBatch / rapid tool calls fire multiple observe subprocesses at the
+// same run. The withFileLock append must serialize them so every line stays
+// parseable JSON and none are lost — and each must still exit 0 promptly.
+
+test('parallel observe writes to one run keep events.jsonl valid JSONL', async () => {
+  const { root, runDir } = seedProject({ runId: 'run-concurrency' });
+  const N = 12;
+  const payload = (i) => JSON.stringify({
+    hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: `echo ${i}` },
+  });
+  const results = await Promise.all(
+    Array.from({ length: N }, (_, i) =>
+      runObserve(['--source', 'claude-code'], { input: payload(i), env: { RSTACK_PROJECT_ROOT: root } })),
+  );
+  for (const r of results) assert.equal(r.code, 0, 'every observe exits 0 even under contention');
+  // No partial/corrupt lines: readEvents JSON.parses every non-empty line.
+  const events = readEvents(runDir);
+  assert.equal(events.length, N, 'every parallel append landed, none lost or merged');
+  for (const ev of events) assert.equal(ev.type, 'tool_result', 'PostToolUse maps to tool_result');
+});
