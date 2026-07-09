@@ -155,6 +155,7 @@ test('doctor', async (t) => {
     mkdirSync(join(root, '.claude'), { recursive: true });
     // The exact shape init installs.
     writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
+      statusLine: { type: 'command', command: 'npx --yes rstack-agents statusline --source claude-code' },
       hooks: {
         SessionStart: [
           { hooks: [{ type: 'command', command: 'npx -y rstack-agents hub' }] },
@@ -171,6 +172,28 @@ test('doctor', async (t) => {
     assert.equal(checkByName(json, 'claude-code observability hook').status, 'PASS');
     assert.equal(checkByName(json, 'claude-code context hook').status, 'PASS');
     assert.equal(checkByName(json, 'claude-code notification hook').status, 'PASS');
+    // Status line (#257): wired → informational PASS naming the statusline command.
+    const statusline = checkByName(json, 'claude-code status line');
+    assert.equal(statusline.status, 'PASS');
+    assert.match(statusline.detail, /statusLine|rstack-agents statusline/);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('status line (#257): missing statusLine key is still PASS (optional, display-only)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-nostatusline-'));
+    seedRstack(root);
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    // Guard wired, but NO statusLine key.
+    writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
+      },
+    }));
+    const { json, code } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
+    const statusline = checkByName(json, 'claude-code status line');
+    assert.equal(statusline.status, 'PASS', 'status line is informational — never FAIL/WARN');
+    assert.match(statusline.detail, /no statusLine|init --framework claude-code/i);
+    assert.notEqual(code, 1, 'a missing status line never fails doctor');
     rmSync(root, { recursive: true, force: true });
   });
 

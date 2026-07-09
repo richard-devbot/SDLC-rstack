@@ -236,6 +236,7 @@ RStack does not require hooks. Enable only what you want:
 | Claude PreToolUse | Enforcement guard — destructive gate + validator sandbox at tool-call time | Written by `init --framework claude-code`; snippet in `docs/integrations/claude-code.md` |
 | Claude PostToolUse / PostToolUseFailure / SubagentStart / SubagentStop / PreCompact / Stop / SessionEnd | Observability writer (`rstack-agents observe`) — tool results, delegated subagents, failures, compaction, session end into the run ledger | Written by `init --framework claude-code` |
 | Claude Notification | Route host notifications to your channels (`rstack-agents notify-hook`) | Written by `init --framework claude-code` |
+| Claude statusLine | Live RStack status bar (`rstack-agents statusline`) — run + stage, approvals, open decisions | Written by `init --framework claude-code` (top-level `statusLine` key) |
 | Pi lifecycle | Tool gating, stage events, contract enforcement | Automatic when using Pi extension |
 | HEARTBEAT.md | Periodic approval/budget/stall checks | Wire into your harness cron or idle trigger |
 
@@ -400,6 +401,7 @@ The dashboard derives everything from real `.rstack` files — no fake demo stat
 | `rstack-agents observe` | Observability hook: append a normalized event (tool result, subagent, compaction, session) to the run ledger — never blocks, exit 0 |
 | `rstack-agents context` | Context hook: emit the RStack packet (run + stage + blockers + orchestrator pointer) for UserPromptSubmit/SessionStart — never blocks, exit 0 |
 | `rstack-agents notify-hook` | Notification hook: route a host notification to configured channels — never blocks, exit 0 |
+| `rstack-agents statusline` | Claude Code statusLine command: print ONE live status-bar line (run + stage, ✔approved/⧗pending approvals, ◇open decisions) — display-only, exit 0 |
 | `rstack-agents notify --test` | Test Slack/Teams/Discord/Telegram/WhatsApp notifications |
 | `rstack-agents inventory` | Generate a backend control-plane registry report |
 | `rstack-agents adopt` | Adopt an existing codebase — harvest evidence into a resumable pipeline run (`--dry-run` plans without writing) |

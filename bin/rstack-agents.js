@@ -25,6 +25,7 @@ import { runGateCommand, readStdinText as readGateStdin, GATE_NAMES } from '../s
 import { runObserveCommand, readStdinText as readObserveStdin } from '../src/commands/observe.js';
 import { runContextCommand, readStdinText as readContextStdin } from '../src/commands/context.js';
 import { runNotifyHookCommand, readStdinText as readNotifyStdin } from '../src/commands/notify-hook.js';
+import { runStatuslineCommand, readStdinText as readStatuslineStdin } from '../src/commands/statusline.js';
 import { runDoctor, formatDoctorReport, DOCTOR_FRAMEWORKS } from '../src/commands/doctor.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
 import { notifyAll, resolveChannels, formatSlackStageMessage } from '../src/notifications/index.js';
@@ -382,6 +383,31 @@ program
     } catch (err) {
       // Rule (a)/(b): the relay must NEVER disrupt a session. Any failure exits 0.
       if (opts.verbose) process.stderr.write(`[rstack notify-hook] internal error (ignored): ${err.message}\n`);
+      process.exit(0);
+    }
+  });
+
+program
+  .command('statusline')
+  .description('Claude Code statusLine command (#257): render a compact, live RStack status line — active run + stage, ✔approved/⧗pending approvals, ◇open decisions. Reads the Claude Code session JSON on stdin (model, cwd) and prints ONE line on stdout. Display-only: NEVER blocks, ALWAYS exits 0, never prints secrets/free text; no active run → a minimal `⬡ rstack  <model>  <cwd-basename>` line. Wire via `init --framework claude-code` (statusLine settings key).')
+  .option('--source <source>', 'harness label (informational only)')
+  .option('-p, --project <path>', 'project root (defaults to RSTACK_PROJECT_ROOT env, else the session cwd / current directory)')
+  .option('-r, --run-id <runId>', 'run to describe (defaults to RSTACK_RUN_ID env, else the latest run)')
+  .option('--verbose', 'print a one-line result to stderr (silent by default)')
+  .action(async (opts) => {
+    try {
+      const stdinText = await readStatuslineStdin();
+      process.exit(await runStatuslineCommand({
+        source: opts.source,
+        project: opts.project,
+        runId: opts.runId,
+        verbose: opts.verbose,
+      }, { stdinText }));
+    } catch (err) {
+      // Rule (a)/(c): the status line must NEVER disrupt a session. Even a failure
+      // before rendering still prints a minimal, safe line and exits 0.
+      process.stdout.write('⬡ rstack  Claude\n');
+      if (opts.verbose) process.stderr.write(`[rstack statusline] internal error (ignored): ${err.message}\n`);
       process.exit(0);
     }
   });
