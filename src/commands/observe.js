@@ -51,7 +51,12 @@ const KNOWN_TYPES = new Set(['tool_call', 'tool_result', 'session_shutdown']);
 // or a long high-entropy-looking key). Best-effort — the primary defense is
 // truncation; this catches the common, embarrassing cases.
 const INLINE_SECRET_PATTERNS = [
-  /\b(?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|auth|bearer|credential)s?\b\s*[:=]\s*\S+/gi,
+  // key=value / key: value — the secret word may be embedded in a larger key
+  // token (DB_PASSWORD, API_TOKEN, AWS_SECRET_ACCESS_KEY, mycommandpassword),
+  // so NO leading \b: match surrounding key chars greedily. (#253)
+  /[\w.-]*(?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|credential)[\w.-]*\s*[:=]\s*\S+/gi,
+  // Space-separated bearer / Authorization header tokens (no [:=] after the word). (#253)
+  /\b(?:bearer|authorization)\b\s*:?\s+\S{8,}/gi,
   /\b(?:AKIA|ASIA)[A-Z0-9]{8,}\b/g, // AWS access key ids
   /\b(?:gh[pousr]|xox[baprs])_[A-Za-z0-9]{10,}\b/g, // GitHub / Slack tokens
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g, // JWTs
@@ -290,12 +295,20 @@ export async function runObserve({
   }
 }
 
-/** Read the full hook payload from stdin; empty string when stdin is a TTY. */
+// Hook payloads are tiny; cap stdin so an accidental `cat huge | observe`
+// can't grow memory unbounded. Past the cap we stop reading and use what we
+// have (still exits 0 — worst case the event is truncated/unparseable → no-op). (#253)
+const MAX_STDIN_BYTES = 1_000_000;
+
+/** Read the hook payload from stdin (capped); empty string when stdin is a TTY. */
 export async function readStdinText(stream = process.stdin) {
   if (stream.isTTY) return '';
   let data = '';
   stream.setEncoding('utf8');
-  for await (const chunk of stream) data += chunk;
+  for await (const chunk of stream) {
+    data += chunk;
+    if (data.length >= MAX_STDIN_BYTES) return data.slice(0, MAX_STDIN_BYTES);
+  }
   return data;
 }
 
