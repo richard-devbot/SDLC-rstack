@@ -250,7 +250,18 @@ function checkClaudeCodeWiring(projectRoot) {
     : check('claude-code quality gates', PASS,
       'no opt-in quality gates wired (default). Enable with `rstack-agents init --framework claude-code --gates plan,tdd,scope`');
 
-  return [guardCheck, observeCheck, contextCheck, notifyCheck, gatesCheck];
+  // Status line (#257): a top-level `statusLine` settings key invoking
+  // `rstack-agents statusline`. Purely INFORMATIONAL — display-only, so never a
+  // FAIL and never a WARN. We just report whether the RStack status bar is wired.
+  const statusLineText = JSON.stringify(parsed?.statusLine ?? '');
+  const invokesStatusline = statusLineText.includes('rstack-agents') && statusLineText.includes('statusline');
+  const statuslineCheck = invokesStatusline
+    ? check('claude-code status line', PASS,
+      'statusLine key renders live RStack context via `rstack-agents statusline` — active run, stage, approvals, and open decisions in the status bar')
+    : check('claude-code status line', PASS,
+      'no statusLine key invoking `rstack-agents statusline` (optional, display-only). Add it with `rstack-agents init --framework claude-code`');
+
+  return [guardCheck, observeCheck, contextCheck, notifyCheck, gatesCheck, statuslineCheck];
 }
 
 function checkPiWiring() {
