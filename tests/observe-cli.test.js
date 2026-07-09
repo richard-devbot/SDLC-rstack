@@ -220,6 +220,87 @@ test('normalizeObservation: Stop / SessionEnd map to session_shutdown', () => {
   assert.deepEqual(normalizeObservation(JSON.stringify({ hook_event_name: 'SessionEnd' })), { type: 'session_shutdown' });
 });
 
+// --- #255: new hook-event mappings ------------------------------------------
+
+test('normalizeObservation: SubagentStart / SubagentStop map to subagent lifecycle with agent_type', () => {
+  assert.deepEqual(
+    normalizeObservation(JSON.stringify({ hook_event_name: 'SubagentStart', agent_type: 'builder' })),
+    { type: 'subagent_started', agent_type: 'builder' });
+  assert.deepEqual(
+    normalizeObservation(JSON.stringify({ hook_event_name: 'SubagentStop', agent_type: 'validator' })),
+    { type: 'subagent_stopped', agent_type: 'validator' });
+  // agent_type is optional — a bare event is still recorded.
+  assert.deepEqual(
+    normalizeObservation(JSON.stringify({ hook_event_name: 'SubagentStart' })),
+    { type: 'subagent_started' });
+});
+
+test('normalizeObservation: SubagentStop is NOT session_shutdown (distinct signal)', () => {
+  const ev = normalizeObservation(JSON.stringify({ hook_event_name: 'SubagentStop' }));
+  assert.equal(ev.type, 'subagent_stopped', 'a delegated subagent finishing != the session ending');
+});
+
+test('normalizeObservation: PreCompact maps to context_preserved with the trigger', () => {
+  assert.deepEqual(
+    normalizeObservation(JSON.stringify({ hook_event_name: 'PreCompact', trigger: 'auto' })),
+    { type: 'context_preserved', trigger: 'auto' });
+  assert.deepEqual(
+    normalizeObservation(JSON.stringify({ hook_event_name: 'PreCompact' })),
+    { type: 'context_preserved' });
+});
+
+test('normalizeObservation: PostToolUseFailure maps to an error tool_result', () => {
+  const ev = normalizeObservation(JSON.stringify({
+    hook_event_name: 'PostToolUseFailure', tool_name: 'Bash',
+    tool_response: { stderr: 'command not found' },
+  }));
+  assert.equal(ev.type, 'tool_result');
+  assert.equal(ev.tool, 'Bash');
+  assert.equal(ev.isError, true, 'a failure hook defaults to isError even without an explicit flag');
+  assert.ok(ev.summary.includes('command not found'));
+});
+
+test('observe: SubagentStart payload appends a subagent_started event end-to-end', async () => {
+  const { root, runDir } = seedProject();
+  const { code } = await runObserve(['--source', 'claude-code', '--project', root],
+    { input: JSON.stringify({ hook_event_name: 'SubagentStart', agent_type: 'builder' }) });
+  assert.equal(code, 0);
+  const events = readEvents(runDir);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, 'subagent_started');
+  assert.equal(events[0].agent_type, 'builder');
+  assert.equal(events[0].source, 'claude-code');
+});
+
+test('observe: PostToolUseFailure payload records an error tool_result end-to-end', async () => {
+  const { root, runDir } = seedProject();
+  const { code } = await runObserve(['--source', 'claude-code', '--project', root],
+    { input: JSON.stringify({ hook_event_name: 'PostToolUseFailure', tool_name: 'Edit', tool_response: { stderr: 'no such file' } }) });
+  assert.equal(code, 0);
+  const ev = readEvents(runDir)[0];
+  assert.equal(ev.type, 'tool_result');
+  assert.equal(ev.isError, true);
+  assert.equal(ev.tool, 'Edit');
+});
+
+test('observe: PreCompact payload records a context_preserved event end-to-end', async () => {
+  const { root, runDir } = seedProject();
+  const { code } = await runObserve(['--source', 'claude-code', '--project', root],
+    { input: JSON.stringify({ hook_event_name: 'PreCompact', trigger: 'manual' }) });
+  assert.equal(code, 0);
+  const ev = readEvents(runDir)[0];
+  assert.equal(ev.type, 'context_preserved');
+  assert.equal(ev.trigger, 'manual');
+});
+
+test('observe: a secret-looking agent_type / trigger is redacted', async () => {
+  const { root, runDir } = seedProject();
+  await runObserve(['--source', 'claude-code', '--project', root],
+    { input: JSON.stringify({ hook_event_name: 'SubagentStart', agent_type: 'token=AKIAIOSFODNN7EXAMPLE123' }) });
+  const raw = readFileSync(join(runDir, 'events.jsonl'), 'utf8');
+  assert.ok(!raw.includes('AKIAIOSFODNN7EXAMPLE123'), 'secret in agent_type redacted');
+});
+
 test('normalizeObservation: nothing observable → null', () => {
   assert.equal(normalizeObservation(''), null);
   assert.equal(normalizeObservation('42'), null);
