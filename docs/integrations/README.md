@@ -28,6 +28,10 @@ any harness with a tool-call hook wires it via `rstack-agents guard` — see
 [wire-your-own-harness.md](wire-your-own-harness.md) for a paste-in guided
 prompt that makes your coding agent do the wiring.
 
+Want spec-first / test-first / in-scope discipline on top of that? The **opt-in
+quality gates** (`plan-gate`, `tdd-gate`, `scope-guard`) wire alongside guard —
+off by default, opinionated on purpose. See [quality-gates.md](quality-gates.md).
+
 Notifications for all of them: **Slack, Teams, Discord, Telegram, WhatsApp** —
 see [webhooks.md](webhooks.md).
 
@@ -56,6 +60,7 @@ Operator, Tau, or a custom host. Run them from your project root.
 | `npx rstack-agents dor --stage <id>` | Run the Definition-of-Ready gate for a stage |
 | `npx rstack-agents env scan [--json]` | Detect run mode + tools + setup needs for stage 00 |
 | `npx rstack-agents guard` | The enforcement gate any tool-call hook calls (stdin PreToolUse JSON → exit 0 allow / exit 2 block) |
+| `npx rstack-agents gate <name>` | Opt-in quality-gate preset (plan-gate/tdd-gate/scope-guard) — spec-first / test-first / in-scope discipline. Off by default; see [quality-gates.md](quality-gates.md) |
 | `npx rstack-agents notify --test` | Send a test message to every configured notification channel |
 | `npx rstack-agents list agents\|skills\|plugins` | Browse the packaged catalog |
 | `npx rstack-agents validate` | Validate all packaged agent definitions |

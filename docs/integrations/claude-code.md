@@ -82,6 +82,21 @@ After the call runs, the PostToolUse hook pipes the same payload into
 `rstack-agents observe`, which records it to the run's `events.jsonl` for the
 dashboard (see [Observability](#observability) below).
 
+### Quality gates (opt-in)
+
+On top of the always-on guard, you can wire the **opt-in** quality-gate presets
+(`plan-gate`, `tdd-gate`, `scope-guard`) to enforce spec-first / test-first /
+in-scope discipline:
+
+```bash
+rstack-agents init --framework claude-code --gates plan,tdd,scope
+```
+
+This appends the chosen gate hooks to `PreToolUse` **after** the guard (guard
+stays first). Off by default. `tdd-gate` blocks production-code edits with no
+matching test (overridable via `RSTACK_ALLOW_NO_TESTS=1` or an audited approval);
+`plan-gate`/`scope-guard` only warn. Full guide: [quality-gates.md](quality-gates.md).
+
 **What it enforces at tool-call time:**
 
 - **Destructive gate** (builder context) — recursive/forced deletes, git

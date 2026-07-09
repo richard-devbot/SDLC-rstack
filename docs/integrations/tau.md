@@ -25,6 +25,13 @@ Loading the extension IS the wiring: Tau's built-in `terminal` / `write` /
 gate + validator sandbox), and a guard exit 2 blocks the call with the
 guard's reason. It fails open only when `npx` itself is missing on the host.
 
+**Opt-in quality gates.** Set the `quality_gates` extension setting (a comma
+string or list of `plan-gate`/`tdd-gate`/`scope-guard`) — or the
+`RSTACK_TAU_GATES` env — to run the [quality gates](quality-gates.md) on
+`write`/`edit` tools after guard. Off by default. `tdd-gate` blocks
+production-code edits with no test (override: `RSTACK_ALLOW_NO_TESTS=1`); the
+others warn only.
+
 ## Host requirements
 
 - `node` + `npx` on PATH

@@ -143,6 +143,18 @@ Every event carries `{ ts, source, type, ... }` — identical to Pi's shape, so 
 
 The **Tau** adapter (`src/integrations/tau/rstack_sdlc.py`) wires the same coverage on Tau's hook model — `tool_call`/`tool_result` (observe + guard), `tool_execution_failure` (error `tool_result`), `before_compaction` (`context_preserved`), and `before_agent_start` (context injection into the turn's system prompt) — all fire-and-forget except the timeout-bounded context fetch. Tau exposes **no delegated-subagent event and no notification event**, so those are intentionally not wired there (documented in the adapter). Other harnesses wire the same verbs per `docs/integrations/wire-your-own-harness.md`; `rstack-agents doctor` reports which hooks are live per framework.
 
+### Quality gates — opt-in discipline presets (#256)
+
+Distinct from `guard` (always-on safety), `rstack-agents gate <name>` is an **opt-in** layer of opinionated PreToolUse presets that enforce spec-first / test-first / in-scope discipline at the terminal. **OFF by default** — a team wires only the presets it wants via `init --gates plan,tdd,scope` (or `.rstack/rstack.config.json` `hooks.gates`). They complement the harness DOR/decisions; they never replace them.
+
+| Preset | Trigger | Verdict | Overridable |
+|---|---|---|---|
+| `plan-gate` | editing a source file with no recent `.spec.md` (14d) AND no active RStack run+plan | WARN (exit 0) | n/a — never blocks |
+| `tdd-gate` | writing/editing PRODUCTION code (source ext, not a test/config/migration/dto/infra/docs file) with no matching test file | **BLOCK (exit 2)** | `RSTACK_ALLOW_NO_TESTS=1` OR an audited `no-tests:<taskId>` / `guardrail-override:<taskId>` approval (the #133 trust path) |
+| `scope-guard` | a file outside the active spec's declared "Files to create/modify" scope | WARN (exit 0) | n/a — never blocks |
+
+Iron rules (mirroring the observe/context contract): **only `tdd-gate` ever exits 2**, and it is **always overridable — never a dead-end**. Any unknown gate name, unclassifiable/malformed input, non-file tool (e.g. Bash), or internal error fails **OPEN** (exit 0). Implementation: `src/commands/gate.js`; `classifyProductionCode` ports the reference `tdd-gate.sh` skip patterns to precise suffix-based matching (substring matching caused false skips in the shell version). In `init`'s PreToolUse array, `guard` stays first and gate hooks are appended after it (matcher `Write|Edit|MultiEdit`). On Tau, set the `quality_gates` setting / `RSTACK_TAU_GATES` to run the same presets on the `tool_call` hook after guard. `doctor` reports which gates are wired (informational — never a FAIL, since gates are opt-in). Full guide: `docs/integrations/quality-gates.md`.
+
 ## Run metrics (metrics.json)
 
 `<run_dir>/metrics.json` is the persisted cost/duration/token rollup for a run (#83, #135). It is written by `updateRunMetrics` (`src/core/harness/run-state.js`) under a file lock with atomic tmp+rename, so concurrent writers both land. Full schema:
