@@ -115,7 +115,7 @@ export function parseHookEventName(raw) {
  * `additionalContext` is '' when there is no active run (silent no-op).
  */
 export async function runContext({
-  stdinText = '', source, project, runId, env = process.env, cwd = process.cwd(),
+  stdinText = '', project, runId, env = process.env, cwd = process.cwd(),
 } = {}) {
   const hookEventName = parseHookEventName(stdinText);
   try {
@@ -188,9 +188,11 @@ export async function readStdinText(stream = process.stdin) {
  * stdout; otherwise prints NOTHING (a no-op hook must not add prompt noise).
  */
 export async function runContextCommand(opts = {}, { stdinText = '', env = process.env, cwd = process.cwd(), stdout = process.stdout, stderr = process.stderr } = {}) {
+  // `--source` is accepted for symmetry with observe/notify-hook and to keep the
+  // installed hook command uniform, but the context packet is source-agnostic —
+  // it describes the run, not the harness — so it is intentionally not consumed.
   const result = await runContext({
     stdinText,
-    source: opts.source ?? env.RSTACK_OBSERVE_SOURCE,
     project: opts.project,
     runId: opts.runId,
     env,
