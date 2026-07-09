@@ -105,9 +105,9 @@ Raw runtime events are appended to `events.jsonl`. Validator-grounded task evide
 
 `src/core/harness/evidence.js` rejects missing `task_id`, `kind`, `status`, or `evidence` fields.
 
-## Hook system — host observability, context & notifications (#227/#251/#255)
+## Hook system — host observability, context, notifications & status line (#227/#251/#255/#257)
 
-RStack exposes four framework-neutral CLI verbs that any host harness wires into its lifecycle hooks. They share one iron contract: **only `guard` can block; every other verb ALWAYS exits 0, never throws, no-ops when there is nothing to do, and redacts secrets.** A hook can never disrupt the session it observes.
+RStack exposes five framework-neutral CLI verbs that any host harness wires into its lifecycle hooks (plus the top-level `statusLine` command). They share one iron contract: **only `guard` can block; every other verb ALWAYS exits 0, never throws, no-ops (or degrades to a safe line) when there is nothing to do, and never emits secrets.** A hook can never disrupt the session it observes.
 
 | Verb | Host hook (Claude Code) | Blocks? | Writes / does | No-op when |
 |---|---|---|---|---|
@@ -115,6 +115,7 @@ RStack exposes four framework-neutral CLI verbs that any host harness wires into
 | `rstack-agents observe` | `PostToolUse`, `PostToolUseFailure`, `SubagentStart`, `SubagentStop`, `PreCompact`, `Stop`, `SessionEnd` | No | Appends a normalized event to the active run's `events.jsonl` | no active run |
 | `rstack-agents context` | `SessionStart`, `UserPromptSubmit` | No (can't) | Emits `{"hookSpecificOutput":{...,"additionalContext":"..."}}` — a structural RStack packet (run id + stage, pending approvals + open decisions, orchestrator pointer), capped ~1KB | no active run (emits nothing) |
 | `rstack-agents notify-hook` | `Notification` | No | Forwards the host message to configured channels via `notifications/router.js` (`notifyAll`) | no channel configured |
+| `rstack-agents statusline` | `statusLine` (top-level settings key, not a hook) | No | Prints ONE status-bar line — `⬡ rstack  <model>  <stage>  ✔<approved>/⧗<pending>  ◇<decisions>` | no active run (degrades to a minimal `⬡ rstack  <model>  <cwd-basename>` line) |
 
 ### observe — normalized event vocabulary
 
@@ -138,6 +139,12 @@ Every event carries `{ ts, source, type, ... }` — identical to Pi's shape, so 
 ### notify-hook — the relay
 
 `runNotifyHook` (`src/commands/notify-hook.js`) parses the host `{message,title}`, redacts + truncates it, and calls `notifyAll` (already fire-and-forget with per-channel error capture and a bounded timeout). It short-circuits to a silent no-op when `hasConfiguredChannels` is false — no parse, no network — so a user without notifications configured pays nothing.
+
+**Audio notifications (TTS) are deliberately NOT bundled.** RStack ships no ElevenLabs/OpenAI-audio/`pyttsx3` client — spoken alerts are a personal dev-experience nicety, not governance, and audio SDKs would bloat the package. Instead a user wires their own TTS script as a *second* `Notification` hook alongside `notify-hook` (both receive the same JSON on stdin); the pattern is documented in `docs/integrations/claude-code.md`.
+
+### statusline — the status bar
+
+`buildStatusLine` (`src/commands/statusline.js`) composes ONLY from facts RStack generates (a run id, a canonical stage id, integer counts) plus the host-supplied model display name and cwd basename. It never reads tool inputs, file contents, or decision question text, so no credential can reach the terminal through it. It reuses the exact resolver + readers `context` uses — `resolveRunId`, `readPipelineState` (`current.stage_id`), `readApprovals`/`approvalSummary` (approved + pending), `readDecisions`/`summarizeDecisions` (open decisions). Every read is best-effort (a failure drops that segment, not the line), every segment is truncated, and any failure falls back to the minimal line — the command ALWAYS prints exactly one line and ALWAYS exits 0, because Claude Code runs it on every render tick. `parseSessionInput` reads `model.display_name` (or a bare-string model) and `cwd`/`workspace.current_dir`, tolerating any junk stdin.
 
 ### Other harnesses
 

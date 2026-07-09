@@ -27,6 +27,7 @@ snippet lands at `.claude/rstack-hooks.json` instead, with merge guidance).
 
 ```json
 {
+  "statusLine": { "type": "command", "command": "npx --yes rstack-agents statusline --source claude-code" },
   "hooks": {
     "SessionStart": [
       { "hooks": [{ "type": "command", "command": "npx -y rstack-agents hub" }] },
@@ -165,7 +166,8 @@ file conventions.
 | `skills/**/SKILL.md` | Portable skills used when their trigger matches the task |
 | `plugins/*/plugin.json` | Portable plugin metadata and bundled plugin assets |
 | `.claude/settings.json` hooks | PreToolUse guard + observe (PostToolUse/PostToolUseFailure/Subagent*/PreCompact/Stop/SessionEnd) + context (SessionStart/UserPromptSubmit) + notify-hook (Notification) + SessionStart hub |
-| `rstack-agents` | CLI setup, validation, decisions, readiness, hub, guard, observe, context, notify-hook, and notifications |
+| `.claude/settings.json` statusLine | Live RStack status bar via `rstack-agents statusline` (top-level key, not a hook) |
+| `rstack-agents` | CLI setup, validation, decisions, readiness, hub, guard, observe, context, notify-hook, statusline, and notifications |
 
 ## Context injection
 
@@ -202,6 +204,83 @@ env vars, or `.rstack/notifications.json`). Best-effort: it **never blocks**,
 **no-ops** when no channel is configured (no parse, no network), redacts secrets
 from the message, and is timeout-bounded per channel — a slow webhook can never
 stall your session.
+
+### Optional: audio notifications (TTS)
+
+RStack **does not bundle any audio/TTS SDK** (no ElevenLabs, OpenAI-audio, or
+`pyttsx3` client) — the governance package stays lean and dependency-light, and
+spoken alerts are a personal dev-experience nicety, not governance. Instead, wire
+**your own** TTS script onto the `Notification` hook, alongside `notify-hook`.
+
+Claude Code runs every hook in an event's array, so add a second `Notification`
+hook that pipes the payload into your announcer:
+
+```json
+{
+  "hooks": {
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "npx --yes rstack-agents notify-hook --source claude-code" }] },
+      { "hooks": [{ "type": "command", "command": "/absolute/path/to/my-tts.sh" }] }
+    ]
+  }
+}
+```
+
+Your `my-tts.sh` receives the same Notification JSON on stdin (`{ message, title, ... }`)
+and can speak it with whatever you already have installed — e.g. the built-in
+macOS `say`, `espeak` on Linux, or your own ElevenLabs/OpenAI call:
+
+```bash
+#!/usr/bin/env bash
+# my-tts.sh — read the Notification message from stdin and speak it.
+msg=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("message",""))' 2>/dev/null)
+[ -n "$msg" ] && say "$msg"   # macOS; swap for espeak/your provider elsewhere
+exit 0                        # never block the session
+```
+
+Keep it exit-0 and fast — like every RStack hook, an announcer must never disrupt
+the session. This pattern keeps the API keys and audio dependencies in *your*
+environment, out of the governance package.
+
+## Status line
+
+The top-level `statusLine` settings key (a **command**, not a hook) draws a live
+RStack status bar. Claude Code runs it on every render tick, piping the session
+JSON (`{ model, cwd, ... }`) on stdin; the command prints **one line** to stdout:
+
+```
+⬡ rstack  Fable  07-code  ✔2/⧗1  ◇3
+```
+
+- `07-code` — the active run's current pipeline stage
+- `✔2/⧗1` — approved / **pending** approvals for the run
+- `◇3` — open (pending) decisions in the Decision Queue
+
+With **no active run** it degrades to a minimal, honest line — never blank, never
+an error:
+
+```
+⬡ rstack  Fable  my-project
+```
+
+It is **display-only**: always exits 0, never throws, and prints **only
+structural facts** (a run id, a canonical stage id, integer counts) plus the
+host-supplied model name and cwd basename — never tool inputs, file contents,
+decision text, or any secret. One run resolve + a few bounded reads, no network,
+every segment truncated, so it stays fast enough to run every tick.
+
+`init --framework claude-code` writes the `statusLine` key for you. To exercise
+it directly:
+
+```bash
+echo '{"model":{"display_name":"Fable"},"cwd":"'"$PWD"'"}' \
+  | npx rstack-agents statusline
+# no active run = the minimal line, still exit 0
+```
+
+`rstack-agents doctor --framework claude-code` reports whether the status line is
+wired (informational — it is optional and display-only, so its absence is never a
+failure).
 
 ## Observability
 
