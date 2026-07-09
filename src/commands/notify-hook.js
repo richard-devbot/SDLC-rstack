@@ -26,6 +26,21 @@ import { resolve } from 'node:path';
 
 import { notifyAll, hasConfiguredChannels } from '../notifications/router.js';
 
+// Hard ceiling on the whole relay so a slow/dead webhook can never stall the
+// session (#258 review). The notification is best-effort — missing one is fine.
+const NOTIFY_TIMEOUT_MS = 5000;
+
+// `--source` is an env/flag-controlled label that ends up in the message header
+// and event fields; constrain it to a safe token so it can't carry a secret,
+// control chars, or markup. Unknown → 'custom'. (#258 review)
+const KNOWN_SOURCES = new Set(['claude-code', 'tau', 'operator', 'pi', 'custom']);
+export function sanitizeSource(source) {
+  if (typeof source !== 'string' || !source) return undefined;
+  const cleaned = source.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 32);
+  if (!cleaned) return undefined;
+  return KNOWN_SOURCES.has(cleaned) ? cleaned : 'custom';
+}
+
 // Match observe's inline-secret sniffers so a message that accidentally carries
 // a credential is scrubbed before it leaves the machine. (Kept in sync with
 // observe.js on purpose — a message is host free text.)
@@ -93,6 +108,7 @@ export function buildNotifyPayload({ message, title }, source) {
  */
 export async function runNotifyHook({
   stdinText = '', source, project, message, title, env = process.env, cwd = process.cwd(), senders,
+  timeoutMs = NOTIFY_TIMEOUT_MS,
 } = {}) {
   try {
     const projectRoot = resolve(project ?? env.RSTACK_PROJECT_ROOT ?? cwd);
@@ -114,10 +130,21 @@ export async function runNotifyHook({
       return { notified: false, reason: 'nothing to notify (empty/unparseable payload)' };
     }
 
-    const payload = buildNotifyPayload(notification, source);
-    // notifyAll is already fire-and-forget with per-channel error capture and
-    // never throws; we still guard the call.
-    const results = await notifyAll(payload, { projectRoot, env, ...(senders ? { senders } : {}) });
+    const payload = buildNotifyPayload(notification, sanitizeSource(source));
+    // notifyAll captures per-channel errors, but the underlying webhook senders
+    // have no network timeout — a slow/dead endpoint would hang this hook and
+    // stall the session. Bound the whole relay with a hard race so the hook
+    // always returns promptly; a laggy webhook just misses this one notice. (#258 review)
+    let timerHandle;
+    const timer = new Promise((res) => { timerHandle = setTimeout(() => res('__timeout__'), timeoutMs); });
+    const results = await Promise.race([
+      notifyAll(payload, { projectRoot, env, ...(senders ? { senders } : {}) }),
+      timer,
+    ]);
+    clearTimeout(timerHandle);
+    if (results === '__timeout__') {
+      return { notified: false, reason: `notify timed out after ${timeoutMs}ms (ignored)` };
+    }
     return { notified: results.some((r) => r.ok), reason: 'relayed', results };
   } catch (error) {
     return { notified: false, reason: `notify failed (ignored): ${error?.message ?? error}` };
@@ -144,7 +171,9 @@ export async function readStdinText(stream = process.stdin) {
 export async function runNotifyHookCommand(opts = {}, { stdinText = '', env = process.env, cwd = process.cwd(), stderr = process.stderr } = {}) {
   const result = await runNotifyHook({
     stdinText,
-    source: opts.source ?? env.RSTACK_OBSERVE_SOURCE,
+    // Own env var (notify is a distinct system from observe); accept the
+    // observe var as back-compat. sanitizeSource whitelists the result. (#258 review)
+    source: opts.source ?? env.RSTACK_NOTIFY_SOURCE ?? env.RSTACK_OBSERVE_SOURCE,
     project: opts.project,
     message: opts.message,
     title: opts.title,

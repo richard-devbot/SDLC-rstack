@@ -90,6 +90,17 @@ function redactSecrets(text) {
 }
 
 /**
+ * Structural labels (agent_type, compaction trigger) are never free text — a
+ * specialist name or "auto"/"manual". Constrain to a safe token so a crafted
+ * payload can't smuggle markup/control chars into events.jsonl (which the
+ * dashboard renders) or a secret past the pattern redactor. (#258 review)
+ */
+function safeLabel(value) {
+  const cleaned = redactSecrets(String(value ?? '')).replace(/[^\w .\-/:]/g, '').trim();
+  return cleaned.slice(0, 64);
+}
+
+/**
  * Make ONE value safe to write: strings are redacted then truncated; anything
  * that looks like a secret path is replaced wholesale. Non-strings are
  * shallow-serialized (never the full object graph) and the same rules applied.
@@ -206,7 +217,7 @@ export function normalizeObservation(raw, overrides = {}) {
       ?? parsed?.subagentType
       ?? null;
     const event = { type };
-    if (agentType != null) event.agent_type = truncate(redactSecrets(String(agentType)), 120);
+    if (agentType != null) event.agent_type = safeLabel(agentType);
     return event;
   }
 
@@ -215,7 +226,7 @@ export function normalizeObservation(raw, overrides = {}) {
   if (type === 'context_preserved') {
     const trigger = overrides.trigger ?? parsed?.trigger ?? parsed?.reason ?? null;
     const event = { type };
-    if (trigger != null) event.trigger = truncate(redactSecrets(String(trigger)), 120);
+    if (trigger != null) event.trigger = safeLabel(trigger);
     return event;
   }
 
@@ -297,7 +308,9 @@ function extractResponseText(response) {
 export async function appendObservation(runDir, observation, source) {
   if (!observation) return null;
   const eventPath = join(runDir, 'events.jsonl');
-  const event = { ts: new Date().toISOString(), source: source || DEFAULT_SOURCE, ...observation };
+  // source is env/flag-controlled → constrain it like any structural label so
+  // it can't inject markup/secret into the dashboard-rendered event. (#258 review)
+  const event = { ts: new Date().toISOString(), source: safeLabel(source) || DEFAULT_SOURCE, ...observation };
   await mkdir(dirname(eventPath), { recursive: true });
   await withFileLock(eventPath, async () => {
     await appendFile(eventPath, `${JSON.stringify(event)}\n`);

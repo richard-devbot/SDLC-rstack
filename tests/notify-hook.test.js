@@ -118,3 +118,27 @@ test('runNotifyHook: a throwing sender never surfaces (best-effort)', async () =
   assert.equal(result.notified, false, 'a failed channel is reported as not-notified, not an exception');
   assert.equal(result.reason, 'relayed');
 });
+
+// --- #258 review fixes: timeout bound + source sanitization ------------------
+import { sanitizeSource } from '../src/commands/notify-hook.js';
+
+test('runNotifyHook returns promptly when a webhook hangs (never stalls the session)', async () => {
+  const hang = () => new Promise(() => {}); // never resolves
+  const started = Date.now();
+  const res = await runNotifyHook({
+    message: 'hi', source: 'claude-code', timeoutMs: 60,
+    env: { RSTACK_SLACK_WEBHOOK: 'https://example.test/hook' },
+    senders: { slack: hang },
+  });
+  assert.equal(res.notified, false);
+  assert.match(res.reason, /timed out/);
+  assert.ok(Date.now() - started < 2000, 'must return long before any real network timeout');
+});
+
+test('sanitizeSource whitelists known sources and neutralizes injection', () => {
+  assert.equal(sanitizeSource('claude-code'), 'claude-code');
+  assert.equal(sanitizeSource('tau'), 'tau');
+  assert.equal(sanitizeSource('token=sk_live_abc'), 'custom', 'unknown/secret-ish → custom, never echoed');
+  assert.equal(sanitizeSource('<script>'), 'custom');
+  assert.equal(sanitizeSource(undefined), undefined);
+});

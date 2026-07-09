@@ -362,3 +362,13 @@ test('sanitizeInput does NOT over-redact ordinary prose without key=value', () =
     assert.ok(!out.includes('[redacted]'), `should not over-redact: ${cmd}`);
   }
 });
+
+// --- #258 review fix: structural labels are sanitized (no markup/secret) -----
+test('subagent agent_type and precompact trigger strip markup and secrets', () => {
+  const a = normalizeObservation(JSON.stringify({ hook_event_name: 'SubagentStart', agent_type: '<script>alert(1)</script>' }));
+  assert.equal(a.type, 'subagent_started');
+  assert.ok(!/[<>()]/.test(a.agent_type), `no markup chars in agent_type: ${a.agent_type}`);
+  const c = normalizeObservation(JSON.stringify({ hook_event_name: 'PreCompact', trigger: 'auto password=hunter2' }));
+  assert.equal(c.type, 'context_preserved');
+  assert.ok(!c.trigger.includes('hunter2'), `secret must not survive in trigger: ${c.trigger}`);
+});
