@@ -118,10 +118,12 @@ test('doctor', async (t) => {
     assert.ok(hook.fix.includes('rstack-agents guard'), 'fix names the guard hook');
     assert.ok(hook.fix.includes('PreToolUse'), 'fix names the PreToolUse snippet');
 
+    // Observability (#251): with no settings.json, the observe check is absent
+    // (the guard-hook FAIL short-circuits the wiring probe). No crash is the bar.
     rmSync(root, { recursive: true, force: true });
   });
 
-  await t.test('claude-code with a wired PreToolUse guard hook PASSes', async () => {
+  await t.test('claude-code with only a guard hook: guard PASSes, observe WARNs (additive)', async () => {
     const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-ccok-'));
     seedRstack(root);
     mkdirSync(join(root, '.claude'), { recursive: true });
@@ -131,6 +133,29 @@ test('doctor', async (t) => {
     const { json } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
 
     assert.equal(checkByName(json, 'claude-code PreToolUse guard hook').status, 'PASS');
+    // Observe hook missing → WARN (never FAIL — observability is additive).
+    const observe = checkByName(json, 'claude-code observability hook');
+    assert.equal(observe.status, 'WARN');
+    assert.ok(observe.fix.includes('rstack-agents observe'), 'fix names the observe hook');
+    assert.ok(observe.fix.includes('PostToolUse'), 'fix names the PostToolUse snippet');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('claude-code with guard + observe hooks: both PASS', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-ccobs-'));
+    seedRstack(root);
+    mkdirSync(join(root, '.claude'), { recursive: true });
+    writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
+        PostToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents observe --source claude-code' }] }],
+      },
+    }));
+    const { json } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
+
+    assert.equal(checkByName(json, 'claude-code PreToolUse guard hook').status, 'PASS');
+    assert.equal(checkByName(json, 'claude-code observability hook').status, 'PASS');
 
     rmSync(root, { recursive: true, force: true });
   });
@@ -147,6 +172,8 @@ test('doctor', async (t) => {
     assert.ok(adapter.detail.includes('tau'), 'detail names the tau adapter path');
     // The shared bridge resolves too.
     assert.equal(checkByName(json, 'bridge reachable').status, 'PASS');
+    // Observability (#251): the shipped tau adapter emits observe events.
+    assert.equal(checkByName(json, 'tau observability hook').status, 'PASS');
 
     rmSync(root, { recursive: true, force: true });
   });

@@ -177,8 +177,16 @@ test('init framework detection and setup', async (t) => {
     assert.equal(pre.matcher, 'Bash|Write|Edit');
     assert.equal(pre.hooks[0].command, 'npx --yes rstack-agents guard --context builder');
     assert.ok(settings.hooks.SessionStart, 'hub auto-launch hook preserved alongside the guard');
+    // Observability wiring (#251): PostToolUse + Stop + SessionEnd feed observe.
+    const post = settings.hooks.PostToolUse[0];
+    assert.equal(post.matcher, 'Bash|Write|Edit', 'PostToolUse matches the same tool set as the guard');
+    assert.equal(post.hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
+    assert.equal(settings.hooks.Stop[0].hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
+    assert.equal(settings.hooks.SessionEnd[0].hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
     assert.ok(report.created.some((item) => item.includes('guard')), 'guard enforcement reported as created');
+    assert.ok(report.created.some((item) => item.includes('observe')), 'observe visibility reported as created');
     assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents guard')), 'guidance mentions the guard');
+    assert.ok(report.nextSteps.some((step) => step.includes('rstack-agents observe')), 'guidance mentions observe');
     rmSync(root, { recursive: true, force: true });
   });
 

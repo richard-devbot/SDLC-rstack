@@ -154,6 +154,13 @@ const CLAUDE_HOOK_SNIPPET = 'Add a PreToolUse hook to .claude/settings.json: '
   + '"command":"npx --yes rstack-agents guard --context builder"}]}]}} '
   + '(or run: rstack-agents init --framework claude-code)';
 
+// The observability counterpart (#251) — the PostToolUse hook that feeds the
+// dashboard. Mirrors init.js CLAUDE_CODE_HOOKS.
+const OBSERVE_HOOK_SNIPPET = 'Add a PostToolUse hook to .claude/settings.json: '
+  + '{"hooks":{"PostToolUse":[{"matcher":"Bash|Write|Edit","hooks":[{"type":"command",'
+  + '"command":"npx --yes rstack-agents observe --source claude-code"}]}]}} '
+  + '(or run: rstack-agents init --framework claude-code)';
+
 function checkClaudeCodeWiring(projectRoot) {
   const settingsPath = join(projectRoot, '.claude', 'settings.json');
   if (!existsSync(settingsPath)) {
@@ -178,15 +185,29 @@ function checkClaudeCodeWiring(projectRoot) {
   const preToolUse = parsed?.hooks?.PreToolUse;
   const hooksText = JSON.stringify(Array.isArray(preToolUse) ? preToolUse : '');
   const invokesGuard = hooksText.includes('rstack-agents') && hooksText.includes('guard');
-  if (invokesGuard) {
-    return [check('claude-code PreToolUse guard hook', PASS,
-      'PreToolUse hook routes tool calls through `rstack-agents guard`')];
-  }
-  return [check('claude-code PreToolUse guard hook', FAIL,
-    Array.isArray(preToolUse) && preToolUse.length
-      ? 'a PreToolUse hook exists but none invoke `rstack-agents guard`'
-      : 'no PreToolUse hook invoking `rstack-agents guard` in .claude/settings.json',
-    CLAUDE_HOOK_SNIPPET)];
+  const guardCheck = invokesGuard
+    ? check('claude-code PreToolUse guard hook', PASS,
+      'PreToolUse hook routes tool calls through `rstack-agents guard`')
+    : check('claude-code PreToolUse guard hook', FAIL,
+      Array.isArray(preToolUse) && preToolUse.length
+        ? 'a PreToolUse hook exists but none invoke `rstack-agents guard`'
+        : 'no PreToolUse hook invoking `rstack-agents guard` in .claude/settings.json',
+      CLAUDE_HOOK_SNIPPET);
+
+  // Observability wiring (#251): a PostToolUse (or Stop / SessionEnd) hook that
+  // invokes `rstack-agents observe`. WARN not FAIL — observability is additive,
+  // so its absence degrades the dashboard but never breaks enforcement.
+  const observeHooks = [parsed?.hooks?.PostToolUse, parsed?.hooks?.Stop, parsed?.hooks?.SessionEnd];
+  const observeText = JSON.stringify(observeHooks.filter(Array.isArray));
+  const invokesObserve = observeText.includes('rstack-agents') && observeText.includes('observe');
+  const observeCheck = invokesObserve
+    ? check('claude-code observability hook', PASS,
+      'PostToolUse/Stop/SessionEnd hook feeds `rstack-agents observe` — terminal activity reaches the Business Hub')
+    : check('claude-code observability hook', WARN,
+      'no PostToolUse/Stop/SessionEnd hook invoking `rstack-agents observe` — ordinary terminal work will NOT appear in the Business Hub (enforcement still works)',
+      OBSERVE_HOOK_SNIPPET);
+
+  return [guardCheck, observeCheck];
 }
 
 function checkPiWiring() {
@@ -237,7 +258,40 @@ function checkAdapterWiring(framework) {
       framework === 'tau'
         ? 'The tau adapter ships in a separate change — update: npm install rstack-agents@latest'
         : 'Reinstall the package: npm install rstack-agents');
-  return [adapterCheck, checkBridge()];
+
+  const checks = [adapterCheck, checkBridge()];
+
+  // Observability wiring (#251): the tau adapter emits events via
+  // `rstack-agents observe` on its tool hooks. WARN (additive) if absent.
+  if (framework === 'tau') checks.push(checkTauObservability(found));
+
+  return checks;
+}
+
+// The tau adapter carries its own observability wiring (loading it IS the
+// wiring — no host config), so we verify the adapter FILE invokes
+// `rstack-agents observe`. WARN, never FAIL: enforcement is independent.
+function checkTauObservability(adapterPath) {
+  if (!adapterPath) {
+    return check('tau observability hook', WARN,
+      'tau adapter not found — cannot confirm observability wiring',
+      'Update the package: npm install rstack-agents@latest');
+  }
+  let raw = '';
+  try {
+    raw = readFileSync(adapterPath, 'utf8');
+  } catch (error) {
+    return check('tau observability hook', WARN,
+      `could not read the tau adapter to confirm observability wiring: ${error.message}`, null);
+  }
+  const emitsObserve = raw.includes('rstack-agents') && raw.includes('observe')
+    && (raw.includes('tool_result') || raw.includes('_emit_observation'));
+  return emitsObserve
+    ? check('tau observability hook', PASS,
+      'the tau adapter feeds `rstack-agents observe` on its tool hooks — Tau activity reaches the Business Hub')
+    : check('tau observability hook', WARN,
+      'the tau adapter does not appear to emit `rstack-agents observe` events — Tau terminal work will NOT appear in the Business Hub (enforcement still works)',
+      'Update the package: npm install rstack-agents@latest');
 }
 
 async function checkFrameworkWiring(framework, projectRoot) {

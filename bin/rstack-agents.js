@@ -21,6 +21,7 @@ import { envScan, formatEnvScan } from '../src/commands/env-scan.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
 import { runGuardCommand, readStdinText } from '../src/commands/guard.js';
+import { runObserveCommand, readStdinText as readObserveStdin } from '../src/commands/observe.js';
 import { runDoctor, formatDoctorReport, DOCTOR_FRAMEWORKS } from '../src/commands/doctor.js';
 import { initFramework, detectFramework, FRAMEWORKS } from '../src/integrations/init.js';
 import { notifyAll, resolveChannels, formatSlackStageMessage } from '../src/notifications/index.js';
@@ -274,6 +275,39 @@ program
       // already blocked inside runGuard, which never throws).
       process.stderr.write(`[rstack guard] internal error before classification (allowing): ${err.message}\n`);
       process.stdout.write(`${JSON.stringify({ decision: 'allow', category: null, reason: 'unclassifiable input (guard internal error)', context: null, tool: null })}\n`);
+      process.exit(0);
+    }
+  });
+
+program
+  .command('observe')
+  .description('Framework-neutral observability writer (#251): append one normalized tool_call/tool_result/session event to the active run\'s events.jsonl so the Business Hub mirrors terminal activity on ANY harness. Reads a Claude Code PostToolUse/Stop/SessionEnd hook payload on stdin, or takes --event-type/--tool/--summary flags. Best-effort: NEVER blocks, always exits 0. No active run = silent no-op.')
+  .option('--event-type <type>', 'normalized event type: tool_call | tool_result | session_shutdown (default: inferred from the payload)')
+  .option('--tool <name>', 'tool name for the event (e.g. Bash, Write, Edit)')
+  .option('--summary <text>', 'result summary text (implies a tool_result event; truncated + secret-redacted)')
+  .option('--is-error', 'mark a tool_result as an error')
+  .option('--source <source>', 'harness label written on the event: claude-code | tau | operator | ... (default: RSTACK_OBSERVE_SOURCE env, else "unknown")')
+  .option('-p, --project <path>', 'project root (defaults to RSTACK_PROJECT_ROOT env, else current directory)')
+  .option('-r, --run-id <runId>', 'run to append to (defaults to RSTACK_RUN_ID env, else the latest run)')
+  .option('--verbose', 'print a one-line result to stderr (silent by default)')
+  .action(async (opts) => {
+    try {
+      const usesFlags = opts.tool !== undefined || opts.summary !== undefined || opts.eventType !== undefined;
+      const stdinText = usesFlags ? '' : await readObserveStdin();
+      process.exit(await runObserveCommand({
+        eventType: opts.eventType,
+        tool: opts.tool,
+        summary: opts.summary,
+        isError: opts.isError,
+        source: opts.source,
+        project: opts.project,
+        runId: opts.runId,
+        verbose: opts.verbose,
+      }, { stdinText }));
+    } catch (err) {
+      // Rule (a)/(b): the observer must NEVER disrupt a session. Any failure
+      // here — even before observation — exits 0 silently (opt-in verbose only).
+      if (opts.verbose) process.stderr.write(`[rstack observe] internal error (ignored): ${err.message}\n`);
       process.exit(0);
     }
   });
