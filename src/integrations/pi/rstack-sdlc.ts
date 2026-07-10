@@ -582,7 +582,32 @@ async function readManifest(projectRoot: string, id?: string): Promise<RunManife
   const selected = id || sessionRun(projectRoot) || await latestRun(projectRoot);
   if (!selected) throw new Error("No RStack run found. Start one with sdlc_start first.");
   // Old (unversioned) manifests are migrated forward in memory on every read.
-  return migrateManifest(JSON.parse(await readFile(join(runsDir(projectRoot), selected, "manifest.json"), "utf8"))) as RunManifest;
+  // #288: a missing/corrupt manifest gets an actionable error, not a raw
+  // ENOENT/JSON.parse throw — the caller must learn WHICH run is damaged and
+  // how to recover, and that other runs are unaffected.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(join(runsDir(projectRoot), selected, "manifest.json"), "utf8"));
+  } catch (err: any) {
+    throw new Error(`Run ${selected} has an unreadable manifest.json (${err?.message ?? err}). Restore it from a checkpoint (sdlc_rollback), re-adopt the project, or pass run_id for a different run — other runs are unaffected.`);
+  }
+  return migrateManifest(parsed) as RunManifest;
+}
+
+// #288 (lost-update half): a status stamp is a read-modify-write of the whole
+// manifest, and the two racing stampers (sdlc_status marking DONE while
+// sdlc_build_next marks IN_PROGRESS) ran unlocked — last writer silently
+// dropped the other's update. Re-read fresh state and write under the
+// manifest's own advisory lock so concurrent stamps both land. No caller
+// holds another lock at these call sites (the claim's tasksPath lock closes
+// before the stamp), so this introduces no nesting.
+async function stampManifestStatus(projectRoot: string, runId: string, status: RunManifest["status"]): Promise<void> {
+  const manifestPath = join(runsDir(projectRoot), runId, "manifest.json");
+  await withFileLock(manifestPath, async () => {
+    const fresh = await readManifest(projectRoot, runId);
+    fresh.status = status;
+    await writeManifest(fresh);
+  });
 }
 
 async function writeManifest(manifest: RunManifest): Promise<void> {
@@ -1896,7 +1921,7 @@ export default function (pi: ExtensionAPI) {
       const prompt = await builderPrompt(projectRoot, task, selected, manifest.run_id);
       await writeFile(join(projectRoot, task.output_dir, "prompt.md"), prompt);
       manifest.status = "IN_PROGRESS";
-      await writeManifest(manifest);
+      await stampManifestStatus(projectRoot, manifest.run_id, "IN_PROGRESS");
       await appendEvent(projectRoot, manifest.run_id, { type: "builder_task_prepared", task_id: task.id });
       return { content: [{ type: "text", text: prompt }], details: { run_id: manifest.run_id, task } };
     },
@@ -2411,7 +2436,7 @@ export default function (pi: ExtensionAPI) {
       const releaseMissingApprovals = manifest.mode !== "express" ? missingApprovals(approvals, ["plan.md", "requirements.json", "architecture.md", "release-readiness.json"], manifest.run_id) : [];
       if (tasks.length > 0 && !next && tasks.every((t: any) => t.status === "PASS") && releaseMissingApprovals.length === 0) {
         manifest.status = "DONE";
-        await writeManifest(manifest);
+        await stampManifestStatus(projectRoot, manifest.run_id, "DONE");
       }
       const recommended = next
         ? next.status === "IN_PROGRESS" ? `Validate ${next.id} with sdlc_validate` : nextMissingApprovals.length ? `Approve ${nextMissingApprovals.join(", ")} with sdlc_approve before building ${next.id}` : `Build ${next.id} with sdlc_build_next`
