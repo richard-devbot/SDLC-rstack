@@ -24,6 +24,9 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-10 | **Golden-path e2e in CI**: the documented bridge-only quick-start journey runs as a test — one real subprocess per tool call (not mock-pi; in-process mocks would hide cross-process bugs like #289), asserting version stamp (#261), persisted state + plain status (#262), run-bound approvals on the pinned run (#298/#289), FAIL-re-claim → hard-block → one-shot override (#265), structured no-task validate (#266), Hub↔terminal agreement (#264). The #261–#266 root cause ("nobody re-ran the journey") is now structurally impossible to repeat silently. #274 marker in place for the next assertion | 4, 2 | #275, PR #304 |
+| 2026-07-10 | **Decision intake rejects non-canonical stages at the source**: `sdlc_decisions` + CLI `--before` refuse unknown `required_before_stage` values with a structured/actionable error (valid stage list), so a bad decision can no longer poison the fail-closed DoR gate into raw-crashing every later `sdlc_build_next`. Filed + fixed by the GPT/Codex audit agent (PR from fork), audited/approved/merged by Claude Code — review notes: legacy-poisoned stores still raw-throw (accepted or follow-up), consider validating inside `addDecision` for future callers | 1 | #290, PR #303 |
+| 2026-07-10 | **Approval integrity pair — session pinning + run-bound approvals**: `.rstack/session.json` pin written by every run creator (sdlc_start AND adopt), resolution = explicit id → in-process → `RSTACK_RUN_ID` env → pin → newest dir, wired into harness `resolveRunId` and extension `readManifest` identically; `sdlc_approve` refuses no-run_id ambiguity (>1 runs, no session — structured candidate list, nothing written) and names the run every sign-off lands on; `run_id` stamped by all three approval writers + CONSUMED marker; `auditRunApprovals` threads `expectedRunId` — the #133 cross-run replay rejection is now LIVE (legacy unstamped grandfathered). Verified with a real spawned-bridge cross-process repro: pinned run receives the approval, newest run gets nothing. Post-merge incident: an over-broad `git add -A` swept 10 local workspace files into the PR — caught by the repo's own guard test, untracked same session (commit ebc2c64); lesson recorded (explicit paths only; merge only on green checks) | 1 | #289 #298, PR #302 |
 | 2026-07-10 | **Tolerant JSONL readers**: one corrupt/partial line in `events.jsonl`/`evidence.jsonl` no longer breaks `pipeline status`, goal evaluation, or the dashboard rollup — per-line try/catch matching the goal-check.js precedent, evidence schema filter preserved. Filed + fixed by the GPT/Codex dogfooding agent, reviewed/merged by Claude (follow-up noted: surface skipped-line counts to the #82 integrity collector) | 4 | #294, PR #301 |
 | 2026-07-10 | **Guard enforces every tool spelling + Windows grammar**: canonical tool-name comparison (separators stripped both sides — Claude Code `MultiEdit`/`NotebookEdit` PascalCase and Pi snake_case can never diverge again), `notebook_path` target extraction (5th surface found in verification), PowerShell/cmd destructive grammar (`Remove-Item -Recurse/-Force`, `rd /s`, `del /s\|/q\|/f`, content cmdlets → secret paths; case-insensitive; no false positives on single-file deletes), validator sandbox denies ANY PowerShell mutation cmdlet outright, init guard+observe matchers widened to `Bash\|Write\|Edit\|MultiEdit\|NotebookEdit`, doctor self-test probes one form per enforcement family (can never report green on an untested path again). Residual: pre-existing installs keep the old narrow matcher (init never overwrites) — doctor wiring-breadth check is the follow-up | 1 | #286, PR #300 |
 | 2026-07-10 | **Dogfooding wave — six golden-path bugs fixed same day they were filed** (fresh-sandbox bridge-driven quick-start probe): (1) claim order FAIL→BLOCKED→PENDING so retry policy/attempt budgets/hard-block engage at the point of failure — the flagship #149 enforcement was unreachable mid-plan (PR #267); (2) run-level approvals survive the Hub rollup index — entry+rehydrate+signature+INDEX_VERSION 3, terminal approvals now visible for index-served runs (PR #268); (3) pipeline-state.json persisted by every state-mutating bridge tool + `pipeline status` in-memory fallback with stderr disclosure (PR #269); (4) `sdlc_validate` structured no-task response with candidates+recovery instead of a raw throw (PR #270); (5) `rstack_version` derived from package.json — drift now fails CI by construction (PR #271); (6) docs stop promising the unimplemented `.claude/agents/rstack/` local-copies feature (PR #272). Every fix mutation-checked (tests verified failing without it); live sandbox verification of the merged wave drove the full governed loop terminal↔Hub and found #274 (validate-time block never enqueues the override approval card) | 1, 2, 4 | #261–#266, PRs #267–#272; follow-ups #274 #275 |
@@ -108,18 +111,15 @@ discarding the other; watch for this.
 open).** Two agents active: Claude (harness/governance) + GPT/Codex (dashboard UX program
 #273/#276–#285 + robustness audit #287–#299). Alignment comments posted on every issue.
 
-1. **Approval-integrity pair — #289 + #298** (do together): bridge has no cross-process session
-   pinning, so a no-run_id `sdlc_approve` lands on the NEWEST run (the exact #98 scenario the
-   code forbids — a destructive sign-off can attach to the wrong run); and no approval writer
-   stamps `run_id`, so the #133 cross-run binding audit is inert. Highest-severity open items:
-   both corrupt the approval trust chain everything else leans on. Goal 1.
-2. **#275** — golden-path CI e2e (unblocked now the wave is merged; cheap, locks in #261–#266
-   + #274 forever). Goal 4.
-3. **Durability core — #287 → #288 → #291 → #290**: withFileLock heartbeat + owner-checked
-   release (the primitive every locked write depends on); manifest atomic+locked (torn write
-   bricks a run); webhook timeout in postJson (hangs sdlc_start/approve/validate — the 5s-race
-   fix pattern already exists in notify-hook); non-canonical required_before_stage crash
-   (same class as fixed #266). Goals 1, 4.
+~~1. Approval-integrity pair #289+#298~~ SHIPPED (PR #302). ~~2. #275 golden-path e2e~~
+SHIPPED (PR #304). ~~#290~~ SHIPPED by the GPT/Codex agent (PR #303, Claude-audited).
+Multi-agent protocol in force: CLAIM an issue with a signed comment before starting;
+Claude Code posts from richard-devbot, the audit/Codex agent from richardsongunde.
+
+1. **Durability core — #287 → #288 → #291** (Claude Code — claimed): withFileLock heartbeat +
+   owner-checked release (the primitive every locked write depends on); manifest atomic+locked
+   (torn write bricks a run); webhook timeout in postJson (hangs sdlc_start/approve/validate —
+   the 5s-race fix pattern already exists in notify-hook). Goals 1, 4.
 4. **#274** — validate-time BLOCKED never enqueues the guardrail-override approval card
    (found in wave verification; Hub Approvals misses exhausted tasks). Feeds Codex's Action
    Inbox (#281) correctness. Goals 1, 2.
