@@ -36,12 +36,13 @@ function normalizeTasks(raw) {
   return [];
 }
 
-// Claim order mirrors sdlc_build_next exactly: fresh work first, then FAIL
-// retries, then BLOCKED tasks (claimable only via an approved override).
+// Claim order mirrors sdlc_build_next exactly (#265): FAIL retries first so
+// the retry policy engages at the point of failure, then BLOCKED tasks
+// (claimable only via an approved override), then fresh PENDING/READY work.
 function nextClaimableTask(tasks) {
-  return tasks.find((task) => ['PENDING', 'READY'].includes(String(task.status || '').toUpperCase()))
-    || tasks.find((task) => String(task.status || '').toUpperCase() === 'FAIL')
+  return tasks.find((task) => String(task.status || '').toUpperCase() === 'FAIL')
     || tasks.find((task) => String(task.status || '').toUpperCase() === 'BLOCKED')
+    || tasks.find((task) => ['PENDING', 'READY'].includes(String(task.status || '').toUpperCase()))
     || null;
 }
 

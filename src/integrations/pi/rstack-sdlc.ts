@@ -1566,11 +1566,16 @@ export default function (pi: ExtensionAPI) {
       // effects (notifications, events) run after the lock is released.
       const claim = await withFileLock(tasksPath, async () => {
         const taskState = JSON.parse(await readFile(tasksPath, "utf8"));
-        // BLOCKED tasks stay claim candidates so an approved guardrail override
-        // can resume them — the gate below re-evaluates on every claim.
-        const task = taskState.tasks.find((t: any) => t.status === "PENDING" || t.status === "READY")
-          || taskState.tasks.find((t: any) => t.status === "FAIL")
-          || taskState.tasks.find((t: any) => t.status === "BLOCKED");
+        // Claim order (#265): FAIL first so the retry policy and attempt
+        // budget engage at the point of failure, then BLOCKED (still a claim
+        // candidate so an approved guardrail override can resume it — the
+        // gate below re-evaluates on every claim and surfaces the block
+        // instead of skipping ahead), then fresh PENDING/READY work.
+        // Fresh-work-first would defer every failure to the tail of the plan
+        // and leave the #149 hard-block unreachable for the whole run.
+        const task = taskState.tasks.find((t: any) => t.status === "FAIL")
+          || taskState.tasks.find((t: any) => t.status === "BLOCKED")
+          || taskState.tasks.find((t: any) => t.status === "PENDING" || t.status === "READY");
         if (!task) return { taskState, task: null, missing: [] as string[], requiredApprovals: [] as string[], readiness: null as any, guardrailCheck: null as any, approvalAuditEvents: [] as any[] };
         const rawApprovals = await readApprovals(runDir);
         const runEvents = await readJsonl(join(runDir, "events.jsonl"));
