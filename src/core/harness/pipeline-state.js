@@ -58,10 +58,16 @@ async function readJsonlIfPresent(filePath) {
     throw error;
   }
 
+  // Tolerant per-line parse: a single corrupt/partial line (crash mid-append,
+  // disk full, concurrent partial write) must not throw out of buildPipelineState
+  // and break `pipeline status`, goal evaluation, and the dashboard rollup.
+  // Mirrors the tolerant readers in goal-check.js and rstack-sdlc.ts (#294).
   return raw
     .split('\n')
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line));
+    .flatMap((line) => {
+      try { return [JSON.parse(line)]; } catch { return []; }
+    });
 }
 
 async function listStageEvidencePaths(runDirPath, stage) {
