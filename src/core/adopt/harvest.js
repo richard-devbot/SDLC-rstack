@@ -15,7 +15,7 @@ import { appendEvidenceEvent } from '../harness/evidence.js';
 import { MANIFEST_SCHEMA_VERSION } from '../harness/migrations.js';
 import { writePipelineState } from '../harness/pipeline-state.js';
 import { prepareRunState, stageArtifactPath, updateRunMetrics } from '../harness/run-state.js';
-import { runDirectory } from '../harness/runs.js';
+import { runDirectory, writeSessionPin } from '../harness/runs.js';
 import { writeJsonAtomic } from '../harness/safe-write.js';
 
 const ADOPTION_SOURCE = 'brownfield-adoption';
@@ -211,6 +211,10 @@ export async function materializeAdoption(projectRoot, { scan, plan, goal, runId
   // Ensure the memory dir exists for downstream tools that expect it.
   await mkdir(join(runDir, 'tasks'), { recursive: true });
 
+  // Session pin (#289): adopt creates a run outside sdlc_start — without
+  // updating the pin, a later no-run_id tool call would target whatever run
+  // a previous session pinned instead of the run just adopted.
+  await writeSessionPin(projectRoot, runId);
   const { state } = await writePipelineState(projectRoot, runId);
   return { runDir, manifest, state };
 }

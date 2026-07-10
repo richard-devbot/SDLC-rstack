@@ -291,7 +291,12 @@ export function auditRunApprovals(rawApprovals, { runId, projectRoot, runDir } =
   const valid = [];
   const rejected = [];
   for (const record of records) {
-    const result = validateApprovalRecord(record, { casing: 'run' });
+    // Thread the audited run's id into the binding check (#298): without it
+    // even a stamped record passed (expectedRunId === undefined ⇒ bound), so
+    // the #133 cross-run replay rejection was inert on this path. Legacy
+    // records without a run_id stamp stay valid (the binding branch only
+    // fires when the record carries one).
+    const result = validateApprovalRecord(record, { casing: 'run', expectedRunId: runId });
     if (contextOk && result.ok) valid.push(record);
     else rejected.push({ record, issues: contextOk ? result.issues : [...checks.filter((check) => check.status === 'FAIL'), ...result.issues] });
   }

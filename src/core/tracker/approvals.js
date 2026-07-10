@@ -148,6 +148,10 @@ export async function appendRunApproval(projectRoot, runId, record) {
     approver: record.approver,
     timestamp: record.timestamp || new Date().toISOString(),
     comments: record.comments,
+    // Run binding (#298): stamp the run this approval belongs to. Without the
+    // stamp, the #133 cross-run replay check had nothing to compare and a
+    // record copied between runs validated everywhere.
+    run_id: runId,
     // Default to a non-dashboard source: a dashboard-sourced record demands
     // token-verified actor evidence (#133), so defaulting to 'dashboard' would
     // make any future no-source caller silently rejected. A programmatic write
@@ -160,10 +164,10 @@ export async function appendRunApproval(projectRoot, runId, record) {
   };
   // Consistency audit at the write boundary (#133): a record the gate-side
   // audit would reject (unsafe artifact, wrong status casing, missing
-  // approver/timestamp, dashboard source without token evidence) is refused
-  // outright — malformed approvals never land, same null contract as an
-  // unsafe runId.
-  if (!validateApprovalRecord(next).ok) return null;
+  // approver/timestamp, run-binding mismatch, dashboard source without token
+  // evidence) is refused outright — malformed approvals never land, same null
+  // contract as an unsafe runId.
+  if (!validateApprovalRecord(next, { expectedRunId: runId }).ok) return null;
   return withFileLock(path, async () => {
     const approvals = await readJson(path, []);
     const all = Array.isArray(approvals) ? approvals : [];
