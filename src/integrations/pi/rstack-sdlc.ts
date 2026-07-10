@@ -1844,10 +1844,14 @@ export default function (pi: ExtensionAPI) {
       const tasksPath = join(runsDir(projectRoot), manifest.run_id, "tasks.json");
       // Locked read-modify-write: the verdict stamp must not race a concurrent
       // sdlc_build_next claim on another task (issue #81).
-      const { task, checks, status, builderContract, validation, telemetryViolations, retryDecision } = await withFileLock(tasksPath, async () => {
+      const { task, taskState, checks, status, builderContract, validation, telemetryViolations, retryDecision } = await withFileLock(tasksPath, async () => {
         const taskState = JSON.parse(await readFile(tasksPath, "utf8"));
         const task = params.task_id ? taskState.tasks.find((t: any) => t.id === params.task_id) : taskState.tasks.find((t: any) => t.status === "IN_PROGRESS");
-        if (!task) throw new Error("No task selected for validation.");
+        // #266: no selectable task is an ordinary run state — every FAIL
+        // stamps the task out of IN_PROGRESS, so the very next no-arg
+        // validate lands here. Surface it as a structured response after the
+        // lock instead of throwing a raw Error at the host.
+        if (!task) return { task: null as any, taskState, checks: [] as any[], status: null as any, builderContract: undefined as any, validation: null as any, telemetryViolations: [] as any[], retryDecision: null as any };
         const builderPath = join(projectRoot, task.output_dir, "builder.json");
         const checks = [];
         let status = "PASS";
@@ -1959,8 +1963,21 @@ export default function (pi: ExtensionAPI) {
           task.status = retryDecision.next_status;
         }
         await writeJsonAtomic(tasksPath, taskState);
-        return { task, checks, status, builderContract, validation, telemetryViolations, retryDecision };
+        return { task, taskState, checks, status, builderContract, validation, telemetryViolations, retryDecision };
       });
+      if (!task) {
+        // Same structured shape as the sibling gates (approval, guardrail,
+        // DOR): actionable text + machine-readable details, never a stack
+        // trace for a state the harness fully understands.
+        const candidates = (taskState?.tasks ?? []).map((t: any) => `${t.id} (${t.status})`);
+        const text = params.task_id
+          ? `No task with id "${params.task_id}" in run ${manifest.run_id}. Known tasks: ${candidates.join(", ") || "none"}.`
+          : `No task is currently IN_PROGRESS in run ${manifest.run_id}. Run sdlc_build_next to claim the next task, or pass task_id to validate a specific task.`;
+        return {
+          content: [{ type: "text", text }],
+          details: { run_id: manifest.run_id, requested_task_id: params.task_id ?? null, in_progress: [], candidates },
+        };
+      }
       // Compute real elapsed time from task _started_at stamp (written at sdlc_build_next)
       const elapsedMs = task._started_at ? Math.max(0, Date.now() - Number(task._started_at)) : 0;
       // Compute quality score from fraction of checks that passed
