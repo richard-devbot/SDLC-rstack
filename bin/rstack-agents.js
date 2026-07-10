@@ -32,6 +32,7 @@ import { notifyAll, resolveChannels, formatSlackStageMessage } from '../src/noti
 import { autoLaunchBusinessHub } from '../src/hooks/auto-launch.js';
 import { registerProject } from '../src/core/tracker/registry.js';
 import { addDecision, decide, readDecisions, summarizeDecisions } from '../src/core/harness/decisions.js';
+import { CANONICAL_SDLC_STAGES, getCanonicalStage } from '../src/core/harness/stages.js';
 import { dorCheck } from '../src/core/harness/readiness.js';
 import { log } from '../src/utils/logger.js';
 import { readFileSync } from 'node:fs';
@@ -122,6 +123,13 @@ program
     try {
       const projectRoot = resolve(opts.project ?? process.cwd());
       if (opts.add) {
+        // #290: reject a non-canonical --before at the source with a clear
+        // message, instead of persisting a decision that later makes the
+        // fail-closed DoR gate throw a raw Error out of sdlc_build_next.
+        if (opts.before && !getCanonicalStage(opts.before)) {
+          log.error(`Invalid --before stage "${opts.before}". Use a canonical stage id: ${CANONICAL_SDLC_STAGES.map((s) => s.id).join(', ')} (or omit --before to default to 06-architecture).`);
+          process.exit(1);
+        }
         const created = await addDecision(projectRoot, opts.runId, {
           question: opts.add,
           impact: opts.impact,

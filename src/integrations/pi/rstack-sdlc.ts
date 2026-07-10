@@ -9,7 +9,7 @@ import { mkdir, readFile, readdir, writeFile, appendFile, rm } from "node:fs/pro
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
+import { CANONICAL_SDLC_STAGES, getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
 import { validateBuilderContract, validateBuilderCompleteness } from "../../core/harness/contracts.js";
 import { validateStageGoalEvaluation } from "../../core/harness/goal-check.js";
 // #237: environment_report.json shape check — best-effort WARN at stage-00
@@ -1487,6 +1487,21 @@ export default function (pi: ExtensionAPI) {
       const projectRoot = findProjectRoot();
       const manifest = await readManifest(projectRoot, params.run_id);
       if (params.question) {
+        // #290: validate required_before_stage at the tool boundary. A
+        // non-canonical value is refused here with a structured, actionable
+        // response (same contract as the #266 no-task path) instead of being
+        // persisted, where it would later make the DoR gate — which fails
+        // closed by design (dorCheck throws on unknown stages, pinned by
+        // "DoR fails closed for unknown decision or target stages") — surface
+        // a raw Error out of sdlc_build_next. The gate's fail-closed behavior
+        // is intentionally unchanged; this only stops bad input at the source.
+        if (params.required_before_stage && !getCanonicalStage(params.required_before_stage)) {
+          const validStages = CANONICAL_SDLC_STAGES.map((stage) => stage.id);
+          return {
+            content: [{ type: "text", text: `Cannot add decision: "${params.required_before_stage}" is not a canonical SDLC stage. Use one of: ${validStages.join(", ")} — or omit required_before_stage to default to 06-architecture.` }],
+            details: { run_id: manifest.run_id, error: "invalid_required_before_stage", provided: params.required_before_stage, valid_stages: validStages },
+          };
+        }
         const created = await addDecision(projectRoot, manifest.run_id, {
           question: params.question,
           impact: params.impact || "scope",
