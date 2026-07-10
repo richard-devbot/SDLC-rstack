@@ -104,6 +104,14 @@ function showPage(name) {
     page.classList.toggle('active', page.id === 'page-' + name);
   });
   setText('page-title', PAGE_LABELS[name] || name);
+  resetDashboardScroll();
+}
+
+function resetDashboardScroll() {
+  var content = document.getElementById('content');
+  if (content) content.scrollTop = 0;
+  if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+  if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
 }
 
 // Keyboard access: Escape closes the run drawer; Enter/Space activates
@@ -192,6 +200,24 @@ function renderScopeSelectors(s) {
   }).join('');
 }
 
+// Readiness conclusions are evaluated on the server for every selectable
+// project/run scope. The browser only chooses the matching result; it never
+// recomputes release truth from partial client data.
+function selectReadinessScope(readiness) {
+  if (!readiness || !readiness.scopes) return readiness;
+  if (SCOPE.run) {
+    return (readiness.scopes.runs || []).find(function(entry) {
+      return entry.runId === SCOPE.run;
+    }) || readiness;
+  }
+  if (SCOPE.project) {
+    return (readiness.scopes.projects || []).find(function(entry) {
+      return entry.projectRoot === SCOPE.project;
+    }) || readiness;
+  }
+  return readiness;
+}
+
 function applyScope(s) {
   if (!SCOPE.project && !SCOPE.run) return s;
   var runs = (s.runs || []).filter(function(run) {
@@ -203,6 +229,7 @@ function applyScope(s) {
   var copy = {};
   for (var key in s) copy[key] = s[key];
   copy.runs = runs;
+  copy.readiness = selectReadinessScope(s.readiness);
   copy.feed = (s.feed || []).filter(function(item) { return !item.runId || runIds[item.runId]; });
   copy.agentWork = (s.agentWork || []).filter(function(work) { return !work.runId || runIds[work.runId]; });
   copy.agentGroups = (s.agentGroups || []).filter(function(group) { return !group.runId || runIds[group.runId]; });
@@ -234,23 +261,58 @@ function applyScope(s) {
   return copy;
 }
 
-// ── Browser notifications for new approval gates (issue #42) ────────────────
+// ── Browser + in-app notifications for new governed signals ────────────────
 var SEEN_GATES = null;
+var SIGNAL_TOAST_TIMER = null;
+
+function announceOperationalSignals(counts) {
+  var region = document.getElementById('signal-toast-region');
+  if (!region) return;
+  var parts = [];
+  if (counts.guardrails) parts.push(counts.guardrails + ' guardrail block' + (counts.guardrails === 1 ? '' : 's'));
+  if (counts.approvals) parts.push(counts.approvals + ' approval' + (counts.approvals === 1 ? '' : 's'));
+  if (counts.alerts) parts.push(counts.alerts + ' alert' + (counts.alerts === 1 ? '' : 's'));
+  if (!parts.length) return;
+  var tone = counts.guardrails ? 'danger' : counts.approvals ? 'warn' : 'info';
+  var title = counts.guardrails ? 'Guardrail stopped unsafe progress'
+    : counts.approvals ? 'A manager decision is needed'
+    : 'A new operational alert arrived';
+  var detail = parts.join(' · ') + ' added since the last live snapshot.';
+  region.className = 'signal-toast show ' + tone;
+  region.innerHTML = '<div class="signal-toast-mark" aria-hidden="true">' + (tone === 'danger' ? '!' : tone === 'warn' ? '?' : 'i') + '</div>' +
+    '<div><div class="signal-toast-title">' + esc(title) + '</div><div class="signal-toast-detail">' + esc(detail) + '</div></div>';
+  clearTimeout(SIGNAL_TOAST_TIMER);
+  SIGNAL_TOAST_TIMER = setTimeout(function() {
+    region.className = 'signal-toast';
+  }, 6000);
+}
 
 function notifyNewGates(s) {
   var pending = (s.pendingApprovals || []).map(function(item) { return 'p:' + (item.id || item.artifact); });
   var blocked = (s.blockedGates || []).map(function(gate) { return 'b:' + (gate.id || gate.runId); });
-  var current = pending.concat(blocked);
+  var alerts = (s.alerts || []).map(function(alert) {
+    return 'a:' + (alert.id || [alert.type, alert.runId, alert.ts].filter(Boolean).join(':'));
+  });
+  var current = pending.concat(blocked, alerts);
   if (SEEN_GATES === null) { SEEN_GATES = current; return; } // first snapshot: baseline only
-  var fresh = current.filter(function(key) { return SEEN_GATES.indexOf(key) === -1; });
+  var freshApprovals = pending.filter(function(key) { return SEEN_GATES.indexOf(key) === -1; });
+  var freshGuardrails = blocked.filter(function(key) { return SEEN_GATES.indexOf(key) === -1; });
+  var freshAlerts = alerts.filter(function(key) { return SEEN_GATES.indexOf(key) === -1; });
+  var fresh = freshApprovals.concat(freshGuardrails, freshAlerts);
   SEEN_GATES = current;
-  if (!fresh.length || typeof Notification === 'undefined') return;
+  if (!fresh.length) return;
+  announceOperationalSignals({
+    approvals: freshApprovals.length,
+    guardrails: freshGuardrails.length,
+    alerts: freshAlerts.length,
+  });
+  if (typeof Notification === 'undefined') return;
   if (Notification.permission === 'default') { Notification.requestPermission(); return; }
   if (Notification.permission !== 'granted') return;
   try {
-    new Notification('RStack: approval needed', {
-      body: fresh.length + ' new approval gate(s) waiting. No change ships without sign-off.',
-      tag: 'rstack-approvals',
+    new Notification('RStack: attention needed', {
+      body: fresh.length + ' new governed signal' + (fresh.length === 1 ? '' : 's') + ' waiting for review.',
+      tag: 'rstack-governed-signals',
     });
   } catch (err) { /* best-effort */ }
 }

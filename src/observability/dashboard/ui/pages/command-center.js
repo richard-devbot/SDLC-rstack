@@ -61,35 +61,39 @@ function renderCommand(s) {
 }
 
 function renderExecutiveMissionBrief(s) {
-  var tasks = allTasks(s);
-  var counts = taskStatusCounts(tasks);
+  var readiness = s.readiness || { status: 'unknown', coverage: { percent: null }, checks: [], blockers: [] };
   var pendingApprovals = (s.pendingApprovals || []).length;
-  var blocked = (s.blockedGates || []).length;
-  var alerts = (s.alerts || []).length;
-  var missingValidation = (s.diagnostics && s.diagnostics.missingValidationCount) || 0;
   var openDecisionCount = (((s.decisions || {}).runs || []).reduce(function(sum, run) {
     return sum + ((run.decisions || []).filter(function(d) { return (d.status || 'pending') === 'pending'; }).length);
   }, 0));
-  var blockers = blocked + pendingApprovals + counts.FAIL;
-  var score = Math.max(0, 100 - (blockers * 12) - Math.min(35, missingValidation) - Math.min(20, alerts));
-  var verdict = blockers ? 'BLOCKED' : alerts || missingValidation ? 'READY WITH CONCERNS' : 'READY';
-  var nextAction = blockers
-    ? 'Resolve ' + blockers + ' blocking gate/test signal' + (blockers === 1 ? '' : 's') + ' before shipment.'
-    : openDecisionCount
-      ? 'Review ' + openDecisionCount + ' pending architecture/product decision' + (openDecisionCount === 1 ? '' : 's') + '.'
-      : missingValidation
-        ? 'Attach missing validation proof before production confidence is claimed.'
-        : 'No manager-blocking action detected in the current scope.';
+  var verdicts = { blocked: 'BLOCKED', at_risk: 'AT RISK', ready: 'READY', unknown: 'NOT EVALUATED' };
+  var firstBlocker = (readiness.blockers || [])[0];
+  var firstConcern = (readiness.checks || []).find(function(item) { return item.status !== 'pass'; });
+  var nextAction = firstBlocker
+    ? (firstBlocker.label || 'Resolve release blocker') + ': ' + (firstBlocker.detail || 'review the linked source before shipment.')
+    : readiness.status === 'unknown'
+      ? ((readiness.coverage && readiness.coverage.runs && readiness.coverage.runs.total === 0)
+        ? 'Start an RStack run to evaluate release readiness.'
+        : 'Attach task validation and pipeline proof before making a release decision.')
+      : readiness.status === 'at_risk' && firstConcern
+        ? (firstConcern.label || 'Review readiness concern') + ': ' + (firstConcern.summary || 'review this signal before shipment.')
+        : openDecisionCount
+          ? 'Review ' + openDecisionCount + ' pending architecture/product decision' + (openDecisionCount === 1 ? '' : 's') + '.'
+          : 'No manager-blocking action detected in the current scope.';
+  var verdict = verdicts[readiness.status] || 'NOT EVALUATED';
   setText('executive-readiness-verdict', verdict);
   setText('executive-next-action', nextAction);
-  setText('executive-governance-score', score + '%');
+  setText('executive-governance-score', readiness.coverage && readiness.coverage.percent !== null && readiness.coverage.percent !== undefined ? readiness.coverage.percent + '%' : '—');
   setText('executive-decision-summary', pendingApprovals ? pendingApprovals + ' approval' + (pendingApprovals === 1 ? '' : 's') + ' pending' : openDecisionCount ? openDecisionCount + ' decision' + (openDecisionCount === 1 ? '' : 's') + ' pending' : 'No pending manager decision');
-  var risks = [
-    { label: 'Blocked gates', value: blocked, tone: blocked ? 'danger' : 'ok' },
-    { label: 'Alerts', value: alerts, tone: alerts ? 'danger' : 'ok' },
-    { label: 'Missing validations', value: missingValidation, tone: missingValidation ? 'warn' : 'ok' },
-    { label: 'Failed tasks', value: counts.FAIL, tone: counts.FAIL ? 'danger' : 'ok' }
-  ];
+  var risks = (readiness.checks || []).filter(function(item) {
+    return ['tasks', 'approvals', 'validation', 'pipeline'].indexOf(item.id) >= 0;
+  }).map(function(item) {
+    return {
+      label: item.label,
+      value: item.status === 'pass' ? '✓' : item.status === 'fail' ? '!' : item.status === 'warning' ? '~' : '?',
+      tone: item.status === 'pass' ? 'ok' : item.status === 'fail' ? 'danger' : item.status === 'warning' ? 'warn' : 'info'
+    };
+  });
   setHTML('executive-risk-strip', risks.map(function(risk) {
     return '<div class="risk-chip ' + risk.tone + '"><b>' + esc(risk.value) + '</b><span>' + esc(risk.label) + '</span></div>';
   }).join(''));

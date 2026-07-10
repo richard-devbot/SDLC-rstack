@@ -7,31 +7,47 @@
 export const releaseReadinessScript = `
 // ── page: release-readiness ────────────────────────────────────────────────
 function renderReleaseReadiness(s) {
-  var tasks = allTasks(s);
-  var counts = taskStatusCounts(tasks);
-  var blocked = (s.blockedGates || []).length;
-  var alerts = (s.alerts || []).length;
-  var pending = (s.pendingApprovals || []).length;
-  var missingValidation = (s.diagnostics && s.diagnostics.missingValidationCount) || 0;
-  var passEvidence = (s.diagnostics && s.diagnostics.evidenceCount) || 0;
-  var checks = [
-    { name: 'Tests passing', ok: counts.FAIL === 0, detail: counts.PASS + ' passed / ' + counts.FAIL + ' failed' },
-    { name: 'Approval gates resolved', ok: blocked === 0 && pending === 0, detail: blocked + ' blocked gates, ' + pending + ' pending approvals' },
-    { name: 'Validation evidence attached', ok: missingValidation === 0, detail: passEvidence + ' evidence records, ' + missingValidation + ' missing validations' },
-    { name: 'Operational alerts clear', ok: alerts === 0, detail: alerts + ' active alerts' }
-  ];
-  var blockedCount = checks.filter(function(c) { return !c.ok; }).length;
-  var verdict = blockedCount ? 'BLOCKED — ' + blockedCount + ' release condition' + (blockedCount === 1 ? '' : 's') + ' need work' : 'READY TO SHIP';
-  setText('release-readiness-verdict', verdict);
-  setText('release-readiness-chip', blockedCount ? 'Blocked' : 'Ready');
-  setClass('release-readiness-chip', 'command-status ' + (blockedCount ? 'warn' : 'ok'));
-  setText('release-readiness-count', checks.filter(function(c) { return c.ok; }).length + '/' + checks.length + ' passed');
-  setHTML('release-readiness-checklist', checks.map(function(check) {
-    return '<div class="command-row"><div><div class="strong">' + esc(check.name) + '</div><div class="muted">' + esc(check.detail) + '</div></div>' + pill(check.ok ? 'pass' : 'warn', check.ok ? 'PASS' : 'BLOCK') + '</div>';
-  }).join(''));
-  setHTML('release-readiness-blockers', checks.filter(function(c) { return !c.ok; }).map(function(check) {
-    return '<div class="attention-item warn"><div class="attention-value">!</div><div><div class="attention-title">' + esc(check.name) + '</div><div class="attention-detail">' + esc(check.detail) + '</div></div><span class="pill warn">ACTION</span></div>';
-  }).join('') || emptyHtml('No release blockers', 'This scoped data is ready by the conservative dashboard checks.'));
+  var readiness = s.readiness || {
+    status: 'unknown', summary: 'Release readiness is unavailable in this snapshot.',
+    coverage: { percent: null }, checks: [], blockers: [], evaluatedAt: null
+  };
+  var status = readiness.status || 'unknown';
+  var labels = { blocked: 'Blocked', at_risk: 'At risk', ready: 'Ready', unknown: 'Unknown' };
+  var verdicts = { blocked: 'BLOCKED', at_risk: 'AT RISK', ready: 'READY TO SHIP', unknown: 'NOT EVALUATED' };
+  var tones = { blocked: 'danger', at_risk: 'warn', ready: 'ok', unknown: 'neutral' };
+  var checks = readiness.checks || [];
+  var blockers = readiness.blockers || [];
+  var coverage = readiness.coverage || {};
+
+  setText('release-readiness-verdict', verdicts[status] || 'NOT EVALUATED');
+  setText('release-readiness-summary', readiness.summary || 'Release readiness is unavailable.');
+  setText('release-readiness-chip', labels[status] || 'Unknown');
+  setClass('release-readiness-chip', 'command-status readiness-signal ' + (tones[status] || 'neutral'));
+  setText('release-readiness-count', coverage.percent === null || coverage.percent === undefined
+    ? 'Coverage not evaluated'
+    : coverage.percent + '% proof coverage');
+
+  setHTML('release-readiness-checklist', checks.map(function(item) {
+    var source = (item.sourceRefs || [])[0];
+    var pillTone = item.status === 'pass' ? 'pass' : item.status === 'fail' ? 'fail' : item.status === 'warning' ? 'warn' : 'info';
+    var pillLabel = item.status === 'pass' ? 'PASS' : item.status === 'fail' ? 'BLOCK' : item.status === 'warning' ? 'REVIEW' : 'UNKNOWN';
+    return '<div class="command-row readiness-check ' + esc(item.status || 'unknown') + '"><div><div class="strong">' + esc(item.label || item.id) + '</div>' +
+      '<div class="muted">' + esc(item.summary || '') + '</div>' +
+      (source ? '<div class="source-ref mono">' + esc(source.path) + '</div>' : '') +
+      '</div>' + pill(pillTone, pillLabel) + '</div>';
+  }).join('') || emptyHtml('No readiness checks evaluated', 'Start a run or select a scope with task and pipeline data.'));
+
+  setHTML('release-readiness-blockers', blockers.map(function(blocker) {
+    var source = blocker.sourceRef || {};
+    return '<div class="attention-item danger readiness-blocker"><div class="attention-value" aria-hidden="true">!</div><div><div class="attention-title">' +
+      esc(blocker.label || 'Release blocker') + '</div><div class="attention-detail">' + esc(blocker.detail || '') + '</div>' +
+      (source.path ? '<div class="source-ref mono">' + esc(source.path) + '</div>' : '') +
+      '</div><span class="pill fail">BLOCK</span></div>';
+  }).join('') || (status === 'ready'
+    ? emptyHtml('No release blockers', 'Every required source in this scope is present, current and passing.')
+    : emptyHtml('No hard blocker recorded', status === 'unknown'
+      ? 'Readiness is not evaluated until run, validation and pipeline proof exists.'
+      : 'Review the incomplete or cautionary checks before shipment.')));
 }
 
 registerPage('release-readiness', {
