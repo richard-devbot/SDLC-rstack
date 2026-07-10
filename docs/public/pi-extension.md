@@ -71,6 +71,7 @@ The CLI does not impersonate a runtime agent. It prepares assets, validates pack
 
 ```text
 .rstack/
+  session.json        # session pin (#289): the run this project most recently started; written by sdlc_start/adopt, consulted before any newest-run fallback
   registry/
     registry.json
     agents.json

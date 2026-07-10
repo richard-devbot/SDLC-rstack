@@ -35,6 +35,7 @@ import { checkpointEvent, isCriticalStage, loadProjectCriticalStages, rollbackTo
 import { addDecision, decide, readDecisions, summarizeDecisions } from "../../core/harness/decisions.js";
 import { assertReadyForStage, dorCheck, latestStageId } from "../../core/harness/readiness.js";
 import { withFileLock, writeJsonAtomic } from "../../core/harness/safe-write.js";
+import { readSessionPin, writeSessionPin } from "../../core/harness/runs.js";
 import { resolveUserIdentity } from "../../core/harness/identity.js";
 import { appendApproval as appendApprovalRequest, approvalQueueId, assertManagerAllowed, resolveQueuedApprovalForArtifact } from "../../core/tracker/approvals.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../../memory/index.js";
@@ -208,6 +209,10 @@ type ApprovalRecord = {
   approver: string;
   timestamp: string;
   comments?: string;
+  // Run binding (#298): every writer stamps the run the approval belongs to,
+  // activating the #133 cross-run replay check. Optional because legacy
+  // records predate the stamp (the audit grandfathers them).
+  run_id?: string;
 };
 
 type LifecycleStage = {
@@ -554,15 +559,27 @@ async function latestRun(projectRoot = findProjectRoot()): Promise<string | unde
 // checks must never fall back to latestRun(): that routes a new session's
 // events — and worse, destructive-action approvals — into a stale run from a
 // previous session (#98).
+//
+// #289: the in-memory id only survives inside one process, and the bridge is
+// one process per tool call — so a persisted session pin (.rstack/session.json,
+// written by every run creator) and the RSTACK_RUN_ID env override (the same
+// variable statusline/context/observe already honor) extend the session across
+// processes. Precedence: in-process id (set by sdlc_start in THIS process) →
+// env override → pin file. Every candidate is verified against a real run dir.
 let sessionRunId: string | undefined;
 
 function sessionRun(projectRoot = findProjectRoot()): string | undefined {
   if (sessionRunId && existsSync(join(runsDir(projectRoot), sessionRunId))) return sessionRunId;
-  return undefined;
+  const envPin = process.env.RSTACK_RUN_ID;
+  if (envPin && existsSync(join(runsDir(projectRoot), envPin))) return envPin;
+  return readSessionPin(projectRoot);
 }
 
 async function readManifest(projectRoot: string, id?: string): Promise<RunManifest> {
-  const selected = id || await latestRun(projectRoot);
+  // #289: the session (pin/env) outranks the newest-directory fallback — a
+  // no-run_id tool call targets the run this session started, not whatever
+  // run happens to sort last.
+  const selected = id || sessionRun(projectRoot) || await latestRun(projectRoot);
   if (!selected) throw new Error("No RStack run found. Start one with sdlc_start first.");
   // Old (unversioned) manifests are migrated forward in memory on every read.
   return migrateManifest(JSON.parse(await readFile(join(runsDir(projectRoot), selected, "manifest.json"), "utf8"))) as RunManifest;
@@ -1266,6 +1283,22 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_id, params) {
       const projectRoot = findProjectRoot();
+      // Ambiguity refusal (#289): an approval is the highest-stakes no-run_id
+      // caller — a destructive-action sign-off landing on the wrong run
+      // corrupts the audit trail. With no explicit run_id AND no resolvable
+      // session (in-process id, RSTACK_RUN_ID, pin file), refuse when more
+      // than one run exists instead of silently picking the newest.
+      if (!params.run_id && !sessionRun(projectRoot)) {
+        const entries = existsSync(runsDir(projectRoot))
+          ? (await readdir(runsDir(projectRoot), { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort().reverse()
+          : [];
+        if (entries.length > 1) {
+          return {
+            content: [{ type: "text", text: `Ambiguous approval target: ${entries.length} runs exist and no run_id or session pin identifies which one this sign-off belongs to. Pass run_id explicitly. Runs (newest first): ${entries.slice(0, 5).join(", ")}` }],
+            details: { error: "ambiguous_run", candidates: entries.slice(0, 10) },
+          };
+        }
+      }
       const manifest = await readManifest(projectRoot, params.run_id);
       const runDir = join(runsDir(projectRoot), manifest.run_id);
       const path = approvalsPath(runDir);
@@ -1296,7 +1329,9 @@ export default function (pi: ExtensionAPI) {
           status: params.status,
           approver,
           timestamp: timestamp(),
-          comments: params.comments
+          comments: params.comments,
+          // Run binding (#298): the stamp the #133 replay audit compares.
+          run_id: manifest.run_id,
         };
         approvals.push(next);
         await writeJsonAtomic(path, approvals);
@@ -1320,7 +1355,9 @@ export default function (pi: ExtensionAPI) {
         console.error("Failed to send approval notification:", err);
       }
 
-      return { content: [{ type: "text", text: `Approval ${params.status} for ${params.artifact}` }], details: record };
+      // Name the resolved run in the human-visible text (#289): when run_id
+      // was omitted, the caller must SEE where the sign-off landed.
+      return { content: [{ type: "text", text: `Approval ${params.status} for ${params.artifact} (run ${manifest.run_id})` }], details: record };
     }
   });
 
@@ -1352,6 +1389,10 @@ export default function (pi: ExtensionAPI) {
       const dir = join(runsDir(projectRoot), id);
       await prepareRunState(dir);
       sessionRunId = id;
+      // Persist the session pin (#289) so the NEXT bridge process still knows
+      // which run this session owns — without it every later no-run_id call
+      // fell back to the newest directory.
+      await writeSessionPin(projectRoot, id);
       await mkdir(memoryDir(projectRoot), { recursive: true });
       const startedBy = resolveUserIdentity(projectRoot);
       const activeProfile = await loadProjectProfile(projectRoot);
@@ -1688,6 +1729,9 @@ export default function (pi: ExtensionAPI) {
               approver: "rstack-harness",
               timestamp: timestamp(),
               comments: `Override consumed by attempt on ${task.id}`,
+              // Run binding (#298): the consumption marker is part of the
+              // artifact's audited history — stamp it like every writer.
+              run_id: manifest.run_id,
             });
             await writeJsonAtomic(approvalsFile, approvals);
           });

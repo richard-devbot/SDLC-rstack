@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "business-hub",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["bin/rstack-business.js"],
+      "port": 3008
+    }
+  ]
+}
