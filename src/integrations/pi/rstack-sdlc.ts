@@ -556,13 +556,45 @@ async function latestRun(projectRoot = findProjectRoot()): Promise<string | unde
 // previous session (#98).
 let sessionRunId: string | undefined;
 
+// #289: the bridge runs one process per tool call, so the in-memory
+// `sessionRunId` never survives to a later call — a no-run_id sdlc_approve/
+// build_next/validate then resolved via latestRun() ("newest directory"),
+// the exact fallback #98 forbids. sdlc_start now also persists the active run
+// to `.rstack/active-run`, and sessionRun() reads it cross-process, so a no-arg
+// call targets the run the session actually started rather than whatever dir
+// sorts last. Operating on a different run still requires an explicit run_id.
+function activeRunPointerPath(projectRoot = findProjectRoot()): string {
+  return join(rstackDir(projectRoot), "active-run");
+}
+
+function readActiveRunPointer(projectRoot = findProjectRoot()): string | undefined {
+  try {
+    const raw = readFileSync(activeRunPointerPath(projectRoot), "utf8").trim();
+    // The pointer is a bare run id — reject anything that could traverse.
+    if (raw && !raw.includes("/") && !raw.includes("\\") && !raw.includes("..")) return raw;
+  } catch { /* no pointer yet — pre-#289 run or never started here */ }
+  return undefined;
+}
+
+async function writeActiveRunPointer(projectRoot: string, id: string): Promise<void> {
+  await mkdir(rstackDir(projectRoot), { recursive: true });
+  await writeFile(activeRunPointerPath(projectRoot), id);
+}
+
 function sessionRun(projectRoot = findProjectRoot()): string | undefined {
+  // In-process session (long-lived Pi process) wins.
   if (sessionRunId && existsSync(join(runsDir(projectRoot), sessionRunId))) return sessionRunId;
+  // Cross-process (bridge) fallback: the durable active-run pointer, NOT
+  // latestRun() (#289/#98).
+  const pointer = readActiveRunPointer(projectRoot);
+  if (pointer && existsSync(join(runsDir(projectRoot), pointer))) return pointer;
   return undefined;
 }
 
 async function readManifest(projectRoot: string, id?: string): Promise<RunManifest> {
-  const selected = id || await latestRun(projectRoot);
+  // Prefer an explicit id, then the active run (in-memory or the durable
+  // pointer), and only then the newest directory as a last resort (#289).
+  const selected = id || sessionRun(projectRoot) || await latestRun(projectRoot);
   if (!selected) throw new Error("No RStack run found. Start one with sdlc_start first.");
   // Old (unversioned) manifests are migrated forward in memory on every read.
   return migrateManifest(JSON.parse(await readFile(join(runsDir(projectRoot), selected, "manifest.json"), "utf8"))) as RunManifest;
@@ -1352,6 +1384,9 @@ export default function (pi: ExtensionAPI) {
       const dir = join(runsDir(projectRoot), id);
       await prepareRunState(dir);
       sessionRunId = id;
+      // #289: persist the active run so later bridge processes (one per tool
+      // call) resolve THIS run for no-run_id calls instead of latestRun().
+      await writeActiveRunPointer(projectRoot, id);
       await mkdir(memoryDir(projectRoot), { recursive: true });
       const startedBy = resolveUserIdentity(projectRoot);
       const activeProfile = await loadProjectProfile(projectRoot);
