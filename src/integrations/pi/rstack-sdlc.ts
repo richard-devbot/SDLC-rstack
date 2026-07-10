@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import { spawn } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { createConnection } from "node:net";
-import { existsSync, openSync } from "node:fs";
+import { existsSync, openSync, readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile, appendFile, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -41,7 +41,6 @@ import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesFor
 import { buildRunReport, formatRetryTraceLine, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../../observability/collectors/reporter.js";
 import { notifyAll, hasConfiguredChannels, formatSlackStageMessage, formatSlackTaskReportMessage } from "../../notifications/index.js";
 
-const RSTACK_VERSION = "0.3.0";
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 // Walk up to the package root (the directory holding package.json) so the
 // extension keeps working no matter where it lives inside the package tree.
@@ -54,6 +53,17 @@ function findPackageRoot(startDir: string): string {
   return startDir;
 }
 const PACKAGE_ROOT = findPackageRoot(EXTENSION_DIR);
+// Derived from package.json (#261): a separate hand-maintained literal has
+// to be remembered on every release and drifted (manifests stamped 0.3.0
+// while the package shipped 2.0.0) — "which rstack_version produced this
+// run?" answered wrong on every run.
+const RSTACK_VERSION: string = (() => {
+  try {
+    return JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")).version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+})();
 
 function safeOpen(filePath: string): void {
   if (process.env.CI || process.platform !== "darwin") {
