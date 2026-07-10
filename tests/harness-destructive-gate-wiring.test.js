@@ -88,6 +88,15 @@ test('Destructive-action gate wired into the tool_call hook (#210)', async (t) =
     assert.equal(await toolCall({ toolName: 'bash', input: { command: 'rm -rf dist/' } }), undefined);
   });
 
+  await t.test('release-readiness.json approval does NOT grant destructive permission (#293)', async () => {
+    // A normal release-gate sign-off must not double as a run-wide destructive
+    // override. Only destructive-action / destructive-action:<taskId> unblock.
+    setTask('008-testing');
+    setApprovals([{ id: 'app-rr', artifact: 'release-readiness.json', status: 'APPROVED', approver: 'Richardson', timestamp: '2026-07-06T12:00:00.000Z', run_id: runId }]);
+    const res = await toolCall({ toolName: 'bash', input: { command: 'rm -rf dist/' } });
+    assert.equal(res?.block, true, 'release-readiness.json must not unblock destructive actions');
+  });
+
   await t.test('non-destructive tool calls pass through untouched', async () => {
     assert.equal(await toolCall({ toolName: 'bash', input: { command: 'npm test' } }), undefined);
     assert.equal(await toolCall({ toolName: 'write', input: { path: 'src/app.js', content: 'x' } }), undefined);
