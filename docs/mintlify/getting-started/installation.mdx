@@ -64,7 +64,11 @@ pi -e /path/to/SDLC-rstack/extensions/rstack-sdlc.ts
 
 **Recommended:** `npx rstack-agents init --framework claude-code` scaffolds `CLAUDE.md`, `SOUL.md`, and `HEARTBEAT.md` automatically.
 
-Manual asset copy (optional):
+Manual asset copy (optional). Note: no `rstack-agents` command creates or
+refreshes these copies — `init` does not write `.claude/agents/rstack/` or
+`.claude/commands/rstack/`. If you make them, they are unmanaged: re-copy
+after upgrading the package. The supported Claude Code surface without them
+is the bridge tools + the `rstack-agents` CLI + the settings hooks.
 
 ```bash
 export RSTACK_HOME=/path/to/SDLC-rstack
