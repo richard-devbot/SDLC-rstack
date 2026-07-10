@@ -592,10 +592,13 @@ async function writeManifest(manifest: RunManifest): Promise<void> {
   if (!manifest.traceability_path) {
     manifest.traceability_path = join(dir, "traceability.json");
     if (!existsSync(manifest.traceability_path)) {
-      await writeFile(manifest.traceability_path, JSON.stringify({ run_id: manifest.run_id, mappings: [] }, null, 2));
+      await writeJsonAtomic(manifest.traceability_path, { run_id: manifest.run_id, mappings: [] });
     }
   }
-  await writeFile(join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  // #288: atomic (tmp + fsync + rename) so a crash mid-write can never leave a
+  // truncated manifest.json — a torn manifest makes readManifest's JSON.parse
+  // throw on every later tool call, bricking the run.
+  await writeJsonAtomic(join(dir, "manifest.json"), manifest);
 }
 
 async function addTrace(projectRoot: string, runId: string, mapping: any): Promise<void> {
