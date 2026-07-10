@@ -116,6 +116,9 @@ test('RStack Checkpoints, Signatures, & Model Escalation E2E', async (t) => {
 
     const fs = await import('node:fs/promises');
     await fs.writeFile(eventsPath, mockEvents.map(e => JSON.stringify(e)).join('\n') + '\n');
+    // #297: escalation keys off the IN_PROGRESS task (the one being built), not
+    // the globally-last task_started event — so mark 00-environment IN_PROGRESS.
+    await fs.writeFile(join(runDir, 'tasks.json'), JSON.stringify({ tasks: [{ id: '00-environment', status: 'IN_PROGRESS' }] }));
 
     // Create mock agent file
     const agentDir = join(projectRoot, 'agents');
@@ -140,6 +143,25 @@ test('RStack Checkpoints, Signatures, & Model Escalation E2E', async (t) => {
     assert.ok(escalationEvent);
     assert.equal(escalationEvent.model, 'gemini-2.5-pro-escalated');
     assert.equal(escalationEvent.task_id, '00-environment');
+  });
+
+  await t.test('a delegate does NOT escalate for a non-active task (#297 cross-contamination)', async () => {
+    const result = await mockPi.tools.sdlc_start.execute('3', { goal: 'No cross-contamination' });
+    const runId = result.details.run_id;
+    const runDir = join(projectRoot, '.rstack', 'runs', runId);
+    const fs = await import('node:fs/promises');
+    // Active task A has ONE attempt; a DIFFERENT, later task B has two. The old
+    // globally-last logic would escalate on B; the fix keys off IN_PROGRESS A.
+    await fs.writeFile(join(runDir, 'events.jsonl'), [
+      { ts: new Date().toISOString(), type: 'task_started', task_id: 'A' },
+      { ts: new Date().toISOString(), type: 'task_started', task_id: 'B' },
+      { ts: new Date().toISOString(), type: 'task_started', task_id: 'B' },
+    ].map((e) => JSON.stringify(e)).join('\n') + '\n');
+    await fs.writeFile(join(runDir, 'tasks.json'), JSON.stringify({ tasks: [{ id: 'A', status: 'IN_PROGRESS' }, { id: 'B', status: 'FAIL' }] }));
+    process.env.RSTACK_ESCALATED_MODEL = 'gemini-2.5-pro-escalated';
+    await mockPi.tools.sdlc_delegate.execute('4', { agent: 'agent.00-environment', task: 'work' });
+    const events = (await fs.readFile(join(runDir, 'events.jsonl'), 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(events.some((e) => e.type === 'model_escalated'), false, 'active task A has 1 attempt — B (not active) must not drive escalation');
   });
 
   // Cleanup
