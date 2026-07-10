@@ -63,7 +63,7 @@ Pi invokes RStack agents through native lifecycle tools:
 4. `sdlc_delegate(role="builder" | "validator" | "researcher" | "reviewer", task="...")` spawns an isolated worker with bounded context.
 5. `sdlc_validate` reads the builder contract and writes validation state before the run advances.
 
-Claude Code invokes the same package assets through portable project files, not through Pi tools. `rstack-agents init --framework claude-code` writes the bootstrap files that point Claude Code at RStack assets. Optional manual copies put agents under `.claude/agents/rstack/` and command prompts under `.claude/commands/rstack/`; Claude Code then exposes those through its normal subagent and slash-command conventions. Because Claude Code does not run the Pi extension hook layer, destructive-action blocking and tool-call logging are not enforced there by `tool_call`.
+Claude Code invokes the same package assets through portable project files, not through Pi tools. `rstack-agents init --framework claude-code` writes the bootstrap files that point Claude Code at RStack assets — it does NOT create `.claude/agents/rstack/` or `.claude/commands/rstack/`, and no CLI verb does; if you want Claude Code's native subagent/slash-command conventions you must copy those markdown files manually, and the copies are unmanaged on upgrade. Because Claude Code does not run the Pi extension hook layer, destructive-action blocking and tool-call logging are not enforced there by `tool_call`.
 
 The CLI does not impersonate a runtime agent. It prepares assets, validates package definitions, manages readiness/decision state, and starts backend services such as the Business Hub. Agent execution still happens in the host runtime.
 

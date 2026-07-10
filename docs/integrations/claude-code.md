@@ -150,10 +150,14 @@ npx rstack-agents guard --explain --command "rm -rf /tmp/x"   # classify only, e
 echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' | npx rstack-agents guard   # allow, exit 0
 ```
 
-Optional local asset copies can place package agents under
-`.claude/agents/rstack/` and prompt files under `.claude/commands/rstack/`.
-Claude Code then exposes them through its normal subagent and slash-command
-file conventions.
+No command creates local Claude Code copies of the packaged agents or
+prompts today — `init` does not write `.claude/agents/rstack/` or
+`.claude/commands/rstack/`, and there is no `add agents`/`add commands`
+verb. If you want RStack agents exposed through Claude Code's native
+subagent and slash-command file conventions, copy the markdown files there
+manually; the copies are unmanaged (nothing updates or validates them on
+package upgrade). The supported surface is the bridge tools, the
+`rstack-agents` CLI, and the settings hooks below.
 
 ## Runtime surfaces
 
@@ -161,8 +165,8 @@ file conventions.
 |---|---|
 | `CLAUDE.md` | Project bootstrap and RStack routing guidance |
 | `.claude/rstack-sdlc.md` | Local usage guide for SDLC runs |
-| `.claude/agents/rstack/*.md` | Optional Claude Code subagent copies for RStack agents |
-| `.claude/commands/rstack/*.md` | Optional slash-command prompt copies |
+| `.claude/agents/rstack/*.md` | Manual, unmanaged subagent copies — not created by `init` or any CLI verb |
+| `.claude/commands/rstack/*.md` | Manual, unmanaged slash-command prompt copies — not created by `init` or any CLI verb |
 | `skills/**/SKILL.md` | Portable skills used when their trigger matches the task |
 | `plugins/*/plugin.json` | Portable plugin metadata and bundled plugin assets |
 | `.claude/settings.json` hooks | PreToolUse guard + observe (PostToolUse/PostToolUseFailure/Subagent*/PreCompact/Stop/SessionEnd) + context (SessionStart/UserPromptSubmit) + notify-hook (Notification) + SessionStart hub |
