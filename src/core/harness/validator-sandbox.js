@@ -59,8 +59,16 @@ export const VALIDATOR_DENIED_COMMAND_RULES = Object.freeze([
     reason: 'destructive or file-mutating shell command',
   }),
   Object.freeze({
+    // PowerShell/cmd equivalents (#286). Stricter than the builder-side
+    // classifier on purpose: for a validator, ANY Remove-Item/Move-Item/del
+    // is workspace mutation — flags don't matter here.
+    id: 'destructive-shell-windows',
+    pattern: /\b(remove-item|move-item|rename-item|clear-content)\b|\brd\b\s|\bdel\b\s/i,
+    reason: 'destructive or file-mutating PowerShell/cmd command',
+  }),
+  Object.freeze({
     id: 'in-place-edit',
-    pattern: /\bsed\s+(-\S*i|--in-place)\b|\bperl\s+-\S*i\b|\btee\b/i,
+    pattern: /\bsed\s+(-\S*i|--in-place)\b|\bperl\s+-\S*i\b|\btee\b|\b(set-content|out-file|add-content|tee-object)\b/i,
     reason: 'in-place file edit via shell',
   }),
   Object.freeze({
@@ -97,8 +105,17 @@ export function isValidatorSandboxDebug(env = process.env) {
   return env?.[VALIDATOR_SANDBOX_DEBUG_ENV] === '1';
 }
 
+// Canonical forms (#286): the denied list is written snake_case, but Claude
+// Code sends PascalCase ("MultiEdit"), which lowercases to "multiedit" and
+// missed the underscore spellings — a validator could mutate the workspace
+// via MultiEdit. Compare with separators stripped on BOTH sides so every
+// spelling of a denied tool stays denied.
+const VALIDATOR_DENIED_TOOLS_CANONICAL = Object.freeze(new Set(
+  VALIDATOR_DENIED_TOOLS.map((name) => name.replace(/[_-]/g, '')),
+));
+
 export function isValidatorDeniedTool(toolName) {
-  return VALIDATOR_DENIED_TOOLS.includes(String(toolName || '').toLowerCase());
+  return VALIDATOR_DENIED_TOOLS_CANONICAL.has(String(toolName || '').toLowerCase().replace(/[_-]/g, ''));
 }
 
 export function matchValidatorDeniedCommand(command) {

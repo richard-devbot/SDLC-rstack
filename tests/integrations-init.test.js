@@ -174,7 +174,9 @@ test('init framework detection and setup', async (t) => {
     const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8'));
     assert.deepEqual(settings, CLAUDE_CODE_HOOKS, 'settings.json matches the pinned hook contract');
     const pre = settings.hooks.PreToolUse[0];
-    assert.equal(pre.matcher, 'Bash|Write|Edit');
+    // #286: MultiEdit/NotebookEdit are enforced tools — the old narrow
+    // matcher meant a MultiEdit secret write never reached the guard.
+    assert.equal(pre.matcher, 'Bash|Write|Edit|MultiEdit|NotebookEdit');
     assert.equal(pre.hooks[0].command, 'npx --yes rstack-agents guard --context builder');
     // SessionStart runs TWO hooks: the hub launcher AND the context injector (#255).
     assert.equal(settings.hooks.SessionStart.length, 2, 'hub + context on SessionStart');
@@ -184,7 +186,7 @@ test('init framework detection and setup', async (t) => {
     assert.equal(settings.hooks.UserPromptSubmit[0].hooks[0].command, 'npx --yes rstack-agents context --source claude-code');
     // Observability wiring (#251/#255): the full observe fan-out.
     const post = settings.hooks.PostToolUse[0];
-    assert.equal(post.matcher, 'Bash|Write|Edit', 'PostToolUse matches the same tool set as the guard');
+    assert.equal(post.matcher, 'Bash|Write|Edit|MultiEdit|NotebookEdit', 'PostToolUse matches the same tool set as the guard');
     assert.equal(post.hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
     assert.equal(settings.hooks.PostToolUseFailure[0].hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');
     assert.equal(settings.hooks.SubagentStart[0].hooks[0].command, 'npx --yes rstack-agents observe --source claude-code');

@@ -365,8 +365,14 @@ export function normalizeGates(gates) {
  */
 export function buildClaudeCodeHooks({ gates = [] } = {}) {
   const selected = normalizeGates(gates);
+  // MultiEdit/NotebookEdit are in the enforcement matcher (#286): Claude Code
+  // only fires a PreToolUse hook when the tool name matches, so the old
+  // 'Bash|Write|Edit' matcher meant a MultiEdit secret write never even
+  // reached the guard. Observe matchers widened for the same reason —
+  // MultiEdit activity was invisible to the dashboard too.
+  const ENFORCED_TOOLS = 'Bash|Write|Edit|MultiEdit|NotebookEdit';
   const preToolUse = [{
-    matcher: 'Bash|Write|Edit',
+    matcher: ENFORCED_TOOLS,
     hooks: [{ type: 'command', command: GUARD_CMD }],
   }];
   for (const gate of selected) {
@@ -386,11 +392,11 @@ export function buildClaudeCodeHooks({ gates = [] } = {}) {
       UserPromptSubmit: [{ hooks: [{ type: 'command', command: CONTEXT_CMD }] }],
       PreToolUse: preToolUse,
       PostToolUse: [{
-        matcher: 'Bash|Write|Edit',
+        matcher: ENFORCED_TOOLS,
         hooks: [{ type: 'command', command: OBSERVE_CMD }],
       }],
       PostToolUseFailure: [{
-        matcher: 'Bash|Write|Edit',
+        matcher: ENFORCED_TOOLS,
         hooks: [{ type: 'command', command: OBSERVE_CMD }],
       }],
       SubagentStart: [{ hooks: [{ type: 'command', command: OBSERVE_CMD }] }],

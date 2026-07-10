@@ -55,6 +55,16 @@ const COMMAND_RULES = Object.freeze([
     reason: 'recursive/forced delete or filesystem-destroying command',
   }),
   Object.freeze({
+    category: DESTRUCTIVE_CATEGORIES.BROAD_DELETE,
+    // PowerShell/cmd grammar (#286): Remove-Item with -Recurse/-Force (and
+    // their PowerShell single-letter abbreviations), cmd's `rd /s` and `del`
+    // with /s /q /f switches. PowerShell is case-insensitive by design, so
+    // the rule is too. Plain `del file.txt` is NOT flagged — same escalation
+    // logic as the Unix rule.
+    pattern: /\bremove-item\b[^|;&]*(\s-(recurse|force|rf?|fo?)\b)|\brd\b[^|;&]*\/s\b|\bdel\b[^|;&]*\/[sqf]\b/i,
+    reason: 'recursive/forced delete (PowerShell/cmd form)',
+  }),
+  Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.PUBLISH,
     pattern: /\b(npm|yarn|pnpm)\s+publish\b|\bnpm\s+unpublish\b|\bcargo\s+publish\b|\bgem\s+push\b|\btwine\s+upload\b|\bgh\s+release\s+(create|delete)\b/i,
     reason: 'package or release publish',
@@ -77,6 +87,15 @@ const COMMAND_RULES = Object.freeze([
     // Shell redirect / tee into a secret, credential, or key path.
     pattern: />>?\s*(\S*[/\\])?(\.env(\.\S+)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|id_ecdsa|\S*\.pem|\S*\.key|secrets?\.\S+|credentials?(\.\S+)?)\b|\btee\b[^|;&]*(\.env|id_rsa|\.pem|\.key|secrets?|credentials?)/i,
     reason: 'shell write into a secret, credential, or key path',
+  }),
+  Object.freeze({
+    category: DESTRUCTIVE_CATEGORIES.SECRET_WRITE,
+    // PowerShell content cmdlets (#286): Set-Content / Out-File / Add-Content
+    // / Tee-Object targeting a secret, credential, or key path. The generic
+    // `>` redirect rule above already covers PowerShell redirection — this
+    // covers the cmdlet spellings that avoid `>` entirely.
+    pattern: /\b(set-content|out-file|add-content|tee-object)\b[^|;&]*(\.env(\.\S+)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|id_ecdsa|\S*\.pem|\S*\.key|secrets?|credentials?)/i,
+    reason: 'PowerShell content cmdlet writing a secret, credential, or key path',
   }),
 ]);
 
@@ -156,20 +175,27 @@ export function classifyDestructiveAction(arg) {
     return classifyCommand(arg.command);
   }
 
-  const tool = String(arg.toolName || '').toLowerCase();
+  // Canonical tool name (#286): lowercase AND strip separators, so Claude
+  // Code's PascalCase ("MultiEdit" -> "multiedit") and Pi's snake_case
+  // ("multi_edit" -> "multiedit") both hit the same Set entry. Lowercasing
+  // alone silently missed every PascalCase multi-word tool.
+  const tool = String(arg.toolName || '').toLowerCase().replace(/[_-]/g, '');
   const input = arg.input && typeof arg.input === 'object' ? arg.input : arg;
 
-  if (tool === 'bash' || tool === 'shell' || (!tool && typeof input.command === 'string')) {
+  if (tool === 'bash' || tool === 'shell' || tool === 'powershell' || tool === 'pwsh' || tool === 'cmd'
+    || (!tool && typeof input.command === 'string')) {
     return classifyCommand(input.command);
   }
 
   const WRITE_TOOLS = new Set([
-    'write', 'edit', 'multi_edit', 'notebook_edit', 'apply_patch',
-    'str_replace', 'str_replace_editor', 'create_file', 'delete_file',
-    'move_file', 'rename_file',
+    'write', 'edit', 'multiedit', 'notebookedit', 'applypatch',
+    'strreplace', 'strreplaceeditor', 'createfile', 'deletefile',
+    'movefile', 'renamefile',
   ]);
   if (WRITE_TOOLS.has(tool)) {
-    const target = input.file_path || input.path || input.filepath || input.target;
+    // notebook_path is NotebookEdit's target parameter — without it the tool
+    // name matches but the classifier sees an empty path (#286).
+    const target = input.file_path || input.path || input.filepath || input.target || input.notebook_path;
     return classifyWritePath(typeof target === 'string' ? target : '');
   }
 
