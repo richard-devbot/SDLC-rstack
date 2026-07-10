@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -361,6 +361,25 @@ test('appendEpisode still throws on schema-invalid episodes (missing provenance)
       () => appendEpisode(dir, { task: 'no provenance fields' }),
       /Invalid episode memory/,
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('concurrent appendEpisode calls all land through the file lock; no residue (#292)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rstack-memory-lock-'));
+  try {
+    // Fire 15 concurrent appends (distinct ids). The store is now serialized on
+    // the on-disk episodes.jsonl lock, so none is lost and the file stays valid.
+    await Promise.all(Array.from({ length: 15 }, (_, i) =>
+      appendEpisode(dir, baseEpisode({ episode_id: `ep_concurrent_${i}`, compactionEnabled: false }), { compactionEnabled: false })));
+    const stored = await readEpisodes(dir);
+    const ids = new Set(stored.map((e) => e.episode_id));
+    for (let i = 0; i < 15; i++) assert.ok(ids.has(`ep_concurrent_${i}`), `ep_concurrent_${i} landed`);
+    assert.equal(stored.length, 15, 'every concurrent append landed');
+    // No lock or tmp residue left behind after the operations complete.
+    const residue = readdirSync(dir).filter((n) => n.includes('.lock') || n.includes('.tmp.'));
+    assert.deepEqual(residue, [], 'no .lock/.tmp residue');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
