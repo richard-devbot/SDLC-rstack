@@ -4,8 +4,10 @@
 
 Operator (Python agent harness) loads `rstack_sdlc.py`, which exposes the same
 `sdlc_*` tools as the Pi adapter. No SDLC logic is reimplemented in Python —
-each tool shells out to the Node bridge (`bin/rstack-operator-bridge.ts`),
-which reuses the TypeScript adapter verbatim.
+each tool shells out to the generic Node bridge (`bin/rstack-bridge.ts`),
+which reuses the TypeScript adapter verbatim
+(`bin/rstack-operator-bridge.ts` remains as a back-compat alias).
+Conformance: [adapter-contract.md](adapter-contract.md).
 
 ## Host requirements
 
@@ -46,7 +48,31 @@ is forwarded to the bridge per tool call.
 ## Verify
 
 ```bash
-RSTACK_PROJECT_ROOT=$(pwd) npx tsx node_modules/rstack-agents/bin/rstack-operator-bridge.ts sdlc_status '{}'
+npx rstack-agents doctor --framework operator
+```
+
+All-PASS confirms the adapter file, the Node bridge, the guard self-test, and
+the hub — every failure prints its fix. To exercise the bridge directly:
+
+```bash
+RSTACK_PROJECT_ROOT=$(pwd) npx tsx node_modules/rstack-agents/bin/rstack-bridge.ts sdlc_status '{}'
 ```
 
 A JSON run summary on stdout means the bridge, adapter, and harness all work.
+
+## Enforcement
+
+Operator has no blocking tool-call hook, so wire the guard into your host's
+pre-execution step — it is the same gate Pi and Claude Code use:
+
+```bash
+echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/x"}}' | npx rstack-agents guard --context builder   # exit 2 = blocked
+```
+
+See [wire-your-own-harness.md](wire-your-own-harness.md) for the paste-in recipe.
+
+## Everyday commands
+
+The harness-agnostic CLI applies — `pipeline status`, `pipeline run`,
+`pipeline loop`, `adopt`, `decisions`, `dor`, `doctor`, `npx rstack-business`.
+Full table: [README.md → Everyday commands](README.md#everyday-commands-any-framework).

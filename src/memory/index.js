@@ -326,8 +326,63 @@ export function episodeFromValidation({ projectRoot, manifest, task, builder = {
   };
 }
 
+let warnedDefaultSigningSecret = false;
+
+// Write-policy decision (#137). The invariant "trusted memory cannot resurrect
+// a failed or unsafe behavior" is enforced HERE, in code — never by trusting the
+// caller's `trusted` flag or by prompt text. Given an episode (already
+// signature-stamped) and the merged memory config, decide whether to store it
+// and at what trust level:
+//
+//   - validator-approved-only (default): only PASS validations may be stored,
+//     and only as trusted. A non-PASS episode is SKIPPED (never written under a
+//     benign trust flag a later recall could resurrect).
+//   - validation-attempts: non-PASS validations ARE stored, but always as
+//     `trusted: false`, so they surface only when a recall explicitly opts into
+//     untrusted memory (`includeUntrusted`). They can never be silently trusted.
+//
+// PASS episodes are additionally gated on integrity: a valid signature, present
+// evidence paths, and an in-range quality score. If any integrity check fails,
+// the episode is demoted to untrusted (validation-attempts) or skipped
+// (validator-approved-only) rather than stored as trusted on unverifiable data.
+export function evaluateWritePolicy(episode, config = {}) {
+  const merged = mergeMemoryConfig(config);
+  const writePolicy = merged.writePolicy;
+  const isPass = String(episode?.validator_status || '').toUpperCase() === 'PASS';
+
+  const integrity = [];
+  if (!verifyEpisodeSignature(episode)) integrity.push('signature');
+  const evidence = episode?.evidence_paths;
+  if (!Array.isArray(evidence) || evidence.length === 0 || !evidence.every((p) => typeof p === 'string' && p.trim())) {
+    integrity.push('evidence_paths');
+  }
+  const score = Number(episode?.quality_score);
+  if (!Number.isFinite(score) || score < 0 || score > 1) integrity.push('quality_score');
+
+  const trustable = isPass && integrity.length === 0;
+  if (trustable) {
+    return { write: true, trusted: true, reason: 'validator-approved', writePolicy, integrity: [] };
+  }
+
+  if (writePolicy === 'validation-attempts') {
+    const reason = isPass ? `integrity-failed:${integrity.join(',')}` : 'validation-attempt-untrusted';
+    return { write: true, trusted: false, reason, writePolicy, integrity };
+  }
+
+  const reason = isPass ? `integrity-failed:${integrity.join(',')}` : 'not-validator-approved';
+  return { write: false, trusted: false, reason, writePolicy, integrity };
+}
+
 function getSigningSecret(projectSlug) {
-  return process.env.RSTACK_SIGNING_KEY || `rstack-bft-secret-${projectSlug}`;
+  if (process.env.RSTACK_SIGNING_KEY) return process.env.RSTACK_SIGNING_KEY;
+  // The fallback secret is derivable from the project slug, so episode
+  // signatures only detect accidental corruption — not tampering. Say so
+  // once instead of letting the signatures imply integrity they can't give.
+  if (!warnedDefaultSigningSecret) {
+    warnedDefaultSigningSecret = true;
+    console.error('[rstack] RSTACK_SIGNING_KEY is not set — memory episode signatures use a predictable default and only detect corruption, not tampering. Set RSTACK_SIGNING_KEY for tamper-evident memory.');
+  }
+  return `rstack-bft-secret-${projectSlug}`;
 }
 
 export function calculateEpisodeSignature(episode) {
@@ -362,19 +417,51 @@ async function acquireLock(memoryDir) {
   return release;
 }
 
+// Append an episode, enforcing the write policy (#137). Returns a structured
+// decision so callers can emit the right ledger event:
+//   { path, written, trusted, decision }
+// where `decision` is the evaluateWritePolicy() result. When the policy skips a
+// write, `written` is false and `path` is null — no throw, so the caller can log
+// `episode_memory_skipped_untrusted` and continue. Schema-invalid episodes
+// (missing required provenance fields) still throw: that is a programming error,
+// not a policy decision.
 export async function appendEpisode(memoryDir, episode, config = {}) {
   const release = await acquireLock(memoryDir);
   try {
+    // Stamp the signature first so evaluateWritePolicy sees a signed episode and
+    // its integrity check reflects the record we would actually persist. A
+    // caller cannot pre-set `trusted` to launder an untrusted episode: the trust
+    // level is decided here and overwritten below.
     episode.signature = calculateEpisodeSignature(episode);
+
     const result = validateEpisode(episode);
     if (!result.ok) {
       const missing = result.issues.map((issue) => issue.name.replace('episode_has_', '')).join(', ');
       throw new Error(`Invalid episode memory: ${missing}`);
     }
+
+    const decision = evaluateWritePolicy(episode, config);
+    if (!decision.write) {
+      // Policy refused the write (e.g. a FAILED validation under
+      // validator-approved-only). Persist nothing — a skipped episode can never
+      // be recalled, so it cannot resurrect the behavior it records.
+      return { path: null, written: false, trusted: false, decision };
+    }
+
+    // Enforce the decided trust level in code. This is the invariant: even if the
+    // caller passed `trusted: true`, a non-PASS or integrity-failed episode is
+    // written `trusted: false` — never silently trusted.
+    episode.trusted = decision.trusted;
+    // Re-sign after coercing trust so the persisted record's signature is valid
+    // for its final field values (the signature does not currently cover
+    // `trusted`, but re-signing keeps the record self-consistent and future-proof
+    // if the signed field set grows).
+    episode.signature = calculateEpisodeSignature(episode);
+
     await mkdir(memoryDir, { recursive: true });
     const path = jsonlPath(memoryDir, 'episodes.jsonl');
     await appendFile(path, `${JSON.stringify(episode)}\n`);
-    
+
     // Auto-compact internally within the lock
     if (config?.compactionEnabled !== false) {
       await compactEpisodesInternal(memoryDir, {
@@ -382,7 +469,7 @@ export async function appendEpisode(memoryDir, episode, config = {}) {
         keepRecentEpisodes: config?.keepRecentEpisodes ?? 20,
       });
     }
-    return path;
+    return { path, written: true, trusted: decision.trusted, decision };
   } finally {
     release();
   }

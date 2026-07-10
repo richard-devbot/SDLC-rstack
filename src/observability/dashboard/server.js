@@ -1,14 +1,36 @@
 import { createServer } from 'node:http';
+import { createServer as createTlsServer } from 'node:https';
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
-import { existsSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
+import { appendFile, readFile, stat } from 'node:fs/promises';
 import { dashboardHtml } from './ui.js';
 import { studio3dHtml } from './ui/studio3d.js';
 import { buildFullState, resolveDashboardApproval, toClientState } from './state/index.js';
+import { validateProjectConfigs } from '../../core/harness/config-validation.js';
 import { sourceRoots } from './state/roots.js';
 import { collectStageReports } from './state/stage-reports.js';
+import {
+  appendApprovalAudit,
+  appendEnvWriteAudit,
+  createRateLimiter,
+  etagFor,
+  ifNoneMatchSatisfied,
+  logHttpRequest,
+  stableStringify,
+} from './hardening.js';
+import {
+  ENV_VALUE_MAX_BYTES,
+  isEnvGitignored,
+  isValidEnvKey,
+  updateEnvKey,
+} from '../../core/harness/env-file.js';
+import { classifyDestructiveAction, destructiveApprovalArtifact } from '../../core/harness/destructive-actions.js';
+import { consumeApprovedQueueArtifact, ensurePendingQueueApproval } from '../../core/tracker/approvals.js';
+import { decide } from '../../core/harness/decisions.js';
+import { latestRunId, runDirectory } from '../../core/harness/runs.js';
+import { withFileLock } from '../../core/harness/safe-write.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -115,23 +137,113 @@ async function broadcastSnapshot() {
   broadcast(toClientState(state));
 }
 
+// Per-IP token bucket for POST endpoints: 10 requests per minute, then 429
+// with a Retry-After. Applied before auth so a brute-force against the
+// approval token is throttled too.
+const postRateLimiter = createRateLimiter({ capacity: 10, windowMs: 60_000 });
+
+// Append-only audit trail for every approval attempt — successful AND denied.
+// Best-effort: an audit write failure is reported on stderr but never turns a
+// valid approval into a 500.
+function auditApprovalAttempt(req, { id, decision, resolvedBy, outcome, reason }) {
+  const entry = {
+    ts: new Date().toISOString(),
+    id: id ?? null,
+    decision,
+    resolvedBy: resolvedBy ?? null,
+    remote: req.socket?.remoteAddress ?? null,
+    origin: req.headers?.origin ?? null,
+    outcome,
+    ...(reason ? { reason } : {}),
+  };
+  appendApprovalAudit(PROJECT_ROOT, entry).catch((err) => {
+    process.stderr.write(`[rstack-business] approval audit write failed: ${err?.message}\n`);
+  });
+}
+
 // A signed approval is required whenever RSTACK_APPROVAL_TOKEN is set: the
 // dashboard cannot mint manager identity from an unauthenticated request body.
 // Without the env token, approving from the browser is blocked entirely (the
 // secure default for a multi-user company hub) — set the token to enable it.
+// Token resolution supports rotation without a restart: with
+// RSTACK_APPROVAL_TOKEN_FILE set, the file is re-read on every request, so
+// replacing its contents rotates the credential immediately. The env token
+// remains the simple single-user path. The token value is never logged.
+function expectedApprovalToken() {
+  const file = process.env.RSTACK_APPROVAL_TOKEN_FILE;
+  if (file) {
+    try {
+      return readFileSync(file, 'utf8').trim() || null;
+    } catch {
+      // Unreadable token file fails closed: approvals stay disabled.
+      return null;
+    }
+  }
+  return process.env.RSTACK_APPROVAL_TOKEN || null;
+}
+
+function tokenMatches(provided, expected) {
+  const a = Buffer.from(String(provided ?? ''), 'utf8');
+  const b = Buffer.from(String(expected ?? ''), 'utf8');
+  // Length comparison leaks only length, not content; timingSafeEqual
+  // requires equal-length buffers.
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+// Read-path authentication (#164): SDLC state (goals, costs, artifacts,
+// security notes) is sensitive. Foreign browser Origins are ALWAYS rejected
+// on read APIs and the WebSocket stream — CORS does not protect WS upgrades.
+// Setting RSTACK_DASHBOARD_READ_TOKEN (or _FILE, re-read per request for
+// rotation, same pattern as the approval token) additionally requires the
+// token on every read via the x-rstack-read-token header or ?token= param.
+function expectedReadToken() {
+  const file = process.env.RSTACK_DASHBOARD_READ_TOKEN_FILE;
+  if (file) {
+    try {
+      return readFileSync(file, 'utf8').trim() || null;
+    } catch {
+      // Unreadable token file fails closed: reads stay locked.
+      return 'unreadable-token-file-fails-closed';
+    }
+  }
+  return process.env.RSTACK_DASHBOARD_READ_TOKEN || null;
+}
+
+function readAuthError(req, url) {
+  const origin = req.headers.origin;
+  if (origin && !LOCALHOST_ORIGIN.test(origin)) {
+    return { code: 403, msg: 'cross-origin read rejected' };
+  }
+  const expected = expectedReadToken();
+  if (expected) {
+    const token = req.headers['x-rstack-read-token'] || url.searchParams.get('token');
+    if (!token || !tokenMatches(token, expected)) {
+      return { code: 401, msg: 'missing or invalid dashboard read token — set RSTACK_DASHBOARD_READ_TOKEN on the client' };
+    }
+  }
+  return null;
+}
+
+function denyRead(res, authErr) {
+  res.writeHead(authErr.code, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ ok: false, error: authErr.msg }));
+}
+
 function approvalAuthError(req) {
-  const expected = process.env.RSTACK_APPROVAL_TOKEN;
+  const expected = expectedApprovalToken();
   if (!expected) {
-    return { code: 403, msg: 'dashboard approvals are disabled — set RSTACK_APPROVAL_TOKEN to enable signed approvals, or approve via sdlc_approve' };
+    return { code: 403, msg: 'dashboard approvals are disabled — set RSTACK_APPROVAL_TOKEN (or RSTACK_APPROVAL_TOKEN_FILE) to enable signed approvals, or approve via sdlc_approve' };
   }
   // CSRF: a cross-site form POST cannot set custom headers and would carry a
   // foreign Origin. Require the token header and a localhost (or absent) origin.
   const origin = req.headers.origin;
-  if (origin && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+  if (origin && !LOCALHOST_ORIGIN.test(origin)) {
     return { code: 403, msg: 'cross-origin approval rejected' };
   }
   const token = req.headers['x-rstack-approval-token'];
-  if (!token || token !== expected) {
+  if (!token || !tokenMatches(token, expected)) {
     return { code: 401, msg: 'missing or invalid approval token' };
   }
   return null;
@@ -146,37 +258,359 @@ async function handleApproval(req, res, decision) {
   };
   const contentType = String(req.headers['content-type'] ?? '');
   if (!contentType.includes('application/json')) {
+    auditApprovalAttempt(req, { decision, outcome: 'denied', reason: 'Content-Type must be application/json' });
     return fail(415, 'Content-Type must be application/json');
   }
   const authErr = approvalAuthError(req);
-  if (authErr) return fail(authErr.code, authErr.msg);
+  if (authErr) {
+    auditApprovalAttempt(req, { decision, outcome: 'denied', reason: authErr.msg });
+    return fail(authErr.code, authErr.msg);
+  }
 
   let body = '';
   let tooLarge = false;
   req.on('error', () => fail(400, 'request stream error'));
   req.on('data', (chunk) => {
+    if (tooLarge) return;
     body += chunk;
-    if (body.length > 64 * 1024) { tooLarge = true; req.destroy(); }
+    if (Buffer.byteLength(body, 'utf8') > 64 * 1024) {
+      // Reject oversized bodies on the spot but keep the socket alive so the
+      // 413 and its audit entry actually reach the client. Destroying the
+      // request here (the old behavior) raced the response into a connection
+      // reset. Drain the rest of the stream instead.
+      tooLarge = true;
+      auditApprovalAttempt(req, { decision, outcome: 'denied', reason: 'request body too large' });
+      fail(413, 'request body too large');
+      req.resume();
+    }
   });
   req.on('end', async () => {
-    if (tooLarge) return fail(413, 'request body too large');
+    if (tooLarge) return;
+    const parsed = safeJson(body) ?? {};
+    const { id, resolvedBy } = parsed;
     try {
-      const parsed = safeJson(body) ?? {};
-      const { id, resolvedBy } = parsed;
-      if (!id) return fail(400, 'missing approval id');
-      if (!resolvedBy || typeof resolvedBy !== 'string') return fail(400, 'resolvedBy (approver identity) is required');
+      if (!id) {
+        auditApprovalAttempt(req, {
+          decision,
+          resolvedBy: typeof resolvedBy === 'string' ? resolvedBy : null,
+          outcome: 'denied',
+          reason: 'missing approval id',
+        });
+        return fail(400, 'missing approval id');
+      }
+      if (!resolvedBy || typeof resolvedBy !== 'string') {
+        auditApprovalAttempt(req, { id, outcome: 'denied', decision, reason: 'resolvedBy (approver identity) is required' });
+        return fail(400, 'resolvedBy (approver identity) is required');
+      }
       // Actor evidence: token-verified, not just a body string.
       const ok = await resolveDashboardApproval(PROJECT_ROOT, id, decision, resolvedBy, {
         actor: { name: resolvedBy, via: 'dashboard', tokenVerified: true, ts: new Date().toISOString() },
       });
+      auditApprovalAttempt(req, { id, decision, resolvedBy, outcome: ok ? 'success' : 'not-found' });
       res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok }));
-      if (ok) await broadcastSnapshot();
+      // Fire-and-forget the refresh: the approval already succeeded and the 200
+      // is sent, so a snapshot-build failure must not fall into the catch below
+      // and append a false `error` audit entry for a completed approval.
+      if (ok) {
+        broadcastSnapshot().catch((broadcastErr) => {
+          process.stderr.write(`[rstack-business] approval broadcast error: ${broadcastErr?.message}\n`);
+        });
+      }
     } catch (err) {
       process.stderr.write(`[rstack-business] approval error: ${err?.message}\n`);
-      fail(Number(err?.statusCode) || 500, String(err?.message));
+      const status = Number(err?.statusCode) || 500;
+      auditApprovalAttempt(req, {
+        id,
+        decision,
+        resolvedBy: typeof resolvedBy === 'string' ? resolvedBy : null,
+        outcome: status >= 400 && status < 500 ? 'denied' : 'error',
+        reason: String(err?.message),
+      });
+      fail(status, String(err?.message));
     }
   });
+}
+
+// Shared guarded-POST chain for the write endpoints (#238) — the EXACT same
+// trust boundary as /api/approve: Content-Type enforced, approval token
+// (fail closed when unset: the route is disabled with 403), CSRF origin
+// check, 64KB body cap. The per-IP rate limiter already ran in the request
+// handler before any POST route is reached. `audit(entry)` records every
+// attempt — denied and successful; `onBody(parsed, fail)` runs only for an
+// authenticated, size-checked, parsed body.
+function handleGuardedPost(req, res, { audit, onBody }) {
+  const fail = (code, msg, extra) => {
+    if (!res.headersSent) {
+      res.writeHead(code, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: msg, ...(extra ?? {}) }));
+    }
+  };
+  const contentType = String(req.headers['content-type'] ?? '');
+  if (!contentType.includes('application/json')) {
+    audit({ outcome: 'denied', reason: 'Content-Type must be application/json' });
+    return fail(415, 'Content-Type must be application/json');
+  }
+  const authErr = approvalAuthError(req);
+  if (authErr) {
+    audit({ outcome: 'denied', reason: authErr.msg });
+    return fail(authErr.code, authErr.msg);
+  }
+
+  let body = '';
+  let tooLarge = false;
+  req.on('error', () => fail(400, 'request stream error'));
+  req.on('data', (chunk) => {
+    if (tooLarge) return;
+    body += chunk;
+    if (Buffer.byteLength(body, 'utf8') > 64 * 1024) {
+      tooLarge = true;
+      audit({ outcome: 'denied', reason: 'request body too large' });
+      fail(413, 'request body too large');
+      req.resume();
+    }
+  });
+  req.on('end', async () => {
+    if (tooLarge) return;
+    try {
+      await onBody(safeJson(body) ?? {}, fail);
+    } catch (err) {
+      const status = Number(err?.statusCode) || 500;
+      audit({ outcome: status >= 400 && status < 500 ? 'denied' : 'error', reason: String(err?.message) });
+      fail(status, String(err?.message));
+    }
+  });
+}
+
+// Append the pinned env_key_written event to the LATEST run's events.jsonl.
+// A project with no runs yet skips the event silently (documented: run event
+// streams are run-scoped; the env-writes audit file is the run-independent
+// record). Never carries the value — key, actor and value length only.
+async function appendEnvWriteEvent(projectRoot, event) {
+  const runId = await latestRunId(projectRoot);
+  if (!runId) return null;
+  const eventsPath = join(runDirectory(projectRoot, runId), 'events.jsonl');
+  await withFileLock(eventsPath, async () => {
+    await appendFile(eventsPath, JSON.stringify({ ts: new Date().toISOString(), ...event }) + '\n');
+  });
+  return runId;
+}
+
+// POST /api/env-write (#238): approval-gated .env writes, dogfooding the
+// destructive-action gate. TWO-STEP by design — the plaintext value is never
+// persisted anywhere before approval:
+//   1. No trusted APPROVED queue record for destructive-action:env-write:<KEY>
+//      → ensure a PENDING queue entry (renders on the Approvals page, where
+//      manager policy + the token-verified actor stamp apply for free) and
+//      return 409 approval_required. The value in this request is discarded.
+//   2. With a trusted approval → the approval is atomically CONSUMED
+//      (one-shot; a second write needs re-approval), the key is written via
+//      the locked atomic .env writer, the audit line + run event record the
+//      key/actor/length — never the value — and the snapshot re-broadcasts.
+// A .env that is not gitignored refuses outright (409 gitignore_required).
+async function handleEnvWrite(req, res) {
+  let auditContext = {};
+  const audit = (entry) => {
+    appendEnvWriteAudit(PROJECT_ROOT, {
+      ts: new Date().toISOString(),
+      remote: req.socket?.remoteAddress ?? null,
+      origin: req.headers?.origin ?? null,
+      ...auditContext,
+      ...entry,
+    }).catch((err) => {
+      process.stderr.write(`[rstack-business] env-write audit failed: ${err?.message}\n`);
+    });
+  };
+  handleGuardedPost(req, res, {
+    audit,
+    onBody: async (parsed, fail) => {
+      const { key, value, resolvedBy } = parsed;
+      auditContext = {
+        key: typeof key === 'string' ? key.slice(0, 200) : null,
+        actor: typeof resolvedBy === 'string' ? resolvedBy.slice(0, 200) : null,
+      };
+      if (!isValidEnvKey(key)) {
+        audit({ outcome: 'denied', reason: 'invalid env key' });
+        return fail(400, 'invalid env key — expected ^[A-Z][A-Z0-9_]*$');
+      }
+      if (!resolvedBy || typeof resolvedBy !== 'string') {
+        audit({ outcome: 'denied', reason: 'resolvedBy (requester identity) is required' });
+        return fail(400, 'resolvedBy (requester identity) is required');
+      }
+      // Validate the value BEFORE any approval is consumed, so a malformed
+      // request can never burn a one-shot approval.
+      if (typeof value !== 'string') {
+        audit({ outcome: 'denied', reason: 'value must be a string' });
+        return fail(400, 'value (string) is required');
+      }
+      if (Buffer.byteLength(value, 'utf8') > ENV_VALUE_MAX_BYTES) {
+        audit({ outcome: 'denied', reason: 'value too large', valueLength: value.length });
+        return fail(400, `value exceeds ${ENV_VALUE_MAX_BYTES} bytes`);
+      }
+
+      // Gitignore gate: writing a secret into a file git would commit is a
+      // leak, not a configuration step. Refuse until .env is ignored.
+      if (!(await isEnvGitignored(PROJECT_ROOT))) {
+        audit({ outcome: 'denied', reason: 'gitignore_required' });
+        return fail(409, 'gitignore_required', {
+          detail: '.env is not gitignored in this project — add ".env" to .gitignore before writing secrets through the hub',
+        });
+      }
+
+      // Dogfood the central classifier: a .env write IS a secret-write. This
+      // is an invariant, not an input check — if the classifier ever stops
+      // flagging it, refuse loudly rather than write an ungated secret.
+      const verdict = classifyDestructiveAction({ toolName: 'write', input: { file_path: '.env' } });
+      if (!verdict.destructive) {
+        audit({ outcome: 'error', reason: 'destructive classifier did not flag the .env write' });
+        return fail(500, 'internal invariant failed: .env write did not classify as destructive');
+      }
+
+      const artifact = destructiveApprovalArtifact(`env-write:${key}`);
+      // Atomic one-shot claim: only a queue record that passes the SAME
+      // audit as every gate (trustedApprovedArtifacts — per-record
+      // validation + replay/ordering history checks) can be consumed here.
+      const approval = await consumeApprovedQueueArtifact(PROJECT_ROOT, artifact);
+      if (!approval) {
+        const pendingEntry = await ensurePendingQueueApproval(PROJECT_ROOT, {
+          id: `env-write:${key}`,
+          artifact,
+          type: 'env_write',
+          title: `Write .env key ${key}`,
+          detail: `Business Hub requests approval to set ${key} in .env (${verdict.category}). The value is held client-side only until approved.`,
+          requestedBy: resolvedBy,
+          category: verdict.category,
+        });
+        audit({ outcome: 'approval-required', artifact });
+        return fail(409, 'approval_required', {
+          artifact,
+          approval_id: pendingEntry.id,
+          detail: `Approve '${artifact}' on the Approvals page, then submit the write again. The value was NOT stored.`,
+        });
+      }
+
+      const result = await updateEnvKey(PROJECT_ROOT, key, value);
+      audit({
+        outcome: 'written',
+        artifact,
+        approvedBy: approval.resolvedBy ?? null,
+        created: result.created,
+        valueLength: value.length,
+      });
+      try {
+        await appendEnvWriteEvent(PROJECT_ROOT, {
+          type: 'env_key_written',
+          key,
+          actor: resolvedBy,
+          masked_value_length: value.length,
+        });
+      } catch (err) {
+        // The write succeeded; a run-event failure must not turn it into a 500.
+        process.stderr.write(`[rstack-business] env-write event append failed: ${err?.message}\n`);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      // The value is never echoed back.
+      res.end(JSON.stringify({ ok: true, key, written: true, created: result.created, approvedBy: approval.resolvedBy ?? null }));
+      broadcastSnapshot().catch((err) => {
+        process.stderr.write(`[rstack-business] env-write broadcast error: ${err?.message}\n`);
+      });
+    },
+  });
+}
+
+// POST /api/decide (#238): resolve or waive a Decision Queue item from the
+// hub, behind the same trust boundary as /api/approve. Routes through
+// harness decisions.decide() — never a second implementation.
+async function handleDecide(req, res) {
+  const audit = (entry) => {
+    appendApprovalAudit(PROJECT_ROOT, {
+      ts: new Date().toISOString(),
+      kind: 'decision',
+      remote: req.socket?.remoteAddress ?? null,
+      origin: req.headers?.origin ?? null,
+      ...entry,
+    }).catch((err) => {
+      process.stderr.write(`[rstack-business] decision audit write failed: ${err?.message}\n`);
+    });
+  };
+  handleGuardedPost(req, res, {
+    audit,
+    onBody: async (parsed, fail) => {
+      const { runId, decisionId, status, resolution, resolvedBy } = parsed;
+      const base = {
+        id: typeof decisionId === 'string' ? decisionId.slice(0, 200) : null,
+        decision: typeof status === 'string' ? status.slice(0, 40) : null,
+        resolvedBy: typeof resolvedBy === 'string' ? resolvedBy.slice(0, 200) : null,
+        runId: typeof runId === 'string' ? runId.slice(0, 200) : null,
+      };
+      if (!decisionId || typeof decisionId !== 'string') {
+        audit({ ...base, outcome: 'denied', reason: 'missing decision id' });
+        return fail(400, 'decisionId is required');
+      }
+      if (status !== 'resolved' && status !== 'waived') {
+        audit({ ...base, outcome: 'denied', reason: 'status must be resolved or waived' });
+        return fail(400, 'status must be resolved or waived');
+      }
+      if (!resolvedBy || typeof resolvedBy !== 'string') {
+        audit({ ...base, outcome: 'denied', reason: 'resolvedBy (decider identity) is required' });
+        return fail(400, 'resolvedBy (decider identity) is required');
+      }
+      // Locate the root owning the run (the hub watches several); an
+      // explicit runId that exists nowhere is a 404, not a silent default.
+      let targetRoot = PROJECT_ROOT;
+      if (runId) {
+        if (typeof runId !== 'string' || runId.includes('/') || runId.includes('..') || runId.includes('\\')) {
+          audit({ ...base, outcome: 'denied', reason: 'unsafe run id' });
+          return fail(400, 'unsafe run id');
+        }
+        const roots = await sourceRoots(PROJECT_ROOT, {});
+        targetRoot = roots.find((root) => existsSync(join(root, '.rstack', 'runs', runId))) ?? null;
+        if (!targetRoot) {
+          audit({ ...base, outcome: 'not-found', reason: 'run not found' });
+          return fail(404, 'run not found');
+        }
+      }
+      try {
+        const decision = await decide(targetRoot, runId || undefined, decisionId, {
+          status,
+          resolution: typeof resolution === 'string' ? resolution : '',
+          resolvedBy,
+        });
+        audit({ ...base, outcome: 'success' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, decision }));
+        broadcastSnapshot().catch((err) => {
+          process.stderr.write(`[rstack-business] decision broadcast error: ${err?.message}\n`);
+        });
+      } catch (err) {
+        const message = String(err?.message ?? err);
+        const notFound = /not found|no rstack run/i.test(message);
+        audit({ ...base, outcome: notFound ? 'not-found' : 'error', reason: message });
+        fail(notFound ? 404 : 400, message);
+      }
+    },
+  });
+}
+
+// Send a JSON response with a strong content-hash ETag on 200s, answering a
+// matching If-None-Match with an empty 304 instead of the full body.
+// `hashInput` lets callers hash a stable projection of the body (e.g. the
+// state without its per-request timestamp) so 304s are actually reachable.
+function sendJsonCacheable(req, res, status, body, { hashInput } = {}) {
+  const payload = JSON.stringify(body);
+  if (status !== 200) {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(payload);
+    return;
+  }
+  const etag = etagFor(hashInput ?? payload);
+  if (ifNoneMatchSatisfied(req.headers['if-none-match'], etag)) {
+    res.writeHead(304, { ETag: etag });
+    res.end();
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': 'application/json', ETag: etag });
+  res.end(payload);
 }
 
 // Read one run artifact, strictly sandboxed: the run is located via the known
@@ -195,11 +629,8 @@ async function resolveRunDir(runId) {
     .find((dir) => existsSync(dir)) ?? null;
 }
 
-async function handleRunReport(url, res) {
-  const sendJson = (status, body) => {
-    res.writeHead(status, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(body));
-  };
+async function handleRunReport(req, url, res) {
+  const sendJson = (status, body) => sendJsonCacheable(req, res, status, body);
   try {
     const runId = url.searchParams.get('run') ?? '';
     if (!runId) return sendJson(400, { error: 'run is required' });
@@ -212,11 +643,8 @@ async function handleRunReport(url, res) {
   }
 }
 
-async function handleArtifact(url, res) {
-  const sendJson = (status, body) => {
-    res.writeHead(status, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(body));
-  };
+async function handleArtifact(req, url, res) {
+  const sendJson = (status, body) => sendJsonCacheable(req, res, status, body);
   try {
     const runId = url.searchParams.get('run') ?? '';
     const relPath = url.searchParams.get('path') ?? '';
@@ -239,8 +667,27 @@ async function handleArtifact(url, res) {
   }
 }
 
-const server = createServer(async (req, res) => {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
+// TLS is opt-in (#150): set RSTACK_TLS_CERT and RSTACK_TLS_KEY (PEM file
+// paths) to serve HTTPS — needed when the hub sits on a shared network where
+// the approval token must not travel in cleartext. Localhost HTTP stays the
+// default. A half-configured pair fails loudly instead of silently serving
+// HTTP with the operator believing TLS is on.
+function resolveTlsOptions() {
+  const certPath = process.env.RSTACK_TLS_CERT;
+  const keyPath = process.env.RSTACK_TLS_KEY;
+  if (!certPath && !keyPath) return null;
+  if (!certPath || !keyPath) {
+    throw new Error('TLS misconfigured: both RSTACK_TLS_CERT and RSTACK_TLS_KEY must be set (PEM file paths).');
+  }
+  return { cert: readFileSync(certPath), key: readFileSync(keyPath) };
+}
+
+const TLS_OPTIONS = resolveTlsOptions();
+const SCHEME = TLS_OPTIONS ? 'https' : 'http';
+
+const requestHandler = async (req, res) => {
+  logHttpRequest(req, res);
+  const url = new URL(req.url, `${SCHEME}://localhost:${PORT}`);
 
   // CORS: only reflect localhost origins — a wildcard would let any website
   // a browser visits silently read the full SDLC state from this port.
@@ -257,6 +704,26 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Throttle all POSTs per client IP before any routing or auth work, so the
+  // approval token cannot be brute-forced and write endpoints cannot be spammed.
+  if (req.method === 'POST') {
+    const verdict = postRateLimiter.check(req.socket?.remoteAddress ?? 'unknown');
+    if (!verdict.allowed) {
+      if (url.pathname === '/api/approve' || url.pathname === '/api/reject') {
+        auditApprovalAttempt(req, {
+          decision: url.pathname === '/api/approve' ? 'approved' : 'rejected',
+          outcome: 'rate-limited',
+        });
+      }
+      res.writeHead(429, {
+        'Content-Type': 'application/json',
+        'Retry-After': String(verdict.retryAfterSec),
+      });
+      res.end(JSON.stringify({ ok: false, error: 'rate limit exceeded — retry later' }));
+      return;
+    }
+  }
+
   if (url.pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, port: PORT, ts: new Date().toISOString() }));
@@ -264,10 +731,19 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/state' && req.method === 'GET') {
+    const authErr = readAuthError(req, url);
+    if (authErr) return denyRead(res, authErr);
     try {
       const state = await buildFullState(PROJECT_ROOT);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(state));
+      // [wave:money] Serve the SAME projection the WebSocket path sends. The
+      // raw state leaked here before, so REST-served clients (first paint +
+      // WS-down fallback) missed projection-only fields — evidenceRecent,
+      // stageCost/stageTokens, tokenTotals, metricsSource, loopBudgets — and
+      // hauled the full event/evidence streams over the wire.
+      const clientState = toClientState(state);
+      // Hash a projection with server eval-time timestamps stripped, so an
+      // unchanged project yields a stable ETag and revalidation returns 304.
+      sendJsonCacheable(req, res, 200, clientState, { hashInput: stableStringify(clientState) });
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: String(err?.message) }));
@@ -285,6 +761,16 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === '/api/env-write' && req.method === 'POST') {
+    await handleEnvWrite(req, res);
+    return;
+  }
+
+  if (url.pathname === '/api/decide' && req.method === 'POST') {
+    await handleDecide(req, res);
+    return;
+  }
+
   if (url.pathname === '/studio3d') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(studio3dHtml(PORT));
@@ -292,21 +778,36 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/artifact' && req.method === 'GET') {
-    await handleArtifact(url, res);
+    const authErr = readAuthError(req, url);
+    if (authErr) return denyRead(res, authErr);
+    await handleArtifact(req, url, res);
     return;
   }
 
   if (url.pathname === '/api/run-report' && req.method === 'GET') {
-    await handleRunReport(url, res);
+    const authErr = readAuthError(req, url);
+    if (authErr) return denyRead(res, authErr);
+    await handleRunReport(req, url, res);
     return;
   }
 
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(dashboardHtml(PORT));
-});
+};
+
+const server = TLS_OPTIONS ? createTlsServer(TLS_OPTIONS, requestHandler) : createServer(requestHandler);
 
 server.on('upgrade', async (req, socket) => {
   if (req.headers.upgrade?.toLowerCase() !== 'websocket') {
+    socket.destroy();
+    return;
+  }
+  // CORS does not apply to WebSocket upgrades — enforce the read policy here:
+  // foreign browser Origins are always rejected, and a configured read token
+  // is required (?token= — browsers cannot set custom headers on WS).
+  const wsAuthErr = readAuthError(req, new URL(req.url, `${SCHEME}://localhost:${PORT}`));
+  if (wsAuthErr) {
+    socket.write(`HTTP/1.1 ${wsAuthErr.code === 403 ? '403 Forbidden' : '401 Unauthorized'}\r\nConnection: close\r\n\r\n`);
     socket.destroy();
     return;
   }
@@ -322,10 +823,16 @@ server.on('upgrade', async (req, socket) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  const url = `http://localhost:${PORT}`;
+  // Report the bound port, not the requested one — `--port 0` asks the OS for
+  // an ephemeral port (used by the test harness).
+  const url = `${SCHEME}://localhost:${server.address().port}`;
   console.log('\n  RStack Business Hub - live observability for your team');
   console.log(`  Project : ${PROJECT_ROOT}`);
   console.log(`  Dashboard: ${url}\n`);
+  // Loud once at startup (#151): invalid config values must never be a
+  // silent default — Diagnostics shows them live; this makes them visible
+  // in the terminal the moment the hub starts.
+  validateProjectConfigs(PROJECT_ROOT, { warn: true }).catch(() => {});
   if (!NO_BROWSER) openBrowser(url);
   startPolling();
 });

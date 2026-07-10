@@ -6,9 +6,15 @@ import { join } from 'node:path';
 import { generateRunReport } from '../src/observability/collectors/reporter.js';
 import extension from '../extensions/rstack-sdlc.ts';
 
-// Mock Pi Extension API
+// Mock Pi Extension API — mirrors the real @earendil-works/pi-coding-agent
+// 0.79.x ExtensionAPI surface. NOTE: the real API has NO `pi.tools` registry
+// (it was removed in 0.79.x — see the registeredTools migration in the
+// adapter). The `tools`/`commands` maps below are TEST-SIDE captures the mock
+// keeps so specs can invoke a tool/command directly; the adapter itself never
+// reads them. The real tool accessors it does expose are getAllTools /
+// getActiveTools / setActiveTools, mirrored here so the mock tracks the SDK.
 const mockPi = {
-  tools: {},
+  tools: {},        // test-side capture only (not part of the real API)
   commands: {},
   registerTool(tool) {
     this.tools[tool.name] = tool;
@@ -16,6 +22,13 @@ const mockPi = {
   registerCommand(name, command) {
     this.commands[name] = command;
   },
+  getAllTools() {
+    return Object.values(this.tools).map((t) => ({ name: t.name, label: t.label, description: t.description }));
+  },
+  getActiveTools() {
+    return Object.keys(this.tools);
+  },
+  setActiveTools() {},
   on() {},
   ui: {
     notify() {},
@@ -125,6 +138,29 @@ test('RStack Observability Hub - Reporter & Commands E2E', async (t) => {
     assert.ok(text.includes('Guardrail Triggered: maxTaskAttempts = 1'));
     assert.ok(text.includes('[VALIDATION] status: PASS'));
     assert.ok(text.includes('env_check'));
+  });
+
+  // Regression guard for the Pi SDK 0.79.x `pi.tools` removal (issue #242).
+  // Command handlers used to invoke tools via `pi.tools.<name>.execute(...)`;
+  // that registry no longer exists, so the adapter now keeps its own
+  // `registeredTools` map. The direct-tool subtests above go through the
+  // mock's `tools` capture and would NOT catch a broken command→tool lookup.
+  // Driving the command handler exercises the real migrated path end-to-end.
+  await t.test('sdlc-trace command handler resolves the tool via registeredTools', async () => {
+    const handler = mockPi.commands['sdlc-trace'].handler;
+    assert.ok(typeof handler === 'function', 'sdlc-trace command should be registered');
+
+    const originalLog = console.log;
+    let captured = '';
+    console.log = (msg) => { captured += String(msg); };
+    try {
+      await handler(['00-environment'], { ui: { notify() {} } });
+    } finally {
+      console.log = originalLog;
+    }
+
+    assert.ok(captured.includes('RSTACK SDLC TASK TRACE'), 'command should print the trace via the migrated tool lookup');
+    assert.ok(captured.includes('00-environment'));
   });
 
   // Cleanup

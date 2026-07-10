@@ -35,10 +35,24 @@ Your job is to produce a clean, honest report of exactly what this machine has a
 
 After context compaction or session restart, check for existing pipeline outputs:
 ```bash
-ls $RSTACK_RUN_DIR/artifacts/ 2>/dev/null | head -20
-cat $RSTACK_RUN_DIR/artifacts/environment_report.json 2>/dev/null | python3 -m json.tool 2>/dev/null | head -30
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
+# Canonical harness path (preferred)
+cat "$RUN_BASE/artifacts/stages/00-environment/environment_report.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -30
+# Legacy compatibility fallback
+cat "$RUN_BASE/artifacts/environment_report.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -30
 ```
 If `environment_report.json` already exists and `pipeline_ready` is `true`, skip re-detection and report the existing state. Only re-run detection if the user explicitly requests it or if critical tools have changed.
+
+## Adopted-Run Behavior (brownfield)
+
+If this run was created by `rstack-agents adopt`, a harvested baseline report already exists. Detect it:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+grep -l '"source": "brownfield-adoption"' "$RUN_BASE/artifacts/stages/00-environment/environment_report.json" 2>/dev/null
+```
+On a hit: the baseline was inferred from manifest files (package.json, go.mod, pyproject.toml, …), not from live tool detection — it lists languages/frameworks as present without version numbers and was never verified against this machine. **Refine it, never regenerate it**: run the Step 1 detection commands, merge real versions, missing tools, and fallbacks into the existing report, and preserve its `source`, `evidence`, and `adopted_at` fields so the adoption provenance survives. Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
 
 ## Workflow
 
@@ -62,26 +76,84 @@ env | grep -E "GITHUB_TOKEN|GITLAB_TOKEN|JIRA_|OPENAI|ANTHROPIC|DATABASE_URL|AWS
 
 **Step 3: Ensure output directories exist**:
 ```bash
-mkdir -p $RSTACK_RUN_DIR/artifacts $RSTACK_RUN_DIR/artifacts/transcripts $RSTACK_RUN_DIR/artifacts/requirements $RSTACK_RUN_DIR/artifacts/documents $RSTACK_RUN_DIR/artifacts/planning $RSTACK_RUN_DIR/artifacts/jira $RSTACK_RUN_DIR/artifacts/architecture $RSTACK_RUN_DIR/artifacts/code/backend $RSTACK_RUN_DIR/artifacts/code/frontend $RSTACK_RUN_DIR/artifacts/qa $RSTACK_RUN_DIR/artifacts/deployment
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
+# Canonical per-stage artifact directories (primary)
+for stage in 00-environment 01-transcript 02-requirements 03-documentation 04-planning 05-jira 06-architecture 07-code 08-testing 09-deployment 10-summary 11-feedback-loop 12-security-threat-model 13-compliance-checker 14-cost-estimation; do
+  mkdir -p "$RUN_BASE/artifacts/stages/$stage"
+done
+mkdir -p "$RUN_BASE/tasks"
+# Legacy compatibility directories (kept for older readers only)
+mkdir -p "$RUN_BASE/artifacts/code/backend" "$RUN_BASE/artifacts/code/frontend"
 ```
 
-**Step 4: Present options for missing tools** — use AskUserQuestion if critical tools are missing.
+**Step 4: Run-mode & setup intake** — detect first, never guess:
+```bash
+npx --yes rstack-agents env scan --json
+```
+1. Propose the run mode from `proposed_run_mode` + `run_mode_evidence`, then confirm it with ONE Decision Queue item (never an open-ended question): Pi `sdlc_decisions` add, or `rstack-agents decisions --add "Confirm run mode: <proposed> — <top evidence line>" --impact scope --before 01-transcript`.
+2. Record the confirmed intake in environment_report.json: `run_mode`, `run_mode_evidence`, `user_preferences` (e.g. `ticketing_platform`, `deployment_platform`, `notification_channel` — only what the user actually chose), and `setup_needs` from the scan.
+3. For each UNSATISFIED setup_need, add ONE decision gated on the stage that consumes it — never earlier, so nothing over-blocks: ticketing → `--before 05-jira`, deployment → `--before 09-deployment`, notifications → `--before 10-summary`. Name the missing env vars in the question; never ask for their values — secrets stay in `.env`, never in any report or config.
+4. NEEDS_CONTEXT stays reserved for true blockers (no run, filesystem failure). Setup questions ride the Decision Queue and the pipeline keeps moving.
+5. Adopted runs: refine-never-regenerate still applies — merge these fields into the harvested report, preserving its `source`, `evidence`, and `adopted_at`.
+
+**Step 5: Present options for missing tools** — use AskUserQuestion if critical tools are missing.
 Offer: install now / use Docker fallback / use file-based fallback / skip.
 Never block pipeline — always produce the report.
 
-**Step 5: Write environment_report.json**:
+**Step 6: Write environment_report.json**:
 ```json
 {
   "tools": {"git": true, "node": true, "docker": false, "gh": true},
   "env_vars": {"GITHUB_TOKEN": true, "JIRA_TOKEN": false},
-  "user_preferences": {},
+  "run_mode": "brownfield",
+  "run_mode_evidence": [".git/refs/heads — commit history present", "manifest files present: package.json"],
+  "user_preferences": {"ticketing_platform": "github"},
+  "setup_needs": [{"kind": "ticketing", "platform": "github", "required_vars": ["GITHUB_TOKEN"], "satisfied": true}],
   "fallbacks": {"docker": "file-based deployment config"},
   "pipeline_ready": true,
   "status": "PASS"
 }
 ```
+`run_mode` must be `greenfield` | `brownfield` | `feature`; the validator warns on any malformed intake field (legacy reports without them stay valid).
 
-Write to: `$RSTACK_RUN_DIR/artifacts/environment_report.json`
+Write to: `$RUN_BASE/artifacts/stages/00-environment/environment_report.json` (canonical), then copy to legacy `$RUN_BASE/artifacts/environment_report.json` for compatibility.
+
+## Task Contract (required)
+
+Resolve the run root once and reuse it:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
+```
+
+- **Canonical stage output (primary):** `$RUN_BASE/artifacts/stages/00-environment/environment_report.json`
+- **Legacy root artifact** (`$RUN_BASE/artifacts/environment_report.json`): compatibility copy only — never the sole output.
+
+Write the builder contract to `$RUN_BASE/tasks/<task_id>/builder.json`:
+```json
+{
+  "task_id": "<task_id>",
+  "agent": "00-environment",
+  "status": "PASS",
+  "summary": "One paragraph of what shipped and how it was verified.",
+  "files_modified": ["artifacts/stages/00-environment/environment_report.json"],
+  "tests_run": ["<command>", "SKIPPED: <reason> (only when nothing runnable)"],
+  "risks": [],
+  "next_steps": [],
+  "memory_summary": {
+    "work_done": "What was accomplished, in one or two sentences.",
+    "evidence": ["artifacts/stages/00-environment/environment_report.json"],
+    "context_to_keep": [],
+    "context_to_drop": [],
+    "next_agent_hints": []
+  },
+  "stage_summaries": [
+    { "stage_id": "00-environment", "work_done": "Stage outcome in one sentence.", "evidence": ["artifacts/stages/00-environment/environment_report.json"] }
+  ]
+}
+```
+Validators write `$RUN_BASE/tasks/<task_id>/validation.json` with the full validator schema: `task_id`, `validator`, `status` (PASS|FAIL), `checks[]`, `issues[]`, and `retry_recommendation`.
 
 ## Quality Self-Check
 
@@ -89,6 +161,7 @@ Before reporting DONE, verify:
 - Does `environment_report.json` exist and is `pipeline_ready` either `true` or `false` with clear fallbacks?
 - Are all detected tools listed with actual version numbers, not just true/false?
 - Is every missing tool documented with a specific fallback?
+- Is `run_mode` one of greenfield | brownfield | feature with real evidence, and is every unsatisfied setup_need queued as a decision gated on its consuming stage (05-jira / 09-deployment / 10-summary)?
 
 If any answer is NO — fix it before reporting status. A fast DONE_WITH_CONCERNS is better than a wrong DONE.
 

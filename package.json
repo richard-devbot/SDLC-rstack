@@ -1,20 +1,22 @@
 {
   "name": "rstack-agents",
-  "version": "1.8.0",
+  "version": "2.0.0",
   "description": "Production-ready agentic SDLC framework for Pi and coding agents — orchestrator, builder/validator teams, lifecycle state, and specialist reuse",
   "type": "module",
   "main": "src/index.js",
   "bin": {
     "rstack-agents": "bin/rstack-agents.js",
     "rstack-observer": "bin/rstack-observer.js",
+    "rstack-bridge": "bin/rstack-bridge.ts",
     "rstack-operator-bridge": "bin/rstack-operator-bridge.ts",
     "rstack-business": "bin/rstack-business.js"
   },
   "scripts": {
     "test": "npx tsx --test tests/*.test.js",
+    "typecheck": "tsc -p tsconfig.json",
     "validate": "node bin/rstack-agents.js validate",
     "lint": "eslint src/ bin/ tests/",
-    "prepublishOnly": "npm run lint && npm test && npm run validate",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm test && npm run validate",
     "observer": "node bin/rstack-observer.js",
     "observer:dev": "node --watch bin/rstack-business.js",
     "business": "node bin/rstack-business.js",
@@ -47,6 +49,14 @@
     "plugins/",
     "docs/public/",
     "docs/HARNESS.md",
+    "docs/quick-start-guide.md",
+    "docs/brownfield-adoption.md",
+    "docs/loop-recipes.md",
+    "docs/integrations/",
+    "docs/mintlify",
+    "templates/bootstrap/",
+    "research/",
+    "rfcs/",
     "operator.json",
     "README.md"
   ],
@@ -66,7 +76,8 @@
     "url": "https://github.com/richard-devbot/SDLC-rstack.git"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.74.1",
+    "@earendil-works/pi-ai": "^0.79.9",
+    "@earendil-works/pi-coding-agent": "^0.79.9",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
     "fs-extra": "^11.2.0",
@@ -74,12 +85,11 @@
     "tsx": "^4.19.0",
     "typebox": "^1.1.38"
   },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
-  },
   "devDependencies": {
+    "@types/node": "^18.19.130",
     "eslint": "^9.0.0",
-    "pkg": "^5.8.1"
+    "pkg": "^5.8.1",
+    "typescript": "^5.9.3"
   },
   "bugs": {
     "url": "https://github.com/richard-devbot/SDLC-rstack/issues"
@@ -87,5 +97,10 @@
   "homepage": "https://github.com/richard-devbot/SDLC-rstack#readme",
   "publishConfig": {
     "access": "public"
+  },
+  "overrides": {
+    "esbuild": ">=0.28.1",
+    "protobufjs": ">=7.6.4 <8",
+    "ws": ">=8.21.0"
   }
 }

@@ -2,9 +2,10 @@ import { existsSync } from 'node:fs';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CANONICAL_SDLC_STAGES } from '../../../core/harness/stages.js';
-import { deriveRunTimeline, deriveRunTotals, deriveStageElapsed } from '../../metrics/derive.js';
+import { cleanOrphanedTmpFiles } from '../../../core/harness/safe-write.js';
+import { deriveRunTimeline, deriveStageElapsed, resolveRunTotals } from '../../metrics/derive.js';
 import { stageReportIndex } from './stage-reports.js';
-import { readJson, readJsonlSync } from './files.js';
+import { readJson, readJsonTracked, readJsonlTracked } from './files.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -122,24 +123,36 @@ async function indexArtifacts(runDir) {
   return index.sort((a, b) => a.stage.localeCompare(b.stage) || a.path.localeCompare(b.path));
 }
 
-export async function getRunsForRoot(projectRoot) {
+export async function getRunsForRoot(projectRoot, options = {}) {
   const runsDir = join(projectRoot, '.rstack', 'runs');
   if (!existsSync(runsDir)) return [];
   let entries;
   try { entries = await readdir(runsDir); } catch { return []; }
+  // Scoped parse: the rollup index passes the set of runs that actually need
+  // a full re-parse; everything else is served from .rstack/index.json.
+  if (options.only) entries = entries.filter((runId) => options.only.has(runId));
 
   const runs = await Promise.all(entries.map(async (runId) => {
     const runDir = join(runsDir, runId);
     const stagesDir = join(runDir, 'artifacts', 'stages');
 
+    // Sweep `*.tmp.<pid>` files orphaned by a crashed atomic writer so they
+    // never accumulate in run dirs; fresh in-flight tmp files are left alone.
+    await cleanOrphanedTmpFiles(runDir);
+
+    // Per-run damage report (#82): parse failures in canonical run files are
+    // recorded here and surfaced in Diagnostics instead of silently skipped.
+    const integrity = [];
+    const rel = (name) => join('.rstack', 'runs', runId, name);
+
     const [manifest, metrics, tasksRaw, contextText, planText, requirements, runApprovals, projectProfile, budgetPolicy] = await Promise.all([
-      readJson(join(runDir, 'manifest.json'), {}),
-      readJson(join(runDir, 'metrics.json'), {}),
-      readJson(join(runDir, 'tasks.json'), null),
+      readJsonTracked(join(runDir, 'manifest.json'), {}, integrity, rel('manifest.json')),
+      readJsonTracked(join(runDir, 'metrics.json'), {}, integrity, rel('metrics.json')),
+      readJsonTracked(join(runDir, 'tasks.json'), null, integrity, rel('tasks.json')),
       readFile(join(runDir, 'context.md'), 'utf8').catch(() => ''),
       readFile(join(runDir, 'plan.md'), 'utf8').catch(() => ''),
       readJson(join(stagesDir, '02-requirements', 'requirements.json'), null),
-      readJson(join(runDir, 'approvals.json'), []),
+      readJsonTracked(join(runDir, 'approvals.json'), [], integrity, rel('approvals.json')),
       readJson(join(projectRoot, '.rstack', 'rstack.config.json'), null),
       readJson(join(projectRoot, '.rstack', 'budget.json'), null),
     ]);
@@ -148,8 +161,8 @@ export async function getRunsForRoot(projectRoot) {
       ? tasksRaw
       : Array.isArray(tasksRaw?.tasks) ? tasksRaw.tasks : [];
     const tasks = await enrichTasks(projectRoot, runId, rawTasks);
-    const events = readJsonlSync(join(runDir, 'events.jsonl'));
-    const evidence = readJsonlSync(join(runDir, 'evidence.jsonl'));
+    const events = readJsonlTracked(join(runDir, 'events.jsonl'), integrity, rel('events.jsonl'));
+    const evidence = readJsonlTracked(join(runDir, 'evidence.jsonl'), integrity, rel('evidence.jsonl'));
 
     const reqList = Array.isArray(requirements)
       ? requirements
@@ -176,9 +189,13 @@ export async function getRunsForRoot(projectRoot) {
       stageReports: await stageReportIndex(runDir),
       activityTimeline: buildActivityTimeline(events),
       timeline: deriveRunTimeline(events, rawTasks),
-      totals: deriveRunTotals(events),
+      // Persisted cumulative metrics win over event recompute (#83); legacy
+      // runs without them still derive totals from events.
+      totals: resolveRunTotals(events, metrics),
       stageElapsed: deriveStageElapsed(events, rawTasks),
       derivedStatus: deriveRunStatus(manifest, events),
+      integrity,
+      hasIntegrityErrors: integrity.length > 0,
       host: inferHost(manifest),
       brief,
       requirements: reqList.slice(0, 20),

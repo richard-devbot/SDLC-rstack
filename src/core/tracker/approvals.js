@@ -1,6 +1,8 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
+import { withFileLock, writeFileAtomic, writeJsonAtomic } from '../harness/safe-write.js';
+import { isSafeRunId, isSafeArtifactName, validateApprovalRecord, trustedApprovedArtifacts } from '../harness/approval-audit.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -8,18 +10,12 @@ const QUEUE_FILE = '.rstack/approvals.jsonl';
 
 // Run ids are timestamp-slug strings — never path separators or traversal.
 // A crafted approval id could otherwise encode a runId like "../../etc" and
-// drive a write outside .rstack/runs (issue #54). Validate before any FS use.
-const SAFE_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/;
+// drive a write outside .rstack/runs (issue #54). The canonical validators
+// live in harness/approval-audit.js (#133) so the write path here and the
+// read-side gate audit can never drift apart.
+export { isSafeRunId } from '../harness/approval-audit.js';
 
-export function isSafeRunId(runId) {
-  return typeof runId === 'string' && SAFE_RUN_ID.test(runId) && !runId.includes('..');
-}
-
-function safeArtifact(artifact) {
-  // Artifacts are file/stage names, not paths.
-  return typeof artifact === 'string' && artifact.length > 0 && artifact.length < 256
-    && !artifact.includes('/') && !artifact.includes('\\') && !artifact.includes('..');
-}
+const safeArtifact = isSafeArtifactName;
 
 // Resolve a run's approvals.json and assert it stays inside .rstack/runs/<runId>.
 // Returns null if the runId is unsafe, escapes the sandbox, or the run has no
@@ -73,7 +69,7 @@ async function writeQueue(projectRoot, approvals) {
   await mkdir(join(projectRoot, '.rstack'), { recursive: true });
   const path = queuePath(projectRoot);
   const lines = approvals.map((approval) => JSON.stringify(approval)).join('\n');
-  await writeFile(path, lines ? `${lines}\n` : '');
+  await writeFileAtomic(path, lines ? `${lines}\n` : '');
 }
 
 export async function readApprovalPolicy(projectRoot) {
@@ -106,23 +102,27 @@ export async function assertManagerAllowed(projectRoot, resolvedBy, env = proces
 }
 
 export async function appendApproval(projectRoot, entry) {
-  const all = await readApprovals(projectRoot);
-  const now = new Date().toISOString();
-  const id = entry.id || approvalQueueId(entry);
-  const existing = all.findIndex((approval) => approval.id === id);
-  const next = {
-    status: 'pending',
-    ...entry,
-    id,
-    ts: entry.ts ?? now,
-    updatedAt: now,
-  };
+  // Lock the queue across the read-modify-write so concurrent gate blocks
+  // (parallel builders) both land instead of overwriting each other.
+  return withFileLock(queuePath(projectRoot), async () => {
+    const all = await readApprovals(projectRoot);
+    const now = new Date().toISOString();
+    const id = entry.id || approvalQueueId(entry);
+    const existing = all.findIndex((approval) => approval.id === id);
+    const next = {
+      status: 'pending',
+      ...entry,
+      id,
+      ts: entry.ts ?? now,
+      updatedAt: now,
+    };
 
-  if (existing === -1) all.push(next);
-  else all[existing] = { ...all[existing], ...next };
+    if (existing === -1) all.push(next);
+    else all[existing] = { ...all[existing], ...next };
 
-  await writeQueue(projectRoot, all);
-  return next;
+    await writeQueue(projectRoot, all);
+    return next;
+  });
 }
 
 export async function readApprovals(projectRoot) {
@@ -141,8 +141,6 @@ export async function appendRunApproval(projectRoot, runId, record) {
   // Hard sandbox: unsafe/escaping runId, or a run with no manifest, writes nothing.
   const path = safeRunApprovalsPath(projectRoot, runId);
   if (!path) return null;
-  const approvals = await readJson(path, []);
-  const all = Array.isArray(approvals) ? approvals : [];
   const next = {
     id: record.id || `app-${new Date().toISOString().replace(/[:.]/g, '-')}`,
     artifact: record.artifact,
@@ -150,47 +148,77 @@ export async function appendRunApproval(projectRoot, runId, record) {
     approver: record.approver,
     timestamp: record.timestamp || new Date().toISOString(),
     comments: record.comments,
-    source: record.source || 'dashboard',
+    // Run binding (#298): stamp the run this approval belongs to. Without the
+    // stamp, the #133 cross-run replay check had nothing to compare and a
+    // record copied between runs validated everywhere.
+    run_id: runId,
+    // Default to a non-dashboard source: a dashboard-sourced record demands
+    // token-verified actor evidence (#133), so defaulting to 'dashboard' would
+    // make any future no-source caller silently rejected. A programmatic write
+    // that means to claim the authenticated dashboard path must say so.
+    source: record.source || 'api',
+    // Actor evidence travels with the record: dashboard-sourced approvals must
+    // prove the token-verified identity that resolved them (#133), and the
+    // gate-side audit rejects dashboard records without it.
+    ...(record.actor ? { actor: record.actor } : {}),
   };
-  all.push(next);
-  await writeFile(path, JSON.stringify(all, null, 2));
-  return next;
+  // Consistency audit at the write boundary (#133): a record the gate-side
+  // audit would reject (unsafe artifact, wrong status casing, missing
+  // approver/timestamp, run-binding mismatch, dashboard source without token
+  // evidence) is refused outright — malformed approvals never land, same null
+  // contract as an unsafe runId.
+  if (!validateApprovalRecord(next, { expectedRunId: runId }).ok) return null;
+  return withFileLock(path, async () => {
+    const approvals = await readJson(path, []);
+    const all = Array.isArray(approvals) ? approvals : [];
+    all.push(next);
+    await writeJsonAtomic(path, all);
+    return next;
+  });
 }
 
 export async function resolveApproval(projectRoot, id, decision, resolvedBy, options = {}) {
-  const all = await readApprovals(projectRoot);
-  const idx = all.findIndex(a => a.id === id);
-  const parsed = idx === -1 ? parseApprovalQueueId(id) : null;
-  if (idx === -1 && !parsed) return false;
-  // parseApprovalQueueId already rejected unsafe runIds; require a real run.
-  if (idx === -1 && parsed && !safeRunApprovalsPath(projectRoot, parsed.runId)) return false;
-  // A queued entry could predate validation — re-check before trusting its runId.
-  if (idx !== -1 && all[idx].runId && !isSafeRunId(all[idx].runId)) return false;
+  // Lock the queue across the read-modify-write so two concurrent
+  // resolutions (dashboard + sdlc_approve) both land. The per-run
+  // approvals.json write happens after release — it takes its own lock.
+  const resolved = await withFileLock(queuePath(projectRoot), async () => {
+    const all = await readApprovals(projectRoot);
+    const idx = all.findIndex(a => a.id === id);
+    const parsed = idx === -1 ? parseApprovalQueueId(id) : null;
+    if (idx === -1 && !parsed) return null;
+    // parseApprovalQueueId already rejected unsafe runIds; require a real run.
+    if (idx === -1 && parsed && !safeRunApprovalsPath(projectRoot, parsed.runId)) return null;
+    // A queued entry could predate validation — re-check before trusting its runId.
+    if (idx !== -1 && all[idx].runId && !isSafeRunId(all[idx].runId)) return null;
 
-  const base = idx === -1 ? {
-    id,
-    ...parsed,
-    title: `Approve ${parsed.artifact}`,
-    detail: parsed.taskId ? `Task ${parsed.taskId} is blocked` : 'Workflow is blocked',
-    status: 'pending',
-    source: 'blocked_gate',
-    ts: new Date().toISOString(),
-  } : all[idx];
+    const base = idx === -1 ? {
+      id,
+      ...parsed,
+      title: `Approve ${parsed.artifact}`,
+      detail: parsed.taskId ? `Task ${parsed.taskId} is blocked` : 'Workflow is blocked',
+      status: 'pending',
+      source: 'blocked_gate',
+      ts: new Date().toISOString(),
+    } : all[idx];
 
-  const approver = resolvedBy || 'dashboard';
-  await assertManagerAllowed(projectRoot, approver, options.env ?? process.env);
+    const approver = resolvedBy || 'dashboard';
+    await assertManagerAllowed(projectRoot, approver, options.env ?? process.env);
 
-  const queueStatus = decision === 'approved' ? 'approved' : 'rejected';
+    const queueStatus = decision === 'approved' ? 'approved' : 'rejected';
+    const resolvedAt = new Date().toISOString();
+    // Audit-proof actor evidence, not just a name string.
+    const actor = options.actor ? { ...options.actor } : { name: approver, via: 'api', tokenVerified: false, ts: resolvedAt };
+    const next = { ...base, status: queueStatus, resolvedBy: approver, actor, resolvedAt, updatedAt: resolvedAt };
+
+    if (idx === -1) all.push(next);
+    else all[idx] = next;
+    await writeQueue(projectRoot, all);
+    return { base, approver, queueStatus, resolvedAt, actor };
+  });
+  if (!resolved) return false;
+
+  const { base, approver, queueStatus, resolvedAt, actor } = resolved;
   const runStatus = decision === 'approved' ? 'APPROVED' : 'REJECTED';
-  const resolvedAt = new Date().toISOString();
-  // Audit-proof actor evidence, not just a name string.
-  const actor = options.actor ? { ...options.actor } : { name: approver, via: 'api', tokenVerified: false, ts: resolvedAt };
-  const next = { ...base, status: queueStatus, resolvedBy: approver, actor, resolvedAt, updatedAt: resolvedAt };
-
-  if (idx === -1) all.push(next);
-  else all[idx] = next;
-  await writeQueue(projectRoot, all);
-
   if (!options.skipRunWrite && base.runId && base.artifact) {
     await appendRunApproval(projectRoot, base.runId, {
       id: `dash-${resolvedAt.replace(/[:.]/g, '-')}`,
@@ -200,10 +228,61 @@ export async function resolveApproval(projectRoot, id, decision, resolvedBy, opt
       timestamp: resolvedAt,
       comments: base.taskId ? `Dashboard ${queueStatus} for blocked task ${base.taskId}` : `Dashboard ${queueStatus}`,
       source: 'business-hub',
+      // Thread the token-verified actor evidence into the run record — the
+      // gate-side audit (#133) requires it before a dashboard-sourced
+      // approval may unblock anything.
+      actor,
     });
   }
 
   return true;
+}
+
+// One-shot consumption for queue-only gates (#238, Business Hub env writes).
+// Atomically — inside the queue lock — verify there is a TRUSTED approved
+// record for `artifact` (same audit path as every gate:
+// trustedApprovedArtifacts with casing 'queue', which runs the per-record
+// validation AND the replay/ordering history checks), then flip it to
+// 'consumed'. A second consumption attempt finds no approved record and
+// returns null: forged, malformed, rejected, replayed, or already-spent
+// approvals can never be consumed. Returns the record as it stood BEFORE
+// consumption (approver evidence for the caller's audit trail) or null.
+export async function consumeApprovedQueueArtifact(projectRoot, artifact) {
+  if (!safeArtifact(artifact)) return null;
+  return withFileLock(queuePath(projectRoot), async () => {
+    const all = await readApprovals(projectRoot);
+    const history = all.filter((approval) => approval?.artifact === artifact);
+    if (!trustedApprovedArtifacts(history, { casing: 'queue' }).has(artifact)) return null;
+    const latest = history[history.length - 1];
+    const idx = all.lastIndexOf(latest);
+    const now = new Date().toISOString();
+    all[idx] = { ...latest, status: 'consumed', consumedAt: now, updatedAt: now };
+    await writeQueue(projectRoot, all);
+    return latest;
+  });
+}
+
+// Idempotently ensure a PENDING queue entry exists for a queue-only gate.
+// An entry already pending is returned untouched (its ts is not churned by
+// repeated requests); any other latest state (absent, rejected, consumed)
+// becomes a fresh pending request — a new write attempt is a new ask, and
+// the manager can reject it again. Never stores anything beyond the entry
+// metadata passed in (#238: the env value must never reach this file).
+export async function ensurePendingQueueApproval(projectRoot, entry) {
+  const id = entry.id || approvalQueueId(entry);
+  const existing = (await readApprovals(projectRoot)).find((approval) => approval.id === id);
+  if (existing && (!existing.status || existing.status === 'pending')) return existing;
+  return appendApproval(projectRoot, {
+    ...entry,
+    id,
+    status: 'pending',
+    ts: new Date().toISOString(),
+    // Clear any prior resolution evidence so a re-requested gate cannot
+    // wear the previous decision's approver like a badge.
+    resolvedBy: undefined,
+    resolvedAt: undefined,
+    actor: undefined,
+  });
 }
 
 export async function resolveQueuedApprovalForArtifact(projectRoot, { runId, taskId, artifact, decision, resolvedBy, skipRunWrite = true }) {

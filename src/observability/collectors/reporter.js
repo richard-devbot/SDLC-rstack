@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { persistedTokenTotals } from '../metrics/derive.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -8,11 +9,46 @@ import { join } from 'node:path';
 const KNOWN_EVENT_TYPES = [
   'run_started', 'task_started', 'builder_task_prepared', 'task_validated',
   'stage_completed', 'approval_gate', 'approval_gate_blocked', 'guardrail_triggered',
-  'tool_call', 'tool_result', 'cost_recorded', 'quality_score_recorded',
+  'tool_call', 'tool_result', 'cost_recorded', 'context_recorded', 'quality_score_recorded',
   'memory_recalled', 'memory_pruned', 'episode_memory_written', 'episode_memory_write_failed',
   'session_shutdown', 'clarification_requested', 'clarification_answers_added', 'plan_created',
   'validation_failed',
 ];
+
+// Per-action retry-recovery events (BLE-3). retry_decision is the audit
+// record that always accompanies one of these, so traces render the
+// per-action event and skip retry_decision to avoid duplicate lines.
+const RETRY_TRACE_EVENT_TYPES = new Set([
+  'task_retry_scheduled', 'task_retry_exhausted',
+  'task_human_context_required', 'task_blocked_by_validator',
+]);
+
+/**
+ * Render one retry-recovery event as an operator-readable trace line with
+ * attempt counter and reason. Returns null for non-retry events (including
+ * retry_decision, whose per-action twin renders instead).
+ *
+ * @param {object} ev  Event from events.jsonl
+ * @returns {string|null}
+ */
+export function formatRetryTraceLine(ev) {
+  const attempt = ev.attempt ?? '?';
+  const max = ev.max_attempts ?? '?';
+  const task = ev.task_id ?? 'unknown-task';
+  const reason = ev.reason ?? (Array.isArray(ev.issues) && ev.issues.length ? ev.issues[0] : null);
+  switch (ev.type) {
+    case 'task_retry_scheduled':
+      return `↻ retry ${attempt}/${max} — task ${task}: ${reason ?? 'validator requested another attempt'}`;
+    case 'task_retry_exhausted':
+      return `⛔ retries exhausted (${attempt}/${max}) — task ${task} blocked pending guardrail-override${reason ? ` (${reason})` : ''}`;
+    case 'task_human_context_required':
+      return `⏸ human context required — task ${task} paused after attempt ${attempt}/${max}: ${reason ?? 'validator needs more information'}`;
+    case 'task_blocked_by_validator':
+      return `⛔ blocked by validator — task ${task}: ${reason ?? 'validation cannot proceed'}`;
+    default:
+      return null;
+  }
+}
 
 // ── Low-level readers ────────────────────────────────────────────────────────
 
@@ -55,17 +91,19 @@ export async function buildRunReport(runDir) {
     (evidenceByTask[entry.task_id] ??= []).push(entry);
   }
 
+  const newTaskTrace = (taskId, status = null) => ({
+    task_id: taskId, status,
+    tool_calls: [], tool_results: [],
+    guardrail_events: [], memory_events: [], retry_events: [],
+    evidence: evidenceByTask[taskId] ?? [],
+    validation: null,
+    tool_call_count: 0, guardrail_hit_count: 0,
+  });
+
   // Seed task traces from tasks.json
   const taskTraces = {};
   for (const t of (taskState.tasks ?? [])) {
-    taskTraces[t.id] = {
-      task_id: t.id, status: t.status ?? null,
-      tool_calls: [], tool_results: [],
-      guardrail_events: [], memory_events: [],
-      evidence: evidenceByTask[t.id] ?? [],
-      validation: null,
-      tool_call_count: 0, guardrail_hit_count: 0,
-    };
+    taskTraces[t.id] = newTaskTrace(t.id, t.status ?? null);
   }
 
   // Walk event stream, attributing events to tasks
@@ -73,16 +111,20 @@ export async function buildRunReport(runDir) {
   for (const ev of events) {
     if (ev.type === 'task_started' || ev.type === 'builder_task_prepared') activeTaskId = ev.task_id ?? null;
     if (ev.type === 'task_validated') activeTaskId = ev.task_id ?? null;
+
+    // Retry-recovery events carry their own task_id, so attribute them
+    // directly — they can land after the active-task window has closed.
+    if (RETRY_TRACE_EVENT_TYPES.has(ev.type)) {
+      const retryTaskId = ev.task_id ?? activeTaskId;
+      if (retryTaskId) {
+        (taskTraces[retryTaskId] ??= newTaskTrace(retryTaskId)).retry_events.push(ev);
+      }
+      continue;
+    }
+
     if (!activeTaskId) continue;
 
-    const trace = (taskTraces[activeTaskId] ??= {
-      task_id: activeTaskId, status: null,
-      tool_calls: [], tool_results: [],
-      guardrail_events: [], memory_events: [],
-      evidence: evidenceByTask[activeTaskId] ?? [],
-      validation: null,
-      tool_call_count: 0, guardrail_hit_count: 0,
-    });
+    const trace = (taskTraces[activeTaskId] ??= newTaskTrace(activeTaskId));
 
     switch (ev.type) {
       case 'tool_call':             trace.tool_calls.push(ev); trace.tool_call_count++; break;
@@ -112,13 +154,24 @@ export async function buildRunReport(runDir) {
     guardrailSummary[k] = (guardrailSummary[k] ?? 0) + 1;
   }
 
-  // Cost summary
+  // Cost summary — persisted cumulative metrics win (#83): O(1), and they
+  // survive event rotation. Legacy runs recompute from cost_recorded events.
+  const metrics = await readJson(join(runDir, 'metrics.json'), {});
   const costEvents = events.filter((ev) => ev.type === 'cost_recorded');
-  const costSummary = {
-    total_usd: costEvents.reduce((s, ev) => s + (Number(ev.usd ?? ev.cost ?? 0) || 0), 0),
-    total_tokens: costEvents.reduce((s, ev) => s + (Number(ev.tokens) || 0), 0),
-    entries: costEvents,
-  };
+  const persistedTokens = persistedTokenTotals(metrics);
+  const costSummary = persistedTokens
+    ? {
+      total_usd: Number(metrics.cumulative_cost_usd) || 0,
+      total_tokens: persistedTokens.total,
+      source: 'metrics',
+      entries: costEvents,
+    }
+    : {
+      total_usd: costEvents.reduce((s, ev) => s + (Number(ev.usd ?? ev.cost ?? 0) || 0), 0),
+      total_tokens: costEvents.reduce((s, ev) => s + (Number(ev.tokens) || 0), 0),
+      source: 'events',
+      entries: costEvents,
+    };
 
   // Duration from first/last event timestamps
   let durationMs = 0;
@@ -424,6 +477,13 @@ export function renderTraceHtml(trace, runId) {
      <td class="ts">${esc(ev.ts ?? '')}</td></tr>`
   ).join('') || '<tr><td colspan="4" class="dim">No guardrails triggered.</td></tr>';
 
+  const retryEvents = trace.retry_events ?? [];
+  const retryRows = retryEvents.map((ev) => {
+    const line = formatRetryTraceLine(ev);
+    if (!line) return '';
+    return `<tr><td class="mono">${esc(ev.type)}</td><td>${esc(line)}</td><td class="ts">${esc(ev.ts ?? '')}</td></tr>`;
+  }).join('') || '<tr><td colspan="3" class="dim">No retries — task completed within its first attempt.</td></tr>';
+
   const memRows = trace.memory_events.map((ev) => {
     let kind = 'PASS';
     let detail = '';
@@ -509,11 +569,15 @@ tr:last-child td{border-bottom:none}
     <div class="stat-row">
       <div class="stat"><div class="sv" style="color:var(--blue)">${trace.tool_call_count}</div><div class="sl">Tool Calls</div></div>
       <div class="stat"><div class="sv" style="color:var(--warn)">${trace.guardrail_hit_count}</div><div class="sl">Guardrail Hits</div></div>
+      <div class="stat"><div class="sv" style="color:var(--warn)">${retryEvents.length}</div><div class="sl">Retry Events</div></div>
       <div class="stat"><div class="sv" style="color:var(--violet)">${trace.memory_events.filter(e=>e.type==='memory_recalled').length}</div><div class="sl">Memory Recalls</div></div>
       <div class="stat"><div class="sv" style="color:var(--pass)">${trace.evidence.length}</div><div class="sl">Evidence Events</div></div>
     </div>
   </div>
   <div class="card"><div class="chdr">Tool Calls &amp; Results</div>${toolHtml}</div>
+  <div class="card"><div class="chdr">Retry History</div>
+    <table><thead><tr><th>Event</th><th>Detail</th><th>Timestamp</th></tr></thead>
+    <tbody>${retryRows}</tbody></table></div>
   <div class="card"><div class="chdr">Guardrail Events</div>
     <table><thead><tr><th>Limit</th><th style="text-align:right">Current</th><th style="text-align:right">Max</th><th>Timestamp</th></tr></thead>
     <tbody>${grRows}</tbody></table></div>

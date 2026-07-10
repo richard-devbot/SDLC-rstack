@@ -135,10 +135,37 @@ export function plainLanguageSummary(event) {
       return `Run started${event.task_count ? ` — ${event.task_count} tasks planned` : ''}`;
     case 'plan_created':
       return `Plan created — ${event.task_count ?? '?'} tasks`;
-    case 'cost_recorded':
-      return `Cost recorded: $${Number(event.usd ?? event.cost ?? 0).toFixed(4)}`;
+    case 'cost_recorded': {
+      const rawCost = event.usd ?? event.cost ?? 0;
+      const cost = Number(rawCost);
+      return `Cost recorded: $${Number.isFinite(cost) ? cost.toFixed(4) : '0.0000'}`;
+    }
+    case 'context_recorded': {
+      const parts = [];
+      if (event.profile) parts.push(`profile ${event.profile}`);
+      if (event.workflow) parts.push(`workflow ${event.workflow}`);
+      parts.push(`${Number(event.injected_sources) || 0} injected source(s)`);
+      if (event.tokens_used != null) {
+        parts.push(`${event.tokens_used}${event.tokens_available != null ? `/${event.tokens_available}` : ''} context tokens`);
+      }
+      return `Context recorded — ${parts.join(', ')}`;
+    }
     case 'guardrail_triggered':
-      return `Guardrail hit: ${event.limit_name ?? event.limit ?? '?'}`;
+      return `🛡 Guardrail blocked ${event.task_id ?? 'task'} — ${event.reason ?? event.limit_name ?? event.limit ?? 'budget exceeded'}`;
+    case 'guardrail_overridden':
+      return `🛡 Guardrail override consumed — ${event.task_id ?? 'task'} granted exactly one more attempt (${event.artifact ?? 'override'})`;
+    case 'validation_failed':
+      return `↻ Validation failed — attempt ${event.attempt ?? '?'}/${event.max_attempts ?? '?'} for ${event.task_id ?? 'task'}`;
+    case 'task_retry_scheduled':
+      return `↻ Retry ${event.attempt ?? '?'}/${event.max_attempts ?? '?'} scheduled — ${event.task_id ?? 'task'}: ${event.reason ?? 'validator requested another attempt'}`;
+    case 'task_retry_exhausted':
+      return `⛔ Retries exhausted (${event.attempt ?? '?'}/${event.max_attempts ?? '?'}) — ${event.task_id ?? 'task'} blocked pending guardrail-override${event.reason ? ` (${event.reason})` : ''}`;
+    case 'task_human_context_required':
+      return `⏸ Human context required — ${event.task_id ?? 'task'} paused after attempt ${event.attempt ?? '?'}/${event.max_attempts ?? '?'}: ${event.reason ?? 'validator needs more information'}`;
+    case 'task_blocked_by_validator':
+      return `⛔ Blocked by validator — ${event.task_id ?? 'task'}: ${event.reason ?? 'validation cannot proceed'}`;
+    case 'dor_gate_blocked':
+      return `Definition-of-Ready blocked ${event.task_id ?? 'task'} — pending: ${(event.pending_required ?? []).join(', ') || 'required decisions'}`;
     case 'memory_recalled':
       return `Memory recalled — ${event.count ?? 0} episodes injected`;
     case 'episode_memory_written':
@@ -147,7 +174,23 @@ export function plainLanguageSummary(event) {
       return `Session ended`;
     case 'observer_new_run':
       return `New run detected: ${event.run_id?.slice(-12) ?? '?'}`;
-    default: return null;
+    case 'loop_iteration_started':
+      return `🔁 Goal-loop iteration ${event.iteration ?? '?'}/${event.max_iterations ?? '?'} started${event.goal_id ? ` — goal ${event.goal_id}` : ''}`;
+    case 'goal_evaluated':
+      return `🎯 Goal ${event.goal_id ?? '?'} evaluated: ${event.status ?? '?'} (score ${event.score ?? '?'})${event.reason ? ` — ${event.reason}` : ''}`;
+    case 'loop_iteration_retrying_stages':
+      return `↻ Loop iteration ${event.iteration ?? '?'}/${event.max_iterations ?? '?'} — resetting stages: ${(event.stages ?? []).join(', ') || 'none'}`;
+    case 'loop_completed':
+      return `✅ Goal loop complete — ${event.goal_id ?? 'goal'} met at iteration ${event.iteration ?? '?'} (score ${event.score ?? '?'})`;
+    case 'loop_blocked':
+      return `⛔ Goal loop stopped (${event.stopped_on ?? 'blocked'})${event.reason ? ` — ${event.reason}` : ''}`;
+    default:
+      // Retry-recovery events (BLE-3) share a retry_* prefix — render them
+      // rather than dropping unknown loop-engineering signals from the feed.
+      if (/^retry_/.test(String(event.type ?? ''))) {
+        return `↻ ${String(event.type).replace(/_/g, ' ')} — ${event.task_id ?? event.stage_id ?? 'task'}${event.reason ? ` (${event.reason})` : ''}`;
+      }
+      return null;
   }
 }
 

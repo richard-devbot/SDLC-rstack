@@ -3,7 +3,17 @@ title: "Codex CLI Adapter"
 description: "Asset adapter for Codex CLI via AGENTS.md."
 ---
 
-## Installation
+## Recommended: npm init
+
+```bash
+cd your-project
+npm install rstack-agents
+npx rstack-agents init --framework custom --profile business-flex
+```
+
+`init` creates `.rstack/` and scaffolds `AGENTS.md`, `SOUL.md`, and `HEARTBEAT.md` from the package templates. Existing files are never overwritten.
+
+## Manual asset copy (optional)
 
 ```bash
 export RSTACK_HOME=/path/to/SDLC-rstack
@@ -16,17 +26,20 @@ cp -R "$RSTACK_HOME/prompts" .rstack/vendor/rstack/
 
 ## AGENTS.md configuration
 
-```markdown
-# RStack SDLC
+Run `init`, or copy the canonical templates:
 
-Use RStack SDLC from `.rstack/vendor/rstack`.
-Read `.rstack/vendor/rstack/agents/core/orchestrator.md` first.
-For implementation, follow `.rstack/vendor/rstack/agents/core/builder.md`.
-For verification, follow `.rstack/vendor/rstack/agents/core/validator.md`.
-Use SDLC pipeline agents from `.rstack/vendor/rstack/agents/sdlc/`.
-Use skills from `.rstack/vendor/rstack/skills/` and plugin packs from `.rstack/vendor/rstack/plugins/`.
-Write run state under `.rstack/runs/<run_id>/`.
-Require specs, approval gates, traceability, builder contracts, validation contracts, and command evidence.
+```bash
+cp node_modules/rstack-agents/templates/bootstrap/AGENTS.md ./AGENTS.md
+cp node_modules/rstack-agents/templates/bootstrap/SOUL.md ./SOUL.md
+cp node_modules/rstack-agents/templates/bootstrap/HEARTBEAT.md ./HEARTBEAT.md
 ```
+
+| File | Purpose |
+|---|---|
+| `AGENTS.md` | Codex/universal bootstrap — asset paths, Node bridge, skill routing |
+| `SOUL.md` | Governance identity — team roles, contracts, evidence |
+| `HEARTBEAT.md` | Optional standby checks — approvals, budget, stalled tasks |
+
+The template includes a `## Skill routing` section that maps `.rstack/rstack.config.json` enabled domains and plugins to skill selection.
 
 Then run Codex CLI from that project directory.

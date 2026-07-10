@@ -44,6 +44,16 @@ cat $RSTACK_RUN_DIR/artifacts/security/threat_model.json 2>/dev/null | python3 -
 ```
 If `threat_model.json` exists, report the threat summary counts and ask whether to re-model or use the existing threat model.
 
+## Adopted-Run Behavior (brownfield)
+
+Adoption (`rstack-agents adopt`) deliberately skips this stage — threat modeling must be done deliberately, never inferred from a scan. Detect an adopted run:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+ls "$RUN_BASE/artifacts/adoption_report.json" 2>/dev/null
+```
+On a hit: you are producing the FIRST deliberate threat model for this system. Scope it to the EXISTING attack surface, not just the new change: ground trust boundaries and data flows in the harvested `06-architecture` baseline (`source: "brownfield-adoption"` — an inferred design, so verify against real code before trusting it) and in the actual repository. Missing greenfield inputs (`requirement_spec.json` from a transcript, etc.) are expected — use the harvested stage artifacts under `$RUN_BASE/artifacts/stages/` as inputs and note in the report which context came from the adoption baseline. Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
+
 
 # SECURITY THREAT MODEL AGENT — SDLC Automation Pipeline
 

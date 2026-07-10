@@ -51,28 +51,47 @@ Load these skills via their trigger phrases — do not read them with bash:
 
 After context compaction or session restart, check for existing pipeline outputs:
 ```bash
-# Canonical harness path (preferred)
-RUN_BASE=$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)
-cat "${RUN_BASE}artifacts/stages/004-implementation/code_report.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -30
-ls "${RUN_BASE}artifacts/stages/004-implementation/code/" 2>/dev/null | head -20
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
+# Canonical harness path (preferred) — 07-code is the CANONICAL stage id;
+# plan task ids like 004-implementation are NOT stage directories.
+cat "$RUN_BASE/artifacts/stages/07-code/code_report.json" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -30
+ls "$RUN_BASE/artifacts/stages/07-code/code/" 2>/dev/null | head -20
 # Spec anchor — orientation in <200 tokens
-cat "${RUN_BASE}artifacts/spec-anchor.md" 2>/dev/null
+cat "$RUN_BASE/artifacts/spec-anchor.md" 2>/dev/null
 # Legacy fallback
-cat "${RSTACK_RUN_DIR:-/dev/null}/artifacts/code_report.json" 2>/dev/null | head -20
+cat "$RUN_BASE/artifacts/code_report.json" 2>/dev/null | head -20
 ```
 If `code_report.json` exists with `"status": "PASS"`, report which files were created and ask whether to continue from where left off or regenerate.
+
+## Adopted-Run Behavior (brownfield)
+
+If this run was created by `rstack-agents adopt`, the existing codebase IS the code baseline. Detect it:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+grep -l '"source": "brownfield-adoption"' "$RUN_BASE/artifacts/stages/07-code/code_report.json" 2>/dev/null
+```
+On a hit: the baseline `code_report.json` carries `existing_codebase: true`, the real `top_level_dirs`, and the detected `test_command`. **Never scaffold — Steps 3 and 4 of the Workflow do not apply to code that already exists.** Modify instead, under the brownfield ground rules (`agents/OPERATING-STANDARD.md`, "Run modes"):
+1. Study before modifying (Stephens Ch11 p243: changing old code without studying it adds as many bugs as it removes) — read the files you will touch AND their callers first.
+2. Make the smallest change that satisfies the task; do not refactor adjacent code.
+3. Respect existing API contracts and behavior that tests may not cover.
+4. Verify with the baseline's recorded `test_command`, not a test runner you assume.
 
 ## Workflow
 
 **Step 1: Read the architecture**:
 ```bash
-cat $RSTACK_RUN_DIR/artifacts/system_design.json
-cat $RSTACK_RUN_DIR/artifacts/architecture/HLD.md | head -100
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
+# Canonical harness paths (preferred), legacy roots as fallback
+cat "$RUN_BASE/artifacts/stages/06-architecture/system_design.json" 2>/dev/null || cat "$RUN_BASE/artifacts/system_design.json"
+{ cat "$RUN_BASE/artifacts/stages/06-architecture/HLD.md" 2>/dev/null || cat "$RUN_BASE/artifacts/architecture/HLD.md"; } | head -100
 ```
 
 **Step 2: Check environment for installed tools**:
 ```bash
-cat $RSTACK_RUN_DIR/artifacts/environment_report.json
+cat "$RUN_BASE/artifacts/stages/00-environment/environment_report.json" 2>/dev/null || cat "$RUN_BASE/artifacts/environment_report.json"
 ```
 
 **Step 3: Scaffold the project** — following the tech stack from Step 1:
@@ -108,8 +127,44 @@ sleep 3 && curl -s http://localhost:8000/health || echo "health check failed"
 }
 ```
 
-Write to: `$RSTACK_RUN_DIR/artifacts/code_report.json`
+Write to: `$RUN_BASE/artifacts/stages/07-code/code_report.json` (canonical), then copy to legacy `$RUN_BASE/artifacts/code_report.json` for compatibility.
 
+
+## Task Contract (required)
+
+Resolve the run root once and reuse it:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+: "${RUN_BASE:?No RStack run found — start one with sdlc_start first}"
+```
+
+- **Canonical stage output (primary):** `$RUN_BASE/artifacts/stages/07-code/code_report.json`
+- **Legacy root artifact** (`$RUN_BASE/artifacts/code_report.json`): compatibility copy only — never the sole output.
+
+Write the builder contract to `$RUN_BASE/tasks/<task_id>/builder.json`:
+```json
+{
+  "task_id": "<task_id>",
+  "agent": "07-code",
+  "status": "PASS",
+  "summary": "One paragraph of what shipped and how it was verified.",
+  "files_modified": ["artifacts/stages/07-code/code_report.json"],
+  "tests_run": ["<command>", "SKIPPED: <reason> (only when nothing runnable)"],
+  "risks": [],
+  "next_steps": [],
+  "memory_summary": {
+    "work_done": "What was accomplished, in one or two sentences.",
+    "evidence": ["artifacts/stages/07-code/code_report.json"],
+    "context_to_keep": [],
+    "context_to_drop": [],
+    "next_agent_hints": []
+  },
+  "stage_summaries": [
+    { "stage_id": "07-code", "work_done": "Stage outcome in one sentence.", "evidence": ["artifacts/stages/07-code/code_report.json"] }
+  ]
+}
+```
+Validators write `$RUN_BASE/tasks/<task_id>/validation.json` with the full validator schema: `task_id`, `validator`, `status` (PASS|FAIL), `checks[]`, `issues[]`, and `retry_recommendation`.
 
 ## Quality Self-Check
 

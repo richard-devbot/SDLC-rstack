@@ -118,7 +118,24 @@ $ rstack-agents validate
 [rstack] All 196 agents passed validation.
 ```
 
-The catalog ships **196 agents, 156 skills, 72 plugins, 36 prompts**.
+The catalog ships **196 agents, 68 skills, 72 plugins, 36 prompts**.
+
+---
+
+### Pipeline and governance commands
+
+| Command | Purpose |
+|---|---|
+| `pipeline status` | Show pipeline status for a run, with one recommended next action |
+| `pipeline run` | Advance the run: skip DONE work, re-enter retryable tasks, stop at human gates |
+| `pipeline loop` | Bounded goal loop — advance, evaluate the goal, rerun recommended stages |
+| `adopt` | Adopt an existing codebase — harvest evidence into a resumable pipeline run |
+| `inventory` | Generate a backend control-plane registry report |
+| `decisions` | List, add, resolve, or waive run-level Decision Queue items |
+| `dor` | Run the Definition-of-Ready gate for a run and target stage |
+
+Flags and exit codes for the pipeline commands: [Pipeline CLI](/reference/pipeline).
+Decision Queue and DoR details: [Decision Readiness](/reference/decision-readiness).
 
 ## The dashboard binaries
 
@@ -126,7 +143,8 @@ The catalog ships **196 agents, 156 skills, 72 plugins, 36 prompts**.
 |---|---|
 | `rstack-business` | Run the Business Hub server directly: `rstack-business --port 3008 --project .` |
 | `rstack-observer` | Compatibility alias that opens the same Business Hub |
-| `rstack-operator-bridge` | Node bridge the Operator (Python) adapter shells out to per tool call |
+| `rstack-bridge` | Generic Node bridge any non-TypeScript adapter (Operator, Tau, custom) shells out to per tool call; `--list` prints the tool registry |
+| `rstack-operator-bridge` | Back-compat alias for `rstack-bridge` with the `operator` invocation id |
 
 ## npm scripts
 

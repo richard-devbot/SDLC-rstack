@@ -35,6 +35,16 @@ cat $RSTACK_RUN_DIR/artifacts/cost/cost_estimation.json 2>/dev/null | python3 -m
 ```
 If `cost_estimation.json` exists, report the cheapest provider and total estimate, then ask whether to re-estimate with updated parameters or use the existing figures.
 
+## Adopted-Run Behavior (brownfield)
+
+Adoption (`rstack-agents adopt`) deliberately skips this stage — cost estimates belong to new work. Detect an adopted run:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+ls "$RUN_BASE/artifacts/adoption_report.json" 2>/dev/null
+```
+On a hit: infrastructure already exists — estimate the DELTA of the new work on top of it, not a greenfield deployment. Read the harvested baselines for real signals instead of assuming a fresh stack: `09-deployment` (`ci_pipelines`, `deploy_configs` — the actual CI/CD and IaC in use) and `06-architecture` (`tech_stack`, `structure`), each marked `source: "brownfield-adoption"`. Present current-state running costs and change-driven costs as separate line items, and state clearly which figures rest on inferred baselines. Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
+
 
 # COST ESTIMATION AGENT — SDLC Automation Pipeline
 

@@ -115,6 +115,8 @@ Every builder task writes:
 
 `memory_summary.evidence` and each `stage_summaries[].evidence` must cite command output, artifact paths, or files inspected. Validators fail PASS builders that omit these summaries.
 
+The contract also accepts optional `cost`, `context`, `execution`, and `routing` telemetry blocks (objects); the harness extracts cost/context/execution into the run's `metrics.json` at validate time, and the loop budget cap enforces on that recorded spend.
+
 Write it to the active task directory: `$RSTACK_RUN_DIR/tasks/<task_id>/builder.json`.
 
 ## 7. Validator contract
@@ -136,7 +138,34 @@ Every validation task writes:
 
 Write it to the active task directory: `$RSTACK_RUN_DIR/tasks/<task_id>/validation.json`.
 
-## 8. Completion protocol
+## 8. Run modes
+
+Every run operates in one of three modes. Determine the mode before producing any artifact — it changes what your inputs mean.
+
+- **Greenfield** (default): full pipeline from a goal. Every stage produces its artifact from scratch. All other sections of this standard describe this mode unless stated otherwise.
+- **Brownfield (`mode: adopt`)**: the run was created by `rstack-agents adopt` from an existing codebase. Harvested baseline artifacts are **authoritative context to read — never outputs to regenerate**. Each one carries `source: "brownfield-adoption"` plus `evidence` pointers to the real files it came from. Treat those files, not your own analysis, as ground truth about what already exists. Harvested stages are already DONE-with-evidence (stage status `PASS`, task ids `adopt-<stage_id>`) — the pipeline resumes at real work; redoing a harvested stage means refining its baseline, never rebuilding it from scratch. Stages the adoption skipped carry a stated reason in `artifacts/adoption_report.json` (`plan[].reason`); respect that reason when the stage eventually runs.
+- **Feature mode**: new work on top of an adopted baseline. The current run is not itself `mode: adopt`, but a sibling adoption run exists under `.rstack/runs/`. Spec only the change being made; the adoption run's harvested artifacts supply context for everything else.
+
+Detection recipe — any hit on the first three lines means the current run IS the adoption baseline; a hit only on the last line means feature mode:
+
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"|"adopted": *true' "$RUN_BASE/manifest.json" 2>/dev/null
+ls "$RUN_BASE/artifacts/adoption_report.json" 2>/dev/null
+grep -rl '"source": "brownfield-adoption"' "$RUN_BASE/artifacts/stages/" 2>/dev/null | head -5
+# Feature mode: an adoption run exists beside the current run
+grep -l '"mode": "adopt"' .rstack/runs/*/manifest.json 2>/dev/null | head -3
+```
+
+**Brownfield ground rules.** Stephens (*Beginning Software Engineering*, Ch. 11, p. 243) is blunt: modifying old code without studying it first adds as many bugs as it removes. On any adopted codebase:
+
+1. Study before modifying — read the code you are changing and its callers before writing a line.
+2. Prefer the smallest possible fix that satisfies the task.
+3. Do not refactor adjacent code, even when it offends you.
+4. Respect existing API contracts and behavior that tests may not cover — absence of a test is not permission to change behavior.
+5. Stop and escalate rather than guess. `NEEDS_CONTEXT` beats a confident wrong change.
+
+## 9. Completion protocol
 
 Before reporting complete:
 

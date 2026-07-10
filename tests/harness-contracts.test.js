@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   validateBuilderContract,
+  validateBuilderCompleteness,
   validateValidatorContract,
   BUILDER_REQUIRED_FIELDS,
   VALIDATOR_REQUIRED_FIELDS,
@@ -254,4 +255,120 @@ test('validator contract requires all Harness fields', () => {
   assert.ok(invalidResult.issues.some((issue) => issue.name === 'validator_has_validator'));
   assert.ok(invalidResult.issues.some((issue) => issue.name === 'validator_retry_recommendation_allowed'));
   assert.ok(invalidResult.issues.some((issue) => issue.name === 'validator_checks_is_array'));
+});
+
+test('builder completeness requires evidence, memory summaries, and stage summaries for passing statuses', () => {
+  const complete = {
+    task_id: '004-implementation',
+    status: 'PASS',
+    summary: 'Implemented the payment flow end to end.',
+    files_modified: ['src/pay.js'],
+    tests_run: ['npm test'],
+    risks: [],
+    next_steps: [],
+    memory_summary: {
+      work_done: 'Built and validated the payment flow.',
+      evidence: ['tests/pay.test.js'],
+    },
+    stage_summaries: [
+      { stage_id: '07-code', work_done: 'Implemented payment module.', evidence: ['src/pay.js'] },
+    ],
+  };
+  const ok = validateBuilderCompleteness(complete, { expectedStageIds: ['07-code'] });
+  assert.equal(ok.ok, true);
+
+  // PASS without memory_summary.evidence must fail with an actionable issue.
+  const missingEvidence = { ...complete, memory_summary: { work_done: 'Built and validated the payment flow.', evidence: [] } };
+  const bad = validateBuilderCompleteness(missingEvidence, { expectedStageIds: ['07-code'] });
+  assert.equal(bad.ok, false);
+  const issue = bad.issues.find((check) => check.name === 'builder_memory_summary_evidence');
+  assert.ok(issue, 'missing evidence must surface as a named issue');
+  assert.match(issue.evidence, /proof paths or commands/);
+
+  // DONE_WITH_CONCERNS is held to the same bar.
+  const concerns = validateBuilderCompleteness({ ...missingEvidence, status: 'DONE_WITH_CONCERNS' }, { expectedStageIds: ['07-code'] });
+  assert.equal(concerns.ok, false);
+
+  // FAIL and BLOCKED are valid statuses and exempt from completeness.
+  for (const status of ['FAIL', 'BLOCKED']) {
+    const exempt = validateBuilderCompleteness({ status }, { expectedStageIds: ['07-code'] });
+    assert.equal(exempt.ok, true);
+    assert.equal(exempt.checks.length, 0);
+  }
+});
+
+test('builder completeness enforces per-stage summaries against the task packet', () => {
+  const builder = {
+    status: 'PASS',
+    summary: 'Delivered requirements and planning stages.',
+    tests_run: ['SKIPPED: docs-only stage'],
+    memory_summary: { work_done: 'Wrote requirement and planning artifacts.', evidence: ['requirements.json'] },
+    stage_summaries: [
+      { stage_id: '02-requirements', work_done: 'Extracted functional requirements.', evidence: ['requirements.json'] },
+    ],
+  };
+
+  const result = validateBuilderCompleteness(builder, { expectedStageIds: ['02-requirements', '04-planning'] });
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((check) => check.name === 'stage_summary_04-planning_exists'));
+
+  // Summaries for stages outside the packet are flagged.
+  const foreign = validateBuilderCompleteness(
+    { ...builder, stage_summaries: [...builder.stage_summaries, { stage_id: '09-deployment', work_done: 'Deployed something unexpected.', evidence: ['deploy.log'] }] },
+    { expectedStageIds: ['02-requirements'] },
+  );
+  assert.equal(foreign.ok, false);
+  assert.ok(foreign.issues.some((check) => check.name === 'stage_summaries_only_known_stages'));
+
+  // No canonical stage targets -> completeness passes with an explicit marker.
+  const none = validateBuilderCompleteness(builder, { expectedStageIds: [] });
+  assert.ok(none.checks.some((check) => check.name === 'stage_summaries_not_required' && check.status === 'PASS'));
+});
+
+test('builder completeness fails a PASS contract missing memory_summary entirely', () => {
+  const noMemory = {
+    status: 'PASS',
+    summary: 'Implemented the payment flow end to end.',
+    tests_run: ['npm test'],
+    stage_summaries: [{ stage_id: '07-code', work_done: 'Implemented payment module.', evidence: ['src/pay.js'] }],
+  };
+  const result = validateBuilderCompleteness(noMemory, { expectedStageIds: ['07-code'] });
+  assert.equal(result.ok, false);
+  const exists = result.issues.find((check) => check.name === 'builder_memory_summary_exists');
+  assert.ok(exists, 'absent memory_summary must fail the exists check');
+  assert.equal(exists.evidence, 'missing memory_summary');
+});
+
+test('builder completeness tolerates null or non-array expectedStageIds', () => {
+  const builder = {
+    status: 'PASS',
+    summary: 'Delivered with valid memory summaries.',
+    tests_run: ['npm test'],
+    memory_summary: { work_done: 'Delivered the work end to end.', evidence: ['tests/x.test.js'] },
+  };
+  for (const bad of [null, undefined, 'not-an-array', 42]) {
+    const result = validateBuilderCompleteness(builder, { expectedStageIds: bad });
+    assert.ok(result.checks.some((check) => check.name === 'stage_summaries_not_required'), `expectedStageIds=${String(bad)} must degrade to no stage targets, not throw`);
+  }
+});
+
+test('builder completeness rejects junk evidence entries that carry no text', () => {
+  const base = {
+    status: 'PASS',
+    summary: 'Attempting to pass with junk evidence.',
+    memory_summary: { work_done: 'Did the work with proof attached.', evidence: [{}] },
+    tests_run: [{}],
+  };
+  const junk = validateBuilderCompleteness(base, { expectedStageIds: [] });
+  assert.equal(junk.ok, false);
+  assert.ok(junk.issues.some((check) => check.name === 'builder_tests_run_has_evidence'));
+  assert.ok(junk.issues.some((check) => check.name === 'builder_memory_summary_evidence'));
+
+  // Object-shaped evidence with real text remains valid.
+  const structured = validateBuilderCompleteness({
+    ...base,
+    tests_run: ['npm test'],
+    memory_summary: { work_done: 'Did the work with proof attached.', evidence: [{ kind: 'file', path: 'tests/pay.test.js' }] },
+  }, { expectedStageIds: [] });
+  assert.equal(structured.ok, true);
 });

@@ -58,5 +58,8 @@ export function buildProjectSummaries(runs, roots) {
 
 function lastRunActivity(run) {
   const events = run.events ?? [];
+  // Index-served runs keep their exact last event timestamp in the rollup
+  // entry (their inline events are a filtered subset).
+  if (run.lastEventTs) return run.lastEventTs;
   return events.length ? events[events.length - 1]?.ts ?? '' : '';
 }

@@ -2,14 +2,65 @@
 
 <!-- owner: RStack developed by Richardson Gunde -->
 
-**A governed AI-SDLC operating layer for any coding framework.**
+<p align="center">
+  <img src="https://raw.githubusercontent.com/richard-devbot/SDLC-rstack/main/assets/sdlc-rstack-logo.png" alt="SDLC RSTACK" width="280" />
+</p>
+
+<p align="center">
+  <strong>A governed AI-SDLC operating layer for AI coding harnesses.</strong><br/>
+  Since 2026 &nbsp;·&nbsp; MIT &nbsp;·&nbsp; <a href="https://github.com/richard-devbot/SDLC-rstack">richard-devbot/SDLC-rstack</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-2.0.0-brightgreen" alt="v2.0.0"/>
+  <img src="https://img.shields.io/badge/agents-196%20validated-brightgreen" alt="196 agents"/>
+  <img src="https://img.shields.io/badge/tests-756%20pass-brightgreen" alt="756 tests"/>
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"/>
+</p>
+
+---
+
 RStack sits on top of Pi, Claude Code, Operator, Codex-style CLIs, Gemini-style CLIs, or a custom harness and gives agent teams a repeatable lifecycle with approvals, builder/validator contracts, evidence, memory, budget envelopes, and a live Business Hub.
+
+**Enforcement tiers:** full runtime enforcement on Pi and Operator (live tool-call gating), and on Claude Code via the `rstack-agents guard` PreToolUse hook (installed by `init`). Every other harness gets the governed contracts, state, and Business Hub, plus a guided recipe to wire the guard into its own hook system ([wire-your-own-harness](docs/integrations/wire-your-own-harness.md)).
 
 ```text
 clarify → plan → spec → approve → build → validate → release-readiness → learn
 ```
 
-## Install — one npm package, any framework
+## Meet the studio
+
+Your AI software team in one place — builders, validators, the skills rack, and live delivery status. **[Open the interactive 3D workspace →](https://raw.githack.com/richard-devbot/SDLC-rstack/main/assets/rstack-workspace-v8.html)** — drag to look around, scroll to zoom, click any room to explore, or take the guided tour where each specialist introduces itself.
+
+<p align="center">
+  <a href="https://raw.githack.com/richard-devbot/SDLC-rstack/main/assets/rstack-workspace-v8.html">
+    <img src="https://raw.githubusercontent.com/richard-devbot/SDLC-rstack/main/assets/rstack-workspace-preview.png" alt="RStack interactive agent workspace — builders and validators studio" width="800"/>
+  </a>
+</p>
+
+## Table of contents
+
+- [Quick start](#quick-start)
+- [Govern an existing codebase](#govern-an-existing-codebase)
+- [Choose your framework](#choose-your-framework)
+- [Configure your team](#configure-your-team)
+- [Agent identity and standby automation](#agent-identity-and-standby-automation)
+- [Upgrade path](#upgrade-path)
+- [Start your first governed run](#start-your-first-governed-run)
+- [What init creates](#what-init-creates)
+- [Builder and validator sandbox model](#builder-and-validator-sandbox-model)
+- [Business Hub](#business-hub--live-observability-on-3008)
+- [CLI reference](#cli-reference)
+- [Known limitations and roadmap](#known-limitations--roadmap)
+- [Documentation](#documentation)
+- [Development](#development)
+
+---
+
+## Quick start
+
+> **New here? [RStack in 5 Minutes](docs/quick-start-guide.md)** — install to a
+> validated, human-approved pipeline task from a bare terminal, no framework required.
 
 ```bash
 cd your-project
@@ -17,9 +68,17 @@ npm install rstack-agents
 npx rstack-agents init --profile business-flex
 ```
 
-`init` auto-detects `pi | claude-code | operator | custom`, creates `.rstack/`, registers the project with the Business Hub, writes framework glue, and never overwrites existing files.
+`init` auto-detects `pi | claude-code | operator | custom`, creates `.rstack/`, scaffolds bootstrap files (`SOUL.md`, `HEARTBEAT.md`, and framework-specific `CLAUDE.md` or `AGENTS.md`), registers the project with the Business Hub, writes framework glue, and **never overwrites existing files**.
 
-Use a smaller or larger business profile when needed:
+**Verify your setup:** run `npx rstack-agents doctor` — it checks your environment, config, and framework wiring, and runs a live guard self-test to prove enforcement is working. Every problem prints its fix. Per-framework "test in 5 minutes" recipes: [docs/integrations/testing-matrix.md](docs/integrations/testing-matrix.md).
+
+If `.rstack/` already exists, `init` adopts it and preserves all prior runs. To start clean instead (nothing is deleted):
+
+```bash
+npx rstack-agents init --fresh   # archives prior state to .rstack/archive/<timestamp>/
+```
+
+Pick a profile size:
 
 ```bash
 npx rstack-agents init --profile lean-mvp
@@ -31,6 +90,188 @@ npx rstack-agents init --profile enterprise-webapp
 | `business-flex` | Most business/product teams | Product, backend, frontend, QA, security, devops, docs, budget policy, Business Flex dashboard |
 | `lean-mvp` | Fast prototypes | Smaller full-stack team and lower budget defaults |
 | `enterprise-webapp` | Heavier governance | Enterprise web app team with security/compliance/devops emphasis |
+
+---
+
+## Govern an existing codebase
+
+Brownfield is first-class. `adopt` scans your repo read-only and harvests real artifacts (README, tests, CI config, deploy manifests) into a resumable pipeline run — stages with evidence are marked DONE, gaps are left open, and nothing is invented. Work then resumes from reality, not from scratch.
+
+```bash
+npx rstack-agents adopt --dry-run   # print the stage-population plan, write nothing
+npx rstack-agents adopt             # harvest evidence into an adoption run
+npx rstack-agents pipeline run      # advance from the gaps, stopping at human gates
+```
+
+Full guide: [docs/brownfield-adoption.md](docs/brownfield-adoption.md). To keep iterating toward a goal after adoption, see the loop recipes in [docs/loop-recipes.md](docs/loop-recipes.md).
+
+---
+
+## Choose your framework
+
+RStack is a plugin layer — install your AI coding framework first, then run `init`.
+
+| Framework | Integration | Bootstrap files | Harness entry |
+|---|---|---|---|
+| **Pi** | Native adapter | `SOUL.md`, `HEARTBEAT.md` | `sdlc_start(goal="...")` |
+| **Claude Code** | First-class | `CLAUDE.md`, `SOUL.md`, `HEARTBEAT.md` | `/sdlc-start` or orchestrator |
+| **Operator** | Python bridge | `SOUL.md`, `HEARTBEAT.md` | Operator extension + Node bridge |
+| **Codex / custom** | Asset + bridge | `AGENTS.md`, `SOUL.md`, `HEARTBEAT.md` | Node bridge or prompt-driven |
+
+| Framework | What you get |
+|---|---|
+| Pi | All 15 `sdlc_*` tools, lifecycle hooks, tool gating, auto-launch dashboard |
+| Claude Code | Usage guide, optional SessionStart hook, slash commands via plugin |
+| Operator | Python adapter shells out to the same Node harness |
+| Codex / Gemini / custom | `.rstack/` state contract, agents/skills as context, CLI bridge |
+
+Per-framework setup: [docs/mintlify/getting-started/install-your-framework.mdx](docs/mintlify/getting-started/install-your-framework.mdx)
+
+Custom harness bridge:
+
+```bash
+RSTACK_PROJECT_ROOT="$(pwd)" \
+  npx tsx node_modules/rstack-agents/bin/rstack-operator-bridge.ts sdlc_start '{"goal":"..."}'
+```
+
+Full contract: [docs/integrations/custom.md](docs/integrations/custom.md)
+
+---
+
+## Configure your team
+
+RStack ships a large catalog (196 agents, 68 skills, 72 plugins), but you configure only what your project needs.
+
+### 1. Pick a profile
+
+Profiles write `.rstack/rstack.config.json` and `.rstack/budget.json`:
+
+```bash
+npx rstack-agents init --profile business-flex   # default for most teams
+npx rstack-agents init --profile lean-mvp        # prototypes
+npx rstack-agents init --profile enterprise-webapp # compliance-heavy delivery
+```
+
+### 2. Narrow domains and plugins
+
+Edit `.rstack/rstack.config.json` any time:
+
+```json
+{
+  "profile": "business-flex",
+  "enabled_domains": ["product", "backend", "qa", "security", "docs"],
+  "enabled_plugins": [
+    "business-analytics",
+    "backend-development",
+    "unit-testing",
+    "security-scanning",
+    "documentation-generation"
+  ],
+  "dashboard_pages": ["command", "business-flex", "workflow", "agent-work", "live-feed", "approvals"]
+}
+```
+
+When `sdlc_plan` runs, each task gets active profile, routing explanation, and budget envelope.
+
+### 3. Add plugins locally
+
+Copy one plugin pack into your project:
+
+```bash
+npx rstack-agents add plugin unit-testing
+npx rstack-agents add plugin security-scanning
+```
+
+Plugins land in `.rstack/plugins/<name>/`.
+
+### 4. Browse the catalog
+
+```bash
+npx rstack-agents list agents
+npx rstack-agents list skills
+npx rstack-agents list plugins
+```
+
+### 5. Project-local overrides
+
+Drop custom assets in `.rstack/` — they take precedence over package defaults:
+
+```text
+.rstack/agents/     custom agent definitions
+.rstack/skills/     custom skills
+.rstack/plugins/    custom or copied plugin packs
+.rstack/prompts/    custom prompts
+```
+
+Then validate: `npx rstack-agents validate`
+
+<details>
+<summary>Current package limitation</summary>
+
+Profiles guide routing, budget, dashboard visibility, and project-local configuration. The npm package still ships the full catalog so offline/project-local routing works. The next product step is a pack installer that physically copies only selected packs into `.rstack/` for stricter enterprise footprints.
+
+</details>
+
+---
+
+## Agent identity and standby automation
+
+| File | Purpose |
+|---|---|
+| **SOUL.md** | Governance identity — orchestrator/builder/validator roles, evidence rules, profile awareness |
+| **HEARTBEAT.md** | Optional periodic checks — pending approvals, budget burn, stalled tasks, validation retries |
+| **CLAUDE.md** | Claude Code bootstrap — asset paths, slash commands, optional hooks |
+| **AGENTS.md** | Codex/universal bootstrap — same rules plus skill routing and Node bridge |
+
+`init` scaffolds these from `templates/bootstrap/` when missing. Canonical templates live in the package at `node_modules/rstack-agents/templates/bootstrap/`.
+
+### Hooks (optional, on standby)
+
+RStack does not require hooks. Enable only what you want:
+
+| Hook | What it does | How to enable |
+|---|---|---|
+| Claude SessionStart | Auto-launch Business Hub + inject RStack context | Merge `.claude/rstack-hooks.json` into `.claude/settings.json` |
+| Claude UserPromptSubmit | Inject RStack context packet (`rstack-agents context`) — run + stage + blockers + orchestrator pointer | Written by `init --framework claude-code` |
+| Claude PreToolUse | Enforcement guard — destructive gate + validator sandbox at tool-call time | Written by `init --framework claude-code`; snippet in `docs/integrations/claude-code.md` |
+| Claude PostToolUse / PostToolUseFailure / SubagentStart / SubagentStop / PreCompact / Stop / SessionEnd | Observability writer (`rstack-agents observe`) — tool results, delegated subagents, failures, compaction, session end into the run ledger | Written by `init --framework claude-code` |
+| Claude Notification | Route host notifications to your channels (`rstack-agents notify-hook`) | Written by `init --framework claude-code` |
+| Claude statusLine | Live RStack status bar (`rstack-agents statusline`) — run + stage, approvals, open decisions | Written by `init --framework claude-code` (top-level `statusLine` key) |
+| Pi lifecycle | Tool gating, stage events, contract enforcement | Automatic when using Pi extension |
+| HEARTBEAT.md | Periodic approval/budget/stall checks | Wire into your harness cron or idle trigger |
+
+Disable hub auto-launch:
+
+```bash
+export RSTACK_NO_BUSINESS_HUB=1   # skip hub spawn
+export RSTACK_NO_BROWSER=1        # hub may start but no browser tab
+export RSTACK_BUSINESS_PORT=3008  # change port
+```
+
+---
+
+## Upgrade path
+
+Start small and expand as requirements grow:
+
+```text
+lean-mvp  →  business-flex  →  enterprise-webapp
+```
+
+| Stage | When | Action |
+|---|---|---|
+| **lean-mvp** | Prototypes, internal tools | `init --profile lean-mvp` — lower budgets, fewer domains |
+| **business-flex** | Client/product delivery | Add domains/plugins in `rstack.config.json`, raise budget in `budget.json` |
+| **enterprise-webapp** | Compliance-heavy web apps | `init --profile enterprise-webapp` or enable security/compliance plugins |
+
+Upgrade steps (no reinstall required):
+
+1. Edit `.rstack/rstack.config.json` — add `enabled_domains`, `enabled_plugins`, `dashboard_pages`
+2. `npx rstack-agents add plugin <name>` — copy needed plugin packs locally
+3. Adjust `.rstack/budget.json` — raise thresholds as team size and scope grow
+4. `npx rstack-agents validate` — refresh registry after changes
+
+---
 
 ## Start your first governed run
 
@@ -52,10 +293,15 @@ sdlc_build_next()
 sdlc_validate()
 ```
 
-## What `init` creates
+---
+
+## What init creates
 
 ```text
 your-project/
+├── CLAUDE.md or AGENTS.md   # framework bootstrap (if missing)
+├── SOUL.md                  # governance identity (if missing)
+├── HEARTBEAT.md             # standby automation guide (if missing)
 ├── .rstack/
 │   ├── rstack.config.json   # active profile, enabled domains/plugins, dashboard pages
 │   ├── budget.json          # run/daily/monthly budget, warnings, approval thresholds
@@ -67,38 +313,7 @@ your-project/
 
 Every run records its manifest, plan, tasks, approvals, evidence, events, stage artifacts, builder contracts, validator contracts, and metrics under `.rstack/runs/<run-id>/`.
 
-## Business Flex: install only the teams you need
-
-RStack ships a large catalog, but business users should not have to use all of it. Profiles narrow the active teams before planning:
-
-```json
-{
-  "profile": "business-flex",
-  "enabled_domains": ["product", "backend", "qa", "security", "docs"],
-  "enabled_plugins": [
-    "business-analytics",
-    "backend-development",
-    "unit-testing",
-    "security-scanning",
-    "documentation-generation"
-  ],
-  "dashboard_pages": ["command", "business-flex", "workflow", "agent-work", "live-feed", "approvals"]
-}
-```
-
-When `sdlc_plan` runs, each task gets:
-
-- active `profile` and `workflow`
-- selected domains and specialists
-- `routing.explanation` showing why the agent/team was selected
-- `budget_envelope` for requirements-stage business control
-
-<details>
-<summary>Current package limitation</summary>
-
-Profiles guide routing, budget, dashboard visibility, and project-local configuration. The npm package still ships the full catalog so offline/project-local routing works. The next product step is a pack installer that physically copies only selected packs into `.rstack/` for stricter enterprise footprints.
-
-</details>
+---
 
 ## Builder and validator sandbox model
 
@@ -149,6 +364,8 @@ Validator contract:
 }
 ```
 
+---
+
 ## Business Hub — live observability on :3008
 
 ```bash
@@ -168,50 +385,97 @@ The dashboard derives everything from real `.rstack` files — no fake demo stat
 | **Approvals / Alerts** | Human gates, guardrails, spend/stall signals |
 | **Traceability** | Requirement → stage → task → evidence chains |
 
+---
+
 ## CLI reference
 
 | Command | Purpose |
 |---|---|
-| `rstack-agents init --profile business-flex` | Set up project profile, budget policy, framework glue, and Business Hub registry |
-| `rstack-agents hub` | Start/open the dashboard |
-| `rstack-agents list agents\|skills\|plugins` | Browse packaged catalog |
-| `rstack-agents add plugin <name>` | Copy a packaged plugin into the project |
+| `rstack-agents init --profile business-flex` | Set up profile, budget, bootstrap files, framework glue, and Business Hub registry (`--fresh` archives prior `.rstack/` state and starts clean) |
+| `rstack-agents doctor [--framework <x>]` | Verify setup and prove enforcement is live (env, config, framework wiring, guard self-test, hub health); prints a fix per FAIL, `--json` for CI |
+| `rstack-agents list agents\|skills\|plugins` | Browse the packaged catalog |
+| `rstack-agents add plugin <name>` | Copy a packaged plugin into `.rstack/plugins/` |
+| `rstack-agents validate` | Validate packaged agent definitions — frontmatter, duplicate names, hook paths |
+| `rstack-agents hub` | Ensure the Business Hub is running on :3008 and open it |
+| `rstack-agents guard` | Enforcement hook: classify one pending tool call, exit 0 allow / exit 2 block (destructive gate + validator sandbox) |
+| `rstack-agents observe` | Observability hook: append a normalized event (tool result, subagent, compaction, session) to the run ledger — never blocks, exit 0 |
+| `rstack-agents context` | Context hook: emit the RStack packet (run + stage + blockers + orchestrator pointer) for UserPromptSubmit/SessionStart — never blocks, exit 0 |
+| `rstack-agents notify-hook` | Notification hook: route a host notification to configured channels — never blocks, exit 0 |
+| `rstack-agents statusline` | Claude Code statusLine command: print ONE live status-bar line (run + stage, ✔approved/⧗pending approvals, ◇open decisions) — display-only, exit 0 |
 | `rstack-agents notify --test` | Test Slack/Teams/Discord/Telegram/WhatsApp notifications |
-| `rstack-agents validate` | Validate packaged and local agent definitions |
-| `rstack-business --port 3008 --project .` | Run the dashboard directly |
+| `rstack-agents inventory` | Generate a backend control-plane registry report |
+| `rstack-agents adopt` | Adopt an existing codebase — harvest evidence into a resumable pipeline run (`--dry-run` plans without writing) |
+| `rstack-agents decisions` | List, add, resolve, or waive run-level Decision Queue items |
+| `rstack-agents dor` | Run the Definition-of-Ready gate for a run and target stage |
+| `rstack-agents pipeline status` | Show pipeline status for the latest or selected run, with one recommended next action |
+| `rstack-agents pipeline run` | Advance the run from current state: skip DONE work, re-enter retryable tasks, stop at human gates |
+| `rstack-agents pipeline loop` | Bounded goal loop: advance, evaluate the goal, rerun recommended stages until PASS, a human gate, or a spent bound |
+| `rstack-business --port 3008 --project .` | Run the dashboard server directly |
+| `rstack-observer` | Deprecated alias — opens the same Business Hub |
 
-## Framework support
+Pipeline command flags and exit codes: [docs/mintlify/reference/pipeline.mdx](docs/mintlify/reference/pipeline.mdx).
 
-| Framework | Status | Notes |
-|---|---|---|
-| Pi | Native adapter | Full `sdlc_*` tool surface through `extensions/rstack-sdlc.ts` |
-| Claude Code | Asset/session bootstrap | `init` writes Claude usage guide/session hook assets |
-| Operator | Bridge adapter | Python adapter shells out to the same Node harness |
-| Codex/Gemini/custom | Universal mode | Use `.rstack` state contract, prompts, agents, and CLI bridge |
+---
 
-## Known loopholes / roadmap
+## Known limitations and roadmap
 
-- **Actual token/cost capture:** host frameworks execute model calls, so real usage needs host-side reporting or provider adapters.
+### Shipped in 1.9 / 2.0
+
+The loop-engineering program that earlier READMEs listed as planned has shipped: the harness ↔ loop-runner bridge, resume-aware pipeline state and `pipeline run`, deterministic retry plus the stage-specific validator registry, the bounded goal loop (`pipeline loop`), and persisted per-stage cost/token observability. The authoritative reference for all of it — run state, contracts, guardrails, checkpoints, metrics — is [`docs/HARNESS.md`](docs/HARNESS.md).
+
+### Current limitations
+
+- **Actual token/cost capture:** per-stage cost and token totals persist from builder contracts at validate time; provider-level usage still needs host-side reporting or provider adapters.
 - **Physical pack pruning:** profiles narrow routing today; a future pack installer should reduce project-local agent/plugin footprint.
-- **Validator enforcement:** validator tool policy is encoded in RStack packets, but strict enforcement depends on the host sandbox.
-- **Open-source adaptation:** learn from OSS agent frameworks, but preserve licenses and validate contracts before importing anything.
+- **Runtime enforcement tiers:** live tool-call gating runs on Pi and Operator; Claude Code and other harnesses get contracts, state, and validate-time checks until the `rstack-agents guard` hook ships ([#227](https://github.com/richard-devbot/SDLC-rstack/issues/227)).
 - **MCP/A2A:** `.rstack` is adapter-friendly, but a native MCP/A2A server is still a future slice.
+
+### Roadmap (contributions welcome)
+
+| Feature | Ref |
+|---------|-----|
+| **Parallel execution enforcement** — wire benchmarked data-independent stage groups into the pipeline runner | [#208](https://github.com/richard-devbot/SDLC-rstack/issues/208) |
+| **Pack installer** — physically copy only selected packs into `.rstack/` | future |
+| **RStack Spec v1alpha1** — JSON schemas + conformance examples | [#71](https://github.com/richard-devbot/SDLC-rstack/issues/71) |
+| **Stage-blanket approvals** — `required_stage_approvals` + `approvals.every_stage` per-stage human gates | [#228](https://github.com/richard-devbot/SDLC-rstack/issues/228) |
+| **Exposure CLI verbs** — `pipeline rollback`, checkpoint status, config validate, approvals audit, memory inspect | [#229](https://github.com/richard-devbot/SDLC-rstack/issues/229) |
+
+**Contributions are welcome.** Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for branching rules, CI requirements, IP policy, and CodeRabbit guidelines before opening a PR.
+
+---
 
 ## Documentation
 
-Mintlify docs live in [`docs/mintlify`](docs/mintlify):
+### Bootstrap templates
+
+Canonical copies in [`templates/bootstrap/`](templates/bootstrap/):
+
+- [`SOUL.md`](templates/bootstrap/SOUL.md) — governance identity
+- [`HEARTBEAT.md`](templates/bootstrap/HEARTBEAT.md) — standby automation
+- [`CLAUDE.md`](templates/bootstrap/CLAUDE.md) — Claude Code bootstrap
+- [`AGENTS.md`](templates/bootstrap/AGENTS.md) — Codex/universal bootstrap
+- [`GEMINI.md`](templates/bootstrap/GEMINI.md) — Gemini CLI pointer
+
+### Mintlify docs
+
+Full docs in [`docs/mintlify`](docs/mintlify):
 
 - [Quickstart](docs/mintlify/quickstart.mdx)
+- [Install your framework](docs/mintlify/getting-started/install-your-framework.mdx)
 - [Business Flex Profiles](docs/mintlify/getting-started/business-flex-profiles.mdx)
 - [Builder & Validator Sandbox](docs/mintlify/getting-started/builder-validator-sandbox.mdx)
-- [AI SDLC Trends & Loopholes](docs/mintlify/reference/loopholes-roadmap.mdx)
+- [Configuration reference](docs/mintlify/reference/configuration.mdx)
 - [Business Hub](docs/mintlify/reference/business-hub.mdx)
+- [AI SDLC Trends & Loopholes](docs/mintlify/reference/loopholes-roadmap.mdx)
 
-The original presentation is kept as a backup at:
+### Harness and integrations
 
-```text
-docs/mintlify/assets/backups/RStack-The-Future-of-Software-Development.backup.pptx
-```
+- [Harness contract](docs/HARNESS.md) — stages, contracts, evidence, guardrails
+- [Custom integration](docs/integrations/custom.md) — Node bridge and state contract
+
+Research material: [`research/`](research/). Architecture decisions: [`rfcs/`](rfcs/).
+
+---
 
 ## Development
 
@@ -224,13 +488,13 @@ npm run lint
 npm run validate
 ```
 
-Latest verified branch state for this business-flex slice:
+Latest verified branch state:
 
 ```text
-npm test -- --runInBand   # 111 pass, 0 fail
-npm run lint              # pass
-npm run validate          # All 196 agents passed validation
-npm pack --dry-run        # package includes new profile/dashboard files
+npm test          # 756 pass, 0 fail
+npm run lint      # pass
+npm run validate  # All 196 agents passed validation
+npm pack --dry-run  # package includes templates/bootstrap/
 ```
 
 ## License

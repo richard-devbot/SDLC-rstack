@@ -36,8 +36,12 @@
             "pages": [
               "reference/business-hub",
               "reference/approvals",
+              "reference/decision-readiness",
               "reference/webhooks",
-              "reference/loopholes-roadmap"
+              "reference/loopholes-roadmap",
+              "reference/research-program",
+              "reference/research-backed-design",
+              "reference/rfc-process"
             ]
           },
           {
@@ -84,11 +88,16 @@
             "group": "Reference",
             "pages": [
               "reference/cli",
+              "reference/pipeline",
               "reference/pi-tools",
               "reference/observability",
+              "reference/decision-readiness",
               "reference/configuration",
               "reference/protected-actions",
-              "reference/loopholes-roadmap"
+              "reference/loopholes-roadmap",
+              "reference/research-program",
+              "reference/research-backed-design",
+              "reference/rfc-process"
             ]
           }
         ]

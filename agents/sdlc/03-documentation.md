@@ -74,6 +74,16 @@ ls "${RSTACK_RUN_DIR:-/dev/null}/artifacts/documents/" 2>/dev/null | head -20
 ```
 If `spec-anchor.md` exists, read it first and use it to orient before reading any other artifact.
 
+## Adopted-Run Behavior (brownfield)
+
+If this run was created by `rstack-agents adopt`, a harvested documentation baseline already exists. Detect it:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+grep -l '"source": "brownfield-adoption"' "$RUN_BASE/artifacts/stages/03-documentation/documentation.json" 2>/dev/null
+```
+On a hit: the baseline's `docs` array is an index of the project's REAL existing documents (README, docs/, …) — read those files first; they are the authoritative record of what the system does. **Refine, never regenerate**: produce BRD/FRD/SOW content only for the change being made or for gaps the baseline exposes; never rewrite documents that describe functionality which already ships. Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
+
 
 # DOCUMENTATION AGENT — SDLC Automation Pipeline
 

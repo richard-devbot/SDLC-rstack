@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 const REPO_ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..');
 
@@ -27,7 +28,8 @@ async function walk(dir, predicate = () => true) {
 
 test('no legacy hidden workspace directories are required', () => {
   for (const dir of ['.claude', '.agents', '.codex']) {
-    assert.equal(existsSync(path.join(REPO_ROOT, dir)), false, `${dir} should not exist`);
+    const trackedFiles = execFileSync('git', ['ls-files', dir], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
+    assert.equal(trackedFiles, '', `${dir} should not be tracked or required by package runtime`);
   }
 });
 

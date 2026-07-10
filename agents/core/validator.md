@@ -193,6 +193,8 @@ Confirm the results match what the builder reported.
 
 Write to: `$RSTACK_RUN_DIR/tasks/<task_id>/validation.json`
 
+**Validator registry note:** stages 06/07/08/12/13 have stage-specific validator profiles; the harness selects the highest-priority profile for the task's stages and records it (with its `required_checks`) as `validator_profile` in validation.json. Make sure your `checks` cover every check named in the selected profile's `required_checks` — that list is the stage's validation contract. Project overrides live in `.rstack/validators/registry.json` (`read_only` cannot be overridden — validators stay read-only).
+
 **Step 7: Mark complete** — report the validation path and evidence summary. Do not fix files.
 
 ## Output Format

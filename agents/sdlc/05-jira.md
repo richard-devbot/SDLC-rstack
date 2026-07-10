@@ -35,6 +35,16 @@ cat $RSTACK_RUN_DIR/artifacts/jira/jira_tickets.json 2>/dev/null | python3 -m js
 ```
 If `jira_tickets.json` exists with tickets already created, report the summary counts and ask whether to use the existing tickets or regenerate.
 
+## Adopted-Run Behavior (brownfield)
+
+Adoption (`rstack-agents adopt`) deliberately skips this stage — tickets belong to new work. Detect an adopted run:
+```bash
+RUN_BASE="${RSTACK_RUN_DIR:-$(ls -td .rstack/runs/*/ 2>/dev/null | head -1)}"
+grep -E '"mode": *"adopt"' "$RUN_BASE/manifest.json" 2>/dev/null
+ls "$RUN_BASE/artifacts/adoption_report.json" 2>/dev/null
+```
+On a hit: create Epics/Stories/Tasks ONLY for the change being made — **never backfill tickets for functionality that already exists**. If bidirectional sync finds an existing tracker project, its tickets are part of the baseline: link new work to them rather than duplicating. Missing `sprint_plan.json` on an adoption-baseline run means planning hasn't happened for the new work yet — report that 04-planning must run for the change, not for the legacy system. Follow the run-modes contract in `agents/OPERATING-STANDARD.md` ("Run modes").
+
 
 # TICKETING AGENT — SDLC Automation Pipeline
 
@@ -53,12 +63,15 @@ criteria to the project's domain and user roles.
 ## TOOL RESOLUTION — Interactive Decision
 
 ### Step 1: Check Previous Decisions
-Read `$RSTACK_RUN_DIR/artifacts/environment_report.json` and check `user_preferences.ticketing_platform`.
-If the user ALREADY chose a ticketing platform in Agent 00 → use that choice directly.
-Do NOT re-ask.
+Read, in order:
+1. `.rstack/integrations.json` → `ticketing.provider` (plus `base_url` / `project_key` for Jira). Endpoints and identifiers only — API tokens are ALWAYS env vars, never in this file.
+2. `$RSTACK_RUN_DIR/artifacts/environment_report.json` → `user_preferences.ticketing_platform`, and any `setup_needs` entry with `kind: "ticketing"` (its `required_vars` name the env vars to check; `satisfied: true` means credentials are already present).
+
+If either source names a platform → use that choice directly. Do NOT re-ask.
+If a Decision Queue item for ticketing setup was resolved (`rstack-agents decisions`), honor its resolution.
 
 ### Step 2: If No Previous Decision Exists
-If environment_report.json doesn't exist or `user_preferences.ticketing_platform` is not set,
+If neither `.rstack/integrations.json` nor `user_preferences.ticketing_platform` names a platform,
 present the following options to the user:
 
 ```

@@ -1,0 +1,107 @@
+---
+title: "Pipeline CLI"
+description: "rstack-agents pipeline status, run, and loop — inspect and advance runs from a bare terminal."
+---
+
+## Overview
+
+The `pipeline` commands work directly against the authoritative `.rstack` run
+state — no Business Hub, no host framework required. The harness never calls
+models itself: `run` and `loop` advance every model-free step (validation,
+retries, stage bookkeeping) and stop with an explicit reason whenever an agent
+or a human is needed.
+
+```bash
+npx rstack-agents pipeline status
+npx rstack-agents pipeline run
+npx rstack-agents pipeline loop
+```
+
+All three accept `--project <path>` (defaults to the current directory) and
+`--run-id <runId>` (defaults to the latest run).
+
+## Commands
+
+### `pipeline status`
+
+Show pipeline status for the latest or selected run, with one recommended next
+action.
+
+```bash
+rstack-agents pipeline status
+rstack-agents pipeline status --run-id run-2026-07-06
+rstack-agents pipeline status --json          # complete pipeline-state object, no decoration
+rstack-agents pipeline status --regenerate    # rebuild and persist the rollup from canonical run artifacts
+```
+
+| Flag | Meaning |
+|---|---|
+| `-p, --project <path>` | Project root (defaults to current directory) |
+| `-r, --run-id <runId>` | Run id (defaults to latest run) |
+| `--json` | Print the complete pipeline-state object as JSON with no decorative text |
+| `--regenerate` | Rebuild and persist the rollup from canonical run artifacts |
+
+---
+
+### `pipeline run`
+
+Advance the run from current state: skip DONE work, validate active contracts,
+re-claim retryable failures, and stop at every human gate.
+
+```bash
+rstack-agents pipeline run
+rstack-agents pipeline run --dry-run          # show the next action, write nothing
+rstack-agents pipeline run --max-steps 10
+rstack-agents pipeline run --json
+```
+
+| Flag | Meaning |
+|---|---|
+| `-p, --project <path>` | Project root (defaults to current directory) |
+| `-r, --run-id <runId>` | Run id (defaults to latest run) |
+| `--max-steps <n>` | Maximum backend steps before stopping (default 5) |
+| `--dry-run` | Show the next action without invoking tools or writing any state |
+| `--json` | Print the structured step report as JSON |
+
+**Exit codes:** `0` when the run stopped on `complete`, `dry_run`,
+`missing_contract` (a builder packet awaits agent execution), or `max_steps`.
+Any other stop — a pending approval, a question for a human, a blocked retry
+policy — exits `1`, so CI can distinguish "needs a human" from "complete".
+
+---
+
+### `pipeline loop`
+
+Bounded goal loop: advance the run, evaluate the goal after each pass, reset
+only the recommended stages, and go again — until the goal PASSes, a human
+gate stops it, or a bound is spent.
+
+```bash
+rstack-agents pipeline loop
+rstack-agents pipeline loop --goal .rstack/goals/tests-green.json
+rstack-agents pipeline loop --max-iterations 5 --max-steps 8
+rstack-agents pipeline loop --dry-run         # evaluate the goal and report the decision, write nothing
+```
+
+| Flag | Meaning |
+|---|---|
+| `-p, --project <path>` | Project root (defaults to current directory) |
+| `-r, --run-id <runId>` | Run id (defaults to latest run) |
+| `-g, --goal <path>` | Goal definition JSON (defaults to `<run>/goal.json`, else the built-in pipeline-complete goal) |
+| `--max-iterations <n>` | Iteration bound — default 3 or `loop.maxIterations` in `.rstack/rstack.config.json`; hard cap 20 that no configuration can exceed |
+| `--max-steps <n>` | Backend steps per iteration (default 10) |
+| `--dry-run` | Evaluate the goal and report the loop decision without invoking tools or writing any state |
+| `--json` | Print the structured loop report as JSON |
+
+The loop checks the run budget before every iteration and stops with an
+explicit reason: `complete` (goal met), `pending_approval`, `ask_user`,
+`blocked`, `blocked_retry_policy`, `missing_contract`, `max_iterations`,
+`no_progress`, `budget_exhausted`, or `evaluation_error`.
+
+**Exit codes:** `0` only when the goal was met (`complete`) or on `--dry-run`.
+Every other stop means the goal is unmet or a human is needed, and exits `1`.
+
+Goal definitions and ready-made recipes:
+[docs/loop-recipes.md](https://github.com/richard-devbot/SDLC-rstack/blob/main/docs/loop-recipes.md).
+Run state, contracts, and guardrail internals:
+[docs/HARNESS.md](https://github.com/richard-devbot/SDLC-rstack/blob/main/docs/HARNESS.md).

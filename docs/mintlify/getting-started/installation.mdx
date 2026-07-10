@@ -19,7 +19,9 @@ npx rstack-agents init --profile business-flex        # auto-detects pi | claude
 ```
 
 `init` sets up `.rstack/`, writes the active business profile and budget policy,
-registers the project with the Business Hub, writes the framework-specific glue,
+registers the project with the Business Hub, scaffolds bootstrap files
+(`SOUL.md`, `HEARTBEAT.md`, and framework-specific `CLAUDE.md` or `AGENTS.md`),
+writes the framework-specific glue,
 and prints next steps — idempotent and non-destructive. New to your AI framework
 itself? See
 [Install your framework](/getting-started/install-your-framework) for the
@@ -60,6 +62,14 @@ pi -e /path/to/SDLC-rstack/extensions/rstack-sdlc.ts
 
 ## Claude Code — Asset adapter
 
+**Recommended:** `npx rstack-agents init --framework claude-code` scaffolds `CLAUDE.md`, `SOUL.md`, and `HEARTBEAT.md` automatically.
+
+Manual asset copy (optional). Note: no `rstack-agents` command creates or
+refreshes these copies — `init` does not write `.claude/agents/rstack/` or
+`.claude/commands/rstack/`. If you make them, they are unmanaged: re-copy
+after upgrading the package. The supported Claude Code surface without them
+is the bridge tools + the `rstack-agents` CLI + the settings hooks.
+
 ```bash
 export RSTACK_HOME=/path/to/SDLC-rstack
 
@@ -72,21 +82,22 @@ cp -R "$RSTACK_HOME/agents"/*  .claude/agents/rstack/
 cp "$RSTACK_HOME/prompts"/*.md .claude/commands/rstack/ 2>/dev/null || true
 ```
 
-Add to your `CLAUDE.md`:
+Or copy bootstrap templates from the package:
 
-```markdown
-# RStack SDLC
-Use RStack SDLC from `.rstack/vendor/rstack`.
-Start with `.rstack/vendor/rstack/agents/core/orchestrator.md`.
-Use `.rstack/vendor/rstack/agents/core/builder.md` for implementation.
-Use `.rstack/vendor/rstack/agents/core/validator.md` for verification.
-Write all run state under `.rstack/runs/<run_id>/`.
-Require specs, approvals, traceability, `builder.json`, and `validation.json`.
-Never claim DONE without evidence.
+```bash
+cp node_modules/rstack-agents/templates/bootstrap/CLAUDE.md ./CLAUDE.md
+cp node_modules/rstack-agents/templates/bootstrap/SOUL.md ./SOUL.md
+cp node_modules/rstack-agents/templates/bootstrap/HEARTBEAT.md ./HEARTBEAT.md
 ```
+
+See the [Claude Code adapter](/adapters/claude-code) for full details.
 
 ## Codex CLI — AGENTS.md adapter
 
+**Recommended:** `npx rstack-agents init --framework custom` scaffolds `AGENTS.md`, `SOUL.md`, and `HEARTBEAT.md`.
+
+Manual asset copy (optional):
+
 ```bash
 export RSTACK_HOME=/path/to/SDLC-rstack
 mkdir -p .rstack/vendor/rstack
@@ -95,20 +106,25 @@ cp -R "$RSTACK_HOME/skills"  .rstack/vendor/rstack/
 cp -R "$RSTACK_HOME/plugins" .rstack/vendor/rstack/
 cp -R "$RSTACK_HOME/prompts" .rstack/vendor/rstack/
 
-cat > AGENTS.md <<'EOF'
-# RStack SDLC
-Use RStack SDLC from `.rstack/vendor/rstack`.
-Read `.rstack/vendor/rstack/agents/core/orchestrator.md` first.
-For implementation, follow `.rstack/vendor/rstack/agents/core/builder.md`.
-For verification, follow `.rstack/vendor/rstack/agents/core/validator.md`.
-Use SDLC pipeline agents from `.rstack/vendor/rstack/agents/sdlc/`.
-Write run state under `.rstack/runs/<run_id>/`.
-Require specs, approval gates, traceability, builder contracts, and validation contracts.
-EOF
+cp node_modules/rstack-agents/templates/bootstrap/AGENTS.md ./AGENTS.md
+cp node_modules/rstack-agents/templates/bootstrap/SOUL.md ./SOUL.md
+cp node_modules/rstack-agents/templates/bootstrap/HEARTBEAT.md ./HEARTBEAT.md
 ```
+
+See the [Codex adapter](/adapters/codex) for full details.
 
 ## Gemini CLI — GEMINI.md adapter
 
+**Recommended:** run `init --framework custom`, then copy `GEMINI.md`:
+
+```bash
+cp node_modules/rstack-agents/templates/bootstrap/GEMINI.md ./GEMINI.md
+cp node_modules/rstack-agents/templates/bootstrap/SOUL.md ./SOUL.md
+cp node_modules/rstack-agents/templates/bootstrap/HEARTBEAT.md ./HEARTBEAT.md
+```
+
+Manual asset copy (optional):
+
 ```bash
 export RSTACK_HOME=/path/to/SDLC-rstack
 mkdir -p .rstack/vendor/rstack
@@ -116,17 +132,9 @@ cp -R "$RSTACK_HOME/agents"  .rstack/vendor/rstack/
 cp -R "$RSTACK_HOME/skills"  .rstack/vendor/rstack/
 cp -R "$RSTACK_HOME/plugins" .rstack/vendor/rstack/
 cp -R "$RSTACK_HOME/prompts" .rstack/vendor/rstack/
-
-cat > GEMINI.md <<'EOF'
-# RStack SDLC
-Use RStack SDLC from `.rstack/vendor/rstack`.
-Start with `.rstack/vendor/rstack/agents/core/orchestrator.md`.
-Use the SDLC pipeline in `.rstack/vendor/rstack/agents/sdlc/`.
-Maintain `.rstack/runs/<run_id>/` with specs, approvals, traceability, tasks, builder.json, and validation.json.
-Do not perform destructive actions without explicit human approval.
-Do not claim DONE without command evidence.
-EOF
 ```
+
+See the [Gemini adapter](/adapters/gemini) for full details.
 
 ## Universal — Asset-only mode
 
@@ -167,4 +175,4 @@ $ rstack-agents validate
 [rstack] All 196 agents passed validation.
 ```
 
-The catalog ships **196 agents, 156 skills, 72 plugins, 36 prompts**.
+The catalog ships **196 agents, 68 skills, 72 plugins, 36 prompts**.
