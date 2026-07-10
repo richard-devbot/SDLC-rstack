@@ -24,6 +24,8 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-10 | **Lock primitive can no longer break its own mutual exclusion**: per-acquisition token + heartbeat (mtime refreshed ~staleMs/3, token-verified so a taken-over lock is never freshened for the successor) + owner-checked release (finally deletes only OUR lock — a stale-broken owner no longer deletes the new holder's lock and admits a third writer) + `RSTACK_LOCK_STALE_MS` env tuning. Folded in the #288 residuals PR #306 deferred: `stampManifestStatus` (IN_PROGRESS/DONE stamps re-read+write under the manifest's own lock — concurrent stamps both land) and actionable `readManifest` errors naming the damaged run + recovery. Frozen-owner takeover scenario pinned in tests | 1, 4 | #287 #288, PR #307 (Claude Code) |
+| 2026-07-10 | **Webhook timeout + atomic manifests** (GPT/Codex audit agent, Claude-audited+merged): `postJson` hard socket timeout (default 10s, `RSTACK_WEBHOOK_TIMEOUT_MS`, destroy-on-timeout, double-settle guard — a black-holed webhook can no longer hang sdlc_start/approve/validate; bonus: dropped `url.port` bug fixed) with a real stalled-socket regression test; `writeManifest` routed through `writeJsonAtomic` so a torn write can't brick the run (PR #306 deliberately scoped to the torn-write half; lost-update half landed with #287 above) | 1, 4 | #291 #288, PRs #305 #306 |
 | 2026-07-10 | **Golden-path e2e in CI**: the documented bridge-only quick-start journey runs as a test — one real subprocess per tool call (not mock-pi; in-process mocks would hide cross-process bugs like #289), asserting version stamp (#261), persisted state + plain status (#262), run-bound approvals on the pinned run (#298/#289), FAIL-re-claim → hard-block → one-shot override (#265), structured no-task validate (#266), Hub↔terminal agreement (#264). The #261–#266 root cause ("nobody re-ran the journey") is now structurally impossible to repeat silently. #274 marker in place for the next assertion | 4, 2 | #275, PR #304 |
 | 2026-07-10 | **Decision intake rejects non-canonical stages at the source**: `sdlc_decisions` + CLI `--before` refuse unknown `required_before_stage` values with a structured/actionable error (valid stage list), so a bad decision can no longer poison the fail-closed DoR gate into raw-crashing every later `sdlc_build_next`. Filed + fixed by the GPT/Codex audit agent (PR from fork), audited/approved/merged by Claude Code — review notes: legacy-poisoned stores still raw-throw (accepted or follow-up), consider validating inside `addDecision` for future callers | 1 | #290, PR #303 |
 | 2026-07-10 | **Approval integrity pair — session pinning + run-bound approvals**: `.rstack/session.json` pin written by every run creator (sdlc_start AND adopt), resolution = explicit id → in-process → `RSTACK_RUN_ID` env → pin → newest dir, wired into harness `resolveRunId` and extension `readManifest` identically; `sdlc_approve` refuses no-run_id ambiguity (>1 runs, no session — structured candidate list, nothing written) and names the run every sign-off lands on; `run_id` stamped by all three approval writers + CONSUMED marker; `auditRunApprovals` threads `expectedRunId` — the #133 cross-run replay rejection is now LIVE (legacy unstamped grandfathered). Verified with a real spawned-bridge cross-process repro: pinned run receives the approval, newest run gets nothing. Post-merge incident: an over-broad `git add -A` swept 10 local workspace files into the PR — caught by the repo's own guard test, untracked same session (commit ebc2c64); lesson recorded (explicit paths only; merge only on green checks) | 1 | #289 #298, PR #302 |
@@ -116,10 +118,14 @@ SHIPPED (PR #304). ~~#290~~ SHIPPED by the GPT/Codex agent (PR #303, Claude-audi
 Multi-agent protocol in force: CLAIM an issue with a signed comment before starting;
 Claude Code posts from richard-devbot, the audit/Codex agent from richardsongunde.
 
-1. **Durability core — #287 → #288 → #291** (Claude Code — claimed): withFileLock heartbeat +
-   owner-checked release (the primitive every locked write depends on); manifest atomic+locked
-   (torn write bricks a run); webhook timeout in postJson (hangs sdlc_start/approve/validate —
-   the 5s-race fix pattern already exists in notify-hook). Goals 1, 4.
+~~Durability core #287/#288/#291~~ ALL SHIPPED (PRs #305/#306 by the fork agent, #307 by
+Claude Code — board-sync comment on #287 records the division).
+
+1. **#274** (Claude Code — next): validate-time BLOCKED never enqueues the guardrail-override
+   approval card; also add the deferred golden-path assertion marked in the e2e test. Goals 1, 2.
+2. **Fork agent's lane** (per board sync): #292 (now unblocked — the hardened lock primitive is
+   on main), #295, #296 (coordinate w/ Codex #280/#282), #297, #299. Claude audits + merges
+   each green PR. Goals 1, 2, 4.
 4. **#274** — validate-time BLOCKED never enqueues the guardrail-override approval card
    (found in wave verification; Hub Approvals misses exhausted tasks). Feeds Codex's Action
    Inbox (#281) correctness. Goals 1, 2.
