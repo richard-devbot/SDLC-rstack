@@ -177,3 +177,43 @@ test('pipeline-state write/read regenerates equivalent status and handles missin
 
   assert.deepEqual(summarizePipelineState(regenerated), summarizePipelineState(state));
 });
+
+test('buildPipelineState tolerates a corrupt line in events.jsonl / evidence.jsonl (#294)', async () => {
+  const projectRoot = await tempProject();
+  const runId = 'run-corrupt';
+  const dir = runDir(projectRoot, runId);
+
+  await writeJson(path.join(dir, 'manifest.json'), {
+    run_id: runId,
+    goal: 'Corruption tolerance',
+    status: 'RUNNING',
+    created_at: '2026-06-21T00:00:00.000Z',
+  });
+  await writeJson(path.join(dir, 'tasks.json'), { tasks: [] });
+
+  // events.jsonl with a truncated/corrupt middle line (crash mid-append shape).
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    path.join(dir, 'events.jsonl'),
+    [
+      JSON.stringify({ ts: '2026-06-21T00:00:01.000Z', type: 'run_started' }),
+      '{ this is not valid json',
+      JSON.stringify({ ts: '2026-06-21T00:00:02.000Z', type: 'stage_started', stage_id: '07-code' }),
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await writeFile(
+    path.join(dir, 'evidence.jsonl'),
+    [
+      JSON.stringify({ ts: '2026-06-21T00:00:03.000Z', task_id: 't1', stage_id: '07-code', kind: 'validation', status: 'PASS', evidence: 'ok' }),
+      '{ half-written',
+    ].join('\n'),
+    'utf8',
+  );
+
+  // Must NOT throw; the two well-formed events are still parsed.
+  const state = await buildPipelineState(projectRoot, runId, { generatedAt: '2026-06-21T00:00:05.000Z' });
+  assert.equal(state.run.run_id, runId);
+  assert.ok(state.stages.length > 0);
+});

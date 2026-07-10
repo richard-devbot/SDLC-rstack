@@ -51,9 +51,14 @@ export async function readEvidenceEvents(runDir) {
     if (error?.code === 'ENOENT') return '';
     throw error;
   });
+  // Tolerant per-line parse (#294): a single corrupt/partial line must not throw
+  // out of readEvidenceEvents. Malformed lines are skipped, then the schema
+  // filter drops any well-formed-JSON-but-invalid records as before.
   return raw
     .split('\n')
     .filter(Boolean)
-    .map((line) => JSON.parse(line))
+    .flatMap((line) => {
+      try { return [JSON.parse(line)]; } catch { return []; }
+    })
     .filter((entry) => validateEvidenceEvent(entry).ok);
 }
