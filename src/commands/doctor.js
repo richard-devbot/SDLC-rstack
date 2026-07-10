@@ -150,14 +150,14 @@ function fileCheck(name, absPath, relLabel, fix) {
 // The exact snippet a user pastes when the hook is missing — mirrors the shape
 // `init --framework claude-code` installs (init.js CLAUDE_CODE_HOOKS).
 const CLAUDE_HOOK_SNIPPET = 'Add a PreToolUse hook to .claude/settings.json: '
-  + '{"hooks":{"PreToolUse":[{"matcher":"Bash|Write|Edit","hooks":[{"type":"command",'
+  + '{"hooks":{"PreToolUse":[{"matcher":"Bash|Write|Edit|MultiEdit|NotebookEdit","hooks":[{"type":"command",'
   + '"command":"npx --yes rstack-agents guard --context builder"}]}]}} '
   + '(or run: rstack-agents init --framework claude-code)';
 
 // The observability counterpart (#251) — the PostToolUse hook that feeds the
 // dashboard. Mirrors init.js CLAUDE_CODE_HOOKS.
 const OBSERVE_HOOK_SNIPPET = 'Add a PostToolUse hook to .claude/settings.json: '
-  + '{"hooks":{"PostToolUse":[{"matcher":"Bash|Write|Edit","hooks":[{"type":"command",'
+  + '{"hooks":{"PostToolUse":[{"matcher":"Bash|Write|Edit|MultiEdit|NotebookEdit","hooks":[{"type":"command",'
   + '"command":"npx --yes rstack-agents observe --source claude-code"}]}]}} '
   + '(or run: rstack-agents init --framework claude-code)';
 
