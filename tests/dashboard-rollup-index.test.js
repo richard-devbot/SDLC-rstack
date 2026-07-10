@@ -241,3 +241,78 @@ test('statusFromEntry and resolveRetentionDays cover the gating contract directl
   assert.equal(resolveRetentionDays('not-a-number'), 90);
   assert.equal(resolveRetentionDays('-5'), 90);
 });
+
+// #264: run-level approvals must survive the index path. Before the fix,
+// entryFromRun never captured approvals.json, liteRunFromEntry hardcoded
+// approvals: [], and runSignature never statted approvals.json — so every
+// index-served run showed zero approvals on the Hub no matter what was on
+// disk, and an in-place sdlc_approve write never invalidated the cache.
+test('index-served runs keep their run-level approvals (#264)', async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-rollup-approvals-'));
+  try {
+    const runId = '2026-07-01T10-00-00-approved';
+    const runDir = await writeCompletedRun(projectRoot, runId, {
+      createdAt: isoDaysAgo(9),
+      completedAt: isoDaysAgo(8),
+    });
+    await writeJson(join(runDir, 'approvals.json'), [
+      { id: 'app-1', artifact: 'plan.md', status: 'APPROVED', approver: 'richardson', timestamp: isoDaysAgo(8) },
+    ]);
+
+    await buildFullState(projectRoot, { includeRegistry: false });
+    const second = await buildFullState(projectRoot, { includeRegistry: false });
+    const run = second.runs.find((candidate) => candidate.runId === runId);
+    assert.ok(run.fromIndex, 'completed run must be served from the index on the second cycle');
+    assert.equal(run.approvals.length, 1, 'index-served run keeps its approvals');
+    assert.equal(run.approvals[0].artifact, 'plan.md');
+    assert.equal(run.approvals[0].status, 'APPROVED');
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});
+
+test('an in-place approvals.json write invalidates a stalled run entry (#264)', async () => {
+  const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-rollup-approve-inval-'));
+  try {
+    // A bridge-driven run with no recent events: not completed, derives as
+    // "stalled", so after cycle 1 it is served from the index — the exact
+    // path the #264 repro showed dropping terminal-granted approvals.
+    const runId = '2026-07-01T10-00-00-stalled';
+    const runDir = join(projectRoot, '.rstack', 'runs', runId);
+    await mkdir(runDir, { recursive: true });
+    await writeJson(join(runDir, 'manifest.json'), {
+      run_id: runId,
+      goal: 'Bridge-driven quick-start run',
+      created_at: isoDaysAgo(1),
+      framework: 'claude-code',
+    });
+    await writeJson(join(runDir, 'tasks.json'), {
+      tasks: [{ id: '001-clarify', title: 'Clarify', status: 'IN_PROGRESS' }],
+    });
+    await writeFile(join(runDir, 'events.jsonl'), `${JSON.stringify({ ts: isoDaysAgo(1), type: 'task_started', task_id: '001-clarify' })}\n`);
+    await writeJson(join(runDir, 'approvals.json'), [
+      { id: 'app-1', artifact: 'plan.md', status: 'PENDING', approver: null, timestamp: isoDaysAgo(1) },
+    ]);
+
+    const first = await buildFullState(projectRoot, { includeRegistry: false });
+    assert.equal(first.runs[0].approvals[0].status, 'PENDING');
+
+    // Second cycle without changes: stalled + unchanged signature → lite run,
+    // approvals still visible from the entry.
+    const second = await buildFullState(projectRoot, { includeRegistry: false });
+    assert.ok(second.runs[0].fromIndex, 'stalled unchanged run is index-served');
+    assert.equal(second.runs[0].approvals[0].status, 'PENDING');
+
+    // Terminal-granted approval: sdlc_approve rewrites approvals.json in
+    // place — manifest/events/tasks untouched. The signature must notice.
+    await writeJson(join(runDir, 'approvals.json'), [
+      { id: 'app-1', artifact: 'plan.md', status: 'APPROVED', approver: 'richardson', timestamp: new Date().toISOString() },
+    ]);
+    const third = await buildFullState(projectRoot, { includeRegistry: false });
+    const run = third.runs.find((candidate) => candidate.runId === runId);
+    assert.equal(run.approvals[0].status, 'APPROVED',
+      'approval granted after indexing must invalidate the cached entry and appear on the Hub');
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true });
+  }
+});

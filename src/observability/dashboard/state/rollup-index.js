@@ -10,7 +10,8 @@
  *   - a run with completed_at in its index entry is NEVER re-parsed
  *     (not even stat'd) unless explicitly scoped;
  *   - a non-completed run is re-parsed only when its signature changes
- *     (mtime/size of manifest.json, events.jsonl, tasks.json + run dir mtime);
+ *     (mtime/size of manifest.json, events.jsonl, tasks.json, approvals.json
+ *     + run dir mtime);
  *   - a missing or corrupt index.json self-heals with a full rebuild.
  *
  * Retention: RSTACK_RETENTION_DAYS (default 90, 0 = never) moves runs
@@ -32,7 +33,10 @@ import { persistedTokenTotals } from '../../metrics/derive.js';
 
 // v2 (#97): entries persist stage_reports so index-served (completed) runs
 // keep their produced-stage list; the bump forces one self-healing rebuild.
-export const INDEX_VERSION = 2;
+// v3 (#264): entries persist run-level approvals — without them every
+// index-served run rehydrated with approvals: [], so terminal-granted
+// approvals were invisible on the Hub for all bridge-driven runs.
+export const INDEX_VERSION = 3;
 export const DEFAULT_RETENTION_DAYS = 90;
 
 const STALL_MS = 30 * 60 * 1000;
@@ -71,15 +75,20 @@ async function fileSig(io, filePath) {
   }
 }
 
-/** Change signature for a run dir: manifest/events/tasks mtimes + dir mtime. */
+/** Change signature for a run dir: manifest/events/tasks/approvals mtimes + dir mtime. */
 async function runSignature(io, runDir) {
-  const [manifest, events, tasks, dir] = await Promise.all([
+  // approvals.json is part of the signature (#264): sdlc_approve rewrites it
+  // in place without touching manifest/events/tasks, and a content-only file
+  // change does not bump the run dir mtime — without this entry a
+  // terminal-granted approval never invalidated the cached index entry.
+  const [manifest, events, tasks, approvals, dir] = await Promise.all([
     fileSig(io, join(runDir, 'manifest.json')),
     fileSig(io, join(runDir, 'events.jsonl')),
     fileSig(io, join(runDir, 'tasks.json')),
+    fileSig(io, join(runDir, 'approvals.json')),
     fileSig(io, runDir),
   ]);
-  return { manifest, events, tasks, dir: dir ? { mtime_ms: dir.mtime_ms } : null };
+  return { manifest, events, tasks, approvals, dir: dir ? { mtime_ms: dir.mtime_ms } : null };
 }
 
 function sigEqual(a, b) {
@@ -145,6 +154,10 @@ export function entryFromRun(run, sig = null) {
       passed: tasks.filter((task) => task.status === 'PASS').length,
       failed: tasks.filter((task) => task.status === 'FAIL').length,
     },
+    // Run-level approvals survive into index-served lite runs (#264) —
+    // stored verbatim (they are small audit records) so every consumer sees
+    // the same shape as a fully-parsed run. Capped like state.approvals.
+    approvals: (run.approvals ?? []).slice(-100),
     event_count: events.length,
     last_event_ts: last?.ts ?? null,
     last_event_type: last?.type ?? null,
@@ -179,8 +192,13 @@ export function liteRunFromEntry(projectRoot, entry, now = Date.now()) {
       validation: task.validation_status ? { status: task.validation_status, checks: [] } : null,
     })),
     events: entry.notable_events ?? [],
+    approvals: entry.approvals ?? [],
+    // Known lite-path limits: these are NOT persisted in the index, so
+    // index-served runs render them empty. Each is a candidate for the same
+    // silent blind spot #264 fixed for approvals — extend the entry schema
+    // (with an INDEX_VERSION bump) before relying on any of them for
+    // index-served runs.
     evidence: [],
-    approvals: [],
     artifactIndex: [],
     stageReports: entry.stage_reports ?? [],
     activityTimeline: [],
