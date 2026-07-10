@@ -179,12 +179,17 @@ pipelineCmd
   .action(async (opts) => {
     try {
       const projectRoot = resolve(opts.project ?? process.cwd());
-      const { state } = await loadPipelineStatus(projectRoot, { runId: opts.runId, regenerate: opts.regenerate });
+      const { state, source } = await loadPipelineStatus(projectRoot, { runId: opts.runId, regenerate: opts.regenerate });
       if (opts.json) {
         // JSON mode: the state object only — errors and decoration stay on stderr.
         process.stdout.write(`${JSON.stringify(state, null, 2)}\n`);
       } else {
         console.log(formatPipelineStatus(state));
+      }
+      if (source === 'in-memory') {
+        // Transparent state (#262): the answer above is real, but nothing was
+        // persisted — say so instead of silently diverging from disk.
+        process.stderr.write('note: pipeline-state.json is not persisted for this run yet — status was built in memory from run artifacts; use --regenerate to persist it.\n');
       }
     } catch (err) {
       log.error(err.message);
