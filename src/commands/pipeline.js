@@ -1,6 +1,6 @@
 // owner: RStack developed by Richardson Gunde
 
-import { readPipelineState, writePipelineState } from '../core/harness/pipeline-state.js';
+import { buildPipelineState, readPipelineState, writePipelineState } from '../core/harness/pipeline-state.js';
 import { resolveRunId } from '../core/harness/runs.js';
 
 const PASSED_STATUSES = new Set(['PASS', 'PASSED', 'SUCCESS', 'SUCCEEDED', 'DONE', 'COMPLETED']);
@@ -11,13 +11,19 @@ export async function loadPipelineStatus(projectRoot, options = {}) {
   const runId = await resolveRunId(projectRoot, options.runId);
   if (options.regenerate) {
     const { state } = await writePipelineState(projectRoot, runId);
-    return { state, runId };
+    return { state, runId, source: 'regenerated' };
   }
-  const state = await readPipelineState(projectRoot, runId);
-  if (!state) {
-    throw new Error(`No usable pipeline-state.json for run ${runId}. Re-run with --regenerate to rebuild it from the run artifacts.`);
+  const persisted = await readPipelineState(projectRoot, runId);
+  if (persisted) return { state: persisted, runId, source: 'persisted' };
+  // #262: a run driven purely through the bridge tools may have no persisted
+  // pipeline-state.json yet. Build the same rollup in memory (read-only, like
+  // the dashboard does) instead of erroring on the documented golden path —
+  // --regenerate remains the explicit way to (re)write the persisted file.
+  const built = await buildPipelineState(projectRoot, runId);
+  if (!built) {
+    throw new Error(`No usable pipeline state for run ${runId} — the run directory may be missing or corrupt.`);
   }
-  return { state, runId };
+  return { state: built, runId, source: 'in-memory' };
 }
 
 export function recommendPipelineAction(state) {

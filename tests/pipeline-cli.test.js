@@ -144,19 +144,24 @@ test('--regenerate creates a missing pipeline-state.json and replaces malformed 
   assert.equal(repaired.run.run_id, 'run-a');
 });
 
-test('missing or malformed state without --regenerate fails with the recovery instruction', async () => {
+test('missing or malformed state without --regenerate falls back to an in-memory build (#262)', async () => {
   const projectRoot = await tempProject();
   const dir = await seedRun(projectRoot, 'run-a');
 
-  const missing = await runCli(['pipeline', 'status', '--project', projectRoot, '--run-id', 'run-a'], { expectFailure: true });
-  assert.notEqual(missing.code, 0);
-  assert.match(missing.stderr, /--regenerate/);
-  assert.equal(missing.stdout, '', 'errors must not pollute stdout');
+  // Bridge-driven runs may have no persisted state: plain status must answer
+  // from an in-memory build, stay read-only, and disclose the fallback.
+  const missing = await runCli(['pipeline', 'status', '--project', projectRoot, '--run-id', 'run-a', '--json']);
+  assert.equal(missing.code, 0);
+  assert.equal(JSON.parse(missing.stdout).run.run_id, 'run-a');
+  assert.match(missing.stderr, /built in memory/, 'the fallback is disclosed on stderr');
+  assert.ok(!existsSync(path.join(dir, 'pipeline-state.json')),
+    'the plain read path never persists — that stays explicit via --regenerate');
 
   await writeFile(path.join(dir, 'pipeline-state.json'), '{broken', 'utf8');
-  const malformed = await runCli(['pipeline', 'status', '--project', projectRoot, '--run-id', 'run-a'], { expectFailure: true });
-  assert.notEqual(malformed.code, 0);
-  assert.match(malformed.stderr, /--regenerate/);
+  const malformed = await runCli(['pipeline', 'status', '--project', projectRoot, '--run-id', 'run-a', '--json']);
+  assert.equal(malformed.code, 0, 'a malformed persisted file degrades to the same live build');
+  assert.equal(JSON.parse(malformed.stdout).run.run_id, 'run-a');
+  assert.match(malformed.stderr, /built in memory/);
 });
 
 test('invalid run ids fail without reading outside .rstack/runs', async () => {

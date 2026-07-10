@@ -15,7 +15,7 @@ import { validateStageGoalEvaluation } from "../../core/harness/goal-check.js";
 // #237: environment_report.json shape check — best-effort WARN at stage-00
 // validation, never a verdict flip (context-pressure precedent).
 import { environmentReportCheck } from "../../core/harness/environment-report.js";
-import { taskStageIds } from "../../core/harness/pipeline-state.js";
+import { taskStageIds, writePipelineState } from "../../core/harness/pipeline-state.js";
 import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
@@ -1061,9 +1061,44 @@ export default function (pi: ExtensionAPI) {
   // still forwards to `pi.registerTool` so the LLM-facing registration is
   // unchanged — this only adds a local handle for intra-extension reuse.
   const registeredTools: Record<string, { execute: (...args: any[]) => Promise<any> }> = {};
+  // Pipeline-state persistence (#262): only `pipeline run`/`pipeline status
+  // --regenerate` ever wrote pipeline-state.json, so a run driven purely
+  // through the bridge tools (Claude Code, Tau, Operator, bare terminal) had
+  // no persisted state and `pipeline status` errored on the documented
+  // quick-start path. Every state-mutating tool now refreshes the rollup
+  // after it completes — including gate-blocked returns, which also stamp
+  // task/approval state. Best-effort by construction: the rollup is derived
+  // from the canonical run artifacts, so a failed write only costs freshness
+  // (logged, never swallowed silently, never fails the tool call).
+  const STATE_MUTATING_TOOLS = new Set([
+    "sdlc_start", "sdlc_plan", "sdlc_build_next", "sdlc_validate",
+    "sdlc_approve", "sdlc_decide", "sdlc_rollback",
+  ]);
+  const persistPipelineStateBestEffort = async (runId?: string | null): Promise<void> => {
+    const projectRoot = findProjectRoot();
+    try {
+      const id = runId || sessionRun(projectRoot) || await latestRun(projectRoot);
+      if (!id) return;
+      await writePipelineState(projectRoot, id);
+    } catch (err: any) {
+      console.error(`pipeline-state persistence failed (non-fatal): ${err?.message ?? err}`);
+    }
+  };
   const registerTool = <T extends { name: string }>(tool: T): void => {
-    registeredTools[tool.name] = tool as unknown as { execute: (...args: any[]) => Promise<any> };
-    pi.registerTool(tool as any);
+    let registered = tool as unknown as { name: string; execute: (...args: any[]) => Promise<any> };
+    if (STATE_MUTATING_TOOLS.has(tool.name)) {
+      const execute = registered.execute.bind(registered);
+      registered = {
+        ...registered,
+        execute: async (...args: any[]) => {
+          const result = await execute(...args);
+          await persistPipelineStateBestEffort(result?.details?.run_id);
+          return result;
+        },
+      };
+    }
+    registeredTools[tool.name] = registered;
+    pi.registerTool(registered as any);
   };
 
   pi.on("resources_discover", async () => {
