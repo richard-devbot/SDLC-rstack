@@ -402,28 +402,38 @@ function spawnGuard(args, stdinText) {
 }
 
 async function checkGuardSelfTest(projectRoot) {
-  const destructive = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm -rf /tmp/x' } });
-  const safe = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'ls' } });
+  // One probe per enforcement family (#286): the original Bash-only probe
+  // reported enforcement "live" while every non-Bash form (MultiEdit secret
+  // write, PowerShell delete) sailed through unclassified — the self-test
+  // must exercise the forms that actually broke, not just the happy path.
+  const probes = [
+    { label: 'Bash rm -rf', want: 2, payload: { tool_name: 'Bash', tool_input: { command: 'rm -rf /tmp/x' } } },
+    { label: 'MultiEdit .env write', want: 2, payload: { tool_name: 'MultiEdit', tool_input: { file_path: '.env', edits: [] } } },
+    { label: 'PowerShell Remove-Item -Recurse -Force', want: 2, payload: { tool_name: 'Bash', tool_input: { command: 'Remove-Item -Recurse -Force C:\\tmp\\x' } } },
+    { label: 'safe ls', want: 0, payload: { tool_name: 'Bash', tool_input: { command: 'ls' } } },
+    { label: 'safe Edit to source file', want: 0, payload: { tool_name: 'Edit', tool_input: { file_path: 'src/app.js' } } },
+  ];
   const args = ['--context', 'builder', '--project', resolve(projectRoot)];
 
-  const blockRes = await spawnGuard(args, destructive);
-  const allowRes = await spawnGuard(args, safe);
-
-  if (blockRes.error || allowRes.error) {
-    return check('guard self-test (enforcement live)', FAIL,
-      `could not spawn the guard: ${blockRes.error || allowRes.error}`,
-      'Reinstall the package and confirm `rstack-agents guard` runs: echo \'{"tool_name":"Bash","tool_input":{"command":"ls"}}\' | rstack-agents guard');
+  const results = [];
+  for (const probe of probes) {
+    const res = await spawnGuard(args, JSON.stringify(probe.payload));
+    if (res.error) {
+      return check('guard self-test (enforcement live)', FAIL,
+        `could not spawn the guard: ${res.error}`,
+        'Reinstall the package and confirm `rstack-agents guard` runs: echo \'{"tool_name":"Bash","tool_input":{"command":"ls"}}\' | rstack-agents guard');
+    }
+    results.push({ ...probe, code: res.code });
   }
 
-  const blocks = blockRes.code === 2;
-  const allows = allowRes.code === 0;
-  if (blocks && allows) {
+  const failures = results.filter((probe) => probe.code !== probe.want);
+  if (!failures.length) {
     return check('guard self-test (enforcement live)', PASS,
-      'destructive call blocked (exit 2), safe call allowed (exit 0) — RStack enforcement is live on this machine');
+      'destructive Bash, MultiEdit secret-write, and PowerShell delete all blocked (exit 2); safe calls allowed (exit 0) — RStack enforcement is live on this machine');
   }
-  const detail = `destructive rm -rf exited ${blockRes.code} (want 2), safe ls exited ${allowRes.code} (want 0)`;
+  const detail = failures.map((probe) => `${probe.label} exited ${probe.code} (want ${probe.want})`).join('; ');
   return check('guard self-test (enforcement live)', FAIL, `enforcement is NOT behaving as expected: ${detail}`,
-    'Verify the guard: echo \'{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/x"}}\' | rstack-agents guard --context builder ; echo exit=$?');
+    'Verify the guard: echo \'{"tool_name":"MultiEdit","tool_input":{"file_path":".env"}}\' | rstack-agents guard --context builder ; echo exit=$?');
 }
 
 // --- hub health -------------------------------------------------------------
