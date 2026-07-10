@@ -171,6 +171,53 @@ test('withFileLock releases the lock when fn throws', async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test('a long-held but LIVE lock is NOT stolen — the heartbeat keeps it fresh (#287)', async () => {
+  const dir = tempDir('rstack-atomic-hb-');
+  const file = join(dir, 'tasks.json');
+  // Tiny stale window so the test runs in ms; heartbeat refreshes faster.
+  process.env.RSTACK_LOCK_STALE_MS = '200';
+  process.env.RSTACK_LOCK_HEARTBEAT_MS = '50';
+  try {
+    const order = [];
+    let holderEntered;
+    const holderEnteredP = new Promise((resolve) => { holderEntered = resolve; });
+    const holder = withFileLock(file, async () => {
+      order.push('holder-start');
+      holderEntered();
+      // Hold ~600ms — 3x the 200ms stale window. Without the heartbeat the
+      // waiter would break the "stale" lock at ~200ms and run before holder-end.
+      await new Promise((done) => setTimeout(done, 600));
+      order.push('holder-end');
+    });
+    await holderEnteredP;
+    const waiter = withFileLock(file, async () => { order.push('waiter'); });
+    await Promise.all([holder, waiter]);
+    assert.deepEqual(order, ['holder-start', 'holder-end', 'waiter'], 'heartbeat kept the live lock; waiter did not steal it');
+    assert.equal(existsSync(`${file}.lock`), false, 'lock released');
+  } finally {
+    delete process.env.RSTACK_LOCK_STALE_MS;
+    delete process.env.RSTACK_LOCK_HEARTBEAT_MS;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('releasing a lock that was taken over does not delete the successor (#287)', async () => {
+  const dir = tempDir('rstack-atomic-owner-');
+  const file = join(dir, 'tasks.json');
+  const lockPath = `${file}.lock`;
+  let replaced = false;
+  await withFileLock(file, async () => {
+    // Simulate a takeover: a different owner's lock replaces ours mid-section.
+    writeFileSync(lockPath, JSON.stringify({ pid: 999999, token: '999999.0', ts: new Date().toISOString() }));
+    replaced = true;
+  });
+  assert.ok(replaced);
+  // Our release must NOT have deleted the successor's lock (token mismatch).
+  assert.equal(existsSync(lockPath), true, 'successor lock preserved');
+  assert.equal(JSON.parse(readFileSync(lockPath, 'utf8')).token, '999999.0');
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test('cleanOrphanedTmpFiles sweeps old tmp files, keeps fresh and real ones', async () => {
   const dir = tempDir('rstack-atomic-orphan-');
   writeFileSync(join(dir, 'metrics.json'), '{}');
