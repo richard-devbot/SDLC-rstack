@@ -416,9 +416,13 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
       cost_usd: metrics.stage_cost_usd?.[stage.id] ?? null,
       tokens: metrics.stage_tokens?.[stage.id] ?? null,
       evidence_paths: [...new Set([...artifactPaths, ...evidencePaths])],
-      // Verified on disk, never inferred from events: true only when the
-      // checkpoint directory actually exists right now (#132).
-      checkpoint_restorable: verifyStageCheckpoint(dir, stage.id).restorable,
+      // Verified on disk, never inferred from events (#132). DEEP verification
+      // (#203): sha-256 each checkpoint file against its manifest, matching what
+      // sdlc_rollback actually does — a shallow size-only check reported
+      // restorable:true for a same-size-tampered checkpoint that rollback then
+      // refused as CORRUPT, so status over-promised. Only stages that actually
+      // have a checkpoint pay the hash; the rest short-circuit on "no_checkpoint".
+      checkpoint_restorable: verifyStageCheckpoint(dir, stage.id, { deep: true }).restorable,
     });
   }
 
