@@ -61,8 +61,8 @@ test('registry order matches the historical applyState render order', () => {
 test('shell and nav carry the ARIA + keyboard accessibility contract (#95)', () => {
   const html = dashboardHtml(3008);
   // Nav landmark, current-page marking (initial markup + runtime toggling).
-  assert.match(html, /<nav class="nav" aria-label="Dashboard pages">/);
-  assert.match(html, /data-page="command" aria-current="page"/);
+  assert.match(html, /<nav id="primary-navigation" class="destination-nav" aria-label="Business Hub destinations">/);
+  assert.match(html, /data-page="command" data-parent-destination="overview" aria-current="page"/);
   assert.match(html, /setAttribute\('aria-current', 'page'\)/);
   // Drawer is a labelled modal dialog with focus management and Esc close.
   assert.match(html, /id="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title"/);

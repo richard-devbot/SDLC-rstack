@@ -12,6 +12,7 @@ import {
   pages,
   destinationForPage,
 } from '../src/observability/dashboard/ui/navigation.js';
+import { dashboardHtml } from '../src/observability/dashboard/ui.js';
 
 test('six intent destinations cover every legacy page exactly once', () => {
   assert.deepEqual(destinations.map((item) => item.label), [
@@ -36,4 +37,20 @@ test('legacy pages resolve to one destination and every default is a child', () 
   }
 
   assert.equal(destinationForPage('unknown').id, 'overview');
+});
+
+test('shell renders desktop and mobile navigation from the same six-destination model', () => {
+  const html = dashboardHtml(3008);
+
+  assert.equal((html.match(/class="destination-link/g) || []).length, 12);
+  assert.equal((html.match(/class="secondary-link/g) || []).length, 42);
+  assert.equal((html.match(/data-primary-destination=/g) || []).length, 12);
+  assert.match(
+    html,
+    /id="mobile-nav-toggle"[^>]*aria-expanded="false"[^>]*aria-controls="mobile-navigation"/,
+  );
+  assert.match(
+    html,
+    /id="mobile-navigation" role="dialog" aria-modal="true" aria-labelledby="mobile-nav-title"/,
+  );
 });
