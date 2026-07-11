@@ -133,7 +133,7 @@ git commit -m "fix(dashboard): read validated configured policy (#277)"
 - Consumes: `buildBusinessFlexState(runs, configuredPolicy)` and the Task 1 `{ projects }` contract.
 - Produces: `configuredPolicy`, `observedConsumption`, `plannedEnvelopes`, and `runSnapshots` on `state.businessFlex`.
 
-- [ ] **Step 1: Write failing zero-run, telemetry, drift, and multi-project scope tests**
+- [x] **Step 1: Write failing zero-run, telemetry, drift, and multi-project scope tests**
 
 ```js
 test('buildFullState exposes configured policy before the first run', async () => {
@@ -153,13 +153,13 @@ test('historical run snapshot is marked when current policy differs', () => {
 
 Extend the two-project #276 fixture so project-A scope contains exactly project A’s policy record and no project-B path/cap.
 
-- [ ] **Step 2: Confirm RED**
+- [x] **Step 2: Confirm RED**
 
 Run: `npx tsx --test tests/dashboard-business-flex-state.test.js tests/dashboard-scope-state.test.js`
 
 Expected: FAIL because `buildBusinessFlexState` accepts runs only and `buildFullState` never reads root policy.
 
-- [ ] **Step 3: Assemble the server-owned contract**
+- [x] **Step 3: Assemble the server-owned contract**
 
 In `buildFullState`:
 
@@ -185,13 +185,13 @@ return {
 
 `buildObservedConsumption` reports `unavailable` when no run has persisted/event telemetry. `buildRunSnapshots` compares profile ID, workflow, and normalized run/day/month caps against the current project record.
 
-- [ ] **Step 4: Confirm GREEN and scope isolation**
+- [x] **Step 4: Confirm GREEN and scope isolation**
 
 Run: `npx tsx --test tests/dashboard-business-flex-state.test.js tests/dashboard-scope-state.test.js tests/dashboard-readiness-state.test.js`
 
 Expected: PASS; project scope has one policy project, zero runs still has policy, and drift lists exact fields.
 
-- [ ] **Step 5: Commit the state contract**
+- [x] **Step 5: Commit the state contract**
 
 ```bash
 git add src/observability/dashboard/state/business-flex.js src/observability/dashboard/state/index.js tests/dashboard-business-flex-state.test.js tests/dashboard-scope-state.test.js

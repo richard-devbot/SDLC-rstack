@@ -15,6 +15,7 @@ import { buildBusinessFlexState } from '../src/observability/dashboard/state/bus
 import { toClientState } from '../src/observability/dashboard/state/client-state.js';
 import { readConfiguredPolicies } from '../src/observability/dashboard/state/configured-policy.js';
 import { resolveProjectDescriptor } from '../src/observability/dashboard/state/identity.js';
+import { buildFullState } from '../src/observability/dashboard/state/index.js';
 
 async function policyRoot({ config, budget } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rstack-flex-policy-'));
@@ -119,6 +120,74 @@ test('configured policy preserves a zero-dollar cap as an armed policy value', a
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('buildFullState exposes configured Business Flex policy before the first run', async () => {
+  const root = await policyRoot({
+    config: { profile: 'business-flex' },
+    budget: { run_budget_usd: 10, daily_budget_usd: 50, monthly_budget_usd: 500 },
+  });
+  try {
+    const state = await buildFullState(root, { includeRegistry: false, now: 1_752_214_400_000 });
+    assert.equal(state.totalRuns, 0);
+    assert.equal(state.businessFlex.configuredPolicy.projects.length, 1);
+    assert.equal(state.businessFlex.configuredPolicy.projects[0].profile.id, 'business-flex');
+    assert.equal(state.businessFlex.configuredPolicy.projects[0].budget.runBudgetUsd, 10);
+    assert.equal(state.businessFlex.observedConsumption.availability, 'unavailable');
+    assert.equal(state.businessFlex.observedConsumption.totalCostUsd, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('historical run snapshot is marked when current policy differs', () => {
+  const projectRoot = '/workspace/business-flex';
+  const configuredPolicy = {
+    projects: [{
+      projectId: 'project-flex',
+      projectRoot,
+      profile: { availability: 'configured', id: 'business-flex', workflow: 'production-business-sdlc' },
+      budget: {
+        availability: 'configured', runBudgetUsd: 10,
+        dailyBudgetUsd: 50, monthlyBudgetUsd: 500,
+      },
+    }],
+  };
+  const model = buildBusinessFlexState([{
+    runId: 'run-before-change',
+    scopeKey: 'run-key-before-change',
+    projectId: 'project-flex',
+    projectRoot,
+    profile: { profile: 'business-flex', workflow: 'production-business-sdlc' },
+    workflow: 'production-business-sdlc',
+    budgetPolicy: { run_budget_usd: 5, daily_budget_usd: 20, monthly_budget_usd: 100 },
+    tasks: [],
+  }], configuredPolicy);
+  assert.equal(model.runSnapshots[0].comparison, 'differs');
+  assert.deepEqual(
+    model.runSnapshots[0].differences.map((difference) => difference.field),
+    ['runBudgetUsd', 'dailyBudgetUsd', 'monthlyBudgetUsd'],
+  );
+  assert.equal(model.observedConsumption.availability, 'unavailable');
+});
+
+test('observed consumption reports telemetry provenance without treating configured caps as spend', () => {
+  const model = buildBusinessFlexState([{
+    runId: 'run-measured',
+    projectRoot: '/workspace/measured',
+    totals: { cost_usd: 3.25, tokens: 400 },
+    metrics: { cumulative_cost_usd: 3.25 },
+    events: [],
+    tasks: [],
+  }], { projects: [] });
+  assert.deepEqual(model.observedConsumption, {
+    availability: 'available',
+    runCount: 1,
+    runsWithTelemetry: 1,
+    totalCostUsd: 3.25,
+    metricsSources: { persisted: 1, events: 0 },
+    lastMeasuredAt: null,
+  });
 });
 
 // ---------------------------------------------------------------------------
