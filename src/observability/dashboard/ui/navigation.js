@@ -1,5 +1,7 @@
 // owner: RStack developed by Richardson Gunde
 
+import { URLSearchParams } from 'node:url';
+
 function child(id, label) {
   return Object.freeze({ id, label, icon: '' });
 }
