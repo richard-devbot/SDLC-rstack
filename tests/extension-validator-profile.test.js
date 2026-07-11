@@ -48,6 +48,16 @@ test('sdlc_validate records the selected validator profile in validation.json', 
 
   const outputDir = join(projectRoot, archTask.output_dir);
   mkdirSync(outputDir, { recursive: true });
+  // #222: required_checks are ENFORCED now — the security profile's checks
+  // read the canonical stage artifact, so the fixture must actually produce
+  // it (this test predates enforcement and used to pass artifact-free).
+  const threatDir = join(projectRoot, '.rstack', 'runs', runId, 'artifacts', 'stages', '12-security-threat-model');
+  mkdirSync(threatDir, { recursive: true });
+  writeFileSync(join(threatDir, 'threat_model.json'), JSON.stringify({
+    threats: [{ category: 'Spoofing', risk: 'high', mitigation: 'mTLS between services' }],
+    mitigations: ['mTLS between services'],
+    risk_ratings: ['high'],
+  }, null, 2));
   writeFileSync(join(outputDir, 'builder.json'), JSON.stringify({
     task_id: archTask.id,
     agent: 'builder',
