@@ -8,8 +8,118 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { buildBusinessFlexState } from '../src/observability/dashboard/state/business-flex.js';
 import { toClientState } from '../src/observability/dashboard/state/client-state.js';
+import { readConfiguredPolicies } from '../src/observability/dashboard/state/configured-policy.js';
+import { resolveProjectDescriptor } from '../src/observability/dashboard/state/identity.js';
+
+async function policyRoot({ config, budget } = {}) {
+  const root = await mkdtemp(join(tmpdir(), 'rstack-flex-policy-'));
+  await mkdir(join(root, '.git'), { recursive: true });
+  await mkdir(join(root, '.rstack'), { recursive: true });
+  if (config !== undefined) {
+    await writeFile(join(root, '.rstack', 'rstack.config.json'),
+      typeof config === 'string' ? config : JSON.stringify(config));
+  }
+  if (budget !== undefined) {
+    await writeFile(join(root, '.rstack', 'budget.json'),
+      typeof budget === 'string' ? budget : JSON.stringify(budget));
+  }
+  return root;
+}
+
+test('valid zero-run project exposes configured profile and enforced 10/50/500 caps', async () => {
+  const root = await policyRoot({
+    config: { profile: 'business-flex' },
+    budget: { currency: 'USD', run_budget_usd: 10, daily_budget_usd: 50, monthly_budget_usd: 500 },
+  });
+  try {
+    const descriptor = resolveProjectDescriptor(root);
+    const result = await readConfiguredPolicies([root], [descriptor], { now: 1_752_214_400_000 });
+    const project = result.projects[0];
+    assert.equal(project.availability, 'configured');
+    assert.equal(project.profile.id, 'business-flex');
+    assert.equal(project.profile.name, 'Business Flex Delivery');
+    assert.equal(project.profile.workflow, 'production-business-sdlc');
+    assert.deepEqual(project.budget, {
+      availability: 'configured',
+      currency: 'USD',
+      runBudgetUsd: 10,
+      dailyBudgetUsd: 50,
+      monthlyBudgetUsd: 500,
+      sourcePath: '.rstack/budget.json',
+      issues: [],
+    });
+    assert.equal(project.projectId, descriptor.id);
+    assert.equal(project.loadedAt, new Date(1_752_214_400_000).toISOString());
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('configured policy distinguishes missing and invalid files', async () => {
+  const missingRoot = await policyRoot();
+  const malformedRoot = await policyRoot({ config: '{ broken', budget: { run_budget_usd: -1 } });
+  try {
+    const missing = (await readConfiguredPolicies(
+      [missingRoot], [resolveProjectDescriptor(missingRoot)],
+    )).projects[0];
+    assert.equal(missing.availability, 'missing');
+    assert.equal(missing.profile.availability, 'missing');
+    assert.equal(missing.budget.availability, 'missing');
+
+    const invalid = (await readConfiguredPolicies(
+      [malformedRoot], [resolveProjectDescriptor(malformedRoot)],
+    )).projects[0];
+    assert.equal(invalid.availability, 'invalid');
+    assert.equal(invalid.profile.availability, 'invalid');
+    assert.equal(invalid.budget.availability, 'invalid');
+    assert.equal(invalid.budget.issues[0].field, 'run_budget_usd');
+    assert.match(invalid.profile.issues[0].problem, /malformed JSON/);
+  } finally {
+    await rm(missingRoot, { recursive: true, force: true });
+    await rm(malformedRoot, { recursive: true, force: true });
+  }
+});
+
+test('configured policy reports inaccessible reads without presenting defaults as configured', async () => {
+  const root = await policyRoot({ config: { profile: 'business-flex' }, budget: { run_budget_usd: 10 } });
+  const denied = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+  try {
+    const result = await readConfiguredPolicies(
+      [root],
+      [resolveProjectDescriptor(root)],
+      { io: { readFile: async () => { throw denied; } } },
+    );
+    assert.equal(result.projects[0].availability, 'inaccessible');
+    assert.equal(result.projects[0].profile.availability, 'inaccessible');
+    assert.equal(result.projects[0].budget.availability, 'inaccessible');
+    assert.equal(result.projects[0].budget.runBudgetUsd, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('configured policy preserves a zero-dollar cap as an armed policy value', async () => {
+  const root = await policyRoot({
+    config: { profile: 'lean-mvp' },
+    budget: { run_budget_usd: 0, daily_budget_usd: 0, monthly_budget_usd: 0 },
+  });
+  try {
+    const project = (await readConfiguredPolicies(
+      [root], [resolveProjectDescriptor(root)],
+    )).projects[0];
+    assert.equal(project.budget.availability, 'configured');
+    assert.equal(project.budget.runBudgetUsd, 0);
+    assert.equal(project.budget.dailyBudgetUsd, 0);
+    assert.equal(project.budget.monthlyBudgetUsd, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // buildBusinessFlexState — empty / null inputs

@@ -35,7 +35,7 @@
 - Consumes: `roots: string[]`, `projectDescriptors: ProjectDescriptor[]`, harness `validateRstackConfig(object)` and `validateBudgetConfig(object)`.
 - Produces: `readConfiguredPolicies(roots, descriptors, { now, io? }): Promise<{ projects: ConfiguredProjectPolicy[] }>`.
 
-- [ ] **Step 1: Write the valid zero-run, missing, invalid, inaccessible, and zero-cap tests**
+- [x] **Step 1: Write the valid zero-run, missing, invalid, inaccessible, and zero-cap tests**
 
 Add fixtures that call the real reader with temporary `.rstack` roots:
 
@@ -70,13 +70,13 @@ assert.equal(zeroCap.budget.runBudgetUsd, 0);
 
 Use an injected `io.readFile` that throws `{ code: 'EACCES' }` for the inaccessible case so the test is portable.
 
-- [ ] **Step 2: Run the focused test and confirm RED**
+- [x] **Step 2: Run the focused test and confirm RED**
 
 Run: `npx tsx --test tests/dashboard-business-flex-state.test.js`
 
 Expected: FAIL because `configured-policy.js` and `readConfiguredPolicies` do not exist.
 
-- [ ] **Step 3: Implement file classification and validated normalization**
+- [x] **Step 3: Implement file classification and validated normalization**
 
 Implement these boundaries:
 
@@ -106,13 +106,13 @@ export async function readConfiguredPolicies(roots, descriptors, options = {}) {
 
 `readPolicyFile` must distinguish `ENOENT`, `EACCES`/`EPERM`, JSON syntax/non-object errors, and valid objects. `readProfilePolicy` calls `validateRstackConfig`; `readBudgetPolicy` calls `validateBudgetConfig`. Merge valid profile overrides over `profileConfig(id)`, but never fill budget caps from profile defaults.
 
-- [ ] **Step 4: Run focused tests and confirm GREEN**
+- [x] **Step 4: Run focused tests and confirm GREEN**
 
 Run: `npx tsx --test tests/dashboard-business-flex-state.test.js tests/config-validation.test.js tests/goal-loop.test.js`
 
 Expected: PASS with the same invalid values rejected by both dashboard and harness validators.
 
-- [ ] **Step 5: Commit the reader**
+- [x] **Step 5: Commit the reader**
 
 ```bash
 git add src/observability/dashboard/state/configured-policy.js tests/dashboard-business-flex-state.test.js
@@ -416,4 +416,3 @@ git push -u origin codex/ui-business-flex-277
 ```
 
 Open the draft PR against `codex/ui-scope-276`; include “Closes #277,” the required zero-run/10-50-500 evidence, screenshots, validation commands, and merge order #312 → #317 → this PR. Keep #277 open until the PR is merged into the default branch.
-
