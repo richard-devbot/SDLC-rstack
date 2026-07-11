@@ -174,13 +174,14 @@ test('Business Hub exposes decisions and readiness from real .rstack files', asy
     const state = await buildFullState(projectRoot, { includeRegistry: false });
     assert.equal(state.decisions.totals.pending, 1);
     assert.equal(state.decisions.runs[0].readiness.status, 'FAIL');
+    assert.ok(state.decisions.runs[0].projectId);
 
     const html = dashboardHtml(3008);
     assert.match(html, /data-page="decisions"/);
     assert.match(html, /id="decisions-list"/);
     assert.match(html, /function renderDecisions\(s\)/);
-    assert.match(html, /scopedDecisionRuns/);
-    assert.match(html, /scopedTotals/);
+    assert.match(html, /function requestScopedState\(\)/);
+    assert.doesNotMatch(html, /scopedDecisionRuns/);
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
   }

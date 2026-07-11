@@ -18,7 +18,6 @@ import { buildReadinessProjection } from './readiness.js';
 import { decorateRunIdentity, resolveProjectDescriptors } from './identity.js';
 import {
   buildScopeCatalog,
-  decorateScopedRecord,
   decorateScopedRecords,
   filterRecordsForScope,
   resolveRequestedScope,

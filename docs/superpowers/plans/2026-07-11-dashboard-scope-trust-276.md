@@ -1,6 +1,8 @@
+<!-- owner: RStack developed by Richardson Gunde -->
+
 # Dashboard Scope, Identity, and Time Trust Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make every dashboard view use a complete server-owned project/run scope, show canonical repository identity with worktree context, and render locale-aware timestamps with explicit timezone and ISO provenance.
 
@@ -36,7 +38,7 @@
 - Produces: `runScopeKey(projectId, root, runId): string` and `decorateRunIdentity(runs, projects): Run[]`.
 - Changes `getIndexedRuns` deduplication from bare `runId` to the source-root/run pair.
 
-- [ ] **Step 1: Write failing identity and collision tests**
+- [x] **Step 1: Write failing identity and collision tests**
 
 ```js
 test('a linked worktree keeps the canonical repository name and exposes the worktree secondarily', () => {
@@ -53,13 +55,13 @@ test('the rollup keeps equal runIds from different roots', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm RED**
+- [x] **Step 2: Run the focused tests and confirm RED**
 
 Run: `npx tsx --test tests/dashboard-scope-state.test.js tests/dashboard-rollup-index.test.js`
 
 Expected: FAIL because `identity.js` does not exist and bare `runId` deduplication returns one colliding run.
 
-- [ ] **Step 3: Implement filesystem-only repository/worktree resolution**
+- [x] **Step 3: Implement filesystem-only repository/worktree resolution**
 
 ```js
 export function resolveProjectDescriptor(root) {
@@ -80,14 +82,14 @@ export function resolveProjectDescriptor(root) {
 
 `readGitLayout` reads a `.git` directory directly, or follows a `.git` file plus its `commondir`; it does not spawn Git. `projectId` and `runScopeKey` use SHA-256 prefixes so paths are not used as browser storage keys.
 
-- [ ] **Step 4: Replace bare run deduplication with root/run deduplication**
+- [x] **Step 4: Replace bare run deduplication with root/run deduplication**
 
 ```js
 const key = `${run.projectRoot}\u0000${run.runId}`;
 return seen.has(key) ? false : seen.add(key);
 ```
 
-- [ ] **Step 5: Re-run focused tests and confirm GREEN**
+- [x] **Step 5: Re-run focused tests and confirm GREEN**
 
 Run: `npx tsx --test tests/dashboard-scope-state.test.js tests/dashboard-rollup-index.test.js`
 
@@ -108,7 +110,7 @@ Expected: PASS with both colliding runs present and canonical worktree identity 
 - Produces: `resolveRequestedScope(catalog, request)` with `{ type, key, projectId, runKey, roots, runKeys, reset, reason }`.
 - Extends `buildFullState(projectRoot, { scope })` so all builders receive only selected roots, runs, and approvals while `scopeCatalog` remains global.
 
-- [ ] **Step 1: Add the deterministic two-project leakage fixture and failing assertions**
+- [x] **Step 1: Add the deterministic two-project leakage fixture and failing assertions**
 
 ```js
 const scoped = await buildFullState(rootA, {
@@ -127,13 +129,13 @@ assert.equal(scoped.projectSummaries.every((item) => item.projectId === projectA
 assert.equal(scoped.stageMatrix.every((stage) => stage.runs.every((row) => row.projectId === projectAId)), true);
 ```
 
-- [ ] **Step 2: Confirm RED against the current global-only builder**
+- [x] **Step 2: Confirm RED against the current global-only builder**
 
 Run: `npx tsx --test tests/dashboard-scope-state.test.js`
 
 Expected: FAIL because `buildFullState` ignores `scope`, records lack `projectId`, and totals include project B.
 
-- [ ] **Step 3: Build and validate the catalog before deriving dashboard state**
+- [x] **Step 3: Build and validate the catalog before deriving dashboard state**
 
 ```js
 const projects = resolveProjectDescriptors(allRoots);
@@ -149,11 +151,11 @@ const queueApprovals = allApprovals
 
 When no scope is requested, `roots`, `runs`, and approvals remain global. When the request is invalid, the returned state is global with `scope.reset === true` and a plain-language reason.
 
-- [ ] **Step 4: Rebuild every visible aggregate from selected inputs**
+- [x] **Step 4: Rebuild every visible aggregate from selected inputs**
 
 Use the selected `runs`, `roots`, and `queueApprovals` for totals, active/today counts, approvals, blockers, alerts, feed, frameworks, stage matrix, agent work/groups, project summaries, trace map, trends, people/presence, Business Flex, decisions, readiness, diagnostics, layers, and environment. Attach `projectId` and `runKey` to source-linked records before they reach `toClientState`.
 
-- [ ] **Step 5: Add a scope-field coverage assertion**
+- [x] **Step 5: Add a scope-field coverage assertion**
 
 ```js
 assert.deepEqual(
@@ -164,7 +166,7 @@ assert.deepEqual(
 
 The exported registry is the review gate for any newly added scope-sensitive top-level field.
 
-- [ ] **Step 6: Re-run the scope tests and confirm GREEN**
+- [x] **Step 6: Re-run the scope tests and confirm GREEN**
 
 Run: `npx tsx --test tests/dashboard-scope-state.test.js tests/dashboard-readiness-state.test.js tests/dashboard-business-flex-state.test.js`
 
@@ -182,7 +184,7 @@ Expected: PASS; the exact fixture proves no project-B blocker, approval, diagnos
 - Extends: `GET /api/state?project=<projectId>` and `GET /api/state?run=<runKey>`.
 - Preserves read-token authorization and per-projection ETags.
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 ```js
 const response = await fetch(`${baseUrl}/api/state?project=${encodeURIComponent(projectAId)}`);
@@ -196,13 +198,13 @@ assert.ok(response.headers.get('etag'));
 
 Also assert an invalid `project` returns the global projection with `scope.reset === true`, and that scoped requests still require the configured read token.
 
-- [ ] **Step 2: Confirm RED**
+- [x] **Step 2: Confirm RED**
 
 Run: `npx tsx --test tests/dashboard-scope-server.test.js tests/dashboard-read-auth.test.js`
 
 Expected: FAIL because `/api/state` ignores scope query parameters.
 
-- [ ] **Step 3: Parse exactly one scope query and pass it to the state builder**
+- [x] **Step 3: Parse exactly one scope query and pass it to the state builder**
 
 ```js
 const scope = url.searchParams.get('run')
@@ -215,7 +217,7 @@ const state = await buildFullState(PROJECT_ROOT, { scope });
 
 The existing `readAuthError`, `toClientState`, `stableStringify`, and `sendJsonCacheable` path remains unchanged so security and ETag behavior are identical for global and scoped snapshots.
 
-- [ ] **Step 4: Confirm GREEN and ETag isolation**
+- [x] **Step 4: Confirm GREEN and ETag isolation**
 
 Run: `npx tsx --test tests/dashboard-scope-server.test.js tests/dashboard-server-hardening.test.js tests/dashboard-read-auth.test.js`
 
@@ -235,7 +237,7 @@ Expected: PASS; project A and project B receive distinct ETags and 304 revalidat
 - Produces: `scopeUrl()`, `requestScopedState()`, and `applyServerState()` browser functions.
 - Removes: browser-side `applyScope` filtering and readiness-only scope selection.
 
-- [ ] **Step 1: Write failing client-contract tests**
+- [x] **Step 1: Write failing client-contract tests**
 
 ```js
 assert.doesNotMatch(bundle, /function applyScope\(/);
@@ -248,13 +250,13 @@ assert.doesNotMatch(styles, /@media \(max-width: 900px\) \{ \.tb-scope \{ displa
 
 The executable client test selects project A, resolves project B followed by project A out of order, and asserts the older response is discarded.
 
-- [ ] **Step 2: Confirm RED**
+- [x] **Step 2: Confirm RED**
 
 Run: `npx tsx --test tests/dashboard-scope-client.test.js tests/dashboard-client-modules.test.js`
 
 Expected: FAIL because the browser currently shallow-copies and filters local arrays, and CSS hides scope below 900px.
 
-- [ ] **Step 3: Render selectors from the global catalog and fetch selected state**
+- [x] **Step 3: Render selectors from the global catalog and fetch selected state**
 
 ```js
 function setScopeProject(value) {
@@ -273,7 +275,7 @@ function handleGlobalSnapshot(snapshot) {
 
 Each request captures an incrementing sequence number. Only the latest sequence may call `applyServerState`. A reset response clears storage, announces the server reason, and renders the honest All projects state.
 
-- [ ] **Step 4: Keep scope visible at 390px**
+- [x] **Step 4: Keep scope visible at 390px**
 
 ```css
 .tb-scope { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr); }
@@ -286,7 +288,7 @@ Each request captures an incrementing sequence number. Only the latest sequence 
 
 The project option label is the canonical repository name; a worktree suffix appears only as secondary option text and in the context detail.
 
-- [ ] **Step 5: Confirm GREEN**
+- [x] **Step 5: Confirm GREEN**
 
 Run: `npx tsx --test tests/dashboard-scope-client.test.js tests/dashboard-client-modules.test.js tests/dashboard-readiness-state.test.js`
 
@@ -306,7 +308,7 @@ Expected: PASS with no browser-side partial filter and accessible mobile scope c
 - Produces: `timeHtml(value)` returning a `<time datetime="..." title="...">...</time>` element for valid input and an honest invalid/missing fallback otherwise.
 - Keeps: `fmtTime(value)` as the plain-text localized label for text-only DOM updates.
 
-- [ ] **Step 1: Write failing formatter tests**
+- [x] **Step 1: Write failing formatter tests**
 
 ```js
 const model = timeModel('2026-07-11T10:30:00.000Z');
@@ -317,13 +319,13 @@ assert.match(timeHtml('2026-07-11T10:30:00.000Z'), /<time datetime="2026-07-11T1
 assert.equal(fmtTime('not-a-time'), 'Invalid time');
 ```
 
-- [ ] **Step 2: Confirm RED**
+- [x] **Step 2: Confirm RED**
 
 Run: `npx tsx --test tests/dashboard-scope-client.test.js`
 
 Expected: FAIL because `fmtTime` currently slices strings and has no timezone or ISO provenance.
 
-- [ ] **Step 3: Implement one formatter and replace all visible timestamp call sites**
+- [x] **Step 3: Implement one formatter and replace all visible timestamp call sites**
 
 ```js
 function timeModel(value) {
@@ -342,7 +344,7 @@ function timeModel(value) {
 
 Use `timeHtml` in feed, approval, alert, environment, decision, presence, and drawer markup. For page-updated plain text, call `fmtTime` and set the element `title` to the snapshot ISO value.
 
-- [ ] **Step 4: Confirm GREEN**
+- [x] **Step 4: Confirm GREEN**
 
 Run: `npx tsx --test tests/dashboard-scope-client.test.js tests/dashboard-client-modules.test.js tests/dashboard-money-pages.test.js tests/dashboard-quality-pages.test.js`
 
@@ -356,7 +358,7 @@ Expected: PASS with explicit timezone labels, ISO `datetime`/`title`, and honest
 **Interfaces:**
 - Verifies all interfaces from Tasks 1–5 without adding behavior.
 
-- [ ] **Step 1: Run static and full automated verification**
+- [x] **Step 1: Run static and full automated verification**
 
 Run:
 
@@ -371,15 +373,15 @@ git diff --check
 
 Expected: all commands exit 0; the full suite reports 0 failures.
 
-- [ ] **Step 2: Run the live dashboard against deterministic two-project data**
+- [x] **Step 2: Run the live dashboard against deterministic two-project data**
 
 Verify All projects, project A, project B, and a colliding run ID. Confirm project A shows no project-B alerts, approvals, gates, diagnostics, stage rows, totals, decisions, presence, or environment data.
 
-- [ ] **Step 3: Capture responsive evidence**
+- [x] **Step 3: Capture responsive evidence**
 
 At 1440px and 390px, verify canonical repository name, secondary worktree label, visible scope/freshness controls, 44px targets, no horizontal overflow, timezone-bearing timestamps, stale-scope reset announcement, and keyboard operation.
 
-- [ ] **Step 4: Commit implementation and publish a stacked draft PR**
+- [x] **Step 4: Commit implementation and publish a stacked draft PR**
 
 ```bash
 git add docs/superpowers/plans/2026-07-11-dashboard-scope-trust-276.md src/observability/dashboard tests

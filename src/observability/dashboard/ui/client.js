@@ -346,10 +346,7 @@ function renderFrame(s) {
     setText(page.id + '-sub', page.sub);
     var updated = document.getElementById(page.id + '-updated');
     if (updated) {
-      var model = timeModel(s.ts);
-      updated.textContent = s.ts ? 'Updated ' + model.label : '';
-      if (model.valid) updated.setAttribute('title', model.iso);
-      else updated.removeAttribute('title');
+      updated.innerHTML = s.ts ? 'Updated ' + timeHtml(s.ts) : '';
     }
   });
 }

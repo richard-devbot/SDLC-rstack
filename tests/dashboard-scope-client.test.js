@@ -67,3 +67,8 @@ test('event markup uses semantic time elements instead of sliced timestamp strin
   assert.match(bundle, /timeHtml\((?:item|gate)\.ts\)/);
   assert.match(bundle, /timeZoneName:\s*'short'/);
 });
+
+test('page freshness stamps retain semantic timestamp provenance', () => {
+  const bundle = clientScript(3008);
+  assert.match(bundle, /updated\.innerHTML = s\.ts \? 'Updated ' \+ timeHtml\(s\.ts\) : ''/);
+});
