@@ -71,6 +71,36 @@ export function destinationForPage(pageId) {
   return destinations.find((item) => item.id === destinationId) || destinations[0];
 }
 
+export function parseDashboardRoute({ hash = '', search = '' } = {}) {
+  const route = { page: '', run: '' };
+  const query = new URLSearchParams(String(search).replace(/^\?/, ''));
+  route.page = query.get('page') || '';
+
+  const rawHash = String(hash).replace(/^#/, '');
+  if (!rawHash) return route;
+  if (!rawHash.includes('=') && !rawHash.includes('&')) {
+    try {
+      route.page = decodeURIComponent(rawHash);
+    } catch {
+      route.page = rawHash;
+    }
+    return route;
+  }
+
+  const hashParams = new URLSearchParams(rawHash);
+  route.page = hashParams.get('page') || route.page;
+  route.run = hashParams.get('run') || '';
+  return route;
+}
+
+export function formatDashboardHash({ pageId = '', runKey = '' } = {}) {
+  const params = new URLSearchParams();
+  if (pageId) params.set('page', pageId);
+  if (runKey) params.set('run', runKey);
+  const value = params.toString();
+  return value ? `#${value}` : '';
+}
+
 const iconPaths = Object.freeze({
   overview: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   runs: '<path d="M8 5v14l11-7z"/><path d="M3 4v16"/>',
@@ -117,3 +147,203 @@ export function mobileNavigationMarkup() {
       `<nav class="mobile-destination-nav" aria-label="Business Hub mobile destinations">${navigationGroups('mobile')}</nav>` +
     '</aside>';
 }
+
+const destinationDefaults = Object.freeze(Object.fromEntries(
+  destinations.map((item) => [item.id, item.defaultPage]),
+));
+
+export const navigationScript = `
+// ── six-destination responsive navigation (issue #278) ───────────
+var PAGE_TO_DESTINATION = ${JSON.stringify(pageToDestination)};
+var DESTINATION_DEFAULTS = ${JSON.stringify(destinationDefaults)};
+var DEFAULT_PAGE = ${JSON.stringify(destinations[0].defaultPage)};
+var ACTIVE_PAGE = DEFAULT_PAGE;
+var ACTIVE_DESTINATION = PAGE_TO_DESTINATION[DEFAULT_PAGE];
+var MOBILE_NAV_RETURN_FOCUS = null;
+var NAVIGATION_INITIALIZED = false;
+
+${parseDashboardRoute.toString()}
+${formatDashboardHash.toString()}
+
+function readDashboardRoute() {
+  return parseDashboardRoute({ hash: location.hash || '', search: location.search || '' });
+}
+
+function writeDashboardRoute(pageId, runKey, mode) {
+  var hash = formatDashboardHash({ pageId: pageId || '', runKey: runKey || '' });
+  var next = location.pathname + (location.search || '') + hash;
+  if (mode === 'push') history.pushState(null, '', next);
+  else history.replaceState(null, '', next);
+}
+
+function syncNavigationState(pageId) {
+  var destinationId = PAGE_TO_DESTINATION[pageId] || PAGE_TO_DESTINATION[DEFAULT_PAGE];
+  ACTIVE_PAGE = PAGE_TO_DESTINATION[pageId] ? pageId : DEFAULT_PAGE;
+  ACTIVE_DESTINATION = destinationId;
+
+  document.querySelectorAll('[data-destination-group]').forEach(function(group) {
+    var active = group.getAttribute('data-destination-group') === destinationId;
+    group.classList.toggle('active', active);
+    var destinationButton = group.querySelector('[data-primary-destination]');
+    var secondary = group.querySelector('.secondary-nav');
+    if (destinationButton) {
+      destinationButton.classList.toggle('active', active);
+      destinationButton.setAttribute('aria-expanded', active ? 'true' : 'false');
+    }
+    if (secondary) {
+      secondary.classList.toggle('active', active);
+      secondary.hidden = !active;
+    }
+  });
+
+  document.querySelectorAll('.secondary-link').forEach(function(button) {
+    var active = button.getAttribute('data-page') === ACTIVE_PAGE;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+
+  document.querySelectorAll('.page').forEach(function(page) {
+    page.classList.toggle('active', page.id === 'page-' + ACTIVE_PAGE);
+  });
+  setText('page-title', PAGE_LABELS[ACTIVE_PAGE] || ACTIVE_PAGE);
+}
+
+function showPage(pageId, opts) {
+  var options = opts || {};
+  var resolvedPage = PAGE_TO_DESTINATION[pageId] ? pageId : DEFAULT_PAGE;
+  syncNavigationState(resolvedPage);
+  if (options.history !== false) writeDashboardRoute(ACTIVE_PAGE, SCOPE.run, 'push');
+  if (options.closeMobile !== false) closeMobileNavigation();
+  resetDashboardScroll();
+}
+
+function showDestination(destinationId, opts) {
+  var pageId = DESTINATION_DEFAULTS[destinationId] || DEFAULT_PAGE;
+  showPage(pageId, opts);
+}
+
+function mobileNavigationIsOpen() {
+  var panel = document.getElementById('mobile-navigation');
+  return !!(panel && panel.classList.contains('open'));
+}
+
+function openMobileNavigation() {
+  var panel = document.getElementById('mobile-navigation');
+  var overlay = document.getElementById('mobile-nav-overlay');
+  var toggle = document.getElementById('mobile-nav-toggle');
+  if (!panel || !overlay || !toggle) return;
+  MOBILE_NAV_RETURN_FOCUS = document.activeElement || toggle;
+  panel.classList.add('open');
+  overlay.classList.add('open');
+  panel.setAttribute('aria-hidden', 'false');
+  overlay.setAttribute('aria-hidden', 'false');
+  toggle.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('mobile-nav-open');
+  var first = panel.querySelector('[data-primary-destination]');
+  if (first) first.focus();
+}
+
+function closeMobileNavigation(opts) {
+  var options = opts || {};
+  var panel = document.getElementById('mobile-navigation');
+  var overlay = document.getElementById('mobile-nav-overlay');
+  var toggle = document.getElementById('mobile-nav-toggle');
+  if (!panel || !overlay || !toggle) return;
+  if (!panel.classList.contains('open')) return;
+  var returnFocus = MOBILE_NAV_RETURN_FOCUS;
+  panel.classList.remove('open');
+  overlay.classList.remove('open');
+  panel.setAttribute('aria-hidden', 'true');
+  overlay.setAttribute('aria-hidden', 'true');
+  toggle.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('mobile-nav-open');
+  MOBILE_NAV_RETURN_FOCUS = null;
+  if (options.returnFocus !== false && returnFocus && typeof returnFocus.focus === 'function') {
+    returnFocus.focus();
+  }
+}
+
+function mobileNavigationFocusable(panel) {
+  return Array.prototype.slice.call(panel.querySelectorAll('button:not([disabled]), [href], select:not([disabled])'))
+    .filter(function(element) { return !element.closest('[hidden]'); });
+}
+
+function handleMobileNavigationKeydown(event) {
+  var panel = document.getElementById('mobile-navigation');
+  if (!panel || !panel.classList.contains('open')) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeMobileNavigation();
+    return;
+  }
+  if (event.key === 'Tab') {
+    var focusable = mobileNavigationFocusable(panel);
+    if (!focusable.length) return;
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+}
+
+function restoreScopeFromRoute(runKey) {
+  if (typeof SCOPE === 'undefined' || runKey === SCOPE.run) return;
+  if (!runKey) {
+    SCOPE.run = '';
+    legacyRunId = '';
+    persistScope();
+    requestScopedState();
+    return;
+  }
+  var selected = (SCOPE_CATALOG.runs || []).find(function(run) {
+    return run.key === runKey || run.runId === runKey;
+  });
+  if (selected) {
+    SCOPE.run = selected.key;
+    SCOPE.project = selected.projectId;
+    legacyRunId = '';
+  } else {
+    SCOPE.run = '';
+    SCOPE.project = '';
+    legacyRunId = runKey;
+  }
+  persistScope();
+  requestScopedState();
+}
+
+function initDashboardNavigation() {
+  if (NAVIGATION_INITIALIZED) return;
+  NAVIGATION_INITIALIZED = true;
+  document.querySelectorAll('[data-primary-destination]').forEach(function(button) {
+    button.addEventListener('click', function() {
+      showDestination(button.getAttribute('data-primary-destination'));
+    });
+  });
+  document.querySelectorAll('.secondary-link').forEach(function(button) {
+    button.addEventListener('click', function() {
+      showPage(button.getAttribute('data-page'));
+    });
+  });
+  var toggle = document.getElementById('mobile-nav-toggle');
+  var close = document.getElementById('mobile-nav-close');
+  var overlay = document.getElementById('mobile-nav-overlay');
+  var panel = document.getElementById('mobile-navigation');
+  if (toggle) toggle.addEventListener('click', openMobileNavigation);
+  if (close) close.addEventListener('click', closeMobileNavigation);
+  if (overlay) overlay.addEventListener('click', closeMobileNavigation);
+  if (panel) panel.addEventListener('keydown', handleMobileNavigationKeydown);
+  window.addEventListener('popstate', function() {
+    var route = readDashboardRoute();
+    showPage(route.page || DEFAULT_PAGE, { history: false, closeMobile: false });
+    restoreScopeFromRoute(route.run);
+  });
+  var initialRoute = readDashboardRoute();
+  showPage(initialRoute.page || DEFAULT_PAGE, { history: false, closeMobile: false });
+}
+`;

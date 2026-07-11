@@ -11,8 +11,11 @@ import {
   destinations,
   pages,
   destinationForPage,
+  formatDashboardHash,
+  parseDashboardRoute,
 } from '../src/observability/dashboard/ui/navigation.js';
 import { dashboardHtml } from '../src/observability/dashboard/ui.js';
+import { clientScript } from '../src/observability/dashboard/ui/client.js';
 
 test('six intent destinations cover every legacy page exactly once', () => {
   assert.deepEqual(destinations.map((item) => item.label), [
@@ -53,4 +56,48 @@ test('shell renders desktop and mobile navigation from the same six-destination 
     html,
     /id="mobile-navigation" role="dialog" aria-modal="true" aria-labelledby="mobile-nav-title"/,
   );
+});
+
+test('dashboard route parser accepts legacy and combined page/run links', () => {
+  assert.deepEqual(
+    parseDashboardRoute({ hash: '#security', search: '' }),
+    { page: 'security', run: '' },
+  );
+  assert.deepEqual(
+    parseDashboardRoute({ hash: '#page=diagnostics&run=run%3Aabc', search: '' }),
+    { page: 'diagnostics', run: 'run:abc' },
+  );
+  assert.deepEqual(
+    parseDashboardRoute({ hash: '#run=run-only', search: '?page=cost-budget' }),
+    { page: 'cost-budget', run: 'run-only' },
+  );
+});
+
+test('dashboard hash formatter preserves page and opaque run scope together', () => {
+  assert.equal(
+    formatDashboardHash({ pageId: 'security', runKey: 'run:abc/123' }),
+    '#page=security&run=run%3Aabc%2F123',
+  );
+  assert.equal(formatDashboardHash({ pageId: 'command', runKey: '' }), '#page=command');
+  assert.equal(formatDashboardHash({ pageId: '', runKey: '' }), '');
+});
+
+test('client keeps legacy routing and mobile focus containment', () => {
+  const bundle = clientScript(3008);
+
+  assert.match(bundle, /function readDashboardRoute\(\)/);
+  assert.match(bundle, /function writeDashboardRoute\(pageId, runKey, mode\)/);
+  assert.match(bundle, /function showDestination\(destinationId/);
+  assert.match(bundle, /function openMobileNavigation\(\)/);
+  assert.match(bundle, /function closeMobileNavigation\(opts\)/);
+  assert.match(bundle, /event\.key === 'Tab'/);
+  assert.match(bundle, /MOBILE_NAV_RETURN_FOCUS/);
+  assert.match(bundle, /window\.addEventListener\('popstate'/);
+});
+
+test('closing an already closed mobile menu is idempotent and does not steal focus', () => {
+  const bundle = clientScript(3008);
+
+  assert.match(bundle, /if \(!panel\.classList\.contains\('open'\)\) return/);
+  assert.match(bundle, /MOBILE_NAV_RETURN_FOCUS = null/);
 });

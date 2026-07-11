@@ -12,6 +12,7 @@ import { stageMetaScript } from './stage-meta.js';
 import { libScript } from './lib.js';
 import { drawerScript } from './drawer.js';
 import { pages } from './pages/index.js';
+import { navigationScript } from './navigation.js';
 import { commandCenterScript } from './pages/command-center.js';
 import { businessFlexScript } from './pages/business-flex.js';
 import { studioScript } from './pages/studio.js';
@@ -39,6 +40,7 @@ export function clientScript(port) {
     stageMetaScript,
     libScript,
     drawerScript,
+    navigationScript,
     commandCenterScript,
     businessFlexScript,
     studioScript,
@@ -90,26 +92,6 @@ var LAST_CONN_KIND = null;   // last announced connection kind (debounces aria)
 // (ui/pages/index.js) — one list, no hand-mirrored copy.
 var PAGE_LABELS = ${JSON.stringify(Object.fromEntries(pages.map(([id, , label]) => [id, label])))};
 
-document.querySelectorAll('.nav-link').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    showPage(btn.getAttribute('data-page'));
-  });
-});
-
-function showPage(name) {
-  document.querySelectorAll('.nav-link').forEach(function(btn) {
-    var active = btn.getAttribute('data-page') === name;
-    btn.classList.toggle('active', active);
-    if (active) btn.setAttribute('aria-current', 'page');
-    else btn.removeAttribute('aria-current');
-  });
-  document.querySelectorAll('.page').forEach(function(page) {
-    page.classList.toggle('active', page.id === 'page-' + name);
-  });
-  setText('page-title', PAGE_LABELS[name] || name);
-  resetDashboardScroll();
-}
-
 function resetDashboardScroll() {
   var content = document.getElementById('content');
   if (content) content.scrollTop = 0;
@@ -123,6 +105,10 @@ function resetDashboardScroll() {
 // delegated here instead of wiring per-element listeners.
 document.addEventListener('keydown', function(event) {
   if (event.key === 'Escape') {
+    if (mobileNavigationIsOpen()) {
+      closeMobileNavigation();
+      return;
+    }
     var panel = document.getElementById('drawer-panel');
     if (panel && panel.classList.contains('open')) closeDrawer();
     return;
@@ -168,10 +154,10 @@ var SCOPE = {
 var legacyRunId = '';
 // Deep links from the previous bare-run-id contract remain compatible. Once
 // the global catalog arrives, the id is migrated to its opaque run scope key.
-(function initScopeFromHash() {
-  var match = /[#&]run=([^&]+)/.exec(location.hash || '');
-  if (match) {
-    legacyRunId = decodeURIComponent(match[1]);
+(function initScopeFromRoute() {
+  var route = readDashboardRoute();
+  if (route.run) {
+    legacyRunId = route.run;
     SCOPE.run = '';
     SCOPE.project = '';
   }
@@ -187,7 +173,7 @@ function setScopeProject(value) {
   SCOPE.run = '';
   legacyRunId = '';
   persistScope();
-  if (location.hash) history.replaceState(null, '', location.pathname);
+  writeDashboardRoute(ACTIVE_PAGE, '', 'replace');
   requestScopedState();
 }
 
@@ -197,7 +183,7 @@ function setScopeRun(value) {
   var selected = (SCOPE_CATALOG.runs || []).find(function(run) { return run.key === value; });
   if (selected) SCOPE.project = selected.projectId;
   persistScope();
-  history.replaceState(null, '', value ? '#run=' + encodeURIComponent(value) : location.pathname);
+  writeDashboardRoute(ACTIVE_PAGE, value, 'replace');
   requestScopedState();
 }
 
@@ -217,7 +203,7 @@ function clearScope(reason) {
   SCOPE.run = '';
   legacyRunId = '';
   persistScope();
-  if (location.hash) history.replaceState(null, '', location.pathname);
+  writeDashboardRoute(ACTIVE_PAGE, '', 'replace');
   announceScope(reason || 'Scope reset to All projects.');
 }
 
@@ -489,6 +475,7 @@ function updateFreshness() {
   }
 }
 
+initDashboardNavigation();
 updateFreshness();
 // Heartbeat: re-evaluate freshness every second so the chip ages from "live"
 // to "stale"/"disconnected" on its own, even when no new snapshot arrives.
