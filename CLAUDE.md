@@ -24,6 +24,7 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-11 | **Five-PR batch, Richardson-directed ("validate and merge all 5"), every one Claude-audited before merge**: (1) episode store serialized on the cross-process #287 lock + atomic touch/compaction rewrites — concurrent bridge processes can no longer lose episodes (#292, PR #309); (2) **POLICY: `release-readiness.json` no longer grants a run-wide destructive bypass** — release sign-off is release-only; per-task `destructive-action:<taskId>` (or the explicit coarse `destructive-action`) is the sole unblock; regression test pins that a release approval cannot unblock `rm -rf`; docs updated post-merge (#293 decided via this merge, PR #311); (3) model escalation keys off the IN_PROGRESS task, not the globally-last task_started — parallel delegates can no longer inherit the wrong attempt count and mis-escalate cost, cross-contamination test pinned (#297, PR #313); (4) traceability.json locked + atomic + fail-closed on corrupt/odd-shaped reads (skip + loud error, file preserved) — history can never be silently wiped (#295, PR #314); (5) **Codex Wave-0 flagship: server-owned availability-aware readiness** — one projection with unknown/blocked/at_risk/ready, no-runs → unknown (never Ready/100%), Command Center + Release Readiness consume the same verdict, source-linked blockers, historical gates reconciled via the audited approval path (#93, PR #312, branch codex/ui-readiness-93) | 1, 2, 4 | #292 #293 #295 #297 #93, PRs #309 #311–#314 |
 | 2026-07-10 | **Lock primitive can no longer break its own mutual exclusion**: per-acquisition token + heartbeat (mtime refreshed ~staleMs/3, token-verified so a taken-over lock is never freshened for the successor) + owner-checked release (finally deletes only OUR lock — a stale-broken owner no longer deletes the new holder's lock and admits a third writer) + `RSTACK_LOCK_STALE_MS` env tuning. Folded in the #288 residuals PR #306 deferred: `stampManifestStatus` (IN_PROGRESS/DONE stamps re-read+write under the manifest's own lock — concurrent stamps both land) and actionable `readManifest` errors naming the damaged run + recovery. Frozen-owner takeover scenario pinned in tests | 1, 4 | #287 #288, PR #307 (Claude Code) |
 | 2026-07-10 | **Webhook timeout + atomic manifests** (GPT/Codex audit agent, Claude-audited+merged): `postJson` hard socket timeout (default 10s, `RSTACK_WEBHOOK_TIMEOUT_MS`, destroy-on-timeout, double-settle guard — a black-holed webhook can no longer hang sdlc_start/approve/validate; bonus: dropped `url.port` bug fixed) with a real stalled-socket regression test; `writeManifest` routed through `writeJsonAtomic` so a torn write can't brick the run (PR #306 deliberately scoped to the torn-write half; lost-update half landed with #287 above) | 1, 4 | #291 #288, PRs #305 #306 |
 | 2026-07-10 | **Golden-path e2e in CI**: the documented bridge-only quick-start journey runs as a test — one real subprocess per tool call (not mock-pi; in-process mocks would hide cross-process bugs like #289), asserting version stamp (#261), persisted state + plain status (#262), run-bound approvals on the pinned run (#298/#289), FAIL-re-claim → hard-block → one-shot override (#265), structured no-task validate (#266), Hub↔terminal agreement (#264). The #261–#266 root cause ("nobody re-ran the journey") is now structurally impossible to repeat silently. #274 marker in place for the next assertion | 4, 2 | #275, PR #304 |
@@ -121,30 +122,26 @@ Claude Code posts from richard-devbot, the audit/Codex agent from richardsongund
 ~~Durability core #287/#288/#291~~ ALL SHIPPED (PRs #305/#306 by the fork agent, #307 by
 Claude Code — board-sync comment on #287 records the division).
 
+~~#292/#293/#295/#297 + #93~~ ALL SHIPPED 2026-07-11 (five-PR batch #309/#311–#314,
+Richardson-directed merge, each Claude-audited). #293 policy DECIDED by that merge:
+release-readiness.json is release-only; docs fixed same day.
+
 1. **#274** (Claude Code — next): validate-time BLOCKED never enqueues the guardrail-override
-   approval card; also add the deferred golden-path assertion marked in the e2e test. Goals 1, 2.
-2. **Fork agent's lane** (per board sync): #292 (now unblocked — the hardened lock primitive is
-   on main), #295, #296 (coordinate w/ Codex #280/#282), #297, #299. Claude audits + merges
-   each green PR. Goals 1, 2, 4.
-4. **#274** — validate-time BLOCKED never enqueues the guardrail-override approval card
-   (found in wave verification; Hub Approvals misses exhausted tasks). Feeds Codex's Action
-   Inbox (#281) correctness. Goals 1, 2.
-5. **#292 + #295** — memory store cross-process lock + atomic rewrites; traceability.json
-   locked, never wiped on corrupt read. Goals 1, 4.
-6. **#296** — extend the rollup-index entry schema (evidence/artifactIndex/requirements/
-   timelines; INDEX_VERSION 4 + lite↔full parity test) — coordinate with Codex #280/#282,
-   this is the data-layer half of their Evidence Center / Run Workspace. Goals 2, 4.
-7. **#293** — RICHARDSON DECISION NEEDED: release-readiness.json approval currently grants a
-   run-wide destructive bypass (intentional pre-#210 backward-compat, over-broad). Options:
-   deprecate behind config flag / warn-event now / keep documented. Goal 1.
-8. **#297** (per-task escalation keying) + **#299** (P3 papercuts batch) + **#286 residual**
-   (doctor wiring-breadth check for pre-existing narrow matchers). Goals 1, 4.
-9. **Session-continuity P0** (from the 2026-07-10 audit: imperative context packet +
+   approval card; also add the deferred golden-path assertion marked in the e2e test. Feeds
+   Codex's Action Inbox (#281) correctness. Goals 1, 2.
+2. **Fork agent's lane**: #296 (rollup-index entry schema v4 + lite↔full parity test —
+   coordinate w/ Codex #280/#282, counts-not-blobs per the #296 thread) and #299 (P3 papercuts,
+   + the tolerant-reader skipped-line counts from the #301 review). Claude audits + merges.
+   Goals 1, 2, 4.
+3. **#286 residual** — doctor wiring-breadth check for pre-existing narrow matchers. Goal 1.
+4. **Session-continuity P0** (from the 2026-07-10 audit: imperative context packet +
    orchestrator Session Resume + real /sdlc-resume skill) — then the standalone-executor RFC.
    Goals 2, 3.
-10. **Codex UX epic #273** proceeds in parallel on the dashboard (waves per epic; Wave 0 =
-    #93/#276/#277/#96 foundations). Claude coordination notes live on each issue. Goal 2.
-11. Prior queue (still valid, after the above): #222 remainder, #228, #229, #208, #203, #213,
+5. **Codex UX epic #273** proceeds in parallel on the dashboard (Wave 0: #93 ✅ shipped;
+   #276/#277/#96 remain). Claude coordination notes live on each issue. Goal 2.
+6. **Release 2.1.0 prep** — the wave is getting complete: version bump + CHANGELOG (must note
+   the #293 governance tightening as breaking) + tag. Goal 2.
+7. Prior queue (still valid, after the above): #222 remainder, #228, #229, #208, #203, #213,
     #241; Release 2.1.0 when the wave feels complete; #156 remainder; #71 spec; #90–#97 UI
     backlog (largely superseded by #273); research epics #72–#79.
 
