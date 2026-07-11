@@ -91,7 +91,7 @@ function opsFeedRowHtml(item) {
   if (!icon) return feedRowHtml(item);
   var level = item.level || 'info';
   var extra = opsFeedMeta(item);
-  return '<div class="feed-row"><div class="feed-icon ' + esc(level) + '">' + esc(icon) + '</div><div><div class="feed-summary">' + esc(item.summary || '') + '</div><div class="feed-meta">' + (item.runId ? '<span>' + esc(item.runId.slice(-14)) + '</span>' : '') + (item.projectRoot ? '<span>' + esc(shortName(item.projectRoot)) + '</span>' : '') + (item.type ? '<span>' + esc(item.type) + '</span>' : '') + (extra ? '<span class="ops-meta">' + esc(extra) + '</span>' : '') + '</div></div><div class="feed-ts">' + esc(fmtTime(item.ts)) + '</div></div>';
+  return '<div class="feed-row"><div class="feed-icon ' + esc(level) + '">' + esc(icon) + '</div><div><div class="feed-summary">' + esc(item.summary || '') + '</div><div class="feed-meta">' + (item.runId ? '<span>' + esc(item.runId.slice(-14)) + '</span>' : '') + (item.projectRoot ? '<span>' + esc(shortName(item.projectRoot)) + '</span>' : '') + (item.type ? '<span>' + esc(item.type) + '</span>' : '') + (extra ? '<span class="ops-meta">' + esc(extra) + '</span>' : '') + '</div></div><div class="feed-ts">' + timeHtml(item.ts) + '</div></div>';
 }
 
 function renderLiveFeed(s) {

@@ -416,7 +416,12 @@ export async function getIndexedRuns(roots, options = {}) {
   const perRoot = await Promise.all((roots ?? []).map((root) => syncRootRuns(root, { ...options, now })));
   const seen = new Set();
   const runs = perRoot.flatMap((result) => result.runs)
-    .filter((run) => (seen.has(run.runId) ? false : seen.add(run.runId)))
+    // A run id is only unique inside its state root. Different projects — or
+    // two worktrees of one repository — may legitimately use the same id.
+    .filter((run) => {
+      const key = `${run.projectRoot}\u0000${run.runId}`;
+      return seen.has(key) ? false : seen.add(key);
+    })
     .sort((a, b) => b.runId.localeCompare(a.runId));
   return { runs, indexMeta: summarizeIndexMeta(perRoot.map((result) => result.meta), now) };
 }

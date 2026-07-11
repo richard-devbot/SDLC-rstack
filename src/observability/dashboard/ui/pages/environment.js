@@ -224,7 +224,7 @@ function envPendingApprovalHtml(item) {
   return '<div class="approval-card ' + esc(item.status || 'pending') + '"><div class="agent-head"><div>' +
     '<div class="strong mono">' + esc(item.key) + '</div>' +
     '<div class="muted">' + esc(item.artifact) + (item.requestedBy ? ' — requested by ' + esc(item.requestedBy) : '') + '</div>' +
-    '<div class="feed-meta"><span>' + esc(fmtTime(item.ts)) + '</span></div>' +
+    '<div class="feed-meta"><span>' + timeHtml(item.ts) + '</span></div>' +
     '</div>' + pill(item.status || 'pending', item.status || 'pending') + '</div>' +
     (item.status === 'pending'
       ? '<div class="muted" style="margin-top:6px">Approve on the Approvals page, then submit the write again from the key table.</div>'

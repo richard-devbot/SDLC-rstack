@@ -4,12 +4,18 @@ export function projectName(projectRoot) {
   return (projectRoot ?? '').split('/').filter(Boolean).pop() || projectRoot || 'unknown';
 }
 
-export function buildProjectSummaries(runs, roots) {
+export function buildProjectSummaries(runs, roots, projectDescriptors = []) {
   const projects = {};
+  const descriptors = new Map(projectDescriptors.map((entry) => [entry.root, entry]));
   for (const root of roots ?? []) {
+    const descriptor = descriptors.get(root);
     projects[root] = {
       projectRoot: root,
-      name: projectName(root),
+      projectId: descriptor?.id ?? null,
+      name: descriptor?.name ?? projectName(root),
+      repositoryRoot: descriptor?.repositoryRoot ?? root,
+      worktreeName: descriptor?.worktreeName ?? null,
+      isWorktree: descriptor?.isWorktree ?? false,
       runs: 0,
       active: 0,
       stalled: 0,
@@ -25,9 +31,14 @@ export function buildProjectSummaries(runs, roots) {
   for (const run of runs ?? []) {
     const key = run.projectRoot ?? 'unknown';
     if (!projects[key]) {
+      const descriptor = descriptors.get(key) ?? run.project;
       projects[key] = {
         projectRoot: key,
-        name: projectName(key),
+        projectId: run.projectId ?? descriptor?.id ?? null,
+        name: descriptor?.name ?? projectName(key),
+        repositoryRoot: descriptor?.repositoryRoot ?? key,
+        worktreeName: descriptor?.worktreeName ?? null,
+        isWorktree: descriptor?.isWorktree ?? false,
         runs: 0,
         active: 0,
         stalled: 0,

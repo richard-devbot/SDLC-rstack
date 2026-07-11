@@ -1069,15 +1069,61 @@ tr.clickable:hover td { background: #f8fbff; }
 }
 
 /* ── Scope switcher + Team & Presence ─────────────────────────────────────── */
-.tb-scope { display: flex; gap: 8px; align-items: center; margin-left: 16px; }
-.tb-scope .run-select { max-width: 220px; }
+.tb-scope {
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(170px, 230px) minmax(120px, 1fr);
+  gap: 8px;
+  align-items: end;
+  min-width: 0;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 3px solid #bfdbfe;
+}
+.scope-control { display: grid; gap: 3px; min-width: 0; }
+.scope-label {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .09em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.tb-scope .run-select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  max-width: none;
+}
+.scope-context {
+  align-self: center;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .presence-dot {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   background: var(--faint); margin-right: 8px; vertical-align: middle;
 }
 .presence-dot.live { background: var(--green); animation: presence-pulse 1.8s ease-in-out infinite; }
 @keyframes presence-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(21, 128, 61, 0.4); } 50% { box-shadow: 0 0 0 5px rgba(21, 128, 61, 0); } }
-@media (max-width: 900px) { .tb-scope { display: none; } }
+@media (max-width: 1200px) {
+  #topbar { height: auto; min-height: 68px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
+  .tb-scope { order: 4; width: 100%; margin-left: 0; }
+}
+@media (max-width: 640px) {
+  .tb-scope {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    padding: 8px 0 0;
+    border-left: 0;
+    border-top: 3px solid #bfdbfe;
+  }
+  .scope-context { grid-column: 1 / -1; white-space: normal; }
+}
 
 /* ── Studio: Jarvis-style agent workspace (v8 palette: amber/green/blue) ──── */
 .studio-orchestrator { margin-bottom: 16px; }
