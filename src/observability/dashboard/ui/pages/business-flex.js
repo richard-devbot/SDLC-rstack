@@ -28,7 +28,7 @@ function policyIssuesHtml(issues) {
 
 function policyRecoveryHtml(availability) {
   if (availability === 'configured') return '';
-  return '<button type="button" class="policy-action" onclick="navTo(\\'diagnostics\\')">Open Diagnostics</button>';
+  return '<button type="button" class="policy-action" onclick="showPage(\\'diagnostics\\')">Open Diagnostics</button>';
 }
 
 function policyCapHtml(value, cadence) {
@@ -114,7 +114,10 @@ function renderBusinessFlex(s) {
   var policyProjects = model.configuredPolicy && model.configuredPolicy.projects || [];
   var configuredProfiles = policyProjects.filter(function(project) { return project.profile && project.profile.availability === 'configured'; });
   var configuredCaps = policyProjects.filter(function(project) { return project.budget && project.budget.availability === 'configured' && project.budget.runBudgetUsd !== null && project.budget.runBudgetUsd !== undefined; });
-  var domainCount = profiles.reduce(function(set, profile) {
+  var domainSources = configuredProfiles.length
+    ? configuredProfiles.map(function(project) { return { enabledDomains: project.profile.enabledDomains || [] }; })
+    : profiles;
+  var domainCount = domainSources.reduce(function(set, profile) {
     (profile.enabledDomains || []).forEach(function(domain) { set[domain] = true; });
     return set;
   }, {});
@@ -158,7 +161,7 @@ function businessRoutingHtml(item) {
 
 registerPage('business-flex', {
   errLabel: 'business flex',
-  sub: 'Profiles, budget guardrails, selected teams, and routing proof for business-team SDLC flexibility.',
+  sub: 'Current configured policy, historical run snapshots, and observed consumption with source provenance.',
   render: renderBusinessFlex
 });
 `;

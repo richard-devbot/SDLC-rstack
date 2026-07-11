@@ -103,7 +103,7 @@ test('Business Flex policy ledger names invalid, unavailable, and missing states
   assert.match(invalid, /Invalid configuration/);
   assert.match(invalid, /run_budget_usd/);
   assert.match(invalid, /Open Diagnostics/);
-  assert.match(invalid, /navTo\('diagnostics'\)/);
+  assert.match(invalid, /showPage\('diagnostics'\)/);
   assert.doesNotMatch(invalid, /\$0\.00 \/ run/);
 
   project.availability = 'inaccessible';

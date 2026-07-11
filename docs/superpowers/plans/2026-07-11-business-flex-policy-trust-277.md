@@ -388,7 +388,7 @@ git commit -m "fix(dashboard): show enforced budgets before telemetry (#277)"
 **Interfaces:**
 - Verifies Tasks 1–5 without adding behavior.
 
-- [ ] **Step 1: Run all automated gates**
+- [x] **Step 1: Run all automated gates**
 
 ```bash
 npm run lint
@@ -401,15 +401,15 @@ git diff --check
 
 Expected: every command exits 0 and the full suite reports zero failures.
 
-- [ ] **Step 2: Run live configured/no-telemetry and invalid-policy fixtures**
+- [x] **Step 2: Run live configured/no-telemetry and invalid-policy fixtures**
 
 Start the dashboard against temporary project roots. Confirm the configured fixture shows Business Flex plus 10/50/500 limits with zero runs, and the invalid fixture names the file/field without showing an enforced value.
 
-- [ ] **Step 3: Capture desktop and 390px evidence**
+- [x] **Step 3: Capture desktop and 390px evidence**
 
 Verify the three-lane ledger, mobile single-column order, 44px Diagnostics action, no horizontal overflow, keyboard focus, source provenance, and no console errors. Capture configured/no-telemetry and invalid states.
 
-- [ ] **Step 4: Publish a stacked draft PR**
+- [x] **Step 4: Publish a stacked draft PR**
 
 ```bash
 git push -u origin codex/ui-business-flex-277

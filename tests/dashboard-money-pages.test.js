@@ -344,7 +344,8 @@ test('budget governance bar: under, near, and over the enforced cap', () => {
 });
 
 test('configured budget policy renders 10/50/500 before the first run without inventing spend', () => {
-  const api = sandbox(fakeDom().document);
+  const { document, els } = fakeDom();
+  const api = sandbox(document);
   const state = configuredBudgetState();
   const html = api.configuredBudgetPolicyHtml(state);
   assert.match(html, /Current enforced policy/);
@@ -356,6 +357,8 @@ test('configured budget policy renders 10/50/500 before the first run without in
   assert.match(html, /No telemetry yet/);
   assert.doesNotMatch(html, /No run budget cap configured/);
   assert.match(api.budgetGovernanceHtml(state), /No telemetry yet/);
+  api.renderCostBudget(state);
+  assert.equal(els.get('cost-budget-governance-note').textContent, '1 current run cap · no run telemetry');
 });
 
 test('configured budget policy reserves no-cap copy for a valid file and recovers from invalid policy', () => {

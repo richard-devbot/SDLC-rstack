@@ -84,7 +84,7 @@ function configuredBudgetPolicyHtml(s) {
       : '<div class="policy-state ' + esc(availability) + '">' +
         '<div class="policy-state-copy">' + (availability === 'invalid' ? 'Invalid values are not presented as enforced.' : availability === 'inaccessible' ? 'The dashboard could not read this policy file.' : 'Add budget.json to arm file-backed cost limits.') + '</div>' +
         ((budget.issues || []).length ? '<ul class="policy-issues">' + budget.issues.slice(0, 4).map(function(issue) { return '<li>' + (issue.field ? '<b>' + esc(issue.field) + ':</b> ' : '') + esc(issue.problem || '') + '</li>'; }).join('') + '</ul>' : '') +
-        '<button type="button" class="policy-action" onclick="navTo(\\'diagnostics\\')">Open Diagnostics</button></div>';
+        '<button type="button" class="policy-action" onclick="showPage(\\'diagnostics\\')">Open Diagnostics</button></div>';
     var consumption = observed.availability === 'available'
       ? '<div class="policy-observation"><strong>$' + Number(observed.totalCostUsd || 0).toFixed(2) + '</strong><span>actual measured consumption · ' + esc(observed.runsWithTelemetry || 0) + ' reporting runs</span></div>'
       : '<div class="policy-observation empty"><strong>No telemetry yet</strong><span>Configured limits do not count as spend. Actual use appears after metrics are recorded.</span></div>';
@@ -241,7 +241,16 @@ function renderCostBudget(s) {
   setText('cost-budget-policy-note', policyProjects.length ? policyProjects.length + ' project policy record' + (policyProjects.length === 1 ? '' : 's') : 'policy unavailable');
   setHTML('cost-budget-governance', budgetGovernanceHtml(s));
   var capCount = runs.filter(function(run) { return run.loopBudgetUsd !== null && run.loopBudgetUsd !== undefined; }).length;
-  setText('cost-budget-governance-note', capCount ? capCount + ' run(s) under a run_budget_usd cap' : 'no cap configured');
+  var configuredCapCount = policyProjects.filter(function(project) {
+    return project.budget && project.budget.availability === 'configured' && project.budget.runBudgetUsd !== null && project.budget.runBudgetUsd !== undefined;
+  }).length;
+  var validCapless = policyProjects.some(function(project) {
+    return project.budget && project.budget.availability === 'configured' && (project.budget.runBudgetUsd === null || project.budget.runBudgetUsd === undefined);
+  });
+  setText('cost-budget-governance-note', capCount
+    ? capCount + ' run(s) under a run_budget_usd cap'
+    : configuredCapCount ? configuredCapCount + ' current run cap' + (configuredCapCount === 1 ? '' : 's') + ' · no run telemetry'
+      : validCapless ? 'No run cap configured' : 'policy unavailable');
   setHTML('cost-budget-runs-table', costRunRowsHtml(runs));
   setText('cost-budget-runs-note', runs.filter(runHasCostTelemetry).length + ' with telemetry');
   setHTML('cost-budget-stages', stageCostAcrossRunsHtml(runs));
