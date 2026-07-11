@@ -1,28 +1,8 @@
+import { pages } from '../navigation.js';
+
 // owner: RStack developed by Richardson Gunde
 
-export const pages = [
-  ['command', '00', 'Command Center', 'Deliver'],
-  ['projects', '02', 'Projects & Runs', 'Deliver'],
-  ['workflow', '01', 'Workflow Map', 'Deliver'],
-  ['run-analytics', '10', 'Run Analytics', 'Deliver'],
-  ['studio', '12', 'Studio', 'Deliver'],
-  ['business-flex', '15', 'Business Flex', 'Deliver'],
-  ['traceability', '07', 'Requirements & Traceability', 'Quality'],
-  ['run-report', '13', 'Run Report', 'Quality'],
-  ['release-readiness', '17', 'Release Readiness', 'Quality'],
-  ['agent-work', '03', 'Agent Work', 'Quality'],
-  ['approvals', '05', 'Approvals', 'Govern'],
-  ['decisions', '16', 'Decisions / Readiness', 'Govern'],
-  ['security', '18', 'Security', 'Govern'],
-  ['compliance', '19', 'Compliance', 'Govern'],
-  ['cost-budget', '20', 'Cost & Budget', 'Govern'],
-  ['live-feed', '04', 'Live Feed', 'Operate'],
-  ['alerts-guardrails', '06', 'Alerts & Guardrails', 'Operate'],
-  ['team', '11', 'Team & Presence', 'Operate'],
-  ['team-layers', '08', 'Team & Layers', 'Operate'],
-  ['environment', '21', 'Environment & Integrations', 'Operate'],
-  ['diagnostics', '09', 'Diagnostics', 'Operate'],
-];
+export { pages } from '../navigation.js';
 
 export function sidebarMarkup() {
   const grouped = pages.reduce((acc, page) => {

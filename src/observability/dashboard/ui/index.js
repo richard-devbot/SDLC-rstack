@@ -2,7 +2,8 @@ import { styles } from './styles.js';
 import { clientScript } from './client.js';
 import { artifactRenderScript } from './artifact-render.js';
 import { freshnessScript } from './freshness.js';
-import { pageMarkup, sidebarMarkup } from './pages/index.js';
+import { pageMarkup } from './pages/index.js';
+import { desktopNavigationMarkup, mobileNavigationMarkup } from './navigation.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -28,7 +29,7 @@ export function dashboardHtml(port) {
         <div class="ws-dot" id="ws-dot" style="margin-left:auto"></div>
       </div>
     </div>
-    <nav class="nav" aria-label="Dashboard pages">${sidebarMarkup()}</nav>
+    ${desktopNavigationMarkup()}
     <div class="side-kpis">
       <div class="side-kpi"><div class="side-v" id="side-runs">-</div><div class="side-l">Runs</div></div>
       <div class="side-kpi"><div class="side-v" id="side-cost">-</div><div class="side-l">Spend</div></div>
@@ -38,6 +39,7 @@ export function dashboardHtml(port) {
   </aside>
   <main id="main">
     <header id="topbar">
+      <button id="mobile-nav-toggle" aria-expanded="false" aria-controls="mobile-navigation" type="button" aria-label="Open navigation"><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span></button>
       <div class="tb-title" id="page-title">Command Center</div>
       <div class="tb-scope" role="group" aria-label="Dashboard data scope">
         <label class="scope-control"><span class="scope-label">Project</span>
@@ -62,6 +64,7 @@ export function dashboardHtml(port) {
     </div>
   </main>
 </div>
+${mobileNavigationMarkup()}
 <div id="signal-toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="drawer-overlay" onclick="closeDrawer()" aria-hidden="true"></div>
 <aside id="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">

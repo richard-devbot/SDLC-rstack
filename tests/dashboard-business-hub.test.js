@@ -211,9 +211,10 @@ test('Business Hub exposes the planned production observability screens', () => 
 
 test('Business Hub navigation is organized around mission-critical SDLC functions', () => {
   const html = dashboardHtml(3008);
-  for (const section of ['DELIVER', 'QUALITY', 'GOVERN', 'OPERATE']) {
-    assert.match(html, new RegExp(`>${section}<`));
+  for (const destination of ['Overview', 'Runs', 'Evidence', 'Decisions', 'Spend', 'Operations']) {
+    assert.match(html, new RegExp(`class="destination-label">${destination}<`));
   }
+  assert.equal((html.match(/data-primary-destination=/g) || []).length, 12);
   for (const label of ['Release Readiness', 'Security', 'Compliance', 'Cost & Budget', 'Decisions / Readiness']) {
     assert.match(html, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }

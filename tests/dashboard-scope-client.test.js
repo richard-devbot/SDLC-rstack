@@ -26,6 +26,13 @@ test('browser requests server-owned scopes instead of partially filtering snapsh
   assert.doesNotThrow(() => new Function(bundle));
 });
 
+test('run scope route writes preserve the selected legacy page', () => {
+  const bundle = clientScript(3008);
+
+  assert.match(bundle, /writeDashboardRoute\(ACTIVE_PAGE, value, 'replace'\)/);
+  assert.doesNotMatch(bundle, /history\.replaceState\(null, '', value \? '#run='/);
+});
+
 test('scope controls remain visible, labelled, and touchable at 390px', () => {
   const html = dashboardHtml(3008);
   assert.match(html, /class="tb-scope" role="group" aria-label="Dashboard data scope"/);
