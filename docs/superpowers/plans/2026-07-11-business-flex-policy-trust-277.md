@@ -268,7 +268,7 @@ git commit -m "fix(dashboard): project configured budgets to the client (#277)"
 - Consumes: `businessFlexModel(s).configuredPolicy`, `.observedConsumption`, `.runSnapshots`, and `.routingSignals`.
 - Produces: `businessPolicyLedgerHtml(model)`, `businessRunSnapshotsHtml(model)`, and updated `renderBusinessFlex(s)`.
 
-- [ ] **Step 1: Write rendered-state tests for configured/no-telemetry, invalid, inaccessible, missing, and drift**
+- [x] **Step 1: Write rendered-state tests for configured/no-telemetry, invalid, inaccessible, missing, and drift**
 
 Evaluate `businessFlexScript` in the established fake DOM and assert:
 
@@ -285,13 +285,13 @@ assert.match(invalidHtml, /Open Diagnostics/);
 assert.match(driftHtml, /Policy changed since this run/);
 ```
 
-- [ ] **Step 2: Confirm RED**
+- [x] **Step 2: Confirm RED**
 
 Run: `npx tsx --test tests/dashboard-business-flex-state.test.js`
 
 Expected: FAIL because the current page derives headline, caps, and empty states from runs.
 
-- [ ] **Step 3: Implement the ledger and precise state copy**
+- [x] **Step 3: Implement the ledger and precise state copy**
 
 Render one `policy-ledger` per configured project with three lanes:
 
@@ -307,13 +307,13 @@ Use availability-specific copy from the design spec. Source lines include canoni
 
 Add responsive CSS so the ledger is three columns on wide screens and one column below 700px. Use existing typography/color variables, 1px provenance rules, 44px action targets, visible focus, and no new dependencies.
 
-- [ ] **Step 4: Confirm GREEN**
+- [x] **Step 4: Confirm GREEN**
 
 Run: `npx tsx --test tests/dashboard-business-flex-state.test.js tests/dashboard-client-modules.test.js`
 
 Expected: PASS for all policy states and existing Business Flex routing/profile behavior.
 
-- [ ] **Step 5: Commit the Business Flex UI**
+- [x] **Step 5: Commit the Business Flex UI**
 
 ```bash
 git add src/observability/dashboard/ui/pages/business-flex.js src/observability/dashboard/ui/styles.js tests/dashboard-business-flex-state.test.js

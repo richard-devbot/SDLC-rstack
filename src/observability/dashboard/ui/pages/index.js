@@ -132,8 +132,8 @@ function pageBody(id) {
         <div class="kpi blue"><div class="kpi-v" id="business-flex-routing">-</div><div class="kpi-l">Routed Tasks</div><div class="kpi-s" id="business-flex-routing-s"></div></div>
       </div>
       <div class="grid-2">
-        <div class="panel"><div class="panel-head"><span class="panel-title">Profile Packs</span><span class="panel-note" id="business-flex-profile-count"></span></div><div class="panel-body"><div class="stack-list" id="business-flex-profiles-list"></div></div></div>
-        <div class="panel"><div class="panel-head"><span class="panel-title">Budget Guardrails</span><span class="panel-note" id="business-flex-budget-count"></span></div><div class="panel-body" id="business-flex-budget-list"></div></div>
+        <div class="panel"><div class="panel-head"><span class="panel-title">Current Policy Ledger</span><span class="panel-note" id="business-flex-profile-count"></span></div><div class="panel-body"><div class="stack-list" id="business-flex-profiles-list"></div></div></div>
+        <div class="panel"><div class="panel-head"><span class="panel-title">Run Policy History & Plans</span><span class="panel-note" id="business-flex-budget-count"></span></div><div class="panel-body" id="business-flex-budget-list"></div></div>
       </div>
       <div class="panel"><div class="panel-head"><span class="panel-title">Agent Routing Proof</span><span class="panel-note" id="business-flex-routing-count"></span></div><div class="panel-body"><div class="stack-list" id="business-flex-routing-list"></div></div></div>
     `,

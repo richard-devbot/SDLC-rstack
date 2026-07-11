@@ -16,6 +16,9 @@ import { toClientState } from '../src/observability/dashboard/state/client-state
 import { readConfiguredPolicies } from '../src/observability/dashboard/state/configured-policy.js';
 import { resolveProjectDescriptor } from '../src/observability/dashboard/state/identity.js';
 import { buildFullState } from '../src/observability/dashboard/state/index.js';
+import { libScript } from '../src/observability/dashboard/ui/lib.js';
+import { businessFlexScript } from '../src/observability/dashboard/ui/pages/business-flex.js';
+import { styles } from '../src/observability/dashboard/ui/styles.js';
 
 async function policyRoot({ config, budget } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'rstack-flex-policy-'));
@@ -31,6 +34,110 @@ async function policyRoot({ config, budget } = {}) {
   }
   return root;
 }
+
+function businessFlexUi() {
+  return new Function(
+    `${libScript}\n${businessFlexScript}\nreturn { businessPolicyLedgerHtml, businessRunSnapshotsHtml };`,
+  )();
+}
+
+function configuredFlexModel(overrides = {}) {
+  return {
+    configuredPolicy: {
+      projects: [{
+        projectId: 'project-flex',
+        projectRoot: '/workspace/flex',
+        projectName: 'customer-portal',
+        worktreeName: null,
+        availability: 'configured',
+        profile: {
+          availability: 'configured', id: 'business-flex', name: 'Business Flex Delivery',
+          workflow: 'production-business-sdlc', enabledDomains: ['product', 'backend'],
+          enabledAgents: [], enabledPlugins: [], dashboardPages: [],
+          sourcePath: '.rstack/rstack.config.json', issues: [],
+        },
+        budget: {
+          availability: 'configured', currency: 'USD', runBudgetUsd: 10,
+          dailyBudgetUsd: 50, monthlyBudgetUsd: 500,
+          sourcePath: '.rstack/budget.json', issues: [],
+        },
+        loadedAt: '2026-07-11T08:00:00.000Z',
+      }],
+    },
+    observedConsumption: {
+      availability: 'unavailable', runCount: 0, runsWithTelemetry: 0,
+      totalCostUsd: null, metricsSources: { persisted: 0, events: 0 }, lastMeasuredAt: null,
+    },
+    runSnapshots: [],
+    profiles: [],
+    budget: {},
+    routingSignals: [],
+    ...overrides,
+  };
+}
+
+test('Business Flex policy ledger shows configured profile and 10/50/500 before telemetry', () => {
+  const html = businessFlexUi().businessPolicyLedgerHtml(configuredFlexModel());
+  assert.match(html, /Configured operating policy/);
+  assert.match(html, /Business Flex Delivery/);
+  assert.match(html, /production-business-sdlc/);
+  assert.match(html, /\$10\.00 \/ run/);
+  assert.match(html, /\$50\.00 \/ day/);
+  assert.match(html, /\$500\.00 \/ month/);
+  assert.match(html, /No telemetry yet/);
+  assert.match(html, /customer-portal/);
+  assert.match(html, /\.rstack\/budget\.json/);
+  assert.doesNotMatch(html, /Waiting for run|No RStack profile data/);
+});
+
+test('Business Flex policy ledger names invalid, unavailable, and missing states with recovery', () => {
+  const api = businessFlexUi();
+  const model = configuredFlexModel();
+  const project = model.configuredPolicy.projects[0];
+  project.availability = 'invalid';
+  project.budget = {
+    availability: 'invalid', runBudgetUsd: null, dailyBudgetUsd: null, monthlyBudgetUsd: null,
+    sourcePath: '.rstack/budget.json', issues: [{ field: 'run_budget_usd', problem: 'must be non-negative' }],
+  };
+  const invalid = api.businessPolicyLedgerHtml(model);
+  assert.match(invalid, /Invalid configuration/);
+  assert.match(invalid, /run_budget_usd/);
+  assert.match(invalid, /Open Diagnostics/);
+  assert.match(invalid, /navTo\('diagnostics'\)/);
+  assert.doesNotMatch(invalid, /\$0\.00 \/ run/);
+
+  project.availability = 'inaccessible';
+  project.profile.availability = 'inaccessible';
+  project.budget.availability = 'inaccessible';
+  assert.match(api.businessPolicyLedgerHtml(model), /Configuration unavailable/);
+
+  project.availability = 'missing';
+  project.profile.availability = 'missing';
+  project.budget.availability = 'missing';
+  assert.match(api.businessPolicyLedgerHtml(model), /Policy file missing/);
+});
+
+test('Business Flex historical snapshot makes policy drift explicit', () => {
+  const model = configuredFlexModel({
+    runSnapshots: [{
+      runId: 'run-before-change', comparison: 'differs',
+      profile: { id: 'business-flex', workflow: 'production-business-sdlc' },
+      budget: { currency: 'USD', runBudgetUsd: 5, dailyBudgetUsd: 20, monthlyBudgetUsd: 100 },
+      differences: [{ field: 'runBudgetUsd', snapshot: 5, current: 10 }],
+    }],
+  });
+  const html = businessFlexUi().businessRunSnapshotsHtml(model);
+  assert.match(html, /Policy changed since this run/);
+  assert.match(html, /run-before-change/);
+  assert.match(html, /Run cap/);
+  assert.match(html, /\$5\.00/);
+});
+
+test('Business Flex policy ledger is responsive and keeps recovery controls touchable', () => {
+  assert.match(styles, /\.policy-ledger\s*\{[^}]*grid-template-columns:\s*repeat\(3,/s);
+  assert.match(styles, /\.policy-action[^}]*min-height:\s*44px/s);
+  assert.match(styles, /@media \(max-width:\s*700px\)[\s\S]*\.policy-ledger\s*\{[^}]*grid-template-columns:\s*1fr/s);
+});
 
 test('valid zero-run project exposes configured profile and enforced 10/50/500 caps', async () => {
   const root = await policyRoot({

@@ -1382,6 +1382,41 @@ tr.clickable:hover td { background: #f8fbff; }
 /* [/wave:ops] */
 
 /* [wave:readiness] Source-backed verdicts and bounded operational motion */
+.policy-project { border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; background: #fff; }
+.policy-project + .policy-project { margin-top: 12px; }
+.policy-project-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; padding: 13px 14px; border-bottom: 1px solid var(--line); background: #fbfcfd; }
+.policy-ledger { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.policy-lane { min-width: 0; padding: 16px; }
+.policy-lane + .policy-lane { border-inline-start: 1px solid var(--line); }
+.policy-current { box-shadow: inset 0 3px 0 var(--blue); }
+.policy-limits { box-shadow: inset 0 3px 0 var(--amber); }
+.policy-observed { box-shadow: inset 0 3px 0 var(--green); }
+.policy-kicker { margin-bottom: 12px; color: var(--muted); font-size: 10px; font-weight: 850; letter-spacing: .09em; text-transform: uppercase; }
+.policy-value { font-size: 18px; line-height: 1.2; font-weight: 850; }
+.policy-workflow { margin-top: 5px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.policy-source { margin-top: 12px; color: var(--faint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; overflow-wrap: anywhere; }
+.policy-caps { display: grid; gap: 8px; }
+.policy-cap { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.policy-cap:last-child { padding-bottom: 0; border-bottom: 0; }
+.policy-cap small { color: var(--muted); font-size: 10px; text-align: right; }
+.policy-cap.missing span { color: var(--faint); font-size: 18px; font-weight: 800; }
+.policy-state-copy { margin-top: 9px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.policy-issues { margin: 10px 0 0; padding-left: 18px; color: var(--red); font-size: 11px; line-height: 1.45; }
+.policy-action { min-height: 44px; margin-top: 12px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 7px; background: #fff; color: var(--text); font-weight: 750; }
+.policy-action:hover { border-color: var(--blue); color: var(--blue); }
+.policy-action:focus-visible { outline: 3px solid rgba(29,78,216,.24); outline-offset: 2px; }
+.policy-snapshot { padding: 13px; border: 1px solid var(--line); border-radius: 8px; }
+.policy-snapshot.changed { border-inline-start: 4px solid var(--amber); }
+.policy-snapshot-caps { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+.policy-differences { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.policy-differences span { padding: 4px 7px; border-radius: 5px; background: #fff7ed; color: var(--amber); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
+
+@media (max-width: 700px) {
+  .policy-project-head { display: grid; }
+  .policy-ledger { grid-template-columns: 1fr; }
+  .policy-lane + .policy-lane { border-inline-start: 0; border-top: 1px solid var(--line); }
+}
+
 .command-status.danger { color: var(--red); border-color: #fecdca; background: #fff5f5; }
 .command-status.neutral { color: #475467; border-color: var(--line-strong); background: #f8fafc; }
 .readiness-signal { position: relative; animation: readiness-signal-pop .42s cubic-bezier(.22,1,.36,1) both; }
