@@ -734,7 +734,15 @@ const requestHandler = async (req, res) => {
     const authErr = readAuthError(req, url);
     if (authErr) return denyRead(res, authErr);
     try {
-      const state = await buildFullState(PROJECT_ROOT);
+      // Scope values are opaque ids emitted by the server-owned catalog.
+      // buildFullState validates them and resets invalid/stale selections to
+      // an honest global snapshot; the browser never supplies filesystem paths.
+      const scope = url.searchParams.get('run')
+        ? { runKey: url.searchParams.get('run') }
+        : url.searchParams.get('project')
+          ? { projectId: url.searchParams.get('project') }
+          : null;
+      const state = await buildFullState(PROJECT_ROOT, { scope });
       // [wave:money] Serve the SAME projection the WebSocket path sends. The
       // raw state leaked here before, so REST-served clients (first paint +
       // WS-down fallback) missed projection-only fields — evidenceRecent,
