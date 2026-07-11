@@ -38,7 +38,7 @@ function renderAlertsGuardrails(s) {
   setText('blocked-count', blocked.length + ' blocked gates');
   setHTML('alerts-list', alerts.map(alertHtml).join('') || emptyHtml('All clear', 'No thresholds are currently breached.'));
   setHTML('blocked-list', blocked.map(function(gate) {
-    return '<div class="alert-card warn"><div class="strong">' + esc(gate.title) + '</div><div class="muted">' + esc(gate.detail) + '</div><div class="feed-meta"><span>' + esc(gate.runId || '') + '</span><span>' + esc(fmtTime(gate.ts)) + '</span></div></div>';
+    return '<div class="alert-card warn"><div class="strong">' + esc(gate.title) + '</div><div class="muted">' + esc(gate.detail) + '</div><div class="feed-meta"><span>' + esc(gate.runId || '') + '</span><span>' + timeHtml(gate.ts) + '</span></div></div>';
   }).join('') || emptyHtml('No blocked gates', 'Blocked approval gate history appears here.'));
 
   opsEnsureSection('alerts-guardrails', 'ops-retry-panel', OPS_ALERTS_PANELS_HTML);
@@ -193,7 +193,7 @@ function renderOpsGuardrailPanel(s) {
     return '<div class="alert-card warn"><div class="agent-head"><div>' +
       '<div class="strong">' + esc(limit) + '</div>' +
       '<div class="muted">' + esc(values) + (d.task_id ? ' — task ' + esc(d.task_id) : '') + '</div>' +
-      '<div class="feed-meta"><span>' + esc((item.runId || '').slice(-16)) + '</span><span>' + esc(fmtTime(item.ts)) + '</span></div>' +
+      '<div class="feed-meta"><span>' + esc((item.runId || '').slice(-16)) + '</span><span>' + timeHtml(item.ts) + '</span></div>' +
       opsOverrideStatusHtml(item.runId, d.task_id, s) +
       '</div>' + pill('blocked', 'blocked') + '</div></div>';
   }).join('') || emptyHtml('No guardrail triggers', 'No guardrail has blocked a task in the recent event window.'));
@@ -211,7 +211,7 @@ function renderOpsPressurePanel(s) {
     return '<div class="alert-card info"><div class="agent-head"><div>' +
       '<div class="strong">' + esc(d.source || 'context') + '</div>' +
       '<div class="muted">' + esc(size) + (d.task_id ? ' — task ' + esc(d.task_id) : '') + (d.stage_id ? ' (' + esc(d.stage_id) + ')' : '') + '</div>' +
-      '<div class="feed-meta"><span>' + esc((item.runId || '').slice(-16)) + '</span><span>' + esc(fmtTime(item.ts)) + '</span></div>' +
+      '<div class="feed-meta"><span>' + esc((item.runId || '').slice(-16)) + '</span><span>' + timeHtml(item.ts) + '</span></div>' +
       '<div class="ops-note">Detect-only warning — nothing was pruned or truncated.</div>' +
       '</div>' + pill('warn', 'pressure') + '</div></div>';
   }).join('') || emptyHtml('No context pressure warnings', 'Builder context stayed under every configured threshold in the recent event window.'));

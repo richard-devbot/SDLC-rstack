@@ -31,7 +31,7 @@ function renderTeam(s) {
       '<td class="mono">' + person.runsStarted + '</td>' +
       '<td class="mono">' + person.approvals + (person.rejections ? ' <span class="muted">/ ' + person.rejections + ' rejected</span>' : '') + '</td>' +
       '<td class="mono">' + person.guidance + '</td>' +
-      '<td class="mono muted">' + (person.lastSeen ? fmtTime(person.lastSeen) : '-') + '</td>' +
+      '<td class="mono muted">' + timeHtml(person.lastSeen) + '</td>' +
     '</tr>';
   }).join('') || '<tr><td colspan="5" class="empty">No people yet — runs started after the people layer record who did what</td></tr>');
 

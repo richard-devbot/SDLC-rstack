@@ -344,7 +344,13 @@ function renderFrame(s) {
   setClass('btn-approvals', 'tb-chip' + (pending.length ? ' warn' : ''));
   PAGE_RENDERERS.forEach(function(page) {
     setText(page.id + '-sub', page.sub);
-    setText(page.id + '-updated', s.ts ? 'Updated ' + fmtTime(s.ts) : '');
+    var updated = document.getElementById(page.id + '-updated');
+    if (updated) {
+      var model = timeModel(s.ts);
+      updated.textContent = s.ts ? 'Updated ' + model.label : '';
+      if (model.valid) updated.setAttribute('title', model.iso);
+      else updated.removeAttribute('title');
+    }
   });
 }
 

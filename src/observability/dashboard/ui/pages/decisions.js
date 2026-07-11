@@ -76,7 +76,7 @@ function decisionLogRowHtml(item) {
     ? 'Decision: ' + d.resolution
     : (d.status === 'waived' ? 'Waived without a recorded resolution.' : 'No resolution text recorded.');
   return '<div class="decision-log-row">' +
-    '<div class="decision-log-when mono">' + esc(fmtTime(decisionResolvedTs(d)) || '-') + '</div>' +
+    '<div class="decision-log-when mono">' + timeHtml(decisionResolvedTs(d)) + '</div>' +
     '<div class="decision-log-main">' +
       '<div class="strong">' + esc(d.decision_id + ' — ' + d.question) + '</div>' +
       '<div class="muted">' + esc(outcome) + '</div>' +

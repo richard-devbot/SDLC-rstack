@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 
 import { clientScript } from '../src/observability/dashboard/ui/client.js';
 import { dashboardHtml } from '../src/observability/dashboard/ui.js';
+import { libScript } from '../src/observability/dashboard/ui/lib.js';
 import { styles } from '../src/observability/dashboard/ui/styles.js';
 
 test('browser requests server-owned scopes instead of partially filtering snapshots', () => {
@@ -43,4 +44,26 @@ test('catalog labels canonical projects first and keeps worktree context seconda
   assert.match(bundle, /worktreeName/);
   assert.match(bundle, /legacyRunId/);
   assert.match(bundle, /Scope reset to All projects/);
+});
+
+test('timestamps are locale-aware, timezone-bearing, and retain full ISO provenance', () => {
+  const api = new Function(libScript + '; return { timeModel, timeHtml, fmtTime };')();
+  const model = api.timeModel('2026-07-11T10:30:00.000Z');
+  assert.equal(model.valid, true);
+  assert.equal(model.iso, '2026-07-11T10:30:00.000Z');
+  assert.match(model.label, /(GMT|UTC|IST|[+-]\d{1,2}:?\d{2})/i);
+  assert.match(
+    api.timeHtml('2026-07-11T10:30:00.000Z'),
+    /<time datetime="2026-07-11T10:30:00.000Z" title="2026-07-11T10:30:00.000Z">/,
+  );
+  assert.equal(api.fmtTime('not-a-time'), 'Invalid time');
+  assert.equal(api.fmtTime(null), 'Time unavailable');
+});
+
+test('event markup uses semantic time elements instead of sliced timestamp strings', () => {
+  const bundle = clientScript(3008);
+  assert.doesNotMatch(bundle, /String\(value\)\.replace\('T', ' '\)\.slice\(0, 16\)/);
+  assert.doesNotMatch(bundle, /esc\(fmtTime\((?:item|gate)\.ts\)\)/);
+  assert.match(bundle, /timeHtml\((?:item|gate)\.ts\)/);
+  assert.match(bundle, /timeZoneName:\s*'short'/);
 });

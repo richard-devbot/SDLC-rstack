@@ -94,7 +94,7 @@ function evidenceListHtml(run) {
     return '<div class="evidence-row">' + pill(entry.status === 'PASS' ? 'pass' : 'fail', entry.status) +
       '<span class="mono">' + esc(entry.task_id || '') + '</span>' +
       '<span class="muted">' + esc(entry.kind || '') + '</span>' +
-      '<span class="faint mono">' + (entry.ts ? fmtTime(entry.ts) : '') + '</span></div>';
+      '<span class="faint mono">' + timeHtml(entry.ts) + '</span></div>';
   }).join('');
 }
 

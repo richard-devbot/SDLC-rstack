@@ -62,9 +62,32 @@ function shortName(path) {
   return String(path || '-').split('/').filter(Boolean).pop() || '-';
 }
 
+function timeModel(value) {
+  if (!value) return { valid: false, iso: '', label: 'Time unavailable' };
+  var date = new Date(value);
+  if (isNaN(date.getTime())) return { valid: false, iso: '', label: 'Invalid time' };
+  var iso = date.toISOString();
+  var label = new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  }).format(date);
+  return { valid: true, iso: iso, label: label };
+}
+
 function fmtTime(value) {
-  if (!value) return '-';
-  return String(value).replace('T', ' ').slice(0, 16);
+  return timeModel(value).label;
+}
+
+function timeHtml(value) {
+  var model = timeModel(value);
+  if (!model.valid) return '<span class="time-unavailable">' + esc(model.label) + '</span>';
+  return '<time datetime="' + esc(model.iso) + '" title="' + esc(model.iso) + '">' +
+    esc(model.label) + '</time>';
 }
 
 function fmtDur(ms) {
@@ -126,7 +149,7 @@ function showErr(message) {
 function feedRowHtml(item) {
   var level = item.level || 'info';
   var icon = level === 'pass' ? 'OK' : level === 'fail' ? 'NO' : level === 'blocked' ? 'BL' : level === 'warn' ? '!' : 'i';
-  return '<div class="feed-row"><div class="feed-icon ' + esc(level) + '">' + icon + '</div><div><div class="feed-summary">' + esc(item.summary || '') + '</div><div class="feed-meta">' + (item.runId ? '<span>' + esc(item.runId.slice(-14)) + '</span>' : '') + (item.projectRoot ? '<span>' + esc(shortName(item.projectRoot)) + '</span>' : '') + (item.type ? '<span>' + esc(item.type) + '</span>' : '') + '</div></div><div class="feed-ts">' + esc(fmtTime(item.ts)) + '</div></div>';
+  return '<div class="feed-row"><div class="feed-icon ' + esc(level) + '">' + icon + '</div><div><div class="feed-summary">' + esc(item.summary || '') + '</div><div class="feed-meta">' + (item.runId ? '<span>' + esc(item.runId.slice(-14)) + '</span>' : '') + (item.projectRoot ? '<span>' + esc(shortName(item.projectRoot)) + '</span>' : '') + (item.type ? '<span>' + esc(item.type) + '</span>' : '') + '</div></div><div class="feed-ts">' + timeHtml(item.ts) + '</div></div>';
 }
 
 function agentItemHtml(work) {
