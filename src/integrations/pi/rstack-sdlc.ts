@@ -2703,6 +2703,9 @@ export default function (pi: ExtensionAPI) {
         if (e.type === "episode_memory_write_failed") {
           lines.push(`  ├─ ❌ Memory Write Failed: ${e.error}`);
         }
+        if (e.type === "episode_memory_skipped_untrusted") {
+          lines.push(`  ├─ ⚠️  Memory Skipped (untrusted): ${e.reason ?? "not validator-approved"} [policy: ${e.write_policy ?? "unknown"}]`);
+        }
         if (e.type === "tool_call") {
           const argsStr = JSON.stringify(e.input);
           const truncatedArgs = argsStr.length > 120 ? argsStr.slice(0, 117) + "..." : argsStr;

@@ -429,6 +429,12 @@ export async function appendEpisode(memoryDir, episode, config = {}) {
     // its integrity check reflects the record we would actually persist. A
     // caller cannot pre-set `trusted` to launder an untrusted episode: the trust
     // level is decided here and overwritten below.
+    // NOTE (#213 finding B): because we (re)stamp the signature immediately
+    // before evaluateWritePolicy, the signature integrity gate is effectively a
+    // no-op on this production append path — the record always verifies against
+    // the value we just computed. That is by design: tamper detection lives at
+    // READ time (verifyEpisodeSignature in readEpisodes), which re-checks every
+    // stored episode against the signing key before it can be recalled.
     episode.signature = calculateEpisodeSignature(episode);
 
     const result = validateEpisode(episode);
