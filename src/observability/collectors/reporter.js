@@ -11,6 +11,7 @@ const KNOWN_EVENT_TYPES = [
   'stage_completed', 'approval_gate', 'approval_gate_blocked', 'guardrail_triggered',
   'tool_call', 'tool_result', 'cost_recorded', 'context_recorded', 'quality_score_recorded',
   'memory_recalled', 'memory_pruned', 'episode_memory_written', 'episode_memory_write_failed',
+  'episode_memory_skipped_untrusted',
   'session_shutdown', 'clarification_requested', 'clarification_answers_added', 'plan_created',
   'validation_failed',
 ];
@@ -132,7 +133,8 @@ export async function buildRunReport(runDir) {
       case 'guardrail_triggered':   trace.guardrail_events.push(ev); trace.guardrail_hit_count++; break;
       case 'memory_recalled':
       case 'episode_memory_written':
-      case 'episode_memory_write_failed': trace.memory_events.push(ev); break;
+      case 'episode_memory_write_failed':
+      case 'episode_memory_skipped_untrusted': trace.memory_events.push(ev); break;
       case 'task_validated':        trace.status = ev.status ?? trace.status; break;
     }
   }
@@ -279,7 +281,8 @@ export function renderDashboardHtml(report) {
     const memRecall = t.memory_events.filter((e) => e.type === 'memory_recalled').reduce((s, e) => s + (e.count ?? e.episode_count ?? 0), 0);
     const memWrite  = t.memory_events.filter((e) => e.type === 'episode_memory_written').length;
     const memFail   = t.memory_events.filter((e) => e.type === 'episode_memory_write_failed').length;
-    const memStatus = `${memRecall}&nbsp;recalled&nbsp;/&nbsp;${memWrite}&nbsp;written${memFail > 0 ? `&nbsp;(<span class="warn">${memFail}&nbsp;failed</span>)` : ''}`;
+    const memSkip   = t.memory_events.filter((e) => e.type === 'episode_memory_skipped_untrusted').length;
+    const memStatus = `${memRecall}&nbsp;recalled&nbsp;/&nbsp;${memWrite}&nbsp;written${memSkip > 0 ? `&nbsp;(<span class="warn">${memSkip}&nbsp;skipped</span>)` : ''}${memFail > 0 ? `&nbsp;(<span class="warn">${memFail}&nbsp;failed</span>)` : ''}`;
     
     const agentName = t.builder ? (t.builder.agent ?? 'orchestrator') : 'orchestrator';
     const attemptVal = t.builder ? (t.builder.attempt ?? '1') : '1';
@@ -493,6 +496,9 @@ export function renderTraceHtml(trace, runId) {
     } else if (ev.type === 'episode_memory_write_failed') {
       kind = 'FAIL';
       detail = `episode write failed — error: ${esc(ev.error ?? 'unknown')}`;
+    } else if (ev.type === 'episode_memory_skipped_untrusted') {
+      kind = 'SKIPPED';
+      detail = `episode skipped as untrusted (${esc(ev.write_policy ?? 'policy')}) — ${esc(ev.reason ?? 'not validator-approved')}`;
     } else {
       detail = `episode written — id: ${esc(ev.episode_id ?? '?')}, trusted: ${esc(String(ev.trusted ?? '?'))}`;
     }
