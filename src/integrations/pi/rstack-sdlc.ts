@@ -5,11 +5,11 @@ import { spawn } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { createConnection } from "node:net";
 import { existsSync, openSync, readFileSync } from "node:fs";
-import { mkdir, readFile, readdir, writeFile, appendFile, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile, appendFile, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
+import { CANONICAL_SDLC_STAGES, getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
 import { validateBuilderContract, validateBuilderCompleteness } from "../../core/harness/contracts.js";
 import { validateStageGoalEvaluation } from "../../core/harness/goal-check.js";
 // #237: environment_report.json shape check — best-effort WARN at stage-00
@@ -18,7 +18,7 @@ import { environmentReportCheck } from "../../core/harness/environment-report.js
 import { taskStageIds, writePipelineState } from "../../core/harness/pipeline-state.js";
 import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
-import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
+import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, guardrailOverrideArtifact, isDestructiveTask } from "../../core/harness/guardrails.js";
 import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedApprovedArtifacts } from "../../core/harness/approval-audit.js";
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
 import { classifyDestructiveAction, requireApprovalForDestructiveAction, destructiveApprovalArtifact } from "../../core/harness/destructive-actions.js";
@@ -34,7 +34,7 @@ import { prepareRunState, prepareStageFolders, updateRunMetrics } from "../../co
 import { checkpointEvent, isCriticalStage, loadProjectCriticalStages, rollbackToCheckpoint, saveStageCheckpoint } from "../../core/harness/checkpoints.js";
 import { addDecision, decide, readDecisions, summarizeDecisions } from "../../core/harness/decisions.js";
 import { assertReadyForStage, dorCheck, latestStageId } from "../../core/harness/readiness.js";
-import { withFileLock, writeJsonAtomic } from "../../core/harness/safe-write.js";
+import { withFileLock, writeJsonAtomic, writeFileAtomic } from "../../core/harness/safe-write.js";
 import { readSessionPin, writeSessionPin } from "../../core/harness/runs.js";
 import { resolveUserIdentity } from "../../core/harness/identity.js";
 import { appendApproval as appendApprovalRequest, approvalQueueId, assertManagerAllowed, resolveQueuedApprovalForArtifact } from "../../core/tracker/approvals.js";
@@ -117,13 +117,18 @@ function tryRegisterAndLaunchHub(projectRoot: string): void {
   (async () => {
     try {
       await mkdir(registryDir, { recursive: true });
-      let list: string[] = [];
-      try { list = JSON.parse(await readFile(registryFile, "utf8")); } catch { /* first run */ }
-      const abs = resolve(projectRoot);
-      if (!list.includes(abs)) {
-        list = [abs, ...list.filter((p: string) => p !== abs)].slice(0, 50);
-        await writeFile(registryFile, JSON.stringify(list, null, 2));
-      }
+      // Lock the read-modify-write (#299): another project's session_start can
+      // register concurrently, and an unlocked read→writeFile of the shared
+      // ~/.rstack/known-projects.json loses one of the entries.
+      await withFileLock(registryFile, async () => {
+        let list: string[] = [];
+        try { list = JSON.parse(await readFile(registryFile, "utf8")); } catch { /* first run */ }
+        const abs = resolve(projectRoot);
+        if (!list.includes(abs)) {
+          list = [abs, ...list.filter((p: string) => p !== abs)].slice(0, 50);
+          await writeJsonAtomic(registryFile, list);
+        }
+      });
     } catch { /* best-effort */ }
   })();
 
@@ -582,7 +587,32 @@ async function readManifest(projectRoot: string, id?: string): Promise<RunManife
   const selected = id || sessionRun(projectRoot) || await latestRun(projectRoot);
   if (!selected) throw new Error("No RStack run found. Start one with sdlc_start first.");
   // Old (unversioned) manifests are migrated forward in memory on every read.
-  return migrateManifest(JSON.parse(await readFile(join(runsDir(projectRoot), selected, "manifest.json"), "utf8"))) as RunManifest;
+  // #288: a missing/corrupt manifest gets an actionable error, not a raw
+  // ENOENT/JSON.parse throw — the caller must learn WHICH run is damaged and
+  // how to recover, and that other runs are unaffected.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(join(runsDir(projectRoot), selected, "manifest.json"), "utf8"));
+  } catch (err: any) {
+    throw new Error(`Run ${selected} has an unreadable manifest.json (${err?.message ?? err}). Restore it from a checkpoint (sdlc_rollback), re-adopt the project, or pass run_id for a different run — other runs are unaffected.`);
+  }
+  return migrateManifest(parsed) as RunManifest;
+}
+
+// #288 (lost-update half): a status stamp is a read-modify-write of the whole
+// manifest, and the two racing stampers (sdlc_status marking DONE while
+// sdlc_build_next marks IN_PROGRESS) ran unlocked — last writer silently
+// dropped the other's update. Re-read fresh state and write under the
+// manifest's own advisory lock so concurrent stamps both land. No caller
+// holds another lock at these call sites (the claim's tasksPath lock closes
+// before the stamp), so this introduces no nesting.
+async function stampManifestStatus(projectRoot: string, runId: string, status: RunManifest["status"]): Promise<void> {
+  const manifestPath = join(runsDir(projectRoot), runId, "manifest.json");
+  await withFileLock(manifestPath, async () => {
+    const fresh = await readManifest(projectRoot, runId);
+    fresh.status = status;
+    await writeManifest(fresh);
+  });
 }
 
 async function writeManifest(manifest: RunManifest): Promise<void> {
@@ -592,23 +622,42 @@ async function writeManifest(manifest: RunManifest): Promise<void> {
   if (!manifest.traceability_path) {
     manifest.traceability_path = join(dir, "traceability.json");
     if (!existsSync(manifest.traceability_path)) {
-      await writeFile(manifest.traceability_path, JSON.stringify({ run_id: manifest.run_id, mappings: [] }, null, 2));
+      await writeJsonAtomic(manifest.traceability_path, { run_id: manifest.run_id, mappings: [] });
     }
   }
-  await writeFile(join(dir, "manifest.json"), JSON.stringify(manifest, null, 2));
+  // #288: atomic (tmp + fsync + rename) so a crash mid-write can never leave a
+  // truncated manifest.json — a torn manifest makes readManifest's JSON.parse
+  // throw on every later tool call, bricking the run.
+  await writeJsonAtomic(join(dir, "manifest.json"), manifest);
 }
 
 async function addTrace(projectRoot: string, runId: string, mapping: any): Promise<void> {
   const dir = join(runsDir(projectRoot), runId);
   const path = join(dir, "traceability.json");
-  let trace = { run_id: runId, mappings: [] };
-  if (existsSync(path)) {
-    try {
-      trace = JSON.parse(await readFile(path, "utf8"));
-    } catch {}
-  }
-  (trace.mappings as any[]).push({ ts: timestamp(), ...mapping });
-  await writeFile(path, JSON.stringify(trace, null, 2));
+  await mkdir(dir, { recursive: true });
+  // #295: lock the read-modify-write (concurrent writers: sdlc_approve,
+  // sdlc_plan's spec loop, sdlc_decide, sdlc_spec) and write atomically.
+  await withFileLock(path, async () => {
+    let trace: any = { run_id: runId, mappings: [] };
+    if (existsSync(path)) {
+      try {
+        trace = JSON.parse(await readFile(path, "utf8"));
+      } catch (err) {
+        // A corrupt read must NOT silently reset history to empty and overwrite
+        // it — that wipes the whole run's traceability. Fail closed: keep the
+        // file, skip this mapping, and surface the problem for recovery.
+        console.error(`[rstack] traceability.json for run ${runId} is unreadable (${(err as any)?.message ?? err}); skipping this mapping to avoid wiping history.`);
+        return;
+      }
+    }
+    if (!trace || typeof trace !== "object" || !Array.isArray(trace.mappings)) {
+      // Well-formed JSON but unexpected shape — don't clobber it either.
+      console.error(`[rstack] traceability.json for run ${runId} has an unexpected shape; skipping this mapping to avoid data loss.`);
+      return;
+    }
+    trace.mappings.push({ ts: timestamp(), ...mapping });
+    await writeJsonAtomic(path, trace);
+  });
 }
 
 async function appendEvent(projectRoot: string, id: string, event: Record<string, unknown>): Promise<void> {
@@ -616,8 +665,22 @@ async function appendEvent(projectRoot: string, id: string, event: Record<string
 }
 
 async function currentBranch(projectRoot: string): Promise<string> {
-  const headPath = join(projectRoot, ".git", "HEAD");
-  const head = await readFile(headPath, "utf8").catch(() => "");
+  // .git is usually a directory, but in a worktree or submodule it is a FILE
+  // containing `gitdir: <path>` that points at the real git dir where HEAD
+  // lives (#299). Reading `.git/HEAD` directly then yields "unknown" and mis-
+  // keys memory episodes to the wrong branch. Resolve the pointer first.
+  const gitPath = join(projectRoot, ".git");
+  let gitDir = gitPath;
+  try {
+    if ((await stat(gitPath)).isFile()) {
+      const pointer = await readFile(gitPath, "utf8");
+      const match = pointer.match(/^gitdir:\s*(.+)$/m);
+      if (match) gitDir = resolve(projectRoot, match[1].trim());
+    }
+  } catch {
+    return "unknown";
+  }
+  const head = await readFile(join(gitDir, "HEAD"), "utf8").catch(() => "");
   const match = head.match(/^ref:\s+refs\/heads\/(.+)$/m);
   return match?.[1]?.trim() || "unknown";
 }
@@ -812,7 +875,7 @@ async function builderPrompt(projectRoot: string, task: any, selected: RegistryI
     });
     memoryBlock = formatEpisodesForPrompt(episodes, memoryConfig);
     if (episodes.length) {
-      await writeRetrievalEvent(memoryDirPath, { task_id: task.id, agent_ids: agentIds, stage_ids: stageIds, episode_ids: episodes.map((episode: any) => episode.episode_id) });
+      await writeRetrievalEvent(memoryDirPath, { task_id: task.id, agent_ids: agentIds, stage_ids: stageIds, episode_ids: episodes.map((episode: any) => episode.episode_id), results_count: episodes.length });
       if (runId) {
         await appendEvent(projectRoot, runId, { type: "memory_recalled", task_id: task.id, count: episodes.length });
         
@@ -985,10 +1048,18 @@ async function evaluateDestructiveToolCall(
   }
 
   const decision = requireApprovalForDestructiveAction({ action: verdict, taskId, approvedArtifacts: approved });
-  // Backward compatibility: a run-level `destructive-action` (or a
-  // release-readiness.json) approval — the pre-#210 coarse artifact — still
-  // unblocks. Per-task approval is preferred and checked first by the decision.
-  const coarseApproved = approved.has("destructive-action") || approved.has("release-readiness.json");
+  // Backward compatibility: a run-level `destructive-action` approval — the
+  // pre-#210 coarse artifact — still unblocks. Per-task approval is preferred
+  // and checked first by the decision.
+  //
+  // #293: `release-readiness.json` is NO LONGER a destructive unblock. It is a
+  // normal, tool-recommended release-gate sign-off (sdlc_status lists it in the
+  // release approvals), so treating it as a blanket destructive override meant
+  // approving "the release looks ready" silently granted run-wide force-push /
+  // publish / db-drop / secret-write permission — a least-privilege violation.
+  // Destructive ops at release time need a per-task `destructive-action:<taskId>`
+  // approval (or the explicit `destructive-action` coarse artifact).
+  const coarseApproved = approved.has("destructive-action");
   if (decision.allowed || coarseApproved) return { block: false, verdict, taskId, reason: null };
   return { block: true, verdict, taskId, reason: decision.reason };
 }
@@ -999,17 +1070,24 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
   const agentBody = await readProjectFile(projectRoot, agent.path, 16000);
   const tools = task.tools?.length ? task.tools : defaultToolsForAgent(agent.name);
   
-  // Model escalation logic
+  // Model escalation logic (#297): escalate when the task actually being built
+  // is on a retry. A delegate is spawned per agent and carries no task id, so
+  // the correct signal is the IN_PROGRESS task (the one the claim is currently
+  // building) — NOT the globally-last task_started event, which on the parallel
+  // sdlc_delegate path made every concurrent delegate inherit whichever task
+  // happened to start last (and mis-escalate its cost).
   const runId = sessionRun(projectRoot);
   let attempts = 1;
   let model = process.env.RSTACK_DEFAULT_MODEL || "gemini-2.5-flash";
   if (runId) {
     const runDir = join(runsDir(projectRoot), runId);
-    const eventsPath = join(runDir, "events.jsonl");
-    const events = await readJsonl(eventsPath);
-    const activeTaskEvent = events.filter((e: any) => e.type === "task_started").pop();
-    if (activeTaskEvent) {
-      const activeTaskId = activeTaskEvent.task_id;
+    let activeTaskId: string | null = null;
+    try {
+      const taskState = JSON.parse(await readFile(join(runDir, "tasks.json"), "utf8"));
+      activeTaskId = (taskState.tasks || []).find((t: any) => t.status === "IN_PROGRESS")?.id ?? null;
+    } catch { /* no/unreadable tasks.json → no active task → no escalation */ }
+    if (activeTaskId) {
+      const events = await readJsonl(join(runDir, "events.jsonl"));
       attempts = events.filter((e: any) => e.type === "task_started" && e.task_id === activeTaskId).length;
       if (attempts >= 2) {
         model = process.env.RSTACK_ESCALATED_MODEL || "gemini-2.5-pro";
@@ -1487,6 +1565,21 @@ export default function (pi: ExtensionAPI) {
       const projectRoot = findProjectRoot();
       const manifest = await readManifest(projectRoot, params.run_id);
       if (params.question) {
+        // #290: validate required_before_stage at the tool boundary. A
+        // non-canonical value is refused here with a structured, actionable
+        // response (same contract as the #266 no-task path) instead of being
+        // persisted, where it would later make the DoR gate — which fails
+        // closed by design (dorCheck throws on unknown stages, pinned by
+        // "DoR fails closed for unknown decision or target stages") — surface
+        // a raw Error out of sdlc_build_next. The gate's fail-closed behavior
+        // is intentionally unchanged; this only stops bad input at the source.
+        if (params.required_before_stage && !getCanonicalStage(params.required_before_stage)) {
+          const validStages = CANONICAL_SDLC_STAGES.map((stage) => stage.id);
+          return {
+            content: [{ type: "text", text: `Cannot add decision: "${params.required_before_stage}" is not a canonical SDLC stage. Use one of: ${validStages.join(", ")} — or omit required_before_stage to default to 06-architecture.` }],
+            details: { run_id: manifest.run_id, error: "invalid_required_before_stage", provided: params.required_before_stage, valid_stages: validStages },
+          };
+        }
         const created = await addDecision(projectRoot, manifest.run_id, {
           question: params.question,
           impact: params.impact || "scope",
@@ -1613,7 +1706,7 @@ export default function (pi: ExtensionAPI) {
       await mkdir(join(runDir, "artifacts"), { recursive: true });
       await prepareStageFolders(runDir);
       const plan = `# RStack SDLC Plan\n\nGoal: ${manifest.goal}\n\nMode: ${manifest.mode}\nProfile: ${activeProfile.profile}\nWorkflow: ${activeProfile.workflow}\nRun budget: ${budgetPolicy.currency || 'USD'} ${budgetPolicy.run_budget_usd}\n\n## Constraints\n${(params.constraints || ["Ask before destructive actions", "Validate before release", "Keep scope bounded", "Do not claim DONE without evidence", "Use .rstack/runs state, not legacy outputs/team_state"]).map((c) => `- ${c}`).join("\n")}\n\n## Lifecycle\n${tasks.map((t) => `- [ ] ${t.id}: ${t.title}\n  - Artifact: ${t.artifact_path}\n  - Pipeline agents: ${t.pipeline_agents.join(", ") || "none"}\n  - Budget envelope: ${t.budget_envelope.currency} ${t.budget_envelope.estimated_ai_cost_usd}\n  - Routing: ${t.routing.explanation.join("; ")}\n  - Acceptance: ${t.acceptance_criteria.join("; ")}`).join("\n")}\n\n## Operating model\n\nThe orchestrator creates bounded builder tasks. Validators check each task before the run advances. User approval is required for major product decisions, destructive changes, and release/merge actions.\n`;
-      await writeFile(join(runDir, "plan.md"), plan);
+      await writeFileAtomic(join(runDir, "plan.md"), plan);
       await writeJsonAtomic(join(runDir, "tasks.json"), { run_id: manifest.run_id, profile: activeProfile.profile, workflow: activeProfile.workflow, budget_policy: budgetPolicy, tasks });
       const sDir = specsDir(runDir);
       await mkdir(sDir, { recursive: true });
@@ -1876,9 +1969,9 @@ export default function (pi: ExtensionAPI) {
       }
       const selected = registry.filter((item) => task.specialists?.includes(item.id));
       const prompt = await builderPrompt(projectRoot, task, selected, manifest.run_id);
-      await writeFile(join(projectRoot, task.output_dir, "prompt.md"), prompt);
+      await writeFileAtomic(join(projectRoot, task.output_dir, "prompt.md"), prompt);
       manifest.status = "IN_PROGRESS";
-      await writeManifest(manifest);
+      await stampManifestStatus(projectRoot, manifest.run_id, "IN_PROGRESS");
       await appendEvent(projectRoot, manifest.run_id, { type: "builder_task_prepared", task_id: task.id });
       return { content: [{ type: "text", text: prompt }], details: { run_id: manifest.run_id, task } };
     },
@@ -1929,11 +2022,27 @@ export default function (pi: ExtensionAPI) {
             telemetryViolations = telemetry.violations;
             if (!contract.ok || hardening.some((check: any) => check.status === "FAIL") || !telemetry.ok) status = "FAIL";
             if (Array.isArray(builder.files_modified)) {
-              for (const file of builder.files_modified.slice(0, 20)) {
+              // Check EVERY claimed file, not just the first 20 (#299): a builder
+              // could list 21+ files with a nonexistent one at the tail and still
+              // pass. Only the emitted check ENTRIES are capped (to keep
+              // validation.json bounded) — a per-file miss beyond the cap still
+              // flips status to FAIL and is summarized honestly.
+              const CHECK_ENTRY_CAP = 20;
+              let emitted = 0;
+              let uncheckedMisses = 0;
+              for (const file of builder.files_modified) {
                 if (typeof file !== "string") continue;
                 const exists = existsSync(resolve(projectRoot, file));
-                checks.push({ name: "modified_file_exists", status: exists ? "PASS" : "FAIL", evidence: file });
                 if (!exists) status = "FAIL";
+                if (emitted < CHECK_ENTRY_CAP) {
+                  checks.push({ name: "modified_file_exists", status: exists ? "PASS" : "FAIL", evidence: file });
+                  emitted += 1;
+                } else if (!exists) {
+                  uncheckedMisses += 1;
+                }
+              }
+              if (uncheckedMisses > 0) {
+                checks.push({ name: "modified_file_exists_overflow", status: "FAIL", evidence: `${uncheckedMisses} additional modified file(s) beyond the first ${CHECK_ENTRY_CAP} do not exist on disk` });
               }
             }
           } catch (error) {
@@ -1999,7 +2108,7 @@ export default function (pi: ExtensionAPI) {
           issues: checks.filter((c: any) => c.status === "FAIL"),
           retry_recommendation: status === "PASS" ? "none" : "retry_builder",
         };
-        await writeFile(join(projectRoot, task.output_dir, "validation.json"), JSON.stringify(validation, null, 2));
+        await writeJsonAtomic(join(projectRoot, task.output_dir, "validation.json"), validation);
         // Post-validation transition (#123): PASS stamps PASS as before; FAIL
         // routes through the deterministic retry policy. The decision needs the
         // attempt history, so events.jsonl is read inside the lock (like the
@@ -2231,6 +2340,37 @@ export default function (pi: ExtensionAPI) {
             observed: retryDecision.attempt,
             reason: `task ${task.id} already has ${retryDecision.attempt} attempt(s); limit is ${retryDecision.max_attempts}`,
           }));
+          // #274: validate-time exhaustion IS the transition to BLOCKED, and
+          // the later sdlc_build_next deliberately skips its enqueue for an
+          // already-BLOCKED task (anti-flood dedupe) — so without this, the
+          // guardrail-override approval card never appeared anywhere and the
+          // Hub's one-click surface silently missed exhausted tasks. Same
+          // queue id as the claim-path enqueue; appendApproval is idempotent
+          // on id, so a double-enqueue is impossible by construction.
+          const overrideArtifact = guardrailOverrideArtifact(task.id);
+          const requestedBy = manifest.started_by?.name ?? resolveUserIdentity(projectRoot).name;
+          await appendApprovalRequest(projectRoot, {
+            id: approvalQueueId({ runId: manifest.run_id, taskId: task.id, artifact: overrideArtifact }),
+            title: `Override guardrail for ${task.id}`,
+            detail: `Task ${task.id} exhausted its retry budget at validation (${retryDecision.attempt}/${retryDecision.max_attempts} attempts): ${retryDecision.reason}`,
+            status: "pending",
+            runId: manifest.run_id,
+            taskId: task.id,
+            artifact: overrideArtifact,
+            requestedBy,
+            projectRoot,
+            source: "retry_budget_exhausted",
+          });
+          // Page the manager at the moment of exhaustion — same rule as the
+          // claim-time gate: silence means blocked work waits invisibly.
+          try {
+            const payload = formatSlackStageMessage(manifest.run_id, task.id, "APPROVAL_PENDING", {
+              message: `Task ${task.id} exhausted its retry budget (${retryDecision.attempt}/${retryDecision.max_attempts}). Approve '${overrideArtifact}' via sdlc_approve or the Business Hub to allow exactly one more attempt.`,
+            });
+            await notifyAll(payload, { projectRoot });
+          } catch (err) {
+            console.error("Failed to send retry-exhausted notification:", err);
+          }
         } else if (retryDecision.action === "human_context") {
           await appendEvent(projectRoot, manifest.run_id, { type: "task_human_context_required", ...retryEventBase });
         } else if (retryDecision.action === "block") {
@@ -2386,17 +2526,22 @@ export default function (pi: ExtensionAPI) {
       const tasksPath = join(runsDir(projectRoot), manifest.run_id, "tasks.json");
       const tasks = existsSync(tasksPath) ? JSON.parse(await readFile(tasksPath, "utf8")).tasks : [];
       const counts = tasks.reduce((acc: Record<string, number>, task: any) => { acc[task.status] = (acc[task.status] || 0) + 1; return acc; }, {});
-      const next = tasks.find((t: any) => ["PENDING", "READY", "FAIL", "IN_PROGRESS"].includes(t.status));
+      const next = tasks.find((t: any) => ["PENDING", "READY", "FAIL", "IN_PROGRESS", "BLOCKED"].includes(t.status));
       const runDir = join(runsDir(projectRoot), manifest.run_id);
       const approvals = await readApprovals(runDir);
       const nextMissingApprovals = next && next.status !== "IN_PROGRESS" ? missingApprovals(approvals, await effectiveRequiredApprovals(projectRoot, manifest, next.id), manifest.run_id) : [];
       const releaseMissingApprovals = manifest.mode !== "express" ? missingApprovals(approvals, ["plan.md", "requirements.json", "architecture.md", "release-readiness.json"], manifest.run_id) : [];
       if (tasks.length > 0 && !next && tasks.every((t: any) => t.status === "PASS") && releaseMissingApprovals.length === 0) {
         manifest.status = "DONE";
-        await writeManifest(manifest);
+        await stampManifestStatus(projectRoot, manifest.run_id, "DONE");
       }
       const recommended = next
-        ? next.status === "IN_PROGRESS" ? `Validate ${next.id} with sdlc_validate` : nextMissingApprovals.length ? `Approve ${nextMissingApprovals.join(", ")} with sdlc_approve before building ${next.id}` : `Build ${next.id} with sdlc_build_next`
+        ? next.status === "IN_PROGRESS" ? `Validate ${next.id} with sdlc_validate`
+          // BLOCKED tasks (#299) were previously skipped by the next-finder, so a
+          // guardrail-blocked run reported "No pending tasks" and never named the
+          // one action that unblocks it — approving the guardrail override.
+          : next.status === "BLOCKED" ? `Task ${next.id} is BLOCKED — approve '${guardrailOverrideArtifact(next.id)}' via sdlc_approve after human review to grant one more attempt`
+          : nextMissingApprovals.length ? `Approve ${nextMissingApprovals.join(", ")} with sdlc_approve before building ${next.id}` : `Build ${next.id} with sdlc_build_next`
         : releaseMissingApprovals.length ? `Approve release gate(s): ${releaseMissingApprovals.join(", ")}` : manifest.status === "DONE" ? "Run final documentation/release handoff or sdlc_memory append" : "No pending tasks";
       const text = [`Run: ${manifest.run_id}`, `Goal: ${manifest.goal}`, `Status: ${manifest.status}`, `Tasks: ${JSON.stringify(counts)}`, `Registry: ${registry.length} items`, `Approvals: ${approvals.length} recorded`, `Next: ${recommended}`].join("\n");
       return { content: [{ type: "text", text }], details: { manifest, counts, next, registry_count: registry.length, approvals, next_missing_approvals: nextMissingApprovals, release_missing_approvals: releaseMissingApprovals, recommended } };

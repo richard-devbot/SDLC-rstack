@@ -220,3 +220,32 @@ test('rstack-agents decisions and dor CLI operate on the latest run', async () =
     await rm(projectRoot, { recursive: true, force: true });
   }
 });
+
+test('decisions --add rejects a non-canonical --before at the source; nothing is persisted (#290)', async () => {
+  const { projectRoot, runId } = await makeRun('business-flex');
+  try {
+    const bin = join(process.cwd(), 'bin', 'rstack-agents.js');
+    let threw = false;
+    try {
+      execFileSync(
+        process.execPath,
+        [bin, 'decisions', '--project', projectRoot, '--run-id', runId, '--add', 'Bad stage entry', '--before', '99-made-up'],
+        { encoding: 'utf8', stdio: 'pipe' },
+      );
+    } catch (err) {
+      threw = true;
+      assert.match(String(err.stderr || err.message), /Invalid --before stage/);
+    }
+    assert.equal(threw, true, 'CLI must exit non-zero for a non-canonical --before stage');
+    // The bad decision never entered the queue (so the fail-closed DoR gate is
+    // never reached with an unknown stage via the documented path).
+    const decisions = await readDecisions(projectRoot, runId);
+    assert.equal(decisions.length, 0);
+
+    // A valid --before still works.
+    execFileSync(process.execPath, [bin, 'decisions', '--project', projectRoot, '--run-id', runId, '--add', 'Good stage entry', '--before', '06-architecture'], { encoding: 'utf8', stdio: 'pipe' });
+    assert.equal((await readDecisions(projectRoot, runId)).length, 1);
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+});

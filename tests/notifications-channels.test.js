@@ -100,3 +100,34 @@ test('notifyAll with nothing configured is a silent no-op', async () => {
 test('all five channels are registered in the router', () => {
   assert.deepEqual(Object.keys(CHANNEL_SENDERS).sort(), ['discord', 'slack', 'teams', 'telegram', 'whatsapp']);
 });
+
+test('postJson rejects a stalled webhook instead of hanging (#291)', async () => {
+  const net = await import('node:net');
+  const { postJson } = await import('../src/notifications/channels/http.js');
+  // Accept the TCP connection but never respond → the TLS handshake stalls,
+  // the socket sits idle, and the request must time out (not hang forever).
+  const sockets = new Set();
+  const server = net.createServer((sock) => {
+    sockets.add(sock);
+    sock.on('close', () => sockets.delete(sock));
+    // intentionally never responds
+  });
+  await new Promise((res) => server.listen(0, '127.0.0.1', res));
+  const { port } = server.address();
+  const prev = process.env.RSTACK_WEBHOOK_TIMEOUT_MS;
+  process.env.RSTACK_WEBHOOK_TIMEOUT_MS = '300';
+  try {
+    const start = Date.now();
+    await assert.rejects(
+      postJson(`https://127.0.0.1:${port}/hook`, { text: 'hi' }),
+      /timed out/i,
+    );
+    assert.ok(Date.now() - start < 5000, 'must reject promptly, not hang on a dead webhook');
+  } finally {
+    if (prev === undefined) delete process.env.RSTACK_WEBHOOK_TIMEOUT_MS;
+    else process.env.RSTACK_WEBHOOK_TIMEOUT_MS = prev;
+    // Destroy the lingering server-side socket so server.close() can resolve.
+    for (const sock of sockets) sock.destroy();
+    await new Promise((res) => server.close(res));
+  }
+});

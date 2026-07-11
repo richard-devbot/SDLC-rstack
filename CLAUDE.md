@@ -24,6 +24,15 @@ Update this table whenever a PR merges. One row per shipped capability; newest f
 
 | Shipped | Capability | Goal | Refs |
 |---------|-----------|------|------|
+| 2026-07-11 | **P3 papercuts roundup (7 of 9 items)** (fork agent PR #318, Claude-audited; trivial import conflict with #319 resolved by Claude on the fork branch): decisions.json fsync'd atomic; known-projects registry RMW locked+atomic in BOTH copies; worktree/submodule `.git`-as-file gitdir resolution (mis-keyed memory episodes); plan.md/prompt.md/validation.json atomic; **20-file validation cap fixed honestly** (every claimed file checked, only emitted entries capped, misses beyond cap still FAIL); retrieval events carry results_count; BLOCKED tasks surface in sdlc_status naming the exact override artifact. #299 REOPENED for item 8 (evidence-count cap) + decisions-lock convergence | 1, 4 | #299(partial), PR #318 |
+| 2026-07-11 | **Validate-time exhaustion enqueues the guardrail-override card** (#274, found live in the wave verification): the FAIL→BLOCKED transition at `sdlc_validate` now creates the same pending approval-queue card the claim path produces (same `approvalQueueId`, idempotent — later claims can't duplicate it) + pages the manager; source tagged `retry_budget_exhausted` for Codex's Action Inbox (#281). Golden-path e2e redeemed its #274 marker — the card is asserted at the budget-exhaustion step of the documented journey | 1, 2 | #274, PR #319 (Claude Code) |
+| 2026-07-11 | **Index blind-spot class closed for good**: (a) fork agent's v4 entries persist evidence/artifactIndex/timeline/activityTimeline/requirements + evidence.jsonl in the change signature (#296, PR #315, Claude-audited: silent-cap-at-100 filed to #299); (b) the **lite↔full parity guard** — compares a rich run fully-parsed vs index-served across EVERY key, fails on any populated field that renders empty unless consciously allowlisted with a reason — caught a real drop on its first run: the #82 'data damaged' badge (`hasIntegrityErrors`) vanished for index-served runs; persisted, INDEX_VERSION 5 (PR #316, Claude Code). A fourth occurrence of the #264/#296 class can no longer land silently | 2, 4 | #296 #274, PRs #315 #316 #319 |
+| 2026-07-11 | **Five-PR batch, Richardson-directed ("validate and merge all 5"), every one Claude-audited before merge**: (1) episode store serialized on the cross-process #287 lock + atomic touch/compaction rewrites — concurrent bridge processes can no longer lose episodes (#292, PR #309); (2) **POLICY: `release-readiness.json` no longer grants a run-wide destructive bypass** — release sign-off is release-only; per-task `destructive-action:<taskId>` (or the explicit coarse `destructive-action`) is the sole unblock; regression test pins that a release approval cannot unblock `rm -rf`; docs updated post-merge (#293 decided via this merge, PR #311); (3) model escalation keys off the IN_PROGRESS task, not the globally-last task_started — parallel delegates can no longer inherit the wrong attempt count and mis-escalate cost, cross-contamination test pinned (#297, PR #313); (4) traceability.json locked + atomic + fail-closed on corrupt/odd-shaped reads (skip + loud error, file preserved) — history can never be silently wiped (#295, PR #314); (5) **Codex Wave-0 flagship: server-owned availability-aware readiness** — one projection with unknown/blocked/at_risk/ready, no-runs → unknown (never Ready/100%), Command Center + Release Readiness consume the same verdict, source-linked blockers, historical gates reconciled via the audited approval path (#93, PR #312, branch codex/ui-readiness-93) | 1, 2, 4 | #292 #293 #295 #297 #93, PRs #309 #311–#314 |
+| 2026-07-10 | **Lock primitive can no longer break its own mutual exclusion**: per-acquisition token + heartbeat (mtime refreshed ~staleMs/3, token-verified so a taken-over lock is never freshened for the successor) + owner-checked release (finally deletes only OUR lock — a stale-broken owner no longer deletes the new holder's lock and admits a third writer) + `RSTACK_LOCK_STALE_MS` env tuning. Folded in the #288 residuals PR #306 deferred: `stampManifestStatus` (IN_PROGRESS/DONE stamps re-read+write under the manifest's own lock — concurrent stamps both land) and actionable `readManifest` errors naming the damaged run + recovery. Frozen-owner takeover scenario pinned in tests | 1, 4 | #287 #288, PR #307 (Claude Code) |
+| 2026-07-10 | **Webhook timeout + atomic manifests** (GPT/Codex audit agent, Claude-audited+merged): `postJson` hard socket timeout (default 10s, `RSTACK_WEBHOOK_TIMEOUT_MS`, destroy-on-timeout, double-settle guard — a black-holed webhook can no longer hang sdlc_start/approve/validate; bonus: dropped `url.port` bug fixed) with a real stalled-socket regression test; `writeManifest` routed through `writeJsonAtomic` so a torn write can't brick the run (PR #306 deliberately scoped to the torn-write half; lost-update half landed with #287 above) | 1, 4 | #291 #288, PRs #305 #306 |
+| 2026-07-10 | **Golden-path e2e in CI**: the documented bridge-only quick-start journey runs as a test — one real subprocess per tool call (not mock-pi; in-process mocks would hide cross-process bugs like #289), asserting version stamp (#261), persisted state + plain status (#262), run-bound approvals on the pinned run (#298/#289), FAIL-re-claim → hard-block → one-shot override (#265), structured no-task validate (#266), Hub↔terminal agreement (#264). The #261–#266 root cause ("nobody re-ran the journey") is now structurally impossible to repeat silently. #274 marker in place for the next assertion | 4, 2 | #275, PR #304 |
+| 2026-07-10 | **Decision intake rejects non-canonical stages at the source**: `sdlc_decisions` + CLI `--before` refuse unknown `required_before_stage` values with a structured/actionable error (valid stage list), so a bad decision can no longer poison the fail-closed DoR gate into raw-crashing every later `sdlc_build_next`. Filed + fixed by the GPT/Codex audit agent (PR from fork), audited/approved/merged by Claude Code — review notes: legacy-poisoned stores still raw-throw (accepted or follow-up), consider validating inside `addDecision` for future callers | 1 | #290, PR #303 |
+| 2026-07-10 | **Approval integrity pair — session pinning + run-bound approvals**: `.rstack/session.json` pin written by every run creator (sdlc_start AND adopt), resolution = explicit id → in-process → `RSTACK_RUN_ID` env → pin → newest dir, wired into harness `resolveRunId` and extension `readManifest` identically; `sdlc_approve` refuses no-run_id ambiguity (>1 runs, no session — structured candidate list, nothing written) and names the run every sign-off lands on; `run_id` stamped by all three approval writers + CONSUMED marker; `auditRunApprovals` threads `expectedRunId` — the #133 cross-run replay rejection is now LIVE (legacy unstamped grandfathered). Verified with a real spawned-bridge cross-process repro: pinned run receives the approval, newest run gets nothing. Post-merge incident: an over-broad `git add -A` swept 10 local workspace files into the PR — caught by the repo's own guard test, untracked same session (commit ebc2c64); lesson recorded (explicit paths only; merge only on green checks) | 1 | #289 #298, PR #302 |
 | 2026-07-10 | **Tolerant JSONL readers**: one corrupt/partial line in `events.jsonl`/`evidence.jsonl` no longer breaks `pipeline status`, goal evaluation, or the dashboard rollup — per-line try/catch matching the goal-check.js precedent, evidence schema filter preserved. Filed + fixed by the GPT/Codex dogfooding agent, reviewed/merged by Claude (follow-up noted: surface skipped-line counts to the #82 integrity collector) | 4 | #294, PR #301 |
 | 2026-07-10 | **Guard enforces every tool spelling + Windows grammar**: canonical tool-name comparison (separators stripped both sides — Claude Code `MultiEdit`/`NotebookEdit` PascalCase and Pi snake_case can never diverge again), `notebook_path` target extraction (5th surface found in verification), PowerShell/cmd destructive grammar (`Remove-Item -Recurse/-Force`, `rd /s`, `del /s\|/q\|/f`, content cmdlets → secret paths; case-insensitive; no false positives on single-file deletes), validator sandbox denies ANY PowerShell mutation cmdlet outright, init guard+observe matchers widened to `Bash\|Write\|Edit\|MultiEdit\|NotebookEdit`, doctor self-test probes one form per enforcement family (can never report green on an untested path again). Residual: pre-existing installs keep the old narrow matcher (init never overwrites) — doctor wiring-breadth check is the follow-up | 1 | #286, PR #300 |
 | 2026-07-10 | **Dogfooding wave — six golden-path bugs fixed same day they were filed** (fresh-sandbox bridge-driven quick-start probe): (1) claim order FAIL→BLOCKED→PENDING so retry policy/attempt budgets/hard-block engage at the point of failure — the flagship #149 enforcement was unreachable mid-plan (PR #267); (2) run-level approvals survive the Hub rollup index — entry+rehydrate+signature+INDEX_VERSION 3, terminal approvals now visible for index-served runs (PR #268); (3) pipeline-state.json persisted by every state-mutating bridge tool + `pipeline status` in-memory fallback with stderr disclosure (PR #269); (4) `sdlc_validate` structured no-task response with candidates+recovery instead of a raw throw (PR #270); (5) `rstack_version` derived from package.json — drift now fails CI by construction (PR #271); (6) docs stop promising the unimplemented `.claude/agents/rstack/` local-copies feature (PR #272). Every fix mutation-checked (tests verified failing without it); live sandbox verification of the merged wave drove the full governed loop terminal↔Hub and found #274 (validate-time block never enqueues the override approval card) | 1, 2, 4 | #261–#266, PRs #267–#272; follow-ups #274 #275 |
@@ -108,37 +117,32 @@ discarding the other; watch for this.
 open).** Two agents active: Claude (harness/governance) + GPT/Codex (dashboard UX program
 #273/#276–#285 + robustness audit #287–#299). Alignment comments posted on every issue.
 
-1. **Approval-integrity pair — #289 + #298** (do together): bridge has no cross-process session
-   pinning, so a no-run_id `sdlc_approve` lands on the NEWEST run (the exact #98 scenario the
-   code forbids — a destructive sign-off can attach to the wrong run); and no approval writer
-   stamps `run_id`, so the #133 cross-run binding audit is inert. Highest-severity open items:
-   both corrupt the approval trust chain everything else leans on. Goal 1.
-2. **#275** — golden-path CI e2e (unblocked now the wave is merged; cheap, locks in #261–#266
-   + #274 forever). Goal 4.
-3. **Durability core — #287 → #288 → #291 → #290**: withFileLock heartbeat + owner-checked
-   release (the primitive every locked write depends on); manifest atomic+locked (torn write
-   bricks a run); webhook timeout in postJson (hangs sdlc_start/approve/validate — the 5s-race
-   fix pattern already exists in notify-hook); non-canonical required_before_stage crash
-   (same class as fixed #266). Goals 1, 4.
-4. **#274** — validate-time BLOCKED never enqueues the guardrail-override approval card
-   (found in wave verification; Hub Approvals misses exhausted tasks). Feeds Codex's Action
-   Inbox (#281) correctness. Goals 1, 2.
-5. **#292 + #295** — memory store cross-process lock + atomic rewrites; traceability.json
-   locked, never wiped on corrupt read. Goals 1, 4.
-6. **#296** — extend the rollup-index entry schema (evidence/artifactIndex/requirements/
-   timelines; INDEX_VERSION 4 + lite↔full parity test) — coordinate with Codex #280/#282,
-   this is the data-layer half of their Evidence Center / Run Workspace. Goals 2, 4.
-7. **#293** — RICHARDSON DECISION NEEDED: release-readiness.json approval currently grants a
-   run-wide destructive bypass (intentional pre-#210 backward-compat, over-broad). Options:
-   deprecate behind config flag / warn-event now / keep documented. Goal 1.
-8. **#297** (per-task escalation keying) + **#299** (P3 papercuts batch) + **#286 residual**
-   (doctor wiring-breadth check for pre-existing narrow matchers). Goals 1, 4.
-9. **Session-continuity P0** (from the 2026-07-10 audit: imperative context packet +
+~~1. Approval-integrity pair #289+#298~~ SHIPPED (PR #302). ~~2. #275 golden-path e2e~~
+SHIPPED (PR #304). ~~#290~~ SHIPPED by the GPT/Codex agent (PR #303, Claude-audited).
+Multi-agent protocol in force: CLAIM an issue with a signed comment before starting;
+Claude Code posts from richard-devbot, the audit/Codex agent from richardsongunde.
+
+~~Durability core #287/#288/#291~~ ALL SHIPPED (PRs #305/#306 by the fork agent, #307 by
+Claude Code — board-sync comment on #287 records the division).
+
+~~#292/#293/#295/#297 + #93~~ ALL SHIPPED 2026-07-11 (five-PR batch #309/#311–#314,
+Richardson-directed merge, each Claude-audited). #293 policy DECIDED by that merge:
+release-readiness.json is release-only; docs fixed same day.
+
+~~#274~~ SHIPPED (PR #319). ~~#296~~ SHIPPED (fork agent PR #315 + Claude parity/integrity
+follow-up PR #316).
+
+1. **Fork agent's lane**: #299 (P3 papercuts — now 8 items: + the #315 silent-cap-at-100
+   evidence count and the tolerant-reader skipped-line counts). Claude audits + merges. Goal 4.
+2. **#286 residual** — doctor wiring-breadth check for pre-existing narrow matchers. Goal 1.
+4. **Session-continuity P0** (from the 2026-07-10 audit: imperative context packet +
    orchestrator Session Resume + real /sdlc-resume skill) — then the standalone-executor RFC.
    Goals 2, 3.
-10. **Codex UX epic #273** proceeds in parallel on the dashboard (waves per epic; Wave 0 =
-    #93/#276/#277/#96 foundations). Claude coordination notes live on each issue. Goal 2.
-11. Prior queue (still valid, after the above): #222 remainder, #228, #229, #208, #203, #213,
+5. **Codex UX epic #273** proceeds in parallel on the dashboard (Wave 0: #93 ✅ shipped;
+   #276/#277/#96 remain). Claude coordination notes live on each issue. Goal 2.
+6. **Release 2.1.0 prep** — the wave is getting complete: version bump + CHANGELOG (must note
+   the #293 governance tightening as breaking) + tag. Goal 2.
+7. Prior queue (still valid, after the above): #222 remainder, #228, #229, #208, #203, #213,
     #241; Release 2.1.0 when the wave feels complete; #156 remainder; #71 spec; #90–#97 UI
     backlog (largely superseded by #273); research epics #72–#79.
 
