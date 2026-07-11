@@ -128,7 +128,7 @@ test('doctor', async (t) => {
     seedRstack(root);
     mkdirSync(join(root, '.claude'), { recursive: true });
     writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
-      hooks: { PreToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }] },
+      hooks: { PreToolUse: [{ matcher: 'Bash|Write|Edit|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }] },
     }));
     const { json } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
 
@@ -162,8 +162,8 @@ test('doctor', async (t) => {
           { hooks: [{ type: 'command', command: 'npx --yes rstack-agents context --source claude-code' }] },
         ],
         UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'npx --yes rstack-agents context --source claude-code' }] }],
-        PreToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
-        PostToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents observe --source claude-code' }] }],
+        PreToolUse: [{ matcher: 'Bash|Write|Edit|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
+        PostToolUse: [{ matcher: 'Bash|Write|Edit|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents observe --source claude-code' }] }],
         Notification: [{ hooks: [{ type: 'command', command: 'npx --yes rstack-agents notify-hook --source claude-code' }] }],
       },
     }));
@@ -186,7 +186,7 @@ test('doctor', async (t) => {
     // Guard wired, but NO statusLine key.
     writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
       hooks: {
-        PreToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
+        PreToolUse: [{ matcher: 'Bash|Write|Edit|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
       },
     }));
     const { json, code } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
@@ -204,7 +204,7 @@ test('doctor', async (t) => {
     writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
       hooks: {
         PreToolUse: [
-          { matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] },
+          { matcher: 'Bash|Write|Edit|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] },
           { matcher: 'Write|Edit|MultiEdit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents gate tdd-gate' }] },
         ],
       },
@@ -224,7 +224,7 @@ test('doctor', async (t) => {
     mkdirSync(join(root, '.claude'), { recursive: true });
     writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
       hooks: {
-        PreToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
+        PreToolUse: [{ matcher: 'Bash|Write|Edit|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
       },
     }));
     const { json } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
@@ -240,8 +240,8 @@ test('doctor', async (t) => {
     mkdirSync(join(root, '.claude'), { recursive: true });
     writeFileSync(join(root, '.claude', 'settings.json'), JSON.stringify({
       hooks: {
-        PreToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
-        PostToolUse: [{ matcher: 'Bash|Write|Edit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents observe --source claude-code' }] }],
+        PreToolUse: [{ matcher: 'Bash|Write|Edit|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents guard --context builder' }] }],
+        PostToolUse: [{ matcher: 'Bash|Write|Edit|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'npx --yes rstack-agents observe --source claude-code' }] }],
       },
     }));
     const { json } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });

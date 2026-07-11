@@ -261,7 +261,55 @@ function checkClaudeCodeWiring(projectRoot) {
     : check('claude-code status line', PASS,
       'no statusLine key invoking `rstack-agents statusline` (optional, display-only). Add it with `rstack-agents init --framework claude-code`');
 
-  return [guardCheck, observeCheck, contextCheck, notifyCheck, gatesCheck, statuslineCheck];
+  // Matcher breadth (#324, the #286 residual): init never overwrites an
+  // existing settings.json, so installs initialized before #286 keep the
+  // narrow 'Bash|Write|Edit' matcher — and Claude Code only fires a hook
+  // whose matcher names the tool, so on those installs the guard NEVER RUNS
+  // for MultiEdit/NotebookEdit. The guard self-test can't see this (it probes
+  // the binary, not the host wiring), so the wiring check owns it: FAIL for
+  // the guard (enforcement hole), WARN for observe (blind dashboard only).
+  const breadthChecks = [];
+  const guardBreadth = matcherBreadth(preToolUse, 'guard');
+  if (guardBreadth) {
+    breadthChecks.push(guardBreadth.missing.length === 0
+      ? check('claude-code guard matcher breadth', PASS,
+        `PreToolUse guard matcher covers the enforced tool set (${ENFORCED_TOOL_MATCHER})`)
+      : check('claude-code guard matcher breadth', FAIL,
+        `PreToolUse guard matcher '${guardBreadth.matcher}' does not fire for: ${guardBreadth.missing.join(', ')} — a secret write via those tools bypasses enforcement on this install (pre-#286 init)`,
+        `Edit .claude/settings.json: set the guard hook's matcher to "${ENFORCED_TOOL_MATCHER}" (init never overwrites existing settings — this is a one-line manual fix, or re-merge from .claude/rstack-hooks.json)`));
+  }
+  const observeBreadth = matcherBreadth(parsed?.hooks?.PostToolUse, 'observe');
+  if (observeBreadth && observeBreadth.missing.length > 0) {
+    breadthChecks.push(check('claude-code observe matcher breadth', WARN,
+      `PostToolUse observe matcher '${observeBreadth.matcher}' misses: ${observeBreadth.missing.join(', ')} — activity via those tools will not reach the Business Hub (enforcement unaffected once the guard matcher is fixed)`,
+      `Edit .claude/settings.json: set the observe hook's matcher to "${ENFORCED_TOOL_MATCHER}"`));
+  }
+
+  return [guardCheck, ...breadthChecks, observeCheck, contextCheck, notifyCheck, gatesCheck, statuslineCheck];
+}
+
+// The tool set every enforcement matcher must cover — mirrors init.js
+// ENFORCED_TOOLS (#286) and is pinned against it by the doctor tests.
+const ENFORCED_TOOL_MATCHER = 'Bash|Write|Edit|MultiEdit|NotebookEdit';
+
+/**
+ * Find the hook group invoking `rstack-agents <invoker>` and report which
+ * enforced tools its matcher misses. Returns null when no such group exists
+ * (presence is the wiring check's verdict, not breadth's). An absent/empty
+ * matcher or a regex wildcard matches every tool in Claude Code — that is
+ * full breadth, not a gap.
+ */
+function matcherBreadth(entries, invoker) {
+  const group = (Array.isArray(entries) ? entries : []).find((entry) => {
+    const text = JSON.stringify(entry?.hooks ?? '');
+    return text.includes('rstack-agents') && text.includes(invoker);
+  });
+  if (!group) return null;
+  const matcher = String(group.matcher ?? '').trim();
+  if (!matcher || matcher === '*' || matcher.includes('.*')) return { matcher: matcher || '(all tools)', missing: [] };
+  const tools = matcher.split('|').map((tool) => tool.trim());
+  const missing = ENFORCED_TOOL_MATCHER.split('|').filter((tool) => !tools.includes(tool));
+  return { matcher, missing };
 }
 
 function checkPiWiring() {
