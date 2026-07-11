@@ -42,7 +42,10 @@ import { persistedTokenTotals } from '../../metrics/derive.js';
 // empty, so Business Hub aggregates (evidence counts, artifact index, run
 // timeline, requirement coverage, the drawer's activity timeline) silently
 // undercounted every completed run. The bump forces one self-healing rebuild.
-export const INDEX_VERSION = 4;
+// v5: entries persist has_integrity_errors — found by the lite↔full parity
+// guard the #296 review required: a completed run with damaged files lost its
+// #82 "data damaged" badge the moment it was served from the index.
+export const INDEX_VERSION = 5;
 export const DEFAULT_RETENTION_DAYS = 90;
 
 const STALL_MS = 30 * 60 * 1000;
@@ -136,6 +139,9 @@ export function entryFromRun(run, sig = null) {
     // Which stages produced an artifact (#97) — without this, every
     // index-served run rendered as if no stage had reported.
     stage_reports: run.stageReports ?? [],
+    // #82 data-integrity flag survives the index (v5): a damaged run must
+    // keep its "data damaged" badge even when served from the cache.
+    has_integrity_errors: run.hasIntegrityErrors ?? false,
     metrics: {
       cumulative_cost_usd: metricCost,
       cumulative_tokens: run.metrics?.cumulative_tokens ?? metricTokens,
@@ -229,6 +235,7 @@ export function liteRunFromEntry(projectRoot, entry, now = Date.now()) {
     brief: entry.brief ?? '',
     requirements: entry.requirements ?? [],
     hasPlan: entry.has_plan ?? false,
+    hasIntegrityErrors: entry.has_integrity_errors ?? false,
     lastEventTs: entry.last_event_ts ?? null,
   };
 }
