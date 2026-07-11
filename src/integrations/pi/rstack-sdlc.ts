@@ -18,7 +18,7 @@ import { environmentReportCheck } from "../../core/harness/environment-report.js
 import { taskStageIds, writePipelineState } from "../../core/harness/pipeline-state.js";
 import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
-import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
+import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, guardrailOverrideArtifact, isDestructiveTask } from "../../core/harness/guardrails.js";
 import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedApprovedArtifacts } from "../../core/harness/approval-audit.js";
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
 import { classifyDestructiveAction, requireApprovalForDestructiveAction, destructiveApprovalArtifact } from "../../core/harness/destructive-actions.js";
@@ -2305,6 +2305,37 @@ export default function (pi: ExtensionAPI) {
             observed: retryDecision.attempt,
             reason: `task ${task.id} already has ${retryDecision.attempt} attempt(s); limit is ${retryDecision.max_attempts}`,
           }));
+          // #274: validate-time exhaustion IS the transition to BLOCKED, and
+          // the later sdlc_build_next deliberately skips its enqueue for an
+          // already-BLOCKED task (anti-flood dedupe) — so without this, the
+          // guardrail-override approval card never appeared anywhere and the
+          // Hub's one-click surface silently missed exhausted tasks. Same
+          // queue id as the claim-path enqueue; appendApproval is idempotent
+          // on id, so a double-enqueue is impossible by construction.
+          const overrideArtifact = guardrailOverrideArtifact(task.id);
+          const requestedBy = manifest.started_by?.name ?? resolveUserIdentity(projectRoot).name;
+          await appendApprovalRequest(projectRoot, {
+            id: approvalQueueId({ runId: manifest.run_id, taskId: task.id, artifact: overrideArtifact }),
+            title: `Override guardrail for ${task.id}`,
+            detail: `Task ${task.id} exhausted its retry budget at validation (${retryDecision.attempt}/${retryDecision.max_attempts} attempts): ${retryDecision.reason}`,
+            status: "pending",
+            runId: manifest.run_id,
+            taskId: task.id,
+            artifact: overrideArtifact,
+            requestedBy,
+            projectRoot,
+            source: "retry_budget_exhausted",
+          });
+          // Page the manager at the moment of exhaustion — same rule as the
+          // claim-time gate: silence means blocked work waits invisibly.
+          try {
+            const payload = formatSlackStageMessage(manifest.run_id, task.id, "APPROVAL_PENDING", {
+              message: `Task ${task.id} exhausted its retry budget (${retryDecision.attempt}/${retryDecision.max_attempts}). Approve '${overrideArtifact}' via sdlc_approve or the Business Hub to allow exactly one more attempt.`,
+            });
+            await notifyAll(payload, { projectRoot });
+          } catch (err) {
+            console.error("Failed to send retry-exhausted notification:", err);
+          }
         } else if (retryDecision.action === "human_context") {
           await appendEvent(projectRoot, manifest.run_id, { type: "task_human_context_required", ...retryEventBase });
         } else if (retryDecision.action === "block") {

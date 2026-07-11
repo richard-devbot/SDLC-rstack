@@ -19,9 +19,8 @@ import { buildFullState } from '../src/observability/dashboard/state/index.js';
 // regress silently. Deliberately NOT mock-pi: the mocks share a process and
 // would hide cross-process bugs like #289.
 //
-// NOTE (#274, open): validate-time retry exhaustion does not yet enqueue the
-// guardrail-override approval card. When #274 lands, add the assertion that
-// the queue contains a pending override entry after step "budget exhausted".
+// #274 landed: validate-time retry exhaustion enqueues the guardrail-override
+// approval card — asserted in the "budget exhaustion" step below.
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(__dirname, '..');
@@ -119,6 +118,15 @@ test('golden path: the documented bridge-driven quick-start works end to end', {
     const tasks = readRunJson('tasks.json').tasks;
     assert.equal(tasks.find((task) => task.id === firstTaskId).status, 'BLOCKED');
     assert.ok(tasks.slice(1).every((task) => task.status === 'PENDING'), 'later tasks stay untouched');
+
+    // #274: the exhaustion itself enqueued the one-click override card — the
+    // human sees it on the Hub without needing another claim attempt first.
+    const queuePath = join(projectRoot, '.rstack', 'approvals.jsonl');
+    const queue = readFileSync(queuePath, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    const card = queue.find((entry) => entry.artifact === `guardrail-override:${firstTaskId}`);
+    assert.ok(card, 'the guardrail-override approval card is in the queue');
+    assert.equal(card.status, 'pending');
+    assert.equal(card.runId, runId);
   });
 
   await t.test('an approved override resumes the blocked task and is consumed one-shot', async () => {
