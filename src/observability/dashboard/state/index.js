@@ -15,6 +15,7 @@ import { buildBusinessFlexState } from './business-flex.js';
 import { buildDecisionState } from './decisions.js';
 import { buildEnvironmentState } from './environment.js';
 import { buildReadinessProjection } from './readiness.js';
+import { readConfiguredPolicies } from './configured-policy.js';
 import { decorateRunIdentity, resolveProjectDescriptors } from './identity.js';
 import {
   buildScopeCatalog,
@@ -141,6 +142,9 @@ export async function buildFullState(projectRoot, options = {}) {
       ...issue,
     }));
   }))).flat();
+  const configuredPolicy = await readConfiguredPolicies(roots, scopedDescriptors, {
+    now: options.now,
+  });
 
   const baseState = {
     kind: 'snapshot',
@@ -171,7 +175,7 @@ export async function buildFullState(projectRoot, options = {}) {
     trends,
     people,
     presence,
-    businessFlex: buildBusinessFlexState(runs),
+    businessFlex: buildBusinessFlexState(runs, configuredPolicy),
     decisions,
     // Environment & Integrations (#238): defensive by contract — absent
     // report/integrations/.env files are honest empty state, never a crash.

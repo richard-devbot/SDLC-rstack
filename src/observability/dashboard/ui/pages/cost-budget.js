@@ -48,17 +48,76 @@ function costSummaryHtml(s) {
     '<div class="kv-note">Source: ' + persisted + ' run(s) from persisted metrics.json totals, ' + recomputed + ' recomputed from the event stream (legacy or drift-flagged runs).</div>';
 }
 
+function budgetPolicyLabel(availability) {
+  if (availability === 'configured') return 'Configured';
+  if (availability === 'invalid') return 'Invalid configuration';
+  if (availability === 'inaccessible') return 'Configuration unavailable';
+  return 'Policy file missing';
+}
+
+function budgetPolicyTone(availability) {
+  if (availability === 'configured') return 'pass';
+  if (availability === 'invalid') return 'fail';
+  return 'warn';
+}
+
+function configuredCapHtml(value, cadence) {
+  if (value === null || value === undefined) {
+    return '<div class="policy-cap missing"><span>—</span><small>No ' + esc(cadence) + ' cap configured</small></div>';
+  }
+  return '<div class="policy-cap"><strong>$' + Number(value).toFixed(2) + ' / ' + esc(cadence) + '</strong><small>Enforced from file</small></div>';
+}
+
+function configuredBudgetPolicyHtml(s) {
+  var model = businessFlexModel(s);
+  var projects = model.configuredPolicy && model.configuredPolicy.projects || [];
+  var observed = model.observedConsumption || {};
+  if (!projects.length) {
+    return emptyHtml('Budget policy unavailable', 'No validated project policy record reached this scope. Open Diagnostics to inspect .rstack/budget.json.');
+  }
+  return projects.map(function(project) {
+    var budget = project.budget || { availability: 'missing', issues: [] };
+    var availability = budget.availability || 'missing';
+    var projectLabel = project.projectName || shortName(project.projectRoot);
+    var policyBody = availability === 'configured'
+      ? '<div class="policy-caps">' + configuredCapHtml(budget.runBudgetUsd, 'run') + configuredCapHtml(budget.dailyBudgetUsd, 'day') + configuredCapHtml(budget.monthlyBudgetUsd, 'month') + '</div>'
+      : '<div class="policy-state ' + esc(availability) + '">' +
+        '<div class="policy-state-copy">' + (availability === 'invalid' ? 'Invalid values are not presented as enforced.' : availability === 'inaccessible' ? 'The dashboard could not read this policy file.' : 'Add budget.json to arm file-backed cost limits.') + '</div>' +
+        ((budget.issues || []).length ? '<ul class="policy-issues">' + budget.issues.slice(0, 4).map(function(issue) { return '<li>' + (issue.field ? '<b>' + esc(issue.field) + ':</b> ' : '') + esc(issue.problem || '') + '</li>'; }).join('') + '</ul>' : '') +
+        '<button type="button" class="policy-action" onclick="showPage(\\'diagnostics\\')">Open Diagnostics</button></div>';
+    var consumption = observed.availability === 'available'
+      ? '<div class="policy-observation"><strong>$' + Number(observed.totalCostUsd || 0).toFixed(2) + '</strong><span>actual measured consumption · ' + esc(observed.runsWithTelemetry || 0) + ' reporting runs</span></div>'
+      : '<div class="policy-observation empty"><strong>No telemetry yet</strong><span>Configured limits do not count as spend. Actual use appears after metrics are recorded.</span></div>';
+    return '<section class="configured-budget" aria-label="Budget policy for ' + esc(projectLabel) + '">' +
+      '<div class="configured-budget-head"><div><div class="policy-kicker">Current enforced policy</div><div class="strong">' + esc(projectLabel) + '</div></div>' +
+        pill(budgetPolicyTone(availability), budgetPolicyLabel(availability)) + '</div>' +
+      '<div class="configured-budget-grid"><div>' + policyBody + '<div class="policy-source">Source · ' + esc(budget.sourcePath || '.rstack/budget.json') + '</div></div>' + consumption + '</div>' +
+    '</section>';
+  }).join('');
+}
+
 // Budget consumption — the governed cap. run.loopBudgetUsd comes from the
 // project's .rstack/budget.json, the exact file the goal loop's cost brake
 // reads, so this bar shows the cap that actually stops the loop.
 function budgetGovernanceHtml(s) {
   var runs = s.runs || [];
+  var policies = businessFlexModel(s).configuredPolicy && businessFlexModel(s).configuredPolicy.projects || [];
+  if (!runs.length) {
+    var configured = policies.some(function(project) { return project.budget && project.budget.availability === 'configured'; });
+    return configured
+      ? emptyHtml('No telemetry yet', 'Current file-backed limits are shown above. Run consumption appears here only after a pipeline run records metrics.')
+      : emptyHtml('Run consumption unavailable', 'A valid current budget policy and run telemetry are required before consumption can be evaluated.');
+  }
   var capped = runs.filter(function(run) {
     return run.loopBudgetUsd !== null && run.loopBudgetUsd !== undefined && isFinite(Number(run.loopBudgetUsd));
   });
   if (!capped.length) {
-    return emptyHtml('No run budget cap configured',
-      'Set run_budget_usd in .rstack/budget.json to arm the loop cost brake: rstack-agents pipeline loop checks actual spend against that cap before every iteration and refuses to start another one once it is reached. Until a cap is set, only the iteration bound limits spend.');
+    var validCapless = policies.some(function(project) {
+      return project.budget && project.budget.availability === 'configured' && (project.budget.runBudgetUsd === null || project.budget.runBudgetUsd === undefined);
+    });
+    return validCapless
+      ? emptyHtml('No run cap configured', 'The valid .rstack/budget.json policy omits run_budget_usd, so the loop cost brake is not armed for run spend.')
+      : emptyHtml('Run cap unavailable', 'The current policy is missing, invalid, or unreadable. Open Diagnostics before making a cost decision.');
   }
   var rows = capped.slice(0, 12).map(function(run) {
     var cap = Number(run.loopBudgetUsd);
@@ -153,6 +212,11 @@ function ensureCostBudgetPanels() {
   var page = document.getElementById('page-cost-budget');
   if (!page) return;
   var firstGrid = page.querySelector('.grid-2');
+  var policy = document.createElement('div');
+  policy.className = 'panel';
+  policy.id = 'cost-budget-policy-panel';
+  policy.innerHTML = '<div class="panel-head"><span class="panel-title">Current Enforced Policy</span><span class="panel-note" id="cost-budget-policy-note"></span></div><div class="panel-body" id="cost-budget-policy"></div>';
+  if (firstGrid) page.insertBefore(policy, firstGrid); else page.appendChild(policy);
   var gov = document.createElement('div');
   gov.className = 'panel';
   gov.id = 'cost-budget-governance-panel';
@@ -170,11 +234,23 @@ function ensureCostBudgetPanels() {
 function renderCostBudget(s) {
   ensureCostBudgetPanels();
   var runs = s.runs || [];
+  var policyProjects = businessFlexModel(s).configuredPolicy && businessFlexModel(s).configuredPolicy.projects || [];
   setText('cost-budget-count', runs.length + ' runs in scope');
   setHTML('cost-budget-summary', costSummaryHtml(s));
+  setHTML('cost-budget-policy', configuredBudgetPolicyHtml(s));
+  setText('cost-budget-policy-note', policyProjects.length ? policyProjects.length + ' project policy record' + (policyProjects.length === 1 ? '' : 's') : 'policy unavailable');
   setHTML('cost-budget-governance', budgetGovernanceHtml(s));
   var capCount = runs.filter(function(run) { return run.loopBudgetUsd !== null && run.loopBudgetUsd !== undefined; }).length;
-  setText('cost-budget-governance-note', capCount ? capCount + ' run(s) under a run_budget_usd cap' : 'no cap configured');
+  var configuredCapCount = policyProjects.filter(function(project) {
+    return project.budget && project.budget.availability === 'configured' && project.budget.runBudgetUsd !== null && project.budget.runBudgetUsd !== undefined;
+  }).length;
+  var validCapless = policyProjects.some(function(project) {
+    return project.budget && project.budget.availability === 'configured' && (project.budget.runBudgetUsd === null || project.budget.runBudgetUsd === undefined);
+  });
+  setText('cost-budget-governance-note', capCount
+    ? capCount + ' run(s) under a run_budget_usd cap'
+    : configuredCapCount ? configuredCapCount + ' current run cap' + (configuredCapCount === 1 ? '' : 's') + ' · no run telemetry'
+      : validCapless ? 'No run cap configured' : 'policy unavailable');
   setHTML('cost-budget-runs-table', costRunRowsHtml(runs));
   setText('cost-budget-runs-note', runs.filter(runHasCostTelemetry).length + ' with telemetry');
   setHTML('cost-budget-stages', stageCostAcrossRunsHtml(runs));
@@ -183,7 +259,7 @@ function renderCostBudget(s) {
 
 registerPage('cost-budget', {
   errLabel: 'cost budget',
-  sub: 'Actual tracked spend and tokens with provenance, per-run and per-stage breakdowns, and consumption against the run_budget_usd cap the goal loop enforces.',
+  sub: 'Current file-backed limits, historical run policy, and actual tracked spend remain separate so configured caps never look like consumption.',
   render: renderCostBudget
 });
 `;

@@ -8,8 +8,294 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { buildBusinessFlexState } from '../src/observability/dashboard/state/business-flex.js';
 import { toClientState } from '../src/observability/dashboard/state/client-state.js';
+import { readConfiguredPolicies } from '../src/observability/dashboard/state/configured-policy.js';
+import { resolveProjectDescriptor } from '../src/observability/dashboard/state/identity.js';
+import { buildFullState } from '../src/observability/dashboard/state/index.js';
+import { libScript } from '../src/observability/dashboard/ui/lib.js';
+import { businessFlexScript } from '../src/observability/dashboard/ui/pages/business-flex.js';
+import { styles } from '../src/observability/dashboard/ui/styles.js';
+
+async function policyRoot({ config, budget } = {}) {
+  const root = await mkdtemp(join(tmpdir(), 'rstack-flex-policy-'));
+  await mkdir(join(root, '.git'), { recursive: true });
+  await mkdir(join(root, '.rstack'), { recursive: true });
+  if (config !== undefined) {
+    await writeFile(join(root, '.rstack', 'rstack.config.json'),
+      typeof config === 'string' ? config : JSON.stringify(config));
+  }
+  if (budget !== undefined) {
+    await writeFile(join(root, '.rstack', 'budget.json'),
+      typeof budget === 'string' ? budget : JSON.stringify(budget));
+  }
+  return root;
+}
+
+function businessFlexUi() {
+  return new Function(
+    `${libScript}\n${businessFlexScript}\nreturn { businessPolicyLedgerHtml, businessRunSnapshotsHtml };`,
+  )();
+}
+
+function configuredFlexModel(overrides = {}) {
+  return {
+    configuredPolicy: {
+      projects: [{
+        projectId: 'project-flex',
+        projectRoot: '/workspace/flex',
+        projectName: 'customer-portal',
+        worktreeName: null,
+        availability: 'configured',
+        profile: {
+          availability: 'configured', id: 'business-flex', name: 'Business Flex Delivery',
+          workflow: 'production-business-sdlc', enabledDomains: ['product', 'backend'],
+          enabledAgents: [], enabledPlugins: [], dashboardPages: [],
+          sourcePath: '.rstack/rstack.config.json', issues: [],
+        },
+        budget: {
+          availability: 'configured', currency: 'USD', runBudgetUsd: 10,
+          dailyBudgetUsd: 50, monthlyBudgetUsd: 500,
+          sourcePath: '.rstack/budget.json', issues: [],
+        },
+        loadedAt: '2026-07-11T08:00:00.000Z',
+      }],
+    },
+    observedConsumption: {
+      availability: 'unavailable', runCount: 0, runsWithTelemetry: 0,
+      totalCostUsd: null, metricsSources: { persisted: 0, events: 0 }, lastMeasuredAt: null,
+    },
+    runSnapshots: [],
+    profiles: [],
+    budget: {},
+    routingSignals: [],
+    ...overrides,
+  };
+}
+
+test('Business Flex policy ledger shows configured profile and 10/50/500 before telemetry', () => {
+  const html = businessFlexUi().businessPolicyLedgerHtml(configuredFlexModel());
+  assert.match(html, /Configured operating policy/);
+  assert.match(html, /Business Flex Delivery/);
+  assert.match(html, /production-business-sdlc/);
+  assert.match(html, /\$10\.00 \/ run/);
+  assert.match(html, /\$50\.00 \/ day/);
+  assert.match(html, /\$500\.00 \/ month/);
+  assert.match(html, /No telemetry yet/);
+  assert.match(html, /customer-portal/);
+  assert.match(html, /\.rstack\/budget\.json/);
+  assert.doesNotMatch(html, /Waiting for run|No RStack profile data/);
+});
+
+test('Business Flex policy ledger names invalid, unavailable, and missing states with recovery', () => {
+  const api = businessFlexUi();
+  const model = configuredFlexModel();
+  const project = model.configuredPolicy.projects[0];
+  project.availability = 'invalid';
+  project.budget = {
+    availability: 'invalid', runBudgetUsd: null, dailyBudgetUsd: null, monthlyBudgetUsd: null,
+    sourcePath: '.rstack/budget.json', issues: [{ field: 'run_budget_usd', problem: 'must be non-negative' }],
+  };
+  const invalid = api.businessPolicyLedgerHtml(model);
+  assert.match(invalid, /Invalid configuration/);
+  assert.match(invalid, /run_budget_usd/);
+  assert.match(invalid, /Open Diagnostics/);
+  assert.match(invalid, /showPage\('diagnostics'\)/);
+  assert.doesNotMatch(invalid, /\$0\.00 \/ run/);
+
+  project.availability = 'inaccessible';
+  project.profile.availability = 'inaccessible';
+  project.budget.availability = 'inaccessible';
+  assert.match(api.businessPolicyLedgerHtml(model), /Configuration unavailable/);
+
+  project.availability = 'missing';
+  project.profile.availability = 'missing';
+  project.budget.availability = 'missing';
+  assert.match(api.businessPolicyLedgerHtml(model), /Policy file missing/);
+});
+
+test('Business Flex historical snapshot makes policy drift explicit', () => {
+  const model = configuredFlexModel({
+    runSnapshots: [{
+      runId: 'run-before-change', comparison: 'differs',
+      profile: { id: 'business-flex', workflow: 'production-business-sdlc' },
+      budget: { currency: 'USD', runBudgetUsd: 5, dailyBudgetUsd: 20, monthlyBudgetUsd: 100 },
+      differences: [{ field: 'runBudgetUsd', snapshot: 5, current: 10 }],
+    }],
+  });
+  const html = businessFlexUi().businessRunSnapshotsHtml(model);
+  assert.match(html, /Policy changed since this run/);
+  assert.match(html, /run-before-change/);
+  assert.match(html, /Run cap/);
+  assert.match(html, /\$5\.00/);
+});
+
+test('Business Flex policy ledger is responsive and keeps recovery controls touchable', () => {
+  assert.match(styles, /\.policy-ledger\s*\{[^}]*grid-template-columns:\s*repeat\(3,/s);
+  assert.match(styles, /\.policy-action[^}]*min-height:\s*44px/s);
+  assert.match(styles, /@media \(max-width:\s*700px\)[\s\S]*\.policy-ledger\s*\{[^}]*grid-template-columns:\s*1fr/s);
+});
+
+test('valid zero-run project exposes configured profile and enforced 10/50/500 caps', async () => {
+  const root = await policyRoot({
+    config: { profile: 'business-flex' },
+    budget: { currency: 'USD', run_budget_usd: 10, daily_budget_usd: 50, monthly_budget_usd: 500 },
+  });
+  try {
+    const descriptor = resolveProjectDescriptor(root);
+    const result = await readConfiguredPolicies([root], [descriptor], { now: 1_752_214_400_000 });
+    const project = result.projects[0];
+    assert.equal(project.availability, 'configured');
+    assert.equal(project.profile.id, 'business-flex');
+    assert.equal(project.profile.name, 'Business Flex Delivery');
+    assert.equal(project.profile.workflow, 'production-business-sdlc');
+    assert.deepEqual(project.budget, {
+      availability: 'configured',
+      currency: 'USD',
+      runBudgetUsd: 10,
+      dailyBudgetUsd: 50,
+      monthlyBudgetUsd: 500,
+      sourcePath: '.rstack/budget.json',
+      issues: [],
+    });
+    assert.equal(project.projectId, descriptor.id);
+    assert.equal(project.loadedAt, new Date(1_752_214_400_000).toISOString());
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('configured policy distinguishes missing and invalid files', async () => {
+  const missingRoot = await policyRoot();
+  const malformedRoot = await policyRoot({ config: '{ broken', budget: { run_budget_usd: -1 } });
+  try {
+    const missing = (await readConfiguredPolicies(
+      [missingRoot], [resolveProjectDescriptor(missingRoot)],
+    )).projects[0];
+    assert.equal(missing.availability, 'missing');
+    assert.equal(missing.profile.availability, 'missing');
+    assert.equal(missing.budget.availability, 'missing');
+
+    const invalid = (await readConfiguredPolicies(
+      [malformedRoot], [resolveProjectDescriptor(malformedRoot)],
+    )).projects[0];
+    assert.equal(invalid.availability, 'invalid');
+    assert.equal(invalid.profile.availability, 'invalid');
+    assert.equal(invalid.budget.availability, 'invalid');
+    assert.equal(invalid.budget.issues[0].field, 'run_budget_usd');
+    assert.match(invalid.profile.issues[0].problem, /malformed JSON/);
+  } finally {
+    await rm(missingRoot, { recursive: true, force: true });
+    await rm(malformedRoot, { recursive: true, force: true });
+  }
+});
+
+test('configured policy reports inaccessible reads without presenting defaults as configured', async () => {
+  const root = await policyRoot({ config: { profile: 'business-flex' }, budget: { run_budget_usd: 10 } });
+  const denied = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+  try {
+    const result = await readConfiguredPolicies(
+      [root],
+      [resolveProjectDescriptor(root)],
+      { io: { readFile: async () => { throw denied; } } },
+    );
+    assert.equal(result.projects[0].availability, 'inaccessible');
+    assert.equal(result.projects[0].profile.availability, 'inaccessible');
+    assert.equal(result.projects[0].budget.availability, 'inaccessible');
+    assert.equal(result.projects[0].budget.runBudgetUsd, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('configured policy preserves a zero-dollar cap as an armed policy value', async () => {
+  const root = await policyRoot({
+    config: { profile: 'lean-mvp' },
+    budget: { run_budget_usd: 0, daily_budget_usd: 0, monthly_budget_usd: 0 },
+  });
+  try {
+    const project = (await readConfiguredPolicies(
+      [root], [resolveProjectDescriptor(root)],
+    )).projects[0];
+    assert.equal(project.budget.availability, 'configured');
+    assert.equal(project.budget.runBudgetUsd, 0);
+    assert.equal(project.budget.dailyBudgetUsd, 0);
+    assert.equal(project.budget.monthlyBudgetUsd, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('buildFullState exposes configured Business Flex policy before the first run', async () => {
+  const root = await policyRoot({
+    config: { profile: 'business-flex' },
+    budget: { run_budget_usd: 10, daily_budget_usd: 50, monthly_budget_usd: 500 },
+  });
+  try {
+    const state = await buildFullState(root, { includeRegistry: false, now: 1_752_214_400_000 });
+    assert.equal(state.totalRuns, 0);
+    assert.equal(state.businessFlex.configuredPolicy.projects.length, 1);
+    assert.equal(state.businessFlex.configuredPolicy.projects[0].profile.id, 'business-flex');
+    assert.equal(state.businessFlex.configuredPolicy.projects[0].budget.runBudgetUsd, 10);
+    assert.equal(state.businessFlex.observedConsumption.availability, 'unavailable');
+    assert.equal(state.businessFlex.observedConsumption.totalCostUsd, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('historical run snapshot is marked when current policy differs', () => {
+  const projectRoot = '/workspace/business-flex';
+  const configuredPolicy = {
+    projects: [{
+      projectId: 'project-flex',
+      projectRoot,
+      profile: { availability: 'configured', id: 'business-flex', workflow: 'production-business-sdlc' },
+      budget: {
+        availability: 'configured', runBudgetUsd: 10,
+        dailyBudgetUsd: 50, monthlyBudgetUsd: 500,
+      },
+    }],
+  };
+  const model = buildBusinessFlexState([{
+    runId: 'run-before-change',
+    scopeKey: 'run-key-before-change',
+    projectId: 'project-flex',
+    projectRoot,
+    profile: { profile: 'business-flex', workflow: 'production-business-sdlc' },
+    workflow: 'production-business-sdlc',
+    budgetPolicy: { run_budget_usd: 5, daily_budget_usd: 20, monthly_budget_usd: 100 },
+    tasks: [],
+  }], configuredPolicy);
+  assert.equal(model.runSnapshots[0].comparison, 'differs');
+  assert.deepEqual(
+    model.runSnapshots[0].differences.map((difference) => difference.field),
+    ['runBudgetUsd', 'dailyBudgetUsd', 'monthlyBudgetUsd'],
+  );
+  assert.equal(model.observedConsumption.availability, 'unavailable');
+});
+
+test('observed consumption reports telemetry provenance without treating configured caps as spend', () => {
+  const model = buildBusinessFlexState([{
+    runId: 'run-measured',
+    projectRoot: '/workspace/measured',
+    totals: { cost_usd: 3.25, tokens: 400 },
+    metrics: { cumulative_cost_usd: 3.25 },
+    events: [],
+    tasks: [],
+  }], { projects: [] });
+  assert.deepEqual(model.observedConsumption, {
+    availability: 'available',
+    runCount: 1,
+    runsWithTelemetry: 1,
+    totalCostUsd: 3.25,
+    metricsSources: { persisted: 1, events: 0 },
+    lastMeasuredAt: null,
+  });
+});
 
 // ---------------------------------------------------------------------------
 // buildBusinessFlexState — empty / null inputs

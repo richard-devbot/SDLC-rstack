@@ -148,8 +148,8 @@ test('ETag helpers: stable hashes and If-None-Match matching incl. weak/list for
 test('stableStringify drops server eval-time timestamps so the ETag is stable across rebuilds', () => {
   // Two consecutive state builds differ only in restamped "now" fields at any
   // nesting depth — top-level ts, alert ts, decision-readiness generated_at.
-  const buildA = { ts: '2026-06-14T09:00:00.000Z', runs: [{ id: 'r1', status: 'DONE' }], alerts: [{ kind: 'stalled', ts: 1 }], decisions: { runs: [{ readiness: { generated_at: '2026-06-14T09:00:00.001Z', status: 'PASS' } }] } };
-  const buildB = { ts: '2026-06-14T09:00:05.000Z', runs: [{ id: 'r1', status: 'DONE' }], alerts: [{ kind: 'stalled', ts: 2 }], decisions: { runs: [{ readiness: { generated_at: '2026-06-14T09:00:05.999Z', status: 'PASS' } }] } };
+  const buildA = { ts: '2026-06-14T09:00:00.000Z', policy: { loadedAt: '2026-06-14T09:00:00.000Z', runBudgetUsd: 10 }, runs: [{ id: 'r1', status: 'DONE' }], alerts: [{ kind: 'stalled', ts: 1 }], decisions: { runs: [{ readiness: { generated_at: '2026-06-14T09:00:00.001Z', status: 'PASS' } }] } };
+  const buildB = { ts: '2026-06-14T09:00:05.000Z', policy: { loadedAt: '2026-06-14T09:00:05.000Z', runBudgetUsd: 10 }, runs: [{ id: 'r1', status: 'DONE' }], alerts: [{ kind: 'stalled', ts: 2 }], decisions: { runs: [{ readiness: { generated_at: '2026-06-14T09:00:05.999Z', status: 'PASS' } }] } };
   assert.equal(stableStringify(buildA), stableStringify(buildB), 'timestamp-only deltas hash identically');
   assert.equal(etagFor(stableStringify(buildA)), etagFor(stableStringify(buildB)));
 

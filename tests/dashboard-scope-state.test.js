@@ -91,6 +91,15 @@ async function seedScopedProject(projectRoot, {
     runId,
     ts: '2026-07-11T08:03:00.000Z',
   })}\n`);
+  const isBeta = taskStatus === 'FAIL';
+  await writeFile(join(projectRoot, '.rstack', 'rstack.config.json'), JSON.stringify({
+    profile: isBeta ? 'lean-mvp' : 'business-flex',
+  }));
+  await writeFile(join(projectRoot, '.rstack', 'budget.json'), JSON.stringify({
+    run_budget_usd: isBeta ? 999 : 10,
+    daily_budget_usd: isBeta ? 1999 : 50,
+    monthly_budget_usd: isBeta ? 9999 : 500,
+  }));
 }
 
 test('a linked worktree keeps the canonical repository name and exposes the worktree secondarily', () => {
@@ -214,6 +223,12 @@ test('project scope rebuilds all visible records and aggregates without cross-pr
     assert.deepEqual(state.diagnostics.sourceRoots, [projectA]);
     assert.equal(state.decisions.runs.every((row) => row.projectId === projectAId), true);
     assert.equal(state.readiness.blockers.some((item) => item.projectRoot === projectB), false);
+    assert.equal(state.businessFlex.configuredPolicy.projects.length, 1);
+    assert.equal(state.businessFlex.configuredPolicy.projects[0].projectRoot, projectA);
+    assert.equal(state.businessFlex.configuredPolicy.projects[0].profile.id, 'business-flex');
+    assert.equal(state.businessFlex.configuredPolicy.projects[0].budget.runBudgetUsd, 10);
+    assert.equal(JSON.stringify(state.businessFlex.configuredPolicy).includes(projectB), false);
+    assert.equal(JSON.stringify(state.businessFlex.configuredPolicy).includes('9999'), false);
     assert.equal(state.scopeCatalog.projects.length, 2, 'the global catalog remains available to switch scope');
   } finally {
     rmSync(fixture, { recursive: true, force: true });

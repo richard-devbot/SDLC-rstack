@@ -41,8 +41,23 @@ export function readLoopBudgetCaps(sourceRoots, now = Date.now()) {
 }
 
 export function toClientState(state) {
-  const loopBudgetCaps = readLoopBudgetCaps(state.sourceRoots);
-  const capByRoot = Object.fromEntries(loopBudgetCaps.map((cap) => [cap.root, cap.run_budget_usd]));
+  const businessFlex = state.businessFlex ?? { profiles: [], budget: {}, routingSignals: [] };
+  const policyProjects = businessFlex.configuredPolicy?.projects ?? [];
+  const configuredBudgets = policyProjects.filter((project) => (
+    project.budget?.availability === 'configured'
+    && project.budget.runBudgetUsd !== null
+    && project.budget.runBudgetUsd !== undefined
+  ));
+  const capByRoot = Object.fromEntries(configuredBudgets.map((project) => [
+    project.projectRoot,
+    project.budget.runBudgetUsd,
+  ]));
+  const loopBudgetCaps = configuredBudgets.map((project) => ({
+    root: project.projectRoot,
+    run_budget_usd: project.budget.runBudgetUsd,
+    daily_budget_usd: project.budget.dailyBudgetUsd ?? null,
+    monthly_budget_usd: project.budget.monthlyBudgetUsd ?? null,
+  }));
   const runs = (state.runs ?? []).map((run) => {
     const { events, evidence, ...rest } = run;
     // [wave:money] Cost/token provenance (#83/#215): mirrors resolveRunTotals —
@@ -61,7 +76,7 @@ export function toClientState(state) {
       // is unarmed). Additive fields — nothing existing changes shape.
       tokenTotals: persistedTokens,
       metricsSource,
-      loopBudgetUsd: capByRoot[run.projectRoot] ?? null,
+      loopBudgetUsd: Object.hasOwn(capByRoot, run.projectRoot) ? capByRoot[run.projectRoot] : null,
       workflow: run.workflow,
       budgetPolicy: run.budgetPolicy,
       profile: run.profile,
@@ -166,7 +181,7 @@ export function toClientState(state) {
       : { stages: {}, runs: [] },
     people: (state.people ?? []).slice(0, 60),
     presence: (state.presence ?? []).slice(0, 40),
-    businessFlex: state.businessFlex ?? { profiles: [], budget: {}, routingSignals: [] },
+    businessFlex,
     // [wave:money] The armed loop budget caps per source root (from
     // .rstack/budget.json — the file the goal loop enforces).
     loopBudgets: loopBudgetCaps,

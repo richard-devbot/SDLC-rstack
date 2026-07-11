@@ -130,7 +130,7 @@ export function etagFor(payload) {
 // client-facing data changes only. Safe for cache correctness: a meaningful
 // data change is never *only* a timestamp or an index-internal counter — it
 // always moves a status, count, or id that survives this strip.
-const VOLATILE_KEY = /^(ts|generated_at|generatedAt|evaluated_at|evaluatedAt|computed_at|computedAt|freshnessMs|fullyParsedRuns|indexServedRuns)$/;
+const VOLATILE_KEY = /^(ts|generated_at|generatedAt|evaluated_at|evaluatedAt|computed_at|computedAt|loadedAt|freshnessMs|fullyParsedRuns|indexServedRuns)$/;
 
 export function stableStringify(value) {
   return JSON.stringify(stripVolatileKeys(value));

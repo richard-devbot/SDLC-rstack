@@ -57,7 +57,7 @@ function sandbox(document, prelude = '') {
     libScript + runAnalyticsScript + costBudgetScript + complianceScript + `
     return {
       fmtTokensCompact, moneySourcePill, analyticsKpisHtml, stageMoneyHtml,
-      benchmarkPanelHtml, costSummaryHtml, budgetGovernanceHtml, costRunRowsHtml,
+      benchmarkPanelHtml, costSummaryHtml, configuredBudgetPolicyHtml, budgetGovernanceHtml, costRunRowsHtml,
       stageCostAcrossRunsHtml, complianceReportModel, complianceScorecardHtml,
       complianceControlsHtml, renderCostBudget, renderCompliance,
       seedBenchCache: function(runId, entry) { BENCH_CACHE[runId] = entry; },
@@ -112,6 +112,31 @@ function clientRun(run = fixtureRun()) {
   return toClientState({ runs: [run] }).runs[0];
 }
 
+function configuredBudgetState(overrides = {}) {
+  return {
+    runs: [],
+    businessFlex: {
+      configuredPolicy: {
+        projects: [{
+          projectId: 'project-flex', projectRoot: '/tmp/fixture-project', projectName: 'fixture-project',
+          availability: 'configured',
+          budget: {
+            availability: 'configured', currency: 'USD', runBudgetUsd: 10,
+            dailyBudgetUsd: 50, monthlyBudgetUsd: 500,
+            sourcePath: '.rstack/budget.json', issues: [],
+          },
+        }],
+      },
+      observedConsumption: {
+        availability: 'unavailable', runCount: 0, runsWithTelemetry: 0,
+        totalCostUsd: null, metricsSources: { persisted: 0, events: 0 }, lastMeasuredAt: null,
+      },
+      runSnapshots: [], profiles: [], budget: {}, routingSignals: [],
+    },
+    ...overrides,
+  };
+}
+
 // ── client-state provenance + budget fields ─────────────────────────────────
 
 test('toClientState marks persisted metrics and exposes the token breakdown', () => {
@@ -160,15 +185,61 @@ test('readLoopBudgetCaps mirrors the goal-loop budget file exactly', () => {
   rmSync(corruptRoot, { recursive: true, force: true });
 });
 
-test('toClientState wires loopBudgetUsd to the run through sourceRoots', () => {
+test('toClientState wires loop budgets from configured policy without rereading files', () => {
   const root = mkdtempSync(join(tmpdir(), 'rstack-money-wire-'));
-  mkdirSync(join(root, '.rstack'), { recursive: true });
-  writeFileSync(join(root, '.rstack', 'budget.json'), JSON.stringify({ run_budget_usd: 10 }));
-  const state = toClientState({ sourceRoots: [root], runs: [fixtureRun({ projectRoot: root })] });
+  const state = toClientState({
+    sourceRoots: [root],
+    runs: [fixtureRun({ projectRoot: root })],
+    businessFlex: {
+      configuredPolicy: {
+        projects: [{
+          projectRoot: root,
+          budget: {
+            availability: 'configured',
+            currency: 'USD',
+            runBudgetUsd: 10,
+            dailyBudgetUsd: 50,
+            monthlyBudgetUsd: 500,
+            sourcePath: '.rstack/budget.json',
+            issues: [],
+          },
+        }],
+      },
+      profiles: [], budget: {}, routingSignals: [],
+    },
+  });
   assert.equal(state.runs[0].loopBudgetUsd, 10);
-  assert.deepEqual(state.loopBudgets.map((cap) => cap.run_budget_usd), [10]);
-  // A run from a root with no budget.json carries null — no invented cap.
-  const capless = toClientState({ sourceRoots: [], runs: [fixtureRun()] });
+  assert.deepEqual(state.loopBudgets, [{
+    root,
+    run_budget_usd: 10,
+    daily_budget_usd: 50,
+    monthly_budget_usd: 500,
+  }]);
+
+  const invalid = toClientState({
+    runs: [fixtureRun({ projectRoot: root })],
+    businessFlex: {
+      configuredPolicy: { projects: [{
+        projectRoot: root,
+        budget: { availability: 'invalid', runBudgetUsd: null },
+      }] },
+    },
+  });
+  assert.equal(invalid.runs[0].loopBudgetUsd, null);
+
+  const zero = toClientState({
+    runs: [fixtureRun({ projectRoot: root })],
+    businessFlex: {
+      configuredPolicy: { projects: [{
+        projectRoot: root,
+        budget: { availability: 'configured', runBudgetUsd: 0, dailyBudgetUsd: 0, monthlyBudgetUsd: 0 },
+      }] },
+    },
+  });
+  assert.equal(zero.runs[0].loopBudgetUsd, 0);
+
+  // A run with no configured policy record carries null — no invented cap.
+  const capless = toClientState({ runs: [fixtureRun()] });
   assert.equal(capless.runs[0].loopBudgetUsd, null);
   rmSync(root, { recursive: true, force: true });
 });
@@ -272,11 +343,40 @@ test('budget governance bar: under, near, and over the enforced cap', () => {
   assert.match(near, /budget-fill near/);
 });
 
-test('budget governance explains how to arm the brake when no cap exists', () => {
+test('configured budget policy renders 10/50/500 before the first run without inventing spend', () => {
+  const { document, els } = fakeDom();
+  const api = sandbox(document);
+  const state = configuredBudgetState();
+  const html = api.configuredBudgetPolicyHtml(state);
+  assert.match(html, /Current enforced policy/);
+  assert.match(html, /\$10\.00 \/ run/);
+  assert.match(html, /\$50\.00 \/ day/);
+  assert.match(html, /\$500\.00 \/ month/);
+  assert.match(html, /fixture-project/);
+  assert.match(html, /\.rstack\/budget\.json/);
+  assert.match(html, /No telemetry yet/);
+  assert.doesNotMatch(html, /No run budget cap configured/);
+  assert.match(api.budgetGovernanceHtml(state), /No telemetry yet/);
+  api.renderCostBudget(state);
+  assert.equal(els.get('cost-budget-governance-note').textContent, '1 current run cap · no run telemetry');
+});
+
+test('configured budget policy reserves no-cap copy for a valid file and recovers from invalid policy', () => {
   const api = sandbox(fakeDom().document);
-  const html = api.budgetGovernanceHtml({ runs: [clientRun()] });
-  assert.match(html, /No run budget cap configured/);
-  assert.match(html, /run_budget_usd in \.rstack\/budget\.json/);
+  const state = configuredBudgetState();
+  state.businessFlex.configuredPolicy.projects[0].budget.runBudgetUsd = null;
+  assert.match(api.configuredBudgetPolicyHtml(state), /No run cap configured/);
+
+  state.businessFlex.configuredPolicy.projects[0].availability = 'invalid';
+  state.businessFlex.configuredPolicy.projects[0].budget = {
+    availability: 'invalid', runBudgetUsd: null, dailyBudgetUsd: null, monthlyBudgetUsd: null,
+    sourcePath: '.rstack/budget.json', issues: [{ field: 'run_budget_usd', problem: 'must be non-negative' }],
+  };
+  const invalid = api.configuredBudgetPolicyHtml(state);
+  assert.match(invalid, /Invalid configuration/);
+  assert.match(invalid, /run_budget_usd/);
+  assert.match(invalid, /Open Diagnostics/);
+  assert.doesNotMatch(invalid, /\$0\.00/);
 });
 
 test('per-run cost table carries provenance pills and honest dashes', () => {
