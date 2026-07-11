@@ -629,14 +629,30 @@ async function writeManifest(manifest: RunManifest): Promise<void> {
 async function addTrace(projectRoot: string, runId: string, mapping: any): Promise<void> {
   const dir = join(runsDir(projectRoot), runId);
   const path = join(dir, "traceability.json");
-  let trace = { run_id: runId, mappings: [] };
-  if (existsSync(path)) {
-    try {
-      trace = JSON.parse(await readFile(path, "utf8"));
-    } catch {}
-  }
-  (trace.mappings as any[]).push({ ts: timestamp(), ...mapping });
-  await writeFile(path, JSON.stringify(trace, null, 2));
+  await mkdir(dir, { recursive: true });
+  // #295: lock the read-modify-write (concurrent writers: sdlc_approve,
+  // sdlc_plan's spec loop, sdlc_decide, sdlc_spec) and write atomically.
+  await withFileLock(path, async () => {
+    let trace: any = { run_id: runId, mappings: [] };
+    if (existsSync(path)) {
+      try {
+        trace = JSON.parse(await readFile(path, "utf8"));
+      } catch (err) {
+        // A corrupt read must NOT silently reset history to empty and overwrite
+        // it — that wipes the whole run's traceability. Fail closed: keep the
+        // file, skip this mapping, and surface the problem for recovery.
+        console.error(`[rstack] traceability.json for run ${runId} is unreadable (${(err as any)?.message ?? err}); skipping this mapping to avoid wiping history.`);
+        return;
+      }
+    }
+    if (!trace || typeof trace !== "object" || !Array.isArray(trace.mappings)) {
+      // Well-formed JSON but unexpected shape — don't clobber it either.
+      console.error(`[rstack] traceability.json for run ${runId} has an unexpected shape; skipping this mapping to avoid data loss.`);
+      return;
+    }
+    trace.mappings.push({ ts: timestamp(), ...mapping });
+    await writeJsonAtomic(path, trace);
+  });
 }
 
 async function appendEvent(projectRoot: string, id: string, event: Record<string, unknown>): Promise<void> {
