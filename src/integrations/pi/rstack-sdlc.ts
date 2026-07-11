@@ -18,7 +18,7 @@ import { environmentReportCheck } from "../../core/harness/environment-report.js
 import { taskStageIds, writePipelineState } from "../../core/harness/pipeline-state.js";
 import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
-import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, isDestructiveTask } from "../../core/harness/guardrails.js";
+import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, guardrailOverrideArtifact, isDestructiveTask } from "../../core/harness/guardrails.js";
 import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedApprovedArtifacts } from "../../core/harness/approval-audit.js";
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
 import { classifyDestructiveAction, requireApprovalForDestructiveAction, destructiveApprovalArtifact } from "../../core/harness/destructive-actions.js";
@@ -629,14 +629,30 @@ async function writeManifest(manifest: RunManifest): Promise<void> {
 async function addTrace(projectRoot: string, runId: string, mapping: any): Promise<void> {
   const dir = join(runsDir(projectRoot), runId);
   const path = join(dir, "traceability.json");
-  let trace = { run_id: runId, mappings: [] };
-  if (existsSync(path)) {
-    try {
-      trace = JSON.parse(await readFile(path, "utf8"));
-    } catch {}
-  }
-  (trace.mappings as any[]).push({ ts: timestamp(), ...mapping });
-  await writeFile(path, JSON.stringify(trace, null, 2));
+  await mkdir(dir, { recursive: true });
+  // #295: lock the read-modify-write (concurrent writers: sdlc_approve,
+  // sdlc_plan's spec loop, sdlc_decide, sdlc_spec) and write atomically.
+  await withFileLock(path, async () => {
+    let trace: any = { run_id: runId, mappings: [] };
+    if (existsSync(path)) {
+      try {
+        trace = JSON.parse(await readFile(path, "utf8"));
+      } catch (err) {
+        // A corrupt read must NOT silently reset history to empty and overwrite
+        // it — that wipes the whole run's traceability. Fail closed: keep the
+        // file, skip this mapping, and surface the problem for recovery.
+        console.error(`[rstack] traceability.json for run ${runId} is unreadable (${(err as any)?.message ?? err}); skipping this mapping to avoid wiping history.`);
+        return;
+      }
+    }
+    if (!trace || typeof trace !== "object" || !Array.isArray(trace.mappings)) {
+      // Well-formed JSON but unexpected shape — don't clobber it either.
+      console.error(`[rstack] traceability.json for run ${runId} has an unexpected shape; skipping this mapping to avoid data loss.`);
+      return;
+    }
+    trace.mappings.push({ ts: timestamp(), ...mapping });
+    await writeJsonAtomic(path, trace);
+  });
 }
 
 async function appendEvent(projectRoot: string, id: string, event: Record<string, unknown>): Promise<void> {
@@ -1013,10 +1029,18 @@ async function evaluateDestructiveToolCall(
   }
 
   const decision = requireApprovalForDestructiveAction({ action: verdict, taskId, approvedArtifacts: approved });
-  // Backward compatibility: a run-level `destructive-action` (or a
-  // release-readiness.json) approval — the pre-#210 coarse artifact — still
-  // unblocks. Per-task approval is preferred and checked first by the decision.
-  const coarseApproved = approved.has("destructive-action") || approved.has("release-readiness.json");
+  // Backward compatibility: a run-level `destructive-action` approval — the
+  // pre-#210 coarse artifact — still unblocks. Per-task approval is preferred
+  // and checked first by the decision.
+  //
+  // #293: `release-readiness.json` is NO LONGER a destructive unblock. It is a
+  // normal, tool-recommended release-gate sign-off (sdlc_status lists it in the
+  // release approvals), so treating it as a blanket destructive override meant
+  // approving "the release looks ready" silently granted run-wide force-push /
+  // publish / db-drop / secret-write permission — a least-privilege violation.
+  // Destructive ops at release time need a per-task `destructive-action:<taskId>`
+  // approval (or the explicit `destructive-action` coarse artifact).
+  const coarseApproved = approved.has("destructive-action");
   if (decision.allowed || coarseApproved) return { block: false, verdict, taskId, reason: null };
   return { block: true, verdict, taskId, reason: decision.reason };
 }
@@ -1027,17 +1051,24 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
   const agentBody = await readProjectFile(projectRoot, agent.path, 16000);
   const tools = task.tools?.length ? task.tools : defaultToolsForAgent(agent.name);
   
-  // Model escalation logic
+  // Model escalation logic (#297): escalate when the task actually being built
+  // is on a retry. A delegate is spawned per agent and carries no task id, so
+  // the correct signal is the IN_PROGRESS task (the one the claim is currently
+  // building) — NOT the globally-last task_started event, which on the parallel
+  // sdlc_delegate path made every concurrent delegate inherit whichever task
+  // happened to start last (and mis-escalate its cost).
   const runId = sessionRun(projectRoot);
   let attempts = 1;
   let model = process.env.RSTACK_DEFAULT_MODEL || "gemini-2.5-flash";
   if (runId) {
     const runDir = join(runsDir(projectRoot), runId);
-    const eventsPath = join(runDir, "events.jsonl");
-    const events = await readJsonl(eventsPath);
-    const activeTaskEvent = events.filter((e: any) => e.type === "task_started").pop();
-    if (activeTaskEvent) {
-      const activeTaskId = activeTaskEvent.task_id;
+    let activeTaskId: string | null = null;
+    try {
+      const taskState = JSON.parse(await readFile(join(runDir, "tasks.json"), "utf8"));
+      activeTaskId = (taskState.tasks || []).find((t: any) => t.status === "IN_PROGRESS")?.id ?? null;
+    } catch { /* no/unreadable tasks.json → no active task → no escalation */ }
+    if (activeTaskId) {
+      const events = await readJsonl(join(runDir, "events.jsonl"));
       attempts = events.filter((e: any) => e.type === "task_started" && e.task_id === activeTaskId).length;
       if (attempts >= 2) {
         model = process.env.RSTACK_ESCALATED_MODEL || "gemini-2.5-pro";
@@ -2274,6 +2305,37 @@ export default function (pi: ExtensionAPI) {
             observed: retryDecision.attempt,
             reason: `task ${task.id} already has ${retryDecision.attempt} attempt(s); limit is ${retryDecision.max_attempts}`,
           }));
+          // #274: validate-time exhaustion IS the transition to BLOCKED, and
+          // the later sdlc_build_next deliberately skips its enqueue for an
+          // already-BLOCKED task (anti-flood dedupe) — so without this, the
+          // guardrail-override approval card never appeared anywhere and the
+          // Hub's one-click surface silently missed exhausted tasks. Same
+          // queue id as the claim-path enqueue; appendApproval is idempotent
+          // on id, so a double-enqueue is impossible by construction.
+          const overrideArtifact = guardrailOverrideArtifact(task.id);
+          const requestedBy = manifest.started_by?.name ?? resolveUserIdentity(projectRoot).name;
+          await appendApprovalRequest(projectRoot, {
+            id: approvalQueueId({ runId: manifest.run_id, taskId: task.id, artifact: overrideArtifact }),
+            title: `Override guardrail for ${task.id}`,
+            detail: `Task ${task.id} exhausted its retry budget at validation (${retryDecision.attempt}/${retryDecision.max_attempts} attempts): ${retryDecision.reason}`,
+            status: "pending",
+            runId: manifest.run_id,
+            taskId: task.id,
+            artifact: overrideArtifact,
+            requestedBy,
+            projectRoot,
+            source: "retry_budget_exhausted",
+          });
+          // Page the manager at the moment of exhaustion — same rule as the
+          // claim-time gate: silence means blocked work waits invisibly.
+          try {
+            const payload = formatSlackStageMessage(manifest.run_id, task.id, "APPROVAL_PENDING", {
+              message: `Task ${task.id} exhausted its retry budget (${retryDecision.attempt}/${retryDecision.max_attempts}). Approve '${overrideArtifact}' via sdlc_approve or the Business Hub to allow exactly one more attempt.`,
+            });
+            await notifyAll(payload, { projectRoot });
+          } catch (err) {
+            console.error("Failed to send retry-exhausted notification:", err);
+          }
         } else if (retryDecision.action === "human_context") {
           await appendEvent(projectRoot, manifest.run_id, { type: "task_human_context_required", ...retryEventBase });
         } else if (retryDecision.action === "block") {

@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import crypto from 'node:crypto';
+import { withFileLock, writeFileAtomic } from '../core/harness/safe-write.js';
 
 export const DEFAULT_MEMORY_CONFIG = Object.freeze({
   backend: 'jsonl',
@@ -404,17 +405,13 @@ export function verifyEpisodeSignature(episode) {
   return episode.signature === expected;
 }
 
-const memoryLocks = new Map();
-
-async function acquireLock(memoryDir) {
-  const current = memoryLocks.get(memoryDir) || Promise.resolve();
-  let release;
-  const next = new Promise((resolve) => {
-    release = resolve;
-  });
-  memoryLocks.set(memoryDir, next);
-  await current;
-  return release;
+// #292: the episode store is serialized on the on-disk episodes.jsonl lock
+// (safe-write withFileLock), NOT an in-process Map — the bridge runs one
+// process per tool call, so two concurrent bridge processes (or bridge + hub)
+// must share the same cross-process lock or their full-file rewrites (touch on
+// every recall, compaction) interleave and lose episodes.
+function episodesLockAnchor(memoryDir) {
+  return join(memoryDir, 'episodes.jsonl');
 }
 
 // Append an episode, enforcing the write policy (#137). Returns a structured
@@ -426,8 +423,8 @@ async function acquireLock(memoryDir) {
 // (missing required provenance fields) still throw: that is a programming error,
 // not a policy decision.
 export async function appendEpisode(memoryDir, episode, config = {}) {
-  const release = await acquireLock(memoryDir);
-  try {
+  await mkdir(memoryDir, { recursive: true });
+  return withFileLock(episodesLockAnchor(memoryDir), async () => {
     // Stamp the signature first so evaluateWritePolicy sees a signed episode and
     // its integrity check reflects the record we would actually persist. A
     // caller cannot pre-set `trusted` to launder an untrusted episode: the trust
@@ -458,11 +455,11 @@ export async function appendEpisode(memoryDir, episode, config = {}) {
     // if the signed field set grows).
     episode.signature = calculateEpisodeSignature(episode);
 
-    await mkdir(memoryDir, { recursive: true });
     const path = jsonlPath(memoryDir, 'episodes.jsonl');
     await appendFile(path, `${JSON.stringify(episode)}\n`);
 
-    // Auto-compact internally within the lock
+    // Auto-compact internally within the lock (compactEpisodesInternal is
+    // lock-free — the file lock is already held here; re-locking would deadlock).
     if (config?.compactionEnabled !== false) {
       await compactEpisodesInternal(memoryDir, {
         compactionThresholdEpisodes: config?.compactionThresholdEpisodes ?? 100,
@@ -470,9 +467,7 @@ export async function appendEpisode(memoryDir, episode, config = {}) {
       });
     }
     return { path, written: true, trusted: decision.trusted, decision };
-  } finally {
-    release();
-  }
+  });
 }
 
 async function touchEpisodesInternal(memoryDir, episodeIds) {
@@ -489,17 +484,15 @@ async function touchEpisodesInternal(memoryDir, episodeIds) {
       return JSON.stringify({ ...ep, access_count: (ep.access_count || 0) + 1, last_accessed_at: now });
     } catch { return line; }
   });
-  const { writeFile } = await import('node:fs/promises');
-  await writeFile(path, updated.join('\n') + '\n');
+  // #292: atomic rewrite (tmp + fsync + rename) so a crash mid-write can't
+  // truncate the whole store.
+  await writeFileAtomic(path, updated.join('\n') + '\n');
 }
 
 export async function touchEpisodes(memoryDir, episodeIds) {
-  const release = await acquireLock(memoryDir);
-  try {
+  return withFileLock(episodesLockAnchor(memoryDir), async () => {
     await touchEpisodesInternal(memoryDir, episodeIds);
-  } finally {
-    release();
-  }
+  });
 }
 
 async function compactEpisodesInternal(memoryDir, options = {}) {
@@ -538,19 +531,16 @@ async function compactEpisodesInternal(memoryDir, options = {}) {
     episodes_after: toKeep.length + 1,
   });
 
-  const { writeFile } = await import('node:fs/promises');
-  await writeFile(path, [compactionEntry, ...toKeep].join('\n') + '\n');
+  // #292: atomic rewrite so a crash mid-compaction can't truncate the store.
+  await writeFileAtomic(path, [compactionEntry, ...toKeep].join('\n') + '\n');
 
   return { compacted: true, episodes_before: lines.length, episodes_after: toKeep.length + 1 };
 }
 
 export async function compactEpisodes(memoryDir, options = {}) {
-  const release = await acquireLock(memoryDir);
-  try {
-    return await compactEpisodesInternal(memoryDir, options);
-  } finally {
-    release();
-  }
+  return withFileLock(episodesLockAnchor(memoryDir), async () => {
+    return compactEpisodesInternal(memoryDir, options);
+  });
 }
 
 export async function retractEpisode(memoryDir, episodeId, reason = 'retracted') {

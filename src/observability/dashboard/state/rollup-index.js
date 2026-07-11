@@ -36,7 +36,16 @@ import { persistedTokenTotals } from '../../metrics/derive.js';
 // v3 (#264): entries persist run-level approvals — without them every
 // index-served run rehydrated with approvals: [], so terminal-granted
 // approvals were invisible on the Hub for all bridge-driven runs.
-export const INDEX_VERSION = 3;
+// v4 (#296): entries persist evidence, artifactIndex, timeline,
+// activityTimeline, and requirements too — the same blind spot #264 fixed for
+// approvals. Without them, index-served (completed) runs rehydrated all five
+// empty, so Business Hub aggregates (evidence counts, artifact index, run
+// timeline, requirement coverage, the drawer's activity timeline) silently
+// undercounted every completed run. The bump forces one self-healing rebuild.
+// v5: entries persist has_integrity_errors — found by the lite↔full parity
+// guard the #296 review required: a completed run with damaged files lost its
+// #82 "data damaged" badge the moment it was served from the index.
+export const INDEX_VERSION = 5;
 export const DEFAULT_RETENTION_DAYS = 90;
 
 const STALL_MS = 30 * 60 * 1000;
@@ -81,14 +90,18 @@ async function runSignature(io, runDir) {
   // in place without touching manifest/events/tasks, and a content-only file
   // change does not bump the run dir mtime — without this entry a
   // terminal-granted approval never invalidated the cached index entry.
-  const [manifest, events, tasks, approvals, dir] = await Promise.all([
+  // evidence.jsonl is part of the signature (#296): appendEvidenceEvent can
+  // grow it without changing tasks.json, so a non-completed inactive run whose
+  // evidence changed must re-parse to refresh the persisted evidence list.
+  const [manifest, events, tasks, approvals, evidence, dir] = await Promise.all([
     fileSig(io, join(runDir, 'manifest.json')),
     fileSig(io, join(runDir, 'events.jsonl')),
     fileSig(io, join(runDir, 'tasks.json')),
     fileSig(io, join(runDir, 'approvals.json')),
+    fileSig(io, join(runDir, 'evidence.jsonl')),
     fileSig(io, runDir),
   ]);
-  return { manifest, events, tasks, approvals, dir: dir ? { mtime_ms: dir.mtime_ms } : null };
+  return { manifest, events, tasks, approvals, evidence, dir: dir ? { mtime_ms: dir.mtime_ms } : null };
 }
 
 function sigEqual(a, b) {
@@ -126,6 +139,9 @@ export function entryFromRun(run, sig = null) {
     // Which stages produced an artifact (#97) — without this, every
     // index-served run rendered as if no stage had reported.
     stage_reports: run.stageReports ?? [],
+    // #82 data-integrity flag survives the index (v5): a damaged run must
+    // keep its "data damaged" badge even when served from the cache.
+    has_integrity_errors: run.hasIntegrityErrors ?? false,
     metrics: {
       cumulative_cost_usd: metricCost,
       cumulative_tokens: run.metrics?.cumulative_tokens ?? metricTokens,
@@ -158,6 +174,14 @@ export function entryFromRun(run, sig = null) {
     // stored verbatim (they are small audit records) so every consumer sees
     // the same shape as a fully-parsed run. Capped like state.approvals.
     approvals: (run.approvals ?? []).slice(-100),
+    // Evidence, artifacts, timelines, and requirements survive too (#296),
+    // each capped to what the client-state projection actually consumes, so
+    // index-served runs match a full parse instead of rendering empty.
+    evidence: (run.evidence ?? []).slice(-100),
+    artifactIndex: (run.artifactIndex ?? []).slice(0, 80),
+    timeline: (run.timeline ?? []).slice(0, 120),
+    activityTimeline: (run.activityTimeline ?? []).slice(0, 120),
+    requirements: (run.requirements ?? []).slice(0, 20),
     event_count: events.length,
     last_event_ts: last?.ts ?? null,
     last_event_type: last?.type ?? null,
@@ -193,24 +217,25 @@ export function liteRunFromEntry(projectRoot, entry, now = Date.now()) {
     })),
     events: entry.notable_events ?? [],
     approvals: entry.approvals ?? [],
-    // Known lite-path limits: these are NOT persisted in the index, so
-    // index-served runs render them empty. Each is a candidate for the same
-    // silent blind spot #264 fixed for approvals — extend the entry schema
-    // (with an INDEX_VERSION bump) before relying on any of them for
-    // index-served runs.
-    evidence: [],
-    artifactIndex: [],
+    // Persisted in the index entry as of v4 (#296) — index-served runs now
+    // rehydrate these with real data instead of the empty arrays that made
+    // Hub aggregates undercount every completed run. Legacy entries written
+    // before v4 lack them; the INDEX_VERSION bump forces a rebuild, and the
+    // `?? []` keeps a stale/partial entry safe until then.
+    evidence: entry.evidence ?? [],
+    artifactIndex: entry.artifactIndex ?? [],
     stageReports: entry.stage_reports ?? [],
-    activityTimeline: [],
-    timeline: [],
+    activityTimeline: entry.activityTimeline ?? [],
+    timeline: entry.timeline ?? [],
     totals: entry.totals ?? null,
     stageElapsed: entry.stage_elapsed ?? {},
     stageStatuses: entry.stage_statuses ?? {},
     derivedStatus: statusFromEntry(entry, now),
     host: entry.host ?? 'unknown',
     brief: entry.brief ?? '',
-    requirements: [],
+    requirements: entry.requirements ?? [],
     hasPlan: entry.has_plan ?? false,
+    hasIntegrityErrors: entry.has_integrity_errors ?? false,
     lastEventTs: entry.last_event_ts ?? null,
   };
 }
