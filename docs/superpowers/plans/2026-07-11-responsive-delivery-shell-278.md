@@ -450,7 +450,7 @@ Completed on branch `codex/ui-shell-278` on 2026-07-11.
   two-column grid at 390px. A failing CSS contract test preceded the fix; the
   final main column measured 306px within a 375px content area.
 - Focused dashboard tests: 21/21 passed.
-- Full suite: 1,052/1,052 passed.
+- Full suite after integrating latest `main` (#222 and #324): 1,064/1,064 passed.
 - Lint: exit 0 with one pre-existing `tests/papercuts-299.test.js` warning and
   zero errors.
 - Typecheck: exit 0.
