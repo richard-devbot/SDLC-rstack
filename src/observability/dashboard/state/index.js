@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { evaluateAlerts } from '../../alerts/engine.js';
 import { sourceRoots } from './roots.js';
 import { getIndexedRuns } from './rollup-index.js';
@@ -15,6 +15,16 @@ import { buildBusinessFlexState } from './business-flex.js';
 import { buildDecisionState } from './decisions.js';
 import { buildEnvironmentState } from './environment.js';
 import { buildReadinessProjection } from './readiness.js';
+import { decorateRunIdentity, resolveProjectDescriptors } from './identity.js';
+import {
+  buildScopeCatalog,
+  decorateScopedRecord,
+  decorateScopedRecords,
+  filterRecordsForScope,
+  resolveRequestedScope,
+  selectedDescriptors,
+  selectedRuns,
+} from './scope.js';
 import { validateProjectConfigs } from '../../../core/harness/config-validation.js';
 // [wave:command] imports — pipeline rollup enrichment (#94 / #156 / #215)
 import { readPipelineState, buildPipelineState } from '../../../core/harness/pipeline-state.js';
@@ -27,18 +37,32 @@ export { resolveApprovalAcrossRoots } from './approvals.js';
 // owner: RStack developed by Richardson Gunde
 
 export async function buildFullState(projectRoot, options = {}) {
-  const roots = await sourceRoots(projectRoot, options);
+  const allRoots = options.sourceRoots?.length
+    ? [...new Set(options.sourceRoots.map((root) => resolve(root)))]
+    : await sourceRoots(projectRoot, options);
   // Rollup index: completed runs come from .rstack/index.json; only active
   // (or explicitly scoped) runs pay the full directory parse.
-  const [{ runs, indexMeta }, queueApprovals] = await Promise.all([
-    getIndexedRuns(roots, {
+  const [{ runs: indexedRuns, indexMeta }, allQueueApprovals] = await Promise.all([
+    getIndexedRuns(allRoots, {
       scopeRunIds: options.scopeRunIds,
       retentionDays: options.retentionDays,
       io: options.indexIo,
       now: options.now,
     }),
-    getAllApprovals(roots),
+    getAllApprovals(allRoots),
   ]);
+  const projectDescriptors = resolveProjectDescriptors(allRoots);
+  const allRuns = decorateRunIdentity(indexedRuns, projectDescriptors);
+  const scopeCatalog = buildScopeCatalog(projectDescriptors, allRuns);
+  const scope = resolveRequestedScope(scopeCatalog, options.scope);
+  const roots = scope.roots;
+  const runs = selectedRuns(allRuns, scope);
+  const scopedDescriptors = selectedDescriptors(projectDescriptors, scope);
+  const queueApprovals = filterRecordsForScope(
+    decorateScopedRecords(allQueueApprovals, allRuns, projectDescriptors),
+    scope,
+  );
+  const scopeProjectId = scope.type === 'global' ? null : scope.projectId;
 
   // [wave:command] Compact pipeline-state rollup per run (#94/#156/#215).
   await attachPipelineRollups(runs);
@@ -54,33 +78,78 @@ export async function buildFullState(projectRoot, options = {}) {
   const today = new Date().toISOString().slice(0, 10);
   const todayRuns = runs.filter((run) => run.manifest?.created_at?.startsWith(today));
 
-  const blockedGates = buildBlockedGates(runs);
-  const actionableGateApprovals = approvalRequestsFromBlockedGates(blockedGates, queueApprovals);
+  const blockedGates = decorateScopedRecords(
+    buildBlockedGates(runs), runs, scopedDescriptors, scopeProjectId,
+  );
+  const actionableGateApprovals = decorateScopedRecords(
+    approvalRequestsFromBlockedGates(blockedGates, queueApprovals),
+    runs,
+    scopedDescriptors,
+    scopeProjectId,
+  );
   const approvals = summarizeApprovals([...queueApprovals, ...actionableGateApprovals]);
-  const feed = buildActivityFeed(runs);
+  const feed = decorateScopedRecords(
+    buildActivityFeed(runs), runs, scopedDescriptors, scopeProjectId,
+  );
   const frameworks = buildFrameworks(runs);
-  const stageMatrix = buildStageMatrix(runs);
-  const agentWork = buildAgentWork(runs);
-  const agentGroups = buildAgentGroups(agentWork);
-  const projectSummaries = buildProjectSummaries(runs, roots);
-  const traceMap = await buildTraceMap(runs, projectRoot);
-  const trends = buildStageTrends(runs);
-  const people = buildPeople(runs);
-  const presence = buildPresence(runs);
+  const stageMatrix = buildStageMatrix(runs).map((stage) => ({
+    ...stage,
+    runs: decorateScopedRecords(stage.runs, runs, scopedDescriptors, scopeProjectId),
+  }));
+  const agentWork = decorateScopedRecords(
+    buildAgentWork(runs), runs, scopedDescriptors, scopeProjectId,
+  );
+  const agentGroups = decorateScopedRecords(
+    buildAgentGroups(agentWork), runs, scopedDescriptors, scopeProjectId,
+  );
+  const projectSummaries = buildProjectSummaries(runs, roots, scopedDescriptors);
+  const traceMap = await buildTraceMap(runs, roots[0] ?? projectRoot);
+  const rawTrends = buildStageTrends(runs);
+  const trends = {
+    ...rawTrends,
+    runs: decorateScopedRecords(rawTrends.runs, runs, scopedDescriptors, scopeProjectId),
+  };
+  const people = decorateScopedRecords(
+    buildPeople(runs), runs, scopedDescriptors, scopeProjectId,
+  );
+  const presence = decorateScopedRecords(
+    buildPresence(runs), runs, scopedDescriptors, scopeProjectId,
+  );
 
   const alertInputs = {
     runs,
     pendingApprovals: approvals.pendingApprovals.length,
   };
-  const alerts = [
+  const alerts = decorateScopedRecords([
     ...buildBlockedGateAlerts(blockedGates),
     ...evaluateAlerts(alertInputs),
-  ];
+  ], runs, scopedDescriptors, scopeProjectId);
+  const decisions = await buildDecisionState(runs);
+  decisions.runs = decorateScopedRecords(
+    decisions.runs, runs, scopedDescriptors, scopeProjectId,
+  );
+  const environmentRoot = roots[0] ?? resolve(projectRoot);
+  const environment = {
+    ...(await buildEnvironmentState(environmentRoot, runs, queueApprovals)),
+    projectRoot: environmentRoot,
+    ...(scopeProjectId ? { projectId: scopeProjectId } : { scope: 'global' }),
+  };
+  const configIssues = (await Promise.all(roots.map(async (root) => {
+    const descriptor = scopedDescriptors.find((entry) => entry.root === root);
+    return (await validateProjectConfigs(root)).map((issue) => ({
+      root,
+      projectId: descriptor?.id ?? scopeProjectId,
+      ...issue,
+    }));
+  }))).flat();
 
   const baseState = {
     kind: 'snapshot',
     product: 'RStack Command Center',
-    stateRoot: join(projectRoot, '.rstack'),
+    stateRoot: join(environmentRoot, '.rstack'),
+    scope,
+    scopeCatalog,
+    projectDescriptors: scopedDescriptors,
     sourceRoots: roots,
     runs,
     activeRuns: activeRuns.map((run) => run.runId),
@@ -104,17 +173,15 @@ export async function buildFullState(projectRoot, options = {}) {
     people,
     presence,
     businessFlex: buildBusinessFlexState(runs),
-    decisions: await buildDecisionState(runs),
+    decisions,
     // Environment & Integrations (#238): defensive by contract — absent
     // report/integrations/.env files are honest empty state, never a crash.
-    environment: await buildEnvironmentState(projectRoot, runs, queueApprovals),
+    environment,
     diagnostics: {
       ...buildDiagnostics(runs, roots, indexMeta),
       // Config validation (#151): invalid .rstack config values are surfaced
       // here per root so Diagnostics shows exactly which field is ignored.
-      configIssues: (await Promise.all(roots.map(async (root) => (
-        (await validateProjectConfigs(root)).map((issue) => ({ root, ...issue }))
-      )))).flat(),
+      configIssues,
     },
     ts: new Date().toISOString(),
   };
@@ -158,6 +225,9 @@ function buildBlockedGateAlerts(blockedGates) {
     title: 'Workflow blocked by approval gate',
     detail: `${gate.detail}${gate.missing?.length ? ` - missing ${gate.missing.join(', ')}` : ''}`,
     runId: gate.runId,
+    runKey: gate.runKey,
+    projectRoot: gate.projectRoot,
+    projectId: gate.projectId,
     ts: gate.ts,
   }));
 }
