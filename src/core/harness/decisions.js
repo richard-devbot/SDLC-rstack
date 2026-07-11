@@ -1,10 +1,11 @@
 // owner: RStack developed by Richardson Gunde
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { rstackStateDir, runDirectory, latestRunId, resolveRunId } from './runs.js';
+import { writeFileAtomic } from './safe-write.js';
 
 export const DECISION_STATUSES = Object.freeze(['pending', 'resolved', 'waived']);
 export const DECISION_IMPACTS = Object.freeze(['architecture', 'security', 'budget', 'scope', 'delivery']);
@@ -90,9 +91,10 @@ async function writeDecisionsUnlocked(projectRoot, runId, decisions) {
   await mkdir(join(path, '..'), { recursive: true });
   const normalized = decisions.map((item, index) => normalizeDecision(item, index, runId));
   const payload = JSON.stringify({ run_id: runId, updated_at: new Date().toISOString(), decisions: normalized }, null, 2);
-  const tempPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tempPath, payload);
-  await rename(tempPath, path);
+  // Crash-durable write (#299): the previous temp+rename skipped the fsync, so
+  // a crash after rename but before the OS flushed could leave a zero-length or
+  // torn decisions.json. writeFileAtomic does tmp + fsync + rename.
+  await writeFileAtomic(path, payload);
   return normalized;
 }
 
