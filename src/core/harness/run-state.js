@@ -1,4 +1,4 @@
-import { mkdir, readFile, cp, rm } from 'node:fs/promises';
+import { mkdir, readFile, cp, rm, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CANONICAL_SDLC_STAGES, assertCanonicalStages, getCanonicalStage } from './stages.js';
@@ -193,13 +193,27 @@ export async function updateRunMetrics(runDir, metricsUpdate = {}) {
   });
 }
 
+// Crash-safe directory replace (#203): the old `rm(dest); cp(src, dest)` left
+// `dest` half-populated if a crash landed mid-copy — for rollbackStage that
+// meant a destroyed live stage directory. Copy into a temp sibling FIRST (the
+// slow part, with `dest` untouched), then rm + rename. `src` is never modified,
+// so a crash in the tiny rm→rename window is fully recoverable (the temp holds
+// the complete copy and the source is intact). rename over a freshly-removed
+// path is atomic on POSIX and Windows.
+async function atomicReplaceDir(src, dest) {
+  const tmp = `${dest}.tmp.${process.pid}.${Date.now()}`;
+  await rm(tmp, { recursive: true, force: true }).catch(() => {});
+  await cp(src, tmp, { recursive: true, force: true });
+  await rm(dest, { recursive: true, force: true });
+  await rename(tmp, dest);
+}
+
 export async function createStageCheckpoint(runDir, stageId) {
   const src = stageDir(runDir, stageId);
   const dest = join(runDir, 'checkpoints', stageId);
   if (!existsSync(src)) return false;
   await mkdir(join(runDir, 'checkpoints'), { recursive: true });
-  await rm(dest, { recursive: true, force: true });
-  await cp(src, dest, { recursive: true, force: true });
+  await atomicReplaceDir(src, dest);
   return true;
 }
 
@@ -207,8 +221,8 @@ export async function rollbackStage(runDir, stageId) {
   const src = join(runDir, 'checkpoints', stageId);
   const dest = stageDir(runDir, stageId);
   if (!existsSync(src)) return false;
-  await rm(dest, { recursive: true, force: true });
-  await cp(src, dest, { recursive: true, force: true });
+  await mkdir(join(dest, '..'), { recursive: true });
+  await atomicReplaceDir(src, dest);
   return true;
 }
 
