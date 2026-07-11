@@ -1,7 +1,8 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { withFileLock, writeFileAtomic } from '../harness/safe-write.js';
 
 // owner: RStack developed by Richardson Gunde
 //
@@ -23,11 +24,17 @@ export async function registerProject(projectRoot) {
   const abs = resolve(projectRoot);
   await mkdir(registryDir(), { recursive: true });
 
-  let list = await readRegistry();
-  if (!list.includes(abs)) {
-    list = [abs, ...list.filter(p => p !== abs)].slice(0, MAX_PROJECTS);
-    await writeFile(registryFile(), JSON.stringify(list, null, 2));
-  }
+  // Lock the read-modify-write (#299): init / session_start in two projects can
+  // register concurrently, and an unlocked read→writeFile of the shared
+  // ~/.rstack/known-projects.json drops one project's entry. writeFileAtomic
+  // adds the fsync + atomic rename so a reader never sees a torn file either.
+  await withFileLock(registryFile(), async () => {
+    const list = await readRegistry();
+    if (!list.includes(abs)) {
+      const next = [abs, ...list.filter(p => p !== abs)].slice(0, MAX_PROJECTS);
+      await writeFileAtomic(registryFile(), JSON.stringify(next, null, 2));
+    }
+  });
   return abs;
 }
 
