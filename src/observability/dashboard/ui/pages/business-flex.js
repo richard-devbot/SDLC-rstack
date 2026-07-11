@@ -146,7 +146,10 @@ function businessProfileHtml(profile) {
 
 function businessBudgetHtml(model) {
   var budget = model.budget || {};
-  return '<div class="metric-row">' + pill('warn', '$' + Number(budget.runBudgetTotal || 0).toFixed(2) + ' run budget') + pill('pass', '$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + ' task estimate') + pill('info', (budget.tasksWithBudget || 0) + ' budgeted tasks') + '</div><div class="muted" style="margin-top:12px">Budget policy is loaded from .rstack/budget.json and copied into plan/task metadata before delegated work starts.</div>';
+  if (!budget.tasksWithBudget && !budget.runBudgetTotal && !budget.estimatedTaskBudget) {
+    return emptyHtml('No planned envelopes yet', 'Current configured policy is shown above. Per-run and per-task plans appear here only after planning metadata is written.');
+  }
+  return '<div class="metric-row">' + pill('warn', '$' + Number(budget.runBudgetTotal || 0).toFixed(2) + ' snapshot run budget') + pill('pass', '$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + ' task estimate') + pill('info', (budget.tasksWithBudget || 0) + ' budgeted tasks') + '</div><div class="muted" style="margin-top:12px">These are historical plan and task envelopes copied into run metadata. They do not replace the current file-backed policy above.</div>';
 }
 
 function businessRoutingHtml(item) {

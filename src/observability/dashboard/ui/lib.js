@@ -179,7 +179,11 @@ function groupAgentWork(work) {
 }
 
 function businessFlexModel(s) {
-  if (s.businessFlex && ((s.businessFlex.profiles || []).length || (s.businessFlex.routingSignals || []).length)) return s.businessFlex;
+  if (s.businessFlex && (
+    s.businessFlex.configuredPolicy
+    || (s.businessFlex.profiles || []).length
+    || (s.businessFlex.routingSignals || []).length
+  )) return s.businessFlex;
   var profiles = {};
   var routingSignals = [];
   var budget = { runBudgetTotal: 0, estimatedTaskBudget: 0, tasksWithBudget: 0 };

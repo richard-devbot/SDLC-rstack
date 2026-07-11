@@ -332,7 +332,7 @@ git commit -m "fix(dashboard): show the current Business Flex policy ledger (#27
 - Consumes: the same configured-policy and run-snapshot contract as Task 4.
 - Produces: `configuredBudgetPolicyHtml(s)` above `budgetGovernanceHtml(s)` and truthful panel notes.
 
-- [ ] **Step 1: Write failing rendered tests for zero-run 10/50/500 policy and invalid policy**
+- [x] **Step 1: Write failing rendered tests for zero-run 10/50/500 policy and invalid policy**
 
 ```js
 test('Cost & Budget shows configured 10/50/500 limits with zero runs', () => {
@@ -347,13 +347,13 @@ test('Cost & Budget shows configured 10/50/500 limits with zero runs', () => {
 
 Also assert invalid and inaccessible policy link to Diagnostics, and a valid budget object with `runBudgetUsd: null` is the only state that says “No run cap configured.”
 
-- [ ] **Step 2: Confirm RED**
+- [x] **Step 2: Confirm RED**
 
 Run: `npx tsx --test tests/dashboard-money-pages.test.js`
 
 Expected: FAIL because `budgetGovernanceHtml` returns “No run budget cap configured” whenever no run carries `loopBudgetUsd`.
 
-- [ ] **Step 3: Render configured policy separately from run consumption**
+- [x] **Step 3: Render configured policy separately from run consumption**
 
 Insert a “Current Enforced Policy” panel above the existing consumption bar. Use policy project records for caps/provenance and run snapshots for historical bars. Change the governance note from run-cap count to configured project state:
 
@@ -365,13 +365,13 @@ setText('cost-budget-governance-note', configuredCount
 
 When no runs exist, keep the policy panel populated and the consumption lane at “No telemetry yet.” Existing actual-spend and per-stage panels remain unchanged.
 
-- [ ] **Step 4: Confirm GREEN**
+- [x] **Step 4: Confirm GREEN**
 
 Run: `npx tsx --test tests/dashboard-money-pages.test.js tests/dashboard-business-flex-state.test.js tests/dashboard-quality-pages.test.js`
 
 Expected: PASS with 10/50/500 rendered before any run and no regression in actual-spend provenance.
 
-- [ ] **Step 5: Commit the Cost & Budget UI**
+- [x] **Step 5: Commit the Cost & Budget UI**
 
 ```bash
 git add src/observability/dashboard/ui/pages/cost-budget.js tests/dashboard-money-pages.test.js
