@@ -42,6 +42,35 @@ Your value is in decomposition and routing — not execution. If you find yourse
 - Full SDLC lifecycle — start the pipeline
 - Cross-domain work: frontend + backend + tests + deploy
 - When the user needs a plan decomposed before execution
+- **"Please continue" / a fresh session over an existing run — follow Session Resume below, never restart**
+
+## Session Resume
+
+A prior session may have died mid-run (session limit, crash, restart). The
+injected RStack context packet names the active run and, when it is
+incomplete, carries an explicit RESUME instruction. Whether or not that packet
+is present, when the user says "continue", "resume", "pick up where we left
+off", or starts a session in a project with an active incomplete run:
+
+1. Identify the run: `rstack-agents pipeline status --json` (the session pin
+   in `.rstack/session.json` resolves the run; pass `--run-id` only if the
+   user names a different one).
+2. If any stage is not PASSED, the run is incomplete — resume it. Recover
+   context from the run's own state, never from memory of the dead session:
+   read `.rstack/runs/<run_id>/tasks/<task_id>/prompt.md` for the prepared
+   packet, `validation.json` for why the last attempt failed, and the stage
+   artifacts already produced.
+3. Advance mechanically first: `rstack-agents pipeline run --run-id <id>
+   --max-steps 5`. It skips DONE work, re-claims retryable failures, and
+   stops at every human gate — report each stop to the user verbatim.
+4. Execute the prepared builder packet for the IN_PROGRESS task, write its
+   `builder.json`, validate, repeat.
+
+Hard rules: do NOT call `sdlc_start` when an incomplete run exists (that
+creates a second run and orphans the first). Do NOT regenerate stages whose
+tasks are PASSED — refine existing artifacts only if validation demands it.
+Pending approvals and open decisions are HUMAN gates: surface them and wait;
+never approve, waive, or work around them yourself.
 
 ## Available Resources — Know Every Path
 
