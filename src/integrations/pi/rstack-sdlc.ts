@@ -29,6 +29,7 @@ import { classifyContextPressure, loadProjectContextPressureThresholds } from ".
 import { deriveRunTotals } from "../../observability/metrics/derive.js";
 import { VALIDATOR_CONTEXT_ENV, VALIDATOR_RUN_ID_ENV, VALIDATOR_READ_ONLY_TOOLS, evaluateValidatorAction, isValidatorContext, isValidatorRole, isValidatorSandboxDebug } from "../../core/harness/validator-sandbox.js";
 import { loadValidatorRegistry, resolveValidatorProfile, validatorDelegationCheck } from "../../core/harness/validator-registry.js";
+import { evaluateRequiredChecks } from "../../core/harness/required-checks.js";
 import { budgetEnvelopeForTask, loadBudgetPolicy, loadProjectProfile } from "../../core/profiles.js";
 import { prepareRunState, prepareStageFolders, updateRunMetrics } from "../../core/harness/run-state.js";
 import { checkpointEvent, isCriticalStage, loadProjectCriticalStages, rollbackToCheckpoint, saveStageCheckpoint } from "../../core/harness/checkpoints.js";
@@ -2004,6 +2005,10 @@ export default function (pi: ExtensionAPI) {
         let status = "PASS";
         let builderContract: any = undefined;
         let telemetryViolations: any[] = [];
+        // Signals for the mechanical required_checks evaluation (#222) —
+        // captured from the gates below so the evaluator never re-derives
+        // (and never drifts from) what this function already decided.
+        const requiredSignals = { builderContractOk: false, filesModifiedOk: false, testsRunOk: false };
         if (!existsSync(builderPath)) {
           status = "FAIL";
           checks.push({ name: "builder_contract_exists", status: "FAIL", evidence: `${task.output_dir}/builder.json not found` });
@@ -2021,6 +2026,9 @@ export default function (pi: ExtensionAPI) {
             }
             telemetryViolations = telemetry.violations;
             if (!contract.ok || hardening.some((check: any) => check.status === "FAIL") || !telemetry.ok) status = "FAIL";
+            requiredSignals.builderContractOk = contract.ok && !hardening.some((check: any) => check.status === "FAIL");
+            requiredSignals.testsRunOk = Array.isArray(builder.tests_run) && builder.tests_run.length > 0;
+            requiredSignals.filesModifiedOk = true; // flipped below on any missing file
             if (Array.isArray(builder.files_modified)) {
               // Check EVERY claimed file, not just the first 20 (#299): a builder
               // could list 21+ files with a nonexistent one at the tail and still
@@ -2033,7 +2041,7 @@ export default function (pi: ExtensionAPI) {
               for (const file of builder.files_modified) {
                 if (typeof file !== "string") continue;
                 const exists = existsSync(resolve(projectRoot, file));
-                if (!exists) status = "FAIL";
+                if (!exists) { status = "FAIL"; requiredSignals.filesModifiedOk = false; }
                 if (emitted < CHECK_ENTRY_CAP) {
                   checks.push({ name: "modified_file_exists", status: exists ? "PASS" : "FAIL", evidence: file });
                   emitted += 1;
@@ -2057,18 +2065,25 @@ export default function (pi: ExtensionAPI) {
           ? task.stage_artifacts.map((item: any) => item?.stage_id).filter(Boolean)
           : [];
         const validatorProfile = resolveValidatorProfile(profileStageIds, await loadValidatorRegistry(projectRoot));
-        // #222 transparency: record which validator owns this stage and which
-        // required_checks are delegated to it (specialist judgment, epic #72) —
-        // never a fabricated pass of those semantic checks. The mechanical
-        // deliverable enforcement is added below, once the builder contract is
-        // loaded.
-        checks.push(validatorDelegationCheck(validatorProfile));
-        // Deliverable presence is NOT re-checked here: the builder-completeness
-        // gate (validateBuilderContract) already fails a task that lacks a
-        // stage_summaries entry for each expected stage, so a stage-specific
-        // profile with no recorded deliverable is already blocked upstream. The
-        // remaining validator work — semantic required_checks + on-disk stage
-        // artifact enforcement — is epic #72.
+        // #222 ENFORCED: every mechanically-evaluable required check on the
+        // selected profile contributes a real PASS/FAIL entry — builder-signal
+        // checks reuse the verdicts computed above (never re-derived), stage
+        // artifact presence/field checks read the canonical artifact JSON, and
+        // an unknown check id FAILs honestly instead of silently passing. Only
+        // the semantic remainder (specialist judgment, epic #72) stays
+        // delegated — and the delegation record below now names exactly that
+        // remainder, not the whole list.
+        const requiredOutcome = await evaluateRequiredChecks({
+          profile: validatorProfile,
+          task,
+          builder: builderContract,
+          projectRoot,
+          runDir: join(runsDir(projectRoot), manifest.run_id),
+          signals: requiredSignals,
+        });
+        checks.push(...requiredOutcome.checks);
+        if (!requiredOutcome.ok) status = "FAIL";
+        checks.push(validatorDelegationCheck(validatorProfile, requiredOutcome.delegated));
         // Goal-contract gate (#196): on a goal-driven run (goal.json in the
         // run dir, or pinned loop events from a --goal recipe) a task that
         // targets 11-feedback-loop must ship a well-formed goal_evaluation.

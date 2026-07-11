@@ -173,18 +173,24 @@ export async function loadValidatorRegistry(projectRoot) {
   return merged;
 }
 
-// #222 (honest transparency slice): record WHICH validator owns this task's
-// stage and WHICH required_checks are delegated to it. The semantic checks
-// (STRIDE coverage, tradeoffs documented, …) require the delegated model
-// validator's judgment; a model-free harness must not fabricate a verdict on
-// them (full enforcement is epic #72). Status PASS means only "the profile was
-// resolved and its ownership recorded" — the evidence states plainly that the
-// listed checks are delegated, never that they passed here.
-export function validatorDelegationCheck(profile) {
-  const checks = Array.isArray(profile?.required_checks) ? profile.required_checks : [];
+// #222: record WHICH validator owns this task's stage and WHICH
+// required_checks remain delegated to it. Since the mechanical enforcement
+// landed (required-checks.js), most declared checks contribute real PASS/FAIL
+// entries at validate time — this record names only the semantic REMAINDER
+// (specialist judgment, epic #72) when the caller passes it; with no argument
+// it lists the full declared set (back-compat for callers that do not run the
+// mechanical evaluation). Status PASS means only "the profile was resolved
+// and its ownership recorded" — never that delegated checks passed.
+export function validatorDelegationCheck(profile, delegatedChecks) {
+  const declared = Array.isArray(profile?.required_checks) ? profile.required_checks : [];
+  const delegated = Array.isArray(delegatedChecks) ? delegatedChecks : declared;
+  const enforcedCount = declared.length - delegated.length;
+  const enforcedNote = Array.isArray(delegatedChecks) && enforcedCount > 0
+    ? `${enforcedCount} required check(s) enforced mechanically above; `
+    : '';
   return {
     name: 'validator_profile_selected',
     status: 'PASS',
-    evidence: `${profile?.validator ?? GENERIC_VALIDATOR_PROFILE.validator} owns this stage; required checks are delegated to it (specialist judgment — enforced per #72): ${checks.join(', ') || 'none'}`,
+    evidence: `${profile?.validator ?? GENERIC_VALIDATOR_PROFILE.validator} owns this stage; ${enforcedNote}delegated to specialist judgment (epic #72): ${delegated.join(', ') || 'none'}`,
   };
 }
