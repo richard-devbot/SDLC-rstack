@@ -56,6 +56,7 @@ export function dashboardHtml(port) {
     </div>
   </main>
 </div>
+<div id="signal-toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="drawer-overlay" onclick="closeDrawer()" aria-hidden="true"></div>
 <aside id="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
   <div class="drawer-head">

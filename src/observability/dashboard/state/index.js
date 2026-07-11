@@ -14,6 +14,7 @@ import { buildPeople, buildPresence } from './people.js';
 import { buildBusinessFlexState } from './business-flex.js';
 import { buildDecisionState } from './decisions.js';
 import { buildEnvironmentState } from './environment.js';
+import { buildReadinessProjection } from './readiness.js';
 import { validateProjectConfigs } from '../../../core/harness/config-validation.js';
 // [wave:command] imports — pipeline rollup enrichment (#94 / #156 / #215)
 import { readPipelineState, buildPipelineState } from '../../../core/harness/pipeline-state.js';
@@ -118,9 +119,14 @@ export async function buildFullState(projectRoot, options = {}) {
     ts: new Date().toISOString(),
   };
 
-  return {
+  const stateWithReadiness = {
     ...baseState,
-    layers: buildLayerSummaries(baseState),
+    readiness: buildReadinessProjection(baseState, { evaluatedAt: baseState.ts }),
+  };
+
+  return {
+    ...stateWithReadiness,
+    layers: buildLayerSummaries(stateWithReadiness),
   };
 }
 
