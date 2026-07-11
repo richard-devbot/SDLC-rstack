@@ -1013,10 +1013,18 @@ async function evaluateDestructiveToolCall(
   }
 
   const decision = requireApprovalForDestructiveAction({ action: verdict, taskId, approvedArtifacts: approved });
-  // Backward compatibility: a run-level `destructive-action` (or a
-  // release-readiness.json) approval — the pre-#210 coarse artifact — still
-  // unblocks. Per-task approval is preferred and checked first by the decision.
-  const coarseApproved = approved.has("destructive-action") || approved.has("release-readiness.json");
+  // Backward compatibility: a run-level `destructive-action` approval — the
+  // pre-#210 coarse artifact — still unblocks. Per-task approval is preferred
+  // and checked first by the decision.
+  //
+  // #293: `release-readiness.json` is NO LONGER a destructive unblock. It is a
+  // normal, tool-recommended release-gate sign-off (sdlc_status lists it in the
+  // release approvals), so treating it as a blanket destructive override meant
+  // approving "the release looks ready" silently granted run-wide force-push /
+  // publish / db-drop / secret-write permission — a least-privilege violation.
+  // Destructive ops at release time need a per-task `destructive-action:<taskId>`
+  // approval (or the explicit `destructive-action` coarse artifact).
+  const coarseApproved = approved.has("destructive-action");
   if (decision.allowed || coarseApproved) return { block: false, verdict, taskId, reason: null };
   return { block: true, verdict, taskId, reason: decision.reason };
 }
