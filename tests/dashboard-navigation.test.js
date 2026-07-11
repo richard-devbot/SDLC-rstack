@@ -16,6 +16,7 @@ import {
 } from '../src/observability/dashboard/ui/navigation.js';
 import { dashboardHtml } from '../src/observability/dashboard/ui.js';
 import { clientScript } from '../src/observability/dashboard/ui/client.js';
+import { styles } from '../src/observability/dashboard/ui/styles.js';
 
 test('six intent destinations cover every legacy page exactly once', () => {
   assert.deepEqual(destinations.map((item) => item.label), [
@@ -100,4 +101,25 @@ test('closing an already closed mobile menu is idempotent and does not steal foc
 
   assert.match(bundle, /if \(!panel\.classList\.contains\('open'\)\) return/);
   assert.match(bundle, /MOBILE_NAV_RETURN_FOCUS = null/);
+});
+
+test('shell has persistent desktop, compact tablet, and 390px mobile contracts', () => {
+  assert.match(
+    styles,
+    /#shell\s*\{[^}]*grid-template-columns:\s*236px minmax\(0, 1fr\)/,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width: 1100px\)[\s\S]*grid-template-columns:\s*84px minmax\(0, 1fr\)/,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width: 700px\)[\s\S]*#mobile-nav-toggle[^}]*display:\s*grid/,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width: 700px\)[\s\S]*\.destination-link[^}]*min-height:\s*44px/,
+  );
+  assert.match(styles, /:focus-visible/);
+  assert.match(styles, /@media \(prefers-reduced-motion:\s*reduce\)/);
 });

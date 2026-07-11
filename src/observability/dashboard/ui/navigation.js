@@ -119,7 +119,7 @@ function navigationGroups(surface) {
     const active = item.id === destinations[0].id;
     const childId = `${surface}-destination-${item.id}-children`;
     return `<div class="destination-group${active ? ' active' : ''}" data-destination-group="${item.id}">` +
-      `<button class="destination-link${active ? ' active' : ''}" type="button" data-primary-destination="${item.id}" aria-expanded="${active}" aria-controls="${childId}">` +
+      `<button class="destination-link${active ? ' active' : ''}" type="button" title="${item.label}" data-primary-destination="${item.id}" aria-expanded="${active}" aria-controls="${childId}">` +
         destinationIcon(item.icon) +
         `<span class="destination-copy"><span class="destination-label">${item.label}</span><span class="destination-hint">${item.children.length === 1 ? 'Your delivery outcome' : `${item.children.length} views`}</span></span>` +
         '<span class="destination-chevron" aria-hidden="true">›</span>' +
