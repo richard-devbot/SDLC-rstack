@@ -1,3 +1,5 @@
+<!-- owner: RStack developed by Richardson Gunde -->
+
 # Responsive Delivery Shell Design (#278)
 
 ## Outcome

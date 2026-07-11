@@ -1,3 +1,5 @@
+<!-- owner: RStack developed by Richardson Gunde -->
+
 # Responsive Delivery Shell (#278) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -428,3 +430,29 @@ PR is merged.
   passing test plus a commit.
 - The plan contains no renderer deletion, backend action, badge formula, new
   dependency, or file overlap with #221/#222.
+
+## Execution evidence
+
+Completed on branch `codex/ui-shell-278` on 2026-07-11.
+
+- Navigation model: six primary destinations, all 21 legacy page IDs mapped
+  exactly once, and no independent actionable badge formula.
+- Responsive browser proof: 236px rail at 1440; 84px rail at 1024 and 768;
+  mobile drawer at 390; project/run controls remained 44px high; no measured
+  horizontal overflow at any audited width.
+- Mobile keyboard proof: opening focused Overview; Shift+Tab from Close wrapped
+  to Operations; Tab from Operations wrapped to Close; Escape closed the modal
+  and returned focus to `mobile-nav-toggle`.
+- Route proof: `#security`, `#page=cost-budget`, and
+  `#page=diagnostics&run=missing-run` selected Evidence, Spend, and Operations;
+  an unknown page fell back to Overview; Back/Forward restored the route.
+- Browser-discovered regression: the Overview mission card retained a desktop
+  two-column grid at 390px. A failing CSS contract test preceded the fix; the
+  final main column measured 306px within a 375px content area.
+- Focused dashboard tests: 21/21 passed.
+- Full suite: 1,052/1,052 passed.
+- Lint: exit 0 with one pre-existing `tests/papercuts-299.test.js` warning and
+  zero errors.
+- Typecheck: exit 0.
+- Agent validation: 196/196 passed.
+- `git diff --check`: clean.
