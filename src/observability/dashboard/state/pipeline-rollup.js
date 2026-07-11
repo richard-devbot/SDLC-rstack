@@ -1,0 +1,101 @@
+// owner: RStack developed by Richardson Gunde
+//
+// Compact pipeline rollup (#94 / #156 / #215 / #221) — shared so BOTH the live
+// snapshot builder (state/index.js) and the rollup index (state/rollup-index.js)
+// can produce the identical summary from a pipeline-state.json.
+//
+// It was private to state/index.js, but #221 persists the rollup into the index
+// entry (so completed/index-served runs stop re-reading pipeline-state.json on
+// every 3s poll). rollup-index.js cannot import state/index.js — index.js
+// already imports rollup-index.js, so that would be a cycle — hence this
+// dependency-free-of-both module. `recommendPipelineAction` (the CLI's
+// next-action sentence) is reused verbatim so the Hub and CLI never disagree.
+
+import { recommendPipelineAction } from '../../../commands/pipeline.js';
+
+const ROLLUP_FAILED_STATUSES = new Set(['FAIL', 'FAILED', 'ERROR', 'BLOCKED']);
+const ROLLUP_PASSED_STATUSES = new Set(['PASS', 'PASSED', 'SUCCESS', 'SUCCEEDED', 'DONE', 'COMPLETED']);
+
+// Mirrors recommendPipelineAction's deterministic priority order
+// (approvals → failed → active → pending → complete) to CLASSIFY the action
+// for chip routing; the sentence itself always comes from
+// recommendPipelineAction so the two can never disagree on substance.
+export function classifyNextAction(state) {
+  const none = { kind: 'unknown', stage_id: null, task_id: null, artifact: null };
+  if (!state || !Array.isArray(state.stages)) return none;
+  const blocker = (state.approval_blockers ?? [])[0];
+  if (blocker) return { kind: 'approval', stage_id: blocker.stage_id ?? null, task_id: null, artifact: blocker.artifact ?? null };
+  const failed = state.stages.find((stage) => ROLLUP_FAILED_STATUSES.has(stage.status));
+  if (failed) {
+    const kind = failed.retry_state === 'exhausted' ? 'guardrail_blocked'
+      : failed.retry_state === 'retryable' ? 'retry' : 'failed';
+    return { kind, stage_id: failed.id, task_id: (failed.task_ids ?? [])[0] ?? null, artifact: null };
+  }
+  if (state.current?.stage_id) {
+    return { kind: 'active', stage_id: state.current.stage_id, task_id: state.current.task_id ?? null, artifact: null };
+  }
+  const pending = state.stages.find((stage) => stage.status === 'PENDING');
+  if (pending) return { kind: 'pending', stage_id: pending.id, task_id: null, artifact: null };
+  if (state.stages.length > 0 && state.stages.every((stage) => ROLLUP_PASSED_STATUSES.has(stage.status))) {
+    return { kind: 'complete', stage_id: null, task_id: null, artifact: null };
+  }
+  return none;
+}
+
+export function compactPipelineRollup(state, events) {
+  const next = classifyNextAction(state);
+  const loop = state.goal_loop ?? {};
+  // Last goal verdict: prefer the rollup's last_evaluation.status; the BLE-4
+  // goal evaluator emits `recommendation` on the pinned goal_evaluated event,
+  // so fall back to that before giving up.
+  const lastGoalEvent = [...(events ?? [])].reverse()
+    .find((event) => String(event?.type ?? event?.kind ?? '') === 'goal_evaluated') ?? null;
+  const lastVerdict = loop.last_evaluation?.status ?? lastGoalEvent?.status ?? lastGoalEvent?.recommendation ?? null;
+  // Freshness (#218 review): a persisted pipeline-state.json can lag the live
+  // event stream on an active run. `generated_at` stamps when the state was
+  // computed; any event newer than it means the next-action below is behind
+  // live data. Detected from data already in the snapshot — no extra read —
+  // so the hero card can say so rather than present a stale recommendation as
+  // live ("never let stale data look live").
+  const generatedAt = state.generated_at ?? null;
+  const eventsBehind = generatedAt
+    ? (events ?? []).filter((event) => String(event?.ts ?? event?.timestamp ?? '') > String(generatedAt)).length
+    : 0;
+  return {
+    schema_version: state.schema_version ?? null,
+    status: state.pipeline?.status ?? 'UNKNOWN',
+    stages_total: state.pipeline?.stages_total ?? 0,
+    stages_passed: state.pipeline?.stages_passed ?? 0,
+    stages_failed: state.pipeline?.stages_failed ?? 0,
+    generated_at: generatedAt,
+    stale: eventsBehind > 0,
+    events_behind: eventsBehind,
+    next_action: { ...next, text: recommendPipelineAction(state) },
+    approval_blockers: (state.approval_blockers ?? []).length,
+    retries: {
+      total: state.retries?.total ?? 0,
+      scheduled: state.retries?.scheduled ?? 0,
+      exhausted: state.retries?.exhausted ?? 0,
+      human_required: state.retries?.human_required ?? 0,
+    },
+    context_pressure: {
+      total: state.context_pressure?.total ?? 0,
+      by_source: state.context_pressure?.by_source ?? {},
+    },
+    checkpoints: {
+      total: state.checkpoints?.total ?? 0,
+      before_saved: state.checkpoints?.before_saved ?? 0,
+      after_saved: state.checkpoints?.after_saved ?? 0,
+      reverted: state.checkpoints?.reverted ?? 0,
+    },
+    goal_loop: {
+      total: loop.total ?? 0,
+      iterations: loop.iterations ?? 0,
+      active: (loop.total ?? 0) > 0 && !loop.stopped_on,
+      stopped_on: loop.stopped_on ?? null,
+      last_verdict: lastVerdict,
+      criteria_met: lastGoalEvent?.criteria_met ?? null,
+      criteria_total: lastGoalEvent?.criteria_total ?? null,
+    },
+  };
+}

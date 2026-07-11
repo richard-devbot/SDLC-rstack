@@ -30,6 +30,8 @@ import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promi
 import { getRunsForRoot } from './runs.js';
 import { safeJson } from './files.js';
 import { persistedTokenTotals } from '../../metrics/derive.js';
+import { compactPipelineRollup } from './pipeline-rollup.js';
+import { readPipelineState, buildPipelineState } from '../../../core/harness/pipeline-state.js';
 
 // v2 (#97): entries persist stage_reports so index-served (completed) runs
 // keep their produced-stage list; the bump forces one self-healing rebuild.
@@ -45,7 +47,10 @@ import { persistedTokenTotals } from '../../metrics/derive.js';
 // v5: entries persist has_integrity_errors — found by the lite↔full parity
 // guard the #296 review required: a completed run with damaged files lost its
 // #82 "data damaged" badge the moment it was served from the index.
-export const INDEX_VERSION = 5;
+// v6 (#221): entries persist the compact pipeline_rollup so completed/index-
+// served runs stop re-reading pipeline-state.json on every 3s poll — the read
+// happens once at index time and is served from memory thereafter.
+export const INDEX_VERSION = 6;
 export const DEFAULT_RETENTION_DAYS = 90;
 
 const STALL_MS = 30 * 60 * 1000;
@@ -106,6 +111,19 @@ async function runSignature(io, runDir) {
 
 function sigEqual(a, b) {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+// Compact pipeline rollup for a fully-parsed run (#221). Mirrors
+// attachPipelineRollups' read/build fallback so the persisted rollup is
+// identical to the live one. Best-effort: any failure yields null.
+async function computeRunPipelineRollup(run) {
+  try {
+    let state = await readPipelineState(run.projectRoot, run.runId);
+    if (!state && !run.fromIndex) state = await buildPipelineState(run.projectRoot, run.runId);
+    return state ? compactPipelineRollup(state, run.events ?? []) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Build an index entry from an already fully-parsed run object. */
@@ -174,6 +192,9 @@ export function entryFromRun(run, sig = null) {
     // stored verbatim (they are small audit records) so every consumer sees
     // the same shape as a fully-parsed run. Capped like state.approvals.
     approvals: (run.approvals ?? []).slice(-100),
+    // Compact pipeline rollup (#221): persisted so a completed/index-served run
+    // is summarized from memory instead of a per-poll pipeline-state.json read.
+    pipeline_rollup: run.pipelineRollup ?? null,
     // Evidence, artifacts, timelines, and requirements survive too (#296),
     // each capped to what the client-state projection actually consumes, so
     // index-served runs match a full parse instead of rendering empty.
@@ -217,6 +238,11 @@ export function liteRunFromEntry(projectRoot, entry, now = Date.now()) {
     })),
     events: entry.notable_events ?? [],
     approvals: entry.approvals ?? [],
+    // #221: rehydrate the persisted rollup so attachPipelineRollups skips the
+    // per-poll read for this run. null for legacy (< v6) entries until the
+    // INDEX_VERSION bump rebuilds them; attachPipelineRollups treats a defined
+    // value (incl. null) as "already attached" and does not re-read.
+    pipelineRollup: entry.pipeline_rollup ?? null,
     // Persisted in the index entry as of v4 (#296) — index-served runs now
     // rehydrate these with real data instead of the empty arrays that made
     // Hub aggregates undercount every completed run. Legacy entries written
@@ -351,6 +377,12 @@ export async function syncRootRuns(projectRoot, options = {}) {
 
   const parsedRuns = hot.size > 0 ? await getRunsForRoot(projectRoot, { only: hot }) : [];
   for (const run of parsedRuns) {
+    // #221: compute the compact pipeline rollup ONCE here, at index time, and
+    // attach it to the run so entryFromRun persists it. Hot runs are the few
+    // active/changed ones (cold runs never reach getRunsForRoot), so this is
+    // the same work attachPipelineRollups did per-poll — but now completed
+    // runs keep it in the index and never re-read pipeline-state.json again.
+    run.pipelineRollup = await computeRunPipelineRollup(run);
     nextRuns[run.runId] = entryFromRun(run, sigByRunId[run.runId] ?? null);
     dirty = true;
   }
