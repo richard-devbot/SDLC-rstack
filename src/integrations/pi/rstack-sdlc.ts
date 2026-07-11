@@ -1035,17 +1035,24 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
   const agentBody = await readProjectFile(projectRoot, agent.path, 16000);
   const tools = task.tools?.length ? task.tools : defaultToolsForAgent(agent.name);
   
-  // Model escalation logic
+  // Model escalation logic (#297): escalate when the task actually being built
+  // is on a retry. A delegate is spawned per agent and carries no task id, so
+  // the correct signal is the IN_PROGRESS task (the one the claim is currently
+  // building) — NOT the globally-last task_started event, which on the parallel
+  // sdlc_delegate path made every concurrent delegate inherit whichever task
+  // happened to start last (and mis-escalate its cost).
   const runId = sessionRun(projectRoot);
   let attempts = 1;
   let model = process.env.RSTACK_DEFAULT_MODEL || "gemini-2.5-flash";
   if (runId) {
     const runDir = join(runsDir(projectRoot), runId);
-    const eventsPath = join(runDir, "events.jsonl");
-    const events = await readJsonl(eventsPath);
-    const activeTaskEvent = events.filter((e: any) => e.type === "task_started").pop();
-    if (activeTaskEvent) {
-      const activeTaskId = activeTaskEvent.task_id;
+    let activeTaskId: string | null = null;
+    try {
+      const taskState = JSON.parse(await readFile(join(runDir, "tasks.json"), "utf8"));
+      activeTaskId = (taskState.tasks || []).find((t: any) => t.status === "IN_PROGRESS")?.id ?? null;
+    } catch { /* no/unreadable tasks.json → no active task → no escalation */ }
+    if (activeTaskId) {
+      const events = await readJsonl(join(runDir, "events.jsonl"));
       attempts = events.filter((e: any) => e.type === "task_started" && e.task_id === activeTaskId).length;
       if (attempts >= 2) {
         model = process.env.RSTACK_ESCALATED_MODEL || "gemini-2.5-pro";
