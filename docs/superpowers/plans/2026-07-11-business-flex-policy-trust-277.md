@@ -211,7 +211,7 @@ git commit -m "fix(dashboard): separate policy from Business Flex telemetry (#27
 - Consumes: `state.businessFlex.configuredPolicy.projects` from Task 2.
 - Produces: client-safe policy records and per-run `loopBudgetUsd` derived from the server contract.
 
-- [ ] **Step 1: Write the failing no-reread and compatibility tests**
+- [x] **Step 1: Write the failing no-reread and compatibility tests**
 
 ```js
 test('toClientState wires run cap from configured policy without rereading the filesystem', () => {
@@ -224,13 +224,13 @@ test('toClientState wires run cap from configured policy without rereading the f
 
 Assert the client projection retains `availability`, `sourcePath`, `issues`, snapshot comparison, and observed-consumption provenance. Assert a missing/invalid budget maps `loopBudgetUsd` to `null`.
 
-- [ ] **Step 2: Confirm RED**
+- [x] **Step 2: Confirm RED**
 
 Run: `npx tsx --test tests/dashboard-business-flex-state.test.js tests/dashboard-money-pages.test.js`
 
 Expected: FAIL because `toClientState` still calls `readLoopBudgetCaps(state.sourceRoots)` and collapses invalid/missing states.
 
-- [ ] **Step 3: Project caps from configured policy**
+- [x] **Step 3: Project caps from configured policy**
 
 Build `capByRoot` and backward-compatible `loopBudgets` from configured project policy:
 
@@ -242,13 +242,13 @@ const capByRoot = Object.fromEntries(configuredBudgets.map((project) => [project
 
 Use `Object.hasOwn(capByRoot, run.projectRoot)` so a configured zero cap survives. Keep `readLoopBudgetCaps` exported only for compatibility tests, but remove it from the snapshot path.
 
-- [ ] **Step 4: Confirm GREEN**
+- [x] **Step 4: Confirm GREEN**
 
 Run: `npx tsx --test tests/dashboard-business-flex-state.test.js tests/dashboard-money-pages.test.js tests/dashboard-client-state.test.js`
 
 Expected: PASS; no client projection reads policy files and older `loopBudgets` consumers retain equivalent valid-cap data.
 
-- [ ] **Step 5: Commit the projection**
+- [x] **Step 5: Commit the projection**
 
 ```bash
 git add src/observability/dashboard/state/client-state.js tests/dashboard-business-flex-state.test.js tests/dashboard-money-pages.test.js

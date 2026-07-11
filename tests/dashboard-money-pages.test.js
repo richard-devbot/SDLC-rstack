@@ -160,15 +160,61 @@ test('readLoopBudgetCaps mirrors the goal-loop budget file exactly', () => {
   rmSync(corruptRoot, { recursive: true, force: true });
 });
 
-test('toClientState wires loopBudgetUsd to the run through sourceRoots', () => {
+test('toClientState wires loop budgets from configured policy without rereading files', () => {
   const root = mkdtempSync(join(tmpdir(), 'rstack-money-wire-'));
-  mkdirSync(join(root, '.rstack'), { recursive: true });
-  writeFileSync(join(root, '.rstack', 'budget.json'), JSON.stringify({ run_budget_usd: 10 }));
-  const state = toClientState({ sourceRoots: [root], runs: [fixtureRun({ projectRoot: root })] });
+  const state = toClientState({
+    sourceRoots: [root],
+    runs: [fixtureRun({ projectRoot: root })],
+    businessFlex: {
+      configuredPolicy: {
+        projects: [{
+          projectRoot: root,
+          budget: {
+            availability: 'configured',
+            currency: 'USD',
+            runBudgetUsd: 10,
+            dailyBudgetUsd: 50,
+            monthlyBudgetUsd: 500,
+            sourcePath: '.rstack/budget.json',
+            issues: [],
+          },
+        }],
+      },
+      profiles: [], budget: {}, routingSignals: [],
+    },
+  });
   assert.equal(state.runs[0].loopBudgetUsd, 10);
-  assert.deepEqual(state.loopBudgets.map((cap) => cap.run_budget_usd), [10]);
-  // A run from a root with no budget.json carries null — no invented cap.
-  const capless = toClientState({ sourceRoots: [], runs: [fixtureRun()] });
+  assert.deepEqual(state.loopBudgets, [{
+    root,
+    run_budget_usd: 10,
+    daily_budget_usd: 50,
+    monthly_budget_usd: 500,
+  }]);
+
+  const invalid = toClientState({
+    runs: [fixtureRun({ projectRoot: root })],
+    businessFlex: {
+      configuredPolicy: { projects: [{
+        projectRoot: root,
+        budget: { availability: 'invalid', runBudgetUsd: null },
+      }] },
+    },
+  });
+  assert.equal(invalid.runs[0].loopBudgetUsd, null);
+
+  const zero = toClientState({
+    runs: [fixtureRun({ projectRoot: root })],
+    businessFlex: {
+      configuredPolicy: { projects: [{
+        projectRoot: root,
+        budget: { availability: 'configured', runBudgetUsd: 0, dailyBudgetUsd: 0, monthlyBudgetUsd: 0 },
+      }] },
+    },
+  });
+  assert.equal(zero.runs[0].loopBudgetUsd, 0);
+
+  // A run with no configured policy record carries null — no invented cap.
+  const capless = toClientState({ runs: [fixtureRun()] });
   assert.equal(capless.runs[0].loopBudgetUsd, null);
   rmSync(root, { recursive: true, force: true });
 });
