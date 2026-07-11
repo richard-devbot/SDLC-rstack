@@ -69,6 +69,10 @@ function coreScript(port) {
   return `
 // ── core: state, scope, router, transport ─────────────────────────
 var STATE = null;
+var GLOBAL_STATE = null;
+var SCOPE_CATALOG = { projects: [], runs: [] };
+var SCOPE_REQUEST_SEQUENCE = 0;
+var STATE_ETAGS = {};
 var PORT = ${port};
 var WS_CONNECTED = false;
 var reconnectTimer = null;
@@ -78,7 +82,6 @@ var ws = null;
 // Data-freshness tracking (issue #87): never let stale data look live.
 var LAST_SERVER_TS = null;   // ISO ts carried by the last snapshot
 var LAST_SNAPSHOT_AT = 0;    // client clock (ms) when the last snapshot landed
-var LAST_ETAG = null;        // ETag for conditional REST polling
 var POLL_TIMER = null;       // REST fallback poll handle (active while WS down)
 var FRESHNESS_TIMER = null;  // 1s heartbeat that ages the freshness chip
 var LAST_CONN_KIND = null;   // last announced connection kind (debounces aria)
@@ -145,120 +148,127 @@ function applyState(state, opts) {
   try { updateFreshness(); } catch (err) { /* freshness chip is best-effort */ }
   try { notifyNewGates(state); } catch (err) { /* notifications are best-effort */ }
   try { renderScopeSelectors(state); } catch (err) { showErr('scope: ' + err.message); }
-  var scoped = applyScope(state);
   try { renderFrame(state); } catch (err) { showErr('frame: ' + err.message); }
   PAGE_RENDERERS.forEach(function(page) {
     try {
-      page.render(page.unscoped ? state : scoped);
+      // Every snapshot is already completely scoped by the server. Pages that
+      // were historically marked unscoped no longer bypass project/run trust.
+      page.render(state);
     } catch (err) {
       showErr(page.errLabel + ': ' + err.message);
     }
   });
 }
 
-// ── Global project → run scope (issue #43) ──────────────────────────────────
+// ── Server-owned project → run scope (issue #276) ───────────────────────────
 var SCOPE = {
   project: localStorage.getItem('rstack-scope-project') || '',
   run: localStorage.getItem('rstack-scope-run') || '',
 };
-// Deep link: #run=<runId> wins over stored scope.
+var legacyRunId = '';
+// Deep links from the previous bare-run-id contract remain compatible. Once
+// the global catalog arrives, the id is migrated to its opaque run scope key.
 (function initScopeFromHash() {
   var match = /[#&]run=([^&]+)/.exec(location.hash || '');
-  if (match) { SCOPE.run = decodeURIComponent(match[1]); SCOPE.project = ''; }
+  if (match) {
+    legacyRunId = decodeURIComponent(match[1]);
+    SCOPE.run = '';
+    SCOPE.project = '';
+  }
 })();
+
+function persistScope() {
+  localStorage.setItem('rstack-scope-project', SCOPE.project);
+  localStorage.setItem('rstack-scope-run', SCOPE.run);
+}
 
 function setScopeProject(value) {
   SCOPE.project = value;
   SCOPE.run = '';
-  localStorage.setItem('rstack-scope-project', value);
-  localStorage.setItem('rstack-scope-run', '');
+  legacyRunId = '';
+  persistScope();
   if (location.hash) history.replaceState(null, '', location.pathname);
-  if (STATE) applyState(STATE);
+  requestScopedState();
 }
 
 function setScopeRun(value) {
   SCOPE.run = value;
-  localStorage.setItem('rstack-scope-run', value);
+  legacyRunId = '';
+  var selected = (SCOPE_CATALOG.runs || []).find(function(run) { return run.key === value; });
+  if (selected) SCOPE.project = selected.projectId;
+  persistScope();
   history.replaceState(null, '', value ? '#run=' + encodeURIComponent(value) : location.pathname);
-  if (STATE) applyState(STATE);
+  requestScopedState();
+}
+
+function scopeUrl() {
+  if (SCOPE.run) return '/api/state?run=' + encodeURIComponent(SCOPE.run);
+  if (SCOPE.project) return '/api/state?project=' + encodeURIComponent(SCOPE.project);
+  return '/api/state';
+}
+
+function announceScope(message) {
+  var live = document.getElementById('scope-live');
+  if (live) live.textContent = message;
+}
+
+function clearScope(reason) {
+  SCOPE.project = '';
+  SCOPE.run = '';
+  legacyRunId = '';
+  persistScope();
+  if (location.hash) history.replaceState(null, '', location.pathname);
+  announceScope(reason || 'Scope reset to All projects.');
+}
+
+function resolveSavedScope(catalog) {
+  if (!legacyRunId) return;
+  var selected = (catalog.runs || []).find(function(run) {
+    return run.key === legacyRunId || run.runId === legacyRunId;
+  });
+  if (selected) {
+    SCOPE.run = selected.key;
+    SCOPE.project = selected.projectId;
+    persistScope();
+  } else {
+    clearScope('The linked run is no longer available. Scope reset to All projects.');
+  }
+  legacyRunId = '';
 }
 
 function renderScopeSelectors(s) {
-  var runs = s.runs || [];
+  var catalog = s.scopeCatalog || SCOPE_CATALOG || { projects: [], runs: [] };
   var projectSelect = document.getElementById('scope-project');
   var runSelect = document.getElementById('scope-run');
   if (!projectSelect || !runSelect) return;
-  var roots = [];
-  runs.forEach(function(run) { if (run.projectRoot && roots.indexOf(run.projectRoot) === -1) roots.push(run.projectRoot); });
-  projectSelect.innerHTML = '<option value="">All projects</option>' + roots.map(function(root) {
-    return '<option value="' + esc(root) + '"' + (root === SCOPE.project ? ' selected' : '') + '>' + esc(shortName(root)) + '</option>';
+  resolveSavedScope(catalog);
+  projectSelect.innerHTML = '<option value="">All projects</option>' + (catalog.projects || []).map(function(project) {
+    var worktrees = (project.roots || []).filter(function(root) { return root.isWorktree; });
+    var suffix = worktrees.length === 1 ? ' · worktree ' + worktrees[0].worktreeName
+      : worktrees.length > 1 ? ' · ' + worktrees.length + ' worktrees' : '';
+    return '<option value="' + esc(project.id) + '"' + (project.id === SCOPE.project ? ' selected' : '') + '>' +
+      esc(project.name + suffix) + '</option>';
   }).join('');
-  var scopedRuns = SCOPE.project ? runs.filter(function(run) { return run.projectRoot === SCOPE.project; }) : runs;
+  var scopedRuns = SCOPE.project
+    ? (catalog.runs || []).filter(function(run) { return run.projectId === SCOPE.project; })
+    : (catalog.runs || []);
   runSelect.innerHTML = '<option value="">All runs</option>' + scopedRuns.map(function(run) {
-    var label = ((run.manifest && run.manifest.goal) || run.runId).slice(0, 60);
-    return '<option value="' + esc(run.runId) + '"' + (run.runId === SCOPE.run ? ' selected' : '') + '>' + esc(label) + '</option>';
+    var context = run.worktreeName ? ' · ' + run.worktreeName : '';
+    var label = String(run.goal || run.runId).slice(0, 54) + context;
+    return '<option value="' + esc(run.key) + '"' + (run.key === SCOPE.run ? ' selected' : '') + '>' +
+      esc(label) + '</option>';
   }).join('');
-}
-
-// Readiness conclusions are evaluated on the server for every selectable
-// project/run scope. The browser only chooses the matching result; it never
-// recomputes release truth from partial client data.
-function selectReadinessScope(readiness) {
-  if (!readiness || !readiness.scopes) return readiness;
-  if (SCOPE.run) {
-    return (readiness.scopes.runs || []).find(function(entry) {
-      return entry.runId === SCOPE.run;
-    }) || readiness;
+  var context = 'All project evidence';
+  var run = (catalog.runs || []).find(function(entry) { return entry.key === SCOPE.run; });
+  var project = (catalog.projects || []).find(function(entry) { return entry.id === SCOPE.project; });
+  if (run) {
+    context = run.projectName + (run.worktreeName ? ' / ' + run.worktreeName : '') + ' / ' + run.runId;
+  } else if (project) {
+    context = project.name + ' / all runs';
+  } else if ((catalog.projects || []).length) {
+    context = catalog.projects.length + ' projects / all runs';
   }
-  if (SCOPE.project) {
-    return (readiness.scopes.projects || []).find(function(entry) {
-      return entry.projectRoot === SCOPE.project;
-    }) || readiness;
-  }
-  return readiness;
-}
-
-function applyScope(s) {
-  if (!SCOPE.project && !SCOPE.run) return s;
-  var runs = (s.runs || []).filter(function(run) {
-    if (SCOPE.run) return run.runId === SCOPE.run;
-    return run.projectRoot === SCOPE.project;
-  });
-  var runIds = {};
-  runs.forEach(function(run) { runIds[run.runId] = true; });
-  var copy = {};
-  for (var key in s) copy[key] = s[key];
-  copy.runs = runs;
-  copy.readiness = selectReadinessScope(s.readiness);
-  copy.feed = (s.feed || []).filter(function(item) { return !item.runId || runIds[item.runId]; });
-  copy.agentWork = (s.agentWork || []).filter(function(work) { return !work.runId || runIds[work.runId]; });
-  copy.agentGroups = (s.agentGroups || []).filter(function(group) { return !group.runId || runIds[group.runId]; });
-  copy.businessFlex = null;
-  if (s.decisions) {
-    var scopedDecisionRuns = (s.decisions.runs || []).filter(function(row) { return runIds[row.runId]; });
-    var scopedTotals = scopedDecisionRuns.reduce(function(acc, row) {
-      var summary = row.summary || {};
-      var readiness = row.readiness || {};
-      acc.total += Number(summary.total || 0);
-      acc.pending += Number(summary.pending || 0);
-      acc.resolved += Number(summary.resolved || 0);
-      acc.waived += Number(summary.waived || 0);
-      if (readiness.status === 'PASS') acc.pass += 1;
-      if (readiness.status === 'WARN') acc.warn += 1;
-      if (readiness.status === 'FAIL') acc.fail += 1;
-      return acc;
-    }, { total: 0, pending: 0, resolved: 0, waived: 0, pass: 0, warn: 0, fail: 0 });
-    copy.decisions = {
-      totals: scopedTotals,
-      runs: scopedDecisionRuns
-    };
-  }
-  copy.presence = (s.presence || []).filter(function(item) { return runIds[item.runId]; });
-  copy.trends = s.trends ? {
-    stages: s.trends.stages || {},
-    runs: (s.trends.runs || []).filter(function(row) { return runIds[row.runId]; }),
-  } : s.trends;
-  return copy;
+  setText('scope-context', context);
 }
 
 // ── Browser + in-app notifications for new governed signals ────────────────
@@ -338,15 +348,28 @@ function renderFrame(s) {
   });
 }
 
-function fetchState() {
+function acceptServerState(state, opts) {
+  if (state.scopeCatalog) SCOPE_CATALOG = state.scopeCatalog;
+  if (state.scope && state.scope.reset) {
+    clearScope(state.scope.reason || 'Scope reset to All projects.');
+  }
+  applyState(state, opts);
+  return state;
+}
+
+function requestScopedState() {
+  var requestSequence = ++SCOPE_REQUEST_SEQUENCE;
+  var url = scopeUrl();
   // Conditional request: an unchanged snapshot returns 304, which still
   // confirms the data is current (refresh the freshness clock) without a
   // re-render. ETag stripping of server eval-time stamps lives server-side.
-  var opts = LAST_ETAG ? { headers: { 'If-None-Match': LAST_ETAG } } : {};
-  return authAwareFetch('/api/state', opts)
+  var etag = STATE_ETAGS[url];
+  var opts = etag ? { headers: { 'If-None-Match': etag } } : {};
+  return authAwareFetch(url, opts)
     .then(function(response) {
-      var etag = response.headers.get('etag');
-      if (etag) LAST_ETAG = etag;
+      if (requestSequence !== SCOPE_REQUEST_SEQUENCE) return null;
+      var nextEtag = response.headers.get('etag');
+      if (nextEtag) STATE_ETAGS[url] = nextEtag;
       if (response.status === 304) {
         LAST_SNAPSHOT_AT = Date.now();
         updateFreshness();
@@ -358,13 +381,29 @@ function fetchState() {
           throw new Error(body.error || ('HTTP ' + response.status));
         });
       }
-      return response.json().then(function(data) { applyState(data, { fromSnapshot: true }); return data; });
+      return response.json().then(function(data) {
+        if (requestSequence !== SCOPE_REQUEST_SEQUENCE) return null;
+        return acceptServerState(data, { fromSnapshot: true });
+      });
     })
     .catch(function(err) {
       // Don't claim freshness — let the heartbeat age the chip toward stale.
       updateFreshness();
       showErr('HTTP load failed: ' + err.message);
     });
+}
+
+function fetchState() {
+  return requestScopedState();
+}
+
+function handleGlobalSnapshot(state) {
+  GLOBAL_STATE = state;
+  if (state.scopeCatalog) SCOPE_CATALOG = state.scopeCatalog;
+  resolveSavedScope(SCOPE_CATALOG);
+  if (SCOPE.project || SCOPE.run) return requestScopedState();
+  SCOPE_REQUEST_SEQUENCE += 1; // invalidate any older scoped REST response
+  return acceptServerState(state, { fromSnapshot: true });
 }
 
 function connectWS() {
@@ -388,7 +427,7 @@ function connectWS() {
   };
   ws.onmessage = function(event) {
     try {
-      applyState(JSON.parse(event.data), { fromSnapshot: true });
+      handleGlobalSnapshot(JSON.parse(event.data));
     } catch (err) {
       showErr('WS render: ' + err.message);
     }

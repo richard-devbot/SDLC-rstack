@@ -236,10 +236,11 @@ test('server precomputes isolated project and run verdicts for browser scope sel
   assert.equal(readiness.scopes.runs.find((entry) => entry.runId === 'run-blocked').status, 'blocked');
 });
 
-test('the browser scope selector chooses a server-owned readiness result', () => {
+test('the browser requests the complete server-owned scope instead of selecting readiness locally', () => {
   const bundle = clientScript(3008);
-  assert.match(bundle, /function selectReadinessScope\(/);
-  assert.match(bundle, /copy\.readiness = selectReadinessScope\(s\.readiness\)/);
+  assert.doesNotMatch(bundle, /function selectReadinessScope\(/);
+  assert.doesNotMatch(bundle, /function applyScope\(/);
+  assert.match(bundle, /function requestScopedState\(/);
   assert.match(bundle, /function resetDashboardScroll\(/);
   assert.match(bundle, /setText\('page-title',[\s\S]+resetDashboardScroll\(\)/);
   assert.doesNotThrow(() => new Function(bundle));
