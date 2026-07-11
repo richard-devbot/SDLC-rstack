@@ -31,6 +31,7 @@ import { consumeApprovedQueueArtifact, ensurePendingQueueApproval } from '../../
 import { decide } from '../../core/harness/decisions.js';
 import { latestRunId, runDirectory } from '../../core/harness/runs.js';
 import { withFileLock } from '../../core/harness/safe-write.js';
+import { isSafeRunId } from '../../core/harness/approval-audit.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -559,7 +560,10 @@ async function handleDecide(req, res) {
       // explicit runId that exists nowhere is a 404, not a silent default.
       let targetRoot = PROJECT_ROOT;
       if (runId) {
-        if (typeof runId !== 'string' || runId.includes('/') || runId.includes('..') || runId.includes('\\')) {
+        // #241: reuse the canonical run-id validator (approval-audit.js) rather
+        // than an ad-hoc includes() check, so this write path and the gate-side
+        // audit can never drift on what a "safe run id" is.
+        if (!isSafeRunId(runId)) {
           audit({ ...base, outcome: 'denied', reason: 'unsafe run id' });
           return fail(400, 'unsafe run id');
         }
@@ -579,6 +583,10 @@ async function handleDecide(req, res) {
         audit({ ...base, outcome: 'success' });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, decision }));
+        // #241: the decision already succeeded and the 200 is sent — the live
+        // WS refresh is BY DESIGN best-effort. A push failure is logged to
+        // stderr and clients re-poll (/api/state every 3s); it must never turn a
+        // completed decision into an error. Same contract as /api/env-write.
         broadcastSnapshot().catch((err) => {
           process.stderr.write(`[rstack-business] decision broadcast error: ${err?.message}\n`);
         });
@@ -622,7 +630,8 @@ const ARTIFACT_EXTENSIONS = new Set(['.md', '.json', '.jsonl', '.txt', '.yml', '
 // Locate a run directory by id across the known project roots, rejecting any
 // id that could traverse the filesystem. Returns null if not found / unsafe.
 async function resolveRunDir(runId) {
-  if (!runId || runId.includes('/') || runId.includes('..') || runId.includes('\\')) return null;
+  // #241: canonical run-id validation (approval-audit.js), not an ad-hoc check.
+  if (!isSafeRunId(runId)) return null;
   const roots = await sourceRoots(PROJECT_ROOT, {});
   return roots
     .map((root) => join(root, '.rstack', 'runs', runId))
