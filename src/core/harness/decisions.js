@@ -1,11 +1,11 @@
 // owner: RStack developed by Richardson Gunde
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { rstackStateDir, runDirectory, latestRunId, resolveRunId } from './runs.js';
-import { writeFileAtomic } from './safe-write.js';
+import { withFileLock, writeFileAtomic } from './safe-write.js';
 
 export const DECISION_STATUSES = Object.freeze(['pending', 'resolved', 'waived']);
 export const DECISION_IMPACTS = Object.freeze(['architecture', 'security', 'budget', 'scope', 'delivery']);
@@ -41,41 +41,16 @@ function normalizeDecision(raw, index = 0, runId = '') {
   };
 }
 
-async function sleep(ms) {
-  await new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
-}
-
-const LOCK_STALE_MS = 30000;
-
+// #299 (item 5, second half): converged onto safe-write's withFileLock — the
+// previous mkdir-based lock had divergent stale semantics (30s vs 10s), an
+// unconditional release, and none of the #287 hardening (heartbeat keeps a
+// live holder's lock fresh; owner-checked release means a stale-broken holder
+// can never delete its successor's lock). One lock primitive across every
+// state file, one set of guarantees.
 async function withDecisionLock(projectRoot, runId, fn) {
   const selected = await resolveRunId(projectRoot, runId);
-  const runDir = runDirectory(projectRoot, selected);
-  const lockDir = join(runDir, '.decisions.lock');
-  await mkdir(runDir, { recursive: true });
-  for (let attempt = 0; attempt < 60; attempt++) {
-    let acquired = false;
-    try {
-      await mkdir(lockDir);
-      acquired = true;
-    } catch (err) {
-      if (err?.code !== 'EEXIST') throw err;
-      // Steal locks orphaned by a crashed holder so the queue cannot wedge permanently.
-      const lockStat = await stat(lockDir).catch(() => null);
-      if (lockStat && Date.now() - lockStat.mtimeMs > LOCK_STALE_MS) {
-        await rm(lockDir, { recursive: true, force: true }).catch(() => {});
-        continue;
-      }
-      await sleep(25 + attempt * 5);
-    }
-    if (acquired) {
-      try {
-        return await fn(selected);
-      } finally {
-        await rm(lockDir, { recursive: true, force: true });
-      }
-    }
-  }
-  throw new Error(`Timed out waiting for decisions lock for run ${selected}`);
+  await mkdir(runDirectory(projectRoot, selected), { recursive: true });
+  return withFileLock(decisionsPath(projectRoot, selected), async () => fn(selected));
 }
 
 async function readDecisionsUnlocked(projectRoot, runId) {
