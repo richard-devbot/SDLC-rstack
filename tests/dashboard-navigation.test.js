@@ -120,6 +120,14 @@ test('shell has persistent desktop, compact tablet, and 390px mobile contracts',
     styles,
     /@media \(max-width: 700px\)[\s\S]*\.destination-link[^}]*min-height:\s*44px/,
   );
+  assert.match(
+    styles,
+    /@media \(max-width: 700px\)[\s\S]*\.mission-brief[^}]*grid-template-columns:\s*1fr/,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width: 700px\)[\s\S]*\.executive-grid[^}]*grid-template-columns:\s*1fr/,
+  );
   assert.match(styles, /:focus-visible/);
   assert.match(styles, /@media \(prefers-reduced-motion:\s*reduce\)/);
 });

@@ -1146,6 +1146,8 @@ tr.clickable:hover td { background: #f8fbff; }
   .mobile-destination-nav .secondary-link { min-height: 44px; }
   #topbar { align-items: center; }
   .tb-title { min-width: 0; flex: 1; }
+  .mission-brief { grid-template-columns: 1fr; }
+  .executive-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
   #topbar { height: auto; min-height: 58px; flex-wrap: wrap; padding: 10px 14px; }
