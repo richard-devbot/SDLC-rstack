@@ -116,7 +116,7 @@ RStack uses Pi extension hooks as the runtime harness:
 | `tool_result` | Logs bounded tool result summaries to the active run event stream. |
 | `session_shutdown` | Appends a shutdown event to the active run. |
 
-Destructive commands such as `rm -rf`, `git push`, `npm publish`, `terraform apply/destroy`, and writes to secret-like paths are blocked during an active RStack run unless `sdlc_approve` records `destructive-action` or `release-readiness.json`, or `RSTACK_ALLOW_DESTRUCTIVE=1` is set.
+Destructive commands such as `rm -rf`, `git push`, `npm publish`, `terraform apply/destroy`, and writes to secret-like paths are blocked during an active RStack run unless `sdlc_approve` records a per-task `destructive-action:<taskId>` approval (preferred) or the coarse `destructive-action` artifact, or `RSTACK_ALLOW_DESTRUCTIVE=1` is set. Approving `release-readiness.json` is a release-gate sign-off only — since #293 it does NOT grant destructive permission.
 
 ## Specialist reuse
 
