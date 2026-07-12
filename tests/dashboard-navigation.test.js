@@ -24,8 +24,8 @@ test('six intent destinations cover every legacy page exactly once', () => {
   ]);
 
   const childIds = destinations.flatMap((item) => item.children.map((child) => child.id));
-  assert.equal(childIds.length, 23);
-  assert.equal(new Set(childIds).size, 23);
+  assert.equal(childIds.length, 24);
+  assert.equal(new Set(childIds).size, 24);
   assert.deepEqual(new Set(childIds), new Set(pages.map(([id]) => id)));
 });
 

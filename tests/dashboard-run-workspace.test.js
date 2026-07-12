@@ -39,7 +39,9 @@ function fixtureRun(overrides = {}) {
     pipelineRollup: {
       status: 'IN_PROGRESS', stale: false,
       next_action: { kind: 'active', stage_id: '07-code', task_id: '07-code', text: 'Continue implementation.' },
-      stages: { '06-architecture': { checkpoint_restorable: true } },
+      // The shipped checkpoint contract (#215): checkpoints.stages, not a
+      // full stages map — the old shape pinned the exact consumer bug.
+      checkpoints: { stages: [{ id: '06-architecture', restorable: true, reason: null }] },
     },
     ...overrides,
   };
