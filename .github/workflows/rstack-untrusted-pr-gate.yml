@@ -15,6 +15,12 @@ name: Untrusted PR gate
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
+    # The gate protects what reaches MAIN. Scoping it here also keeps it from
+    # crashing on stacked PRs whose base branch predates the gate script (the
+    # base-SHA checkout — correct for security — has no scripts/untrusted-pr-
+    # gate.mjs there, and MODULE_NOT_FOUND read as a gate failure). A stacked
+    # branch can only reach main through another PR that IS gated.
+    branches: [main]
 
 permissions:
   contents: read
