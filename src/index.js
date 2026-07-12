@@ -15,6 +15,7 @@
 // ── Core runtime ──────────────────────────────────────────────────────────────
 export { CANONICAL_SDLC_STAGES, assertCanonicalStages } from './core/harness/stages.js';
 export { validateBuilderContract, validateValidatorContract } from './core/harness/contracts.js';
+export { listPacks, packsForProfile, enabledPacksForConfig, validatePackMetadata, validateEnabledPacksConfig, PROFILE_PACK_DEFAULTS, PACK_ENFORCEMENT_LEVELS } from './core/packs.js';
 export { appendEvidenceEvent, validateEvidenceEvent } from './core/harness/evidence.js';
 export { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from './core/harness/guardrails.js';
 export { validateApprovalRecord, auditRunApprovals, trustedApprovedArtifacts, approvalAuditEvent, isSafeRunId, isSafeArtifactName, RUN_APPROVAL_STATUSES, QUEUE_APPROVAL_STATUSES, DASHBOARD_APPROVAL_SOURCES } from './core/harness/approval-audit.js';
@@ -49,6 +50,6 @@ export { generateRunReport } from './observability/collectors/reporter.js';
 export { startDashboardServer } from './observability/collectors/legacy.js';
 
 // ── Commands ──────────────────────────────────────────────────────────────────
-export { listAgents, listSkills, listPlugins, addPlugin } from './commands/list.js';
+export { listAgents, listSkills, listPlugins, listGovernancePacks, addPlugin } from './commands/list.js';
 export { validateCommand } from './commands/validate.js';
 export { log } from './utils/logger.js';

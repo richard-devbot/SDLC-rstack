@@ -12,7 +12,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { listAgents, listSkills, listPlugins, addPlugin } from '../src/commands/list.js';
+import { listAgents, listSkills, listPlugins, listGovernancePacks, addPlugin } from '../src/commands/list.js';
 import { loadPipelineStatus, formatPipelineStatus } from '../src/commands/pipeline.js';
 import { runPipeline, formatRunReport } from '../src/commands/pipeline-run.js';
 import { runGoalLoop, formatLoopReport, loadGoalDefinition } from '../src/commands/pipeline-loop.js';
@@ -90,6 +90,18 @@ listCmd
   .action(async () => {
     try {
       await listPlugins();
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+listCmd
+  .command('packs')
+  .description('List governance packs (#78) with enforcement levels and which profiles enable them by default')
+  .action(async () => {
+    try {
+      await listGovernancePacks();
     } catch (err) {
       log.error(err.message);
       process.exit(1);

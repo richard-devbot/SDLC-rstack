@@ -1,0 +1,12 @@
+{
+  "name": "untrusted-pr-gate",
+  "title": "Untrusted Contributor PR Gate",
+  "description": "A supply-chain boundary for public contributions (#75): changes from outside the maintainer trust circle to workflows, package metadata, or the harness core are blocked or labeled for maintainer review; lifecycle-script and credential-shaped mutations are blocked on patch text alone.",
+  "enforcement": "blocking",
+  "provides": ["pr-trust-boundary", "protected-paths", "content-heuristics"],
+  "surfaces": {
+    "workflows": [".github/workflows/rstack-untrusted-pr-gate.yml"],
+    "config": [".rstack/security/untrusted-pr-gate.json"]
+  },
+  "references": ["https://csrc.nist.gov/pubs/sp/800/218/final", "https://slsa.dev/spec/v1.0/provenance"]
+}

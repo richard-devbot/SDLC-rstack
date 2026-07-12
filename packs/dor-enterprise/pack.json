@@ -1,0 +1,12 @@
+{
+  "name": "dor-enterprise",
+  "title": "Definition-of-Ready (blocking)",
+  "description": "The same decision queue and readiness report as dor-basic, but pending required decisions BLOCK build preparation. Unresolved product, security, or budget choices stop the pipeline instead of becoming expensive mid-build guesses.",
+  "enforcement": "blocking",
+  "provides": ["decision-queue", "readiness-report", "readiness-gate"],
+  "surfaces": {
+    "cli": ["rstack-agents gate dor"],
+    "artifacts": [".rstack/runs/<run-id>/readiness.json", ".rstack/runs/<run-id>/dor-report.json"]
+  },
+  "references": ["https://www.nist.gov/itl/ai-risk-management-framework"]
+}

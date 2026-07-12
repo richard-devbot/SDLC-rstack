@@ -1,0 +1,9 @@
+{
+  "name": "compliance-iso-42001",
+  "title": "Compliance Mapping: ISO/IEC 42001",
+  "description": "A documentation pack mapping ISO/IEC 42001:2023 AI management system clauses onto the RStack artifacts that evidence them. No new enforcement — it makes existing evidence citable in an AIMS audit.",
+  "enforcement": "advisory",
+  "provides": ["compliance-mapping"],
+  "surfaces": { "docs": ["packs/compliance-iso-42001/mapping.md"] },
+  "references": ["https://www.iso.org/standard/81230.html"]
+}

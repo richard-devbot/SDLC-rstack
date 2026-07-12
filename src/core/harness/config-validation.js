@@ -19,6 +19,8 @@ import { rstackStateDir } from './runs.js';
 import { validateContextPressureConfig } from './context-pressure.js';
 // #159: parallel-groups config validation (data-independence + gate target).
 import { validateParallelGroupsConfig } from './parallel-benchmark.js';
+// #78: enabled_packs rules live next to the pack registry they check.
+import { validateEnabledPacksConfig } from '../packs.js';
 
 const KNOWN_PROFILES = ['business-flex', 'enterprise-webapp', 'lean-mvp'];
 const KNOWN_CHANNELS = ['slack', 'teams', 'discord', 'telegram', 'whatsapp'];
@@ -110,6 +112,10 @@ export function validateRstackConfig(parsed) {
     for (const found of validateParallelGroupsConfig(parsed.parallel_groups)) {
       issues.push(found);
     }
+  }
+  // #78: governance packs — unknown names are named, never silently ignored.
+  if (parsed.enabled_packs != null) {
+    issues.push(...validateEnabledPacksConfig(parsed.enabled_packs));
   }
   return issues;
 }

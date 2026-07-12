@@ -1,0 +1,12 @@
+{
+  "name": "drift-detection",
+  "title": "Traceability Drift Detection",
+  "description": "Scans a run's existing .rstack artifacts (#74) for broken evidence chains: requirements no task references, completed work without contracts, PASS verdicts without evidence, stale file references, vanished approved artifacts, readiness contradicting the task board.",
+  "enforcement": "warning",
+  "provides": ["drift-scanner", "traceability-report"],
+  "surfaces": {
+    "cli": ["rstack-agents drift"],
+    "dashboard": ["Traceability Drift card"]
+  },
+  "references": ["https://csrc.nist.gov/pubs/sp/800/218/final", "https://dora.dev/research/2024/"]
+}
