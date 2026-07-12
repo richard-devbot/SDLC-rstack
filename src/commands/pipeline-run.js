@@ -14,8 +14,9 @@ import { fileURLToPath } from 'node:url';
 
 import { evaluateTaskClaim, loadProjectGuardrails } from '../core/harness/guardrails.js';
 import { classifyRetryDecision } from '../core/harness/retry-policy.js';
-import { runDirectory, resolveRunId } from '../core/harness/runs.js';
-import { buildPipelineState, writePipelineState } from '../core/harness/pipeline-state.js';
+import { runDirectory, resolveRunId, rstackStateDir } from '../core/harness/runs.js';
+import { buildPipelineState, writePipelineState, taskStageIds } from '../core/harness/pipeline-state.js';
+import { checkDataIndependence } from '../core/harness/parallel-benchmark.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -46,10 +47,58 @@ function nextClaimableTask(tasks) {
     || null;
 }
 
+// Load the project's parallel_groups config (#208). The gate is honored only
+// when explicitly `enabled: true` (the #159 benchmark evidence sets that), so a
+// project that never benchmarked runs sequentially. Malformed/missing config →
+// disabled. Mirrors loadProjectGuardrails' tolerance.
+export async function loadProjectParallelGroups(projectRoot) {
+  try {
+    const parsed = await readJson(join(rstackStateDir(projectRoot), 'rstack.config.json'), null);
+    const pg = parsed?.parallel_groups;
+    if (!pg || pg.enabled !== true || !Array.isArray(pg.groups)) return { enabled: false, groups: [] };
+    return { enabled: true, groups: pg.groups.filter((g) => Array.isArray(g)) };
+  } catch {
+    return { enabled: false, groups: [] };
+  }
+}
+
+// Pure: does the fresh PENDING/READY frontier form ONE gate-enabled,
+// data-independent parallel group (#208)? Returns { taskIds, stages } or null.
+//
+// Safety by construction (the model-free runner claims via sdlc_build_next,
+// which serves "the next claimable" and cannot target a specific task):
+//   - only fresh PENDING/READY work is considered — FAIL/BLOCKED retries are
+//     handled (and returned) earlier by planNextAction, so they never group;
+//   - EVERY claimable task must belong to the SAME configured group (all its
+//     canonical stages ⊆ the group's stage set). If any straggler doesn't
+//     belong, the frontier isn't cleanly the group and we return null →
+//     sequential claim, so build_next can never serve a non-member first;
+//   - the union of claimed stages must pass checkDataIndependence (#159).
+export function planParallelGroup({ tasks, parallelGroups } = {}) {
+  if (!parallelGroups || parallelGroups.enabled !== true) return null;
+  const groups = Array.isArray(parallelGroups.groups) ? parallelGroups.groups : [];
+  if (!groups.length) return null;
+  const claimable = (tasks ?? []).filter((t) => ['PENDING', 'READY'].includes(String(t.status || '').toUpperCase()));
+  if (claimable.length < 2) return null;
+  for (const group of groups) {
+    const groupStages = new Set(Array.isArray(group) ? group : []);
+    if (groupStages.size < 2) continue;
+    const belongs = (t) => {
+      const stages = taskStageIds(t);
+      return stages.length > 0 && stages.every((s) => groupStages.has(s));
+    };
+    if (!claimable.every(belongs)) continue;
+    const stages = [...new Set(claimable.flatMap((t) => taskStageIds(t)))];
+    if (!checkDataIndependence(stages.map((id) => ({ id }))).ok) continue;
+    return { taskIds: claimable.map((t) => t.id), stages };
+  }
+  return null;
+}
+
 // Decide the single next backend action for the run. Pure given its inputs —
 // the runner and --dry-run share it, so what dry-run prints is exactly what
 // a live step would do.
-export function planNextAction({ state, tasks, events, approvals, guardrails, taskContext = {} }) {
+export function planNextAction({ state, tasks, events, approvals, guardrails, taskContext = {}, parallelGroups = null }) {
   const blockers = state?.approval_blockers ?? [];
   if (blockers.length) {
     const first = blockers[0];
@@ -119,6 +168,20 @@ export function planNextAction({ state, tasks, events, approvals, guardrails, ta
     };
   }
 
+  // #208: if the fresh PENDING frontier is a gate-enabled, data-independent
+  // parallel group, prepare the whole group in one pass so the host runs their
+  // builders concurrently. Otherwise (gate off, straggler, not independent)
+  // fall through to a single sequential claim — the runner's default.
+  const group = planParallelGroup({ tasks, parallelGroups });
+  if (group && group.taskIds.includes(candidate.id)) {
+    return {
+      action: 'claim_group',
+      task_ids: group.taskIds,
+      stages: group.stages,
+      detail: `Prepare ${group.taskIds.length} data-independent stages concurrently (${group.taskIds.join(', ')}) — execute their packets in parallel, then run again to validate each.`,
+    };
+  }
+
   return { action: 'claim', task_id: candidate.id, retry: false, detail: `Start next pending task ${candidate.id} — prepare its builder packet.` };
 }
 
@@ -165,6 +228,7 @@ async function loadRunSnapshot(projectRoot, runId) {
 export async function runPipeline(projectRoot, { runId, maxSteps = 5, dryRun = false, invokeTool } = {}) {
   const selected = await resolveRunId(projectRoot, runId);
   const invoke = invokeTool ?? bridgeInvoker(projectRoot);
+  const parallelGroups = await loadProjectParallelGroups(projectRoot);
   const steps = [];
   let stoppedOn = null;
 
@@ -177,7 +241,7 @@ export async function runPipeline(projectRoot, { runId, maxSteps = 5, dryRun = f
       : (await writePipelineState(projectRoot, selected)).state;
     const snapshot = await loadRunSnapshot(projectRoot, selected);
     const guardrails = await loadProjectGuardrails(projectRoot);
-    const plan = planNextAction({ state, ...snapshot, guardrails });
+    const plan = planNextAction({ state, ...snapshot, guardrails, parallelGroups });
     steps.push({ step: step + 1, ...plan, dry_run: dryRun });
 
     if (plan.action === 'stop') {
@@ -194,6 +258,27 @@ export async function runPipeline(projectRoot, { runId, maxSteps = 5, dryRun = f
       await invoke('sdlc_validate', { run_id: selected, task_id: plan.task_id });
     } else if (plan.action === 'claim') {
       await invoke('sdlc_build_next', { run_id: selected });
+    } else if (plan.action === 'claim_group') {
+      // #208: prepare each data-independent group member so the host runs their
+      // builders concurrently. sdlc_build_next serves "the next claimable"; at a
+      // clean group frontier the only claimable tasks ARE the members, so N
+      // calls prepare exactly them (each still checkpointed + gated in-tool).
+      // We VERIFY each claim landed on an expected member and stop early if the
+      // frontier turns out not to be the group — a safe degrade to whatever was
+      // prepared, never a claim outside the group.
+      const expected = new Set(plan.task_ids);
+      const claimed = [];
+      for (let i = 0; i < plan.task_ids.length; i++) {
+        await invoke('sdlc_build_next', { run_id: selected });
+        const after = await loadRunSnapshot(projectRoot, selected);
+        const active = after.tasks
+          .filter((t) => RUNNING.has(String(t.status || '').toUpperCase()))
+          .map((t) => t.id);
+        const newly = active.find((id) => expected.has(id) && !claimed.includes(id));
+        if (!newly) break; // build_next served a non-member (or nothing new) — stop grouping
+        claimed.push(newly);
+      }
+      steps[steps.length - 1].claimed_group = claimed;
     }
   }
 
