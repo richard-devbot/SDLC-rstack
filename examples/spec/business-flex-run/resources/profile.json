@@ -1,0 +1,37 @@
+{
+  "apiVersion": "rstack.dev/v1alpha1",
+  "kind": "Profile",
+  "metadata": {
+    "name": "business-flex"
+  },
+  "spec": {
+    "profile": "business-flex",
+    "name": "Business Flex Delivery",
+    "description": "Client-facing governed SDLC for business teams: requirements, budget, routing, evidence, dashboard visibility.",
+    "enabled_domains": ["product", "docs", "backend", "frontend", "qa", "security", "devops", "sdlc"],
+    "enabled_plugins": ["business-analytics", "backend-development", "unit-testing", "security-scanning"],
+    "workflow": "production-business-sdlc",
+    "budget_policy": {
+      "currency": "USD",
+      "run_budget_usd": 10,
+      "daily_budget_usd": 50,
+      "monthly_budget_usd": 500,
+      "warn_at_percent": 70,
+      "block_at_percent": 100,
+      "require_approval_above_usd": 25,
+      "model_policy": {
+        "default": "balanced",
+        "architecture": "strong",
+        "builder": "balanced",
+        "validator": "balanced",
+        "retry_escalation": "strong"
+      },
+      "stage_budgets": {
+        "02-requirements": 1,
+        "06-architecture": 2,
+        "07-code": 4,
+        "08-testing": 2
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "schema": "rstack.dev/attestation/v1alpha1",
+  "subject": {
+    "run_id": "2026-07-12-0900-governed-checkout-flow",
+    "task_id": "004-implementation",
+    "commit": "8f7c2a91d4e5b6a3c0f1e2d3c4b5a69788c9d0e1",
+    "files": [
+      {
+        "path": ".rstack/runs/2026-07-12-0900-governed-checkout-flow/tasks/004-implementation/builder.json",
+        "sha256": "6a5f2c9e8b7d4a1c3e0f5b8a2d9c6e4f1a7b3d5c8e2f9a4b6d1c7e3f5a9b2d4c"
+      },
+      {
+        "path": "src/checkout/session.ts",
+        "sha256": "1c7e3f5a9b2d4c6a5f2c9e8b7d4a1c3e0f5b8a2d9c6e4f1a7b3d5c8e2f9a4b6d"
+      },
+      {
+        "path": "src/checkout/order-store.ts",
+        "sha256": null
+      }
+    ]
+  },
+  "producer": {
+    "agent": "agent.07-code",
+    "harness": "pi",
+    "model": "claude-sonnet-4-5"
+  },
+  "predicateType": "rstack.dev/builder-contract/v1alpha1",
+  "predicate": {
+    "task_id": "004-implementation",
+    "status": "PASS",
+    "summary": "Implemented the governed checkout flow: cart-to-payment handoff, Stripe session creation behind a feature flag, and idempotent order persistence. No placeholder stubs; scope limited to the checkout module.",
+    "files_modified": ["src/checkout/session.ts", "src/checkout/order-store.ts", "src/routes/checkout.ts"],
+    "tests_run": ["npm test -- checkout (18 passing, 0 failing)"],
+    "risks": [],
+    "next_steps": []
+  },
+  "created_at": "2026-07-12T11:46:00.000Z",
+  "signature": {
+    "type": "unsigned",
+    "value": ""
+  }
+}

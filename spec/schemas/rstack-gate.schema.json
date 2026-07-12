@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/gate/v1alpha1",
+  "title": "RStack Gate resource",
+  "description": "Kubernetes-style resource projection of a project's governance gates. The raw on-disk file is .rstack/policy.json, whose exact shape (validatePolicyConfig in src/core/harness/config-validation.js, review_policy in src/core/harness/review-independence.js, stage approvals #228 in src/core/harness/stage-approvals.js) lives under definitions.file. The spec projection additionally surfaces the enabled governance packs (enabled_packs from .rstack/rstack.config.json, src/core/packs.js) so the full gate posture is one resource.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "rstack.dev/v1alpha1" },
+    "kind": { "const": "Gate" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "type": "object",
+          "description": "The .rstack/policy.json content (see definitions.file).",
+          "additionalProperties": true
+        },
+        "enabled_packs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Effective governance packs (enabledPacksForConfig): explicit enabled_packs in rstack.config.json wins; otherwise the profile default set. Known packs are directories under <package>/packs/ with a pack.json (enforcement: advisory | warning | blocking)."
+        }
+      },
+      "additionalProperties": true
+    },
+    "status": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "file": {
+      "type": "object",
+      "description": "Raw .rstack/policy.json. Every block is optional; validatePolicyConfig warns on malformed values rather than rejecting the file (tolerant reader). required_approvals and required_stage_approvals are enforced in EVERY mode, express included.",
+      "properties": {
+        "required_approvals": {
+          "type": "object",
+          "description": "task-id -> [artifact, ...]: artifacts that must be APPROVED (post-audit, latest-record-wins) before the named task claims.",
+          "additionalProperties": { "type": "array", "items": { "type": "string" } }
+        },
+        "required_stage_approvals": {
+          "type": "object",
+          "description": "#228: canonical-stage-id -> [artifact, ...]. Any task whose canonical stages include the key must see those artifacts APPROVED before it claims. A non-canonical stage key is warned about — that gate would never fire.",
+          "additionalProperties": { "type": "array", "items": { "type": "string" } }
+        },
+        "approvals": {
+          "type": "object",
+          "description": "#228 blanket flag: { every_stage: true } requires a 'stage-approval:<stage-id>' APPROVED artifact for every canonical stage a task enters; a task mapping to NO canonical stage gates on 'stage-approval:<taskId>' (fail closed).",
+          "properties": {
+            "every_stage": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        },
+        "enforce_in_express": {
+          "type": "boolean",
+          "description": "When true, artifact approval gates also apply in express mode."
+        },
+        "managers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Allow-list of approver names/emails; sdlc_approve refuses sign-offs from anyone else when set."
+        },
+        "review_policy": {
+          "type": "object",
+          "description": "#72 review-independence policy block (validateReviewPolicyConfig).",
+          "properties": {
+            "require_cross_harness_review": { "type": "boolean" },
+            "forbid_same_harness_builder_and_validator": { "type": "boolean" },
+            "required_validators": { "type": "array", "items": { "type": "string" } },
+            "fallback_behavior": { "type": "string", "enum": ["ask_user", "warn", "block"] }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

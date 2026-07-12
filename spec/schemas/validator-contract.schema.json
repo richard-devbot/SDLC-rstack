@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/validator-contract/v1alpha1",
+  "title": "RStack validator contract (validation.json)",
+  "description": "The contract sdlc_validate (or an external validator) writes at .rstack/runs/<run_id>/tasks/<task_id>/validation.json. Derived from validateValidatorContract in src/core/harness/contracts.js and the sdlc_validate writer in src/integrations/pi/rstack-sdlc.ts. Tolerant reader: unknown fields are allowed.",
+  "type": "object",
+  "required": ["task_id", "validator", "status", "checks", "issues", "retry_recommendation"],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Task this validation belongs to. Must equal the validated task id (validator_task_id_matches)."
+    },
+    "validator": {
+      "type": "string",
+      "description": "Validator identity, e.g. 'rstack-pi-extension' or a validator-registry profile name."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL"],
+      "description": "VALIDATOR_STATUSES — validators only PASS or FAIL."
+    },
+    "checks": {
+      "type": "array",
+      "description": "Every check evaluated, PASS and FAIL alike.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "type": "string", "description": "PASS | FAIL | WARN — WARN is used by advisory checks (e.g. review_independence under a warn policy)." },
+          "evidence": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "issues": {
+      "type": "array",
+      "description": "The FAIL subset of checks.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "retry_recommendation": {
+      "type": "string",
+      "enum": ["none", "retry_builder", "ask_user", "block"],
+      "description": "RETRY_RECOMMENDATIONS — drives the deterministic retry policy (src/core/harness/retry-policy.js)."
+    },
+    "harness": {
+      "type": ["string", "null"],
+      "description": "Optional reviewer identity (#72)."
+    },
+    "model": {
+      "type": ["string", "null"],
+      "description": "Optional reviewer model identity (#72)."
+    },
+    "validator_type": {
+      "type": ["string", "null"],
+      "description": "Optional validator taxonomy: architecture | code | test | security | compliance | generic (validatorTypeForStage)."
+    },
+    "validator_profile": {
+      "type": "object",
+      "description": "The validator-registry profile that owned this validation (stage_id, validator, model_hint, required_checks).",
+      "properties": {
+        "stage_id": { "type": ["string", "null"] },
+        "validator": { "type": "string" },
+        "model_hint": { "type": "string" },
+        "required_checks": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "independence": {
+      "type": "object",
+      "description": "Review-independence verdict (#72) embedded by sdlc_validate.",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

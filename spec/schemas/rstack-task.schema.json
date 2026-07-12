@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/task/v1alpha1",
+  "title": "RStack Task resource",
+  "description": "Kubernetes-style resource projection of one governed task. The raw on-disk file is .rstack/runs/<run_id>/tasks.json (written by sdlc_plan in src/integrations/pi/rstack-sdlc.ts); its exact shape lives under definitions.file / definitions.task and is what the schema validator checks against real runs.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "rstack.dev/v1alpha1" },
+    "kind": { "const": "Task" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "The task id (a lifecycle-plan id like 004-implementation — NOT a canonical stage id; the two must never be conflated)." },
+        "run_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "required": ["title"],
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "domains": { "type": "array", "items": { "type": "string" } },
+        "acceptance_criteria": { "type": "array", "items": { "type": "string" } },
+        "validation_checks": { "type": "array", "items": { "type": "string" } },
+        "stage_artifacts": { "type": "array", "description": "Canonical-stage artifact targets: { stage_id, artifact, path }." },
+        "output_dir": { "type": "string" },
+        "pipeline_agents": { "type": "array", "items": { "type": "string" } },
+        "routing": { "type": "object", "additionalProperties": true },
+        "budget_envelope": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    },
+    "status": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": ["PENDING", "READY", "IN_PROGRESS", "PASS", "FAIL", "BLOCKED", "NEEDS_CONTEXT"],
+          "description": "Task lifecycle statuses as stamped by sdlc_plan (PENDING), the locked claim (IN_PROGRESS), and sdlc_validate / the retry policy (PASS, FAIL, BLOCKED, NEEDS_CONTEXT). READY is accepted as a claim candidate."
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "file": {
+      "type": "object",
+      "required": ["run_id", "tasks"],
+      "description": "Raw tasks.json as sdlc_plan writes it.",
+      "properties": {
+        "run_id": { "type": "string" },
+        "profile": { "type": "string" },
+        "workflow": { "type": "string" },
+        "budget_policy": { "type": "object", "additionalProperties": true },
+        "tasks": {
+          "type": "array",
+          "items": { "$comment": "See definitions.task; the schema validator applies definitions.task to each entry directly (no $ref resolution required of consumers).", "type": "object" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "task": {
+      "type": "object",
+      "required": ["id", "title", "status", "stage_artifacts", "output_dir"],
+      "description": "One task entry inside tasks.json, exactly as sdlc_plan creates it and later tools re-stamp it.",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["PENDING", "READY", "IN_PROGRESS", "PASS", "FAIL", "BLOCKED", "NEEDS_CONTEXT"]
+        },
+        "domains": { "type": "array", "items": { "type": "string" } },
+        "profile": { "type": "string" },
+        "workflow": { "type": "string" },
+        "description": { "type": "string" },
+        "acceptance_criteria": { "type": "array", "items": { "type": "string" } },
+        "validation_checks": { "type": "array", "items": { "type": "string" } },
+        "artifact_path": { "type": "string" },
+        "stage_artifacts": {
+          "type": "array",
+          "description": "Canonical stage targets — the SAME stage recipe the rollup, goal gate, and loop reset share (taskStageIds).",
+          "items": {
+            "type": "object",
+            "properties": {
+              "stage_id": { "type": "string" },
+              "artifact": { "type": "string" },
+              "path": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "output_dir": {
+          "type": "string",
+          "description": ".rstack/runs/<run_id>/tasks/<task_id> — where builder.json and validation.json land."
+        },
+        "pipeline_agents": { "type": "array", "items": { "type": "string" } },
+        "specialists": { "type": "array", "items": { "type": "string" } },
+        "routing": {
+          "type": "object",
+          "properties": {
+            "selected_by": { "type": "string" },
+            "explanation": { "type": "array", "items": { "type": "string" } },
+            "enabled_domains": { "type": "array", "items": { "type": "string" } },
+            "routed_specialists": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": true
+        },
+        "budget_envelope": {
+          "type": "object",
+          "description": "budgetEnvelopeForTask output (src/core/profiles.js).",
+          "properties": {
+            "currency": { "type": "string" },
+            "estimated_ai_cost_usd": { "type": "number" },
+            "approval_required_above_usd": { "type": "number" },
+            "warn_at_percent": { "type": "number" },
+            "block_at_percent": { "type": "number" },
+            "model_policy": { "type": "object", "additionalProperties": true },
+            "stage_budgets": { "type": "object", "additionalProperties": true }
+          },
+          "additionalProperties": true
+        },
+        "agent": { "type": "string", "description": "Stamped at claim time with the routed pipeline agent for real attribution." }
+      },
+      "additionalProperties": true
+    }
+  }
+}

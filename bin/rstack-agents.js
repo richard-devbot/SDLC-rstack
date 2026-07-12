@@ -20,6 +20,7 @@ import { adoptProject, formatAdoptionReport } from '../src/commands/adopt.js';
 import { envScan, formatEnvScan } from '../src/commands/env-scan.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
+import { runValidateSchemas, formatValidateSchemas } from '../src/commands/validate-schemas.js';
 import { runGuardCommand, readStdinText } from '../src/commands/guard.js';
 import { runGateCommand, readStdinText as readGateStdin, GATE_NAMES } from '../src/commands/gate.js';
 import { runObserveCommand, readStdinText as readObserveStdin } from '../src/commands/observe.js';
@@ -628,9 +629,18 @@ program
 
 program
   .command('validate')
-  .description('Validate packaged agent definitions')
-  .action(async () => {
+  .description('Validate packaged agent definitions; with --schemas, validate the RStack Spec v1alpha1 schemas, conformance examples, and (tolerantly) the newest local run')
+  .option('--schemas', 'validate spec/schemas/*.schema.json + examples/spec/business-flex-run + the target project\'s newest .rstack run (missing files SKIP, invalid files FAIL with the field path)')
+  .option('-p, --project <path>', 'project root for --schemas run-state validation (defaults to current directory)')
+  .option('--json', 'with --schemas: print the structured report as JSON')
+  .action(async (opts) => {
     try {
+      if (opts.schemas) {
+        const report = await runValidateSchemas({ project: resolve(opts.project ?? process.cwd()) });
+        if (opts.json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+        else console.log(formatValidateSchemas(report));
+        process.exit(report.ok ? 0 : 1);
+      }
       const exitCode = await validateCommand();
       process.exit(exitCode);
     } catch (err) {

@@ -1,0 +1,25 @@
+{
+  "apiVersion": "rstack.dev/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "acme-shop",
+    "root": "/workspaces/acme-shop"
+  },
+  "spec": {
+    "profile": "business-flex",
+    "enabled_domains": ["product", "docs", "backend", "frontend", "qa", "security", "devops", "sdlc"],
+    "enabled_packs": ["dor-basic", "cross-harness-review", "drift-detection"],
+    "workflow": "production-business-sdlc",
+    "guardrails": {
+      "maxTaskAttempts": 2,
+      "maxDestructiveTaskAttempts": 1
+    },
+    "loop": {
+      "maxIterations": 3,
+      "maxStepsPerIteration": 10
+    },
+    "checkpoints": {
+      "critical_stages": ["06-architecture", "07-code", "08-testing", "09-deployment", "12-security-threat-model"]
+    }
+  }
+}

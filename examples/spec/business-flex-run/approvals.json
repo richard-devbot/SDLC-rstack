@@ -1,0 +1,29 @@
+[
+  {
+    "id": "app-2026-07-12T09-30-00-000Z",
+    "artifact": "stage-approval:07-code",
+    "status": "APPROVED",
+    "approver": "Richardson Gunde",
+    "timestamp": "2026-07-12T09:30:00.000Z",
+    "comments": "Architecture reviewed; implementation may proceed.",
+    "run_id": "2026-07-12-0900-governed-checkout-flow"
+  },
+  {
+    "id": "app-2026-07-12T10-15-00-000Z",
+    "artifact": "guardrail-override:004-implementation",
+    "status": "APPROVED",
+    "approver": "Richardson Gunde",
+    "timestamp": "2026-07-12T10:15:00.000Z",
+    "comments": "Retry budget exhausted on a flaky integration test; one more attempt approved after human review.",
+    "run_id": "2026-07-12-0900-governed-checkout-flow"
+  },
+  {
+    "id": "app-2026-07-12T10-16-00-000Z",
+    "artifact": "guardrail-override:004-implementation",
+    "status": "CONSUMED",
+    "approver": "rstack-harness",
+    "timestamp": "2026-07-12T10:16:00.000Z",
+    "comments": "Override consumed by attempt on 004-implementation",
+    "run_id": "2026-07-12-0900-governed-checkout-flow"
+  }
+]

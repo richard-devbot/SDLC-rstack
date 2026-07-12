@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/evidence/v1alpha1",
+  "title": "RStack evidence ledger event (one line of evidence.jsonl)",
+  "description": "One JSON line of .rstack/runs/<run_id>/evidence.jsonl. Derived from validateEvidenceEvent / EVIDENCE_REQUIRED_FIELDS / EVIDENCE_STATUSES in src/core/harness/evidence.js. Readers are tolerant (#294): a corrupt line is skipped, and well-formed JSON that fails this schema is filtered out by readEvidenceEvents.",
+  "type": "object",
+  "required": ["task_id", "kind", "status", "evidence"],
+  "properties": {
+    "ts": {
+      "type": "string",
+      "description": "ISO-8601 timestamp stamped by appendEvidenceEvent at write time."
+    },
+    "task_id": {
+      "type": "string",
+      "description": "Task the evidence belongs to."
+    },
+    "kind": {
+      "type": "string",
+      "description": "Evidence kind, e.g. 'validation', 'command', 'artifact'. Free-form by design — the code does not enumerate kinds."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "BLOCKED", "INFO"],
+      "description": "EVIDENCE_STATUSES."
+    },
+    "evidence": {
+      "description": "The proof itself — a path, a command, or a structured payload. The code requires presence, not a shape."
+    }
+  },
+  "additionalProperties": true
+}

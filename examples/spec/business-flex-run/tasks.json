@@ -1,0 +1,122 @@
+{
+  "run_id": "2026-07-12-0900-governed-checkout-flow",
+  "profile": "business-flex",
+  "workflow": "production-business-sdlc",
+  "budget_policy": {
+    "currency": "USD",
+    "run_budget_usd": 10,
+    "daily_budget_usd": 50,
+    "monthly_budget_usd": 500,
+    "warn_at_percent": 70,
+    "block_at_percent": 100,
+    "require_approval_above_usd": 25
+  },
+  "tasks": [
+    {
+      "id": "004-implementation",
+      "title": "Implementation",
+      "status": "PASS",
+      "domains": ["backend", "frontend", "data"],
+      "profile": "business-flex",
+      "workflow": "production-business-sdlc",
+      "description": "Build scoped, working code that follows the architecture and existing project conventions.\n\nGoal: Add a governed checkout flow with audit-ready evidence",
+      "acceptance_criteria": [
+        "Required behavior is implemented without placeholder TODO stubs",
+        "Files changed stay within scope",
+        "Relevant local verification command is run or blocked with reason"
+      ],
+      "validation_checks": [
+        "Code starts or compiles when applicable",
+        "Error handling exists for expected failure paths",
+        "No unrelated refactors or broad rewrites"
+      ],
+      "artifact_path": ".rstack/runs/2026-07-12-0900-governed-checkout-flow/artifacts/implementation-report.json",
+      "stage_artifacts": [
+        {
+          "stage_id": "07-code",
+          "artifact": "code_report.json",
+          "path": ".rstack/runs/2026-07-12-0900-governed-checkout-flow/artifacts/stages/07-code/code_report.json"
+        }
+      ],
+      "output_dir": ".rstack/runs/2026-07-12-0900-governed-checkout-flow/tasks/004-implementation",
+      "pipeline_agents": ["agent.07-code"],
+      "specialists": ["agent.07-code", "backend-architect", "frontend-developer"],
+      "routing": {
+        "selected_by": "profile-domain-stage-affinity",
+        "explanation": [
+          "profile:business-flex",
+          "workflow:production-business-sdlc",
+          "stage-domains:backend,frontend,data",
+          "enabled-domains:product,docs,backend,frontend,qa,security,devops,sdlc",
+          "pipeline-agents:1",
+          "routed-specialists:2"
+        ],
+        "enabled_domains": ["product", "docs", "backend", "frontend", "qa", "security", "devops", "sdlc"],
+        "routed_specialists": ["backend-architect", "frontend-developer"]
+      },
+      "budget_envelope": {
+        "currency": "USD",
+        "estimated_ai_cost_usd": 4,
+        "approval_required_above_usd": 25,
+        "warn_at_percent": 70,
+        "block_at_percent": 100,
+        "model_policy": { "default": "balanced", "builder": "balanced", "validator": "balanced", "retry_escalation": "strong" },
+        "stage_budgets": { "07-code": 4 }
+      },
+      "agent": "agent.07-code"
+    },
+    {
+      "id": "005-testing",
+      "title": "Testing and QA",
+      "status": "PASS",
+      "domains": ["qa"],
+      "profile": "business-flex",
+      "workflow": "production-business-sdlc",
+      "description": "Create or run unit, integration, browser, and regression checks appropriate to the project.\n\nGoal: Add a governed checkout flow with audit-ready evidence",
+      "acceptance_criteria": [
+        "Critical acceptance criteria have tests or manual verification steps",
+        "Test command output is captured",
+        "Known coverage gaps are listed"
+      ],
+      "validation_checks": [
+        "Tests actually ran or blockers are explicit",
+        "Failures include root-cause direction",
+        "No false pass when tests were skipped"
+      ],
+      "artifact_path": ".rstack/runs/2026-07-12-0900-governed-checkout-flow/artifacts/qa-report.json",
+      "stage_artifacts": [
+        {
+          "stage_id": "08-testing",
+          "artifact": "test_report.json",
+          "path": ".rstack/runs/2026-07-12-0900-governed-checkout-flow/artifacts/stages/08-testing/test_report.json"
+        }
+      ],
+      "output_dir": ".rstack/runs/2026-07-12-0900-governed-checkout-flow/tasks/005-testing",
+      "pipeline_agents": ["agent.08-testing"],
+      "specialists": ["agent.08-testing", "test-automator"],
+      "routing": {
+        "selected_by": "profile-domain-stage-affinity",
+        "explanation": [
+          "profile:business-flex",
+          "workflow:production-business-sdlc",
+          "stage-domains:qa",
+          "enabled-domains:product,docs,backend,frontend,qa,security,devops,sdlc",
+          "pipeline-agents:1",
+          "routed-specialists:1"
+        ],
+        "enabled_domains": ["product", "docs", "backend", "frontend", "qa", "security", "devops", "sdlc"],
+        "routed_specialists": ["test-automator"]
+      },
+      "budget_envelope": {
+        "currency": "USD",
+        "estimated_ai_cost_usd": 2,
+        "approval_required_above_usd": 25,
+        "warn_at_percent": 70,
+        "block_at_percent": 100,
+        "model_policy": { "default": "balanced", "builder": "balanced", "validator": "balanced", "retry_escalation": "strong" },
+        "stage_budgets": { "08-testing": 2 }
+      },
+      "agent": "agent.08-testing"
+    }
+  ]
+}

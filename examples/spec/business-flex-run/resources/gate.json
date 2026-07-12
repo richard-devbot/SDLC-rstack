@@ -1,0 +1,29 @@
+{
+  "apiVersion": "rstack.dev/v1alpha1",
+  "kind": "Gate",
+  "metadata": {
+    "name": "acme-shop-governance"
+  },
+  "spec": {
+    "policy": {
+      "required_approvals": {
+        "008-release": ["release-readiness.json"]
+      },
+      "required_stage_approvals": {
+        "07-code": ["architecture.md"]
+      },
+      "approvals": {
+        "every_stage": false
+      },
+      "enforce_in_express": true,
+      "managers": ["Richardson Gunde"],
+      "review_policy": {
+        "require_cross_harness_review": false,
+        "forbid_same_harness_builder_and_validator": true,
+        "required_validators": ["code", "test"],
+        "fallback_behavior": "warn"
+      }
+    },
+    "enabled_packs": ["dor-basic", "cross-harness-review", "drift-detection"]
+  }
+}

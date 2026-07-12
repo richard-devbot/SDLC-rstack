@@ -1,0 +1,24 @@
+{
+  "run_id": "2026-07-12-0900-governed-checkout-flow",
+  "updated_at": "2026-07-12T09:20:00.000Z",
+  "decisions": [
+    {
+      "decision_id": "DEC-001",
+      "run_id": "2026-07-12-0900-governed-checkout-flow",
+      "question": "Which payment provider does the checkout flow integrate first?",
+      "impact": "architecture",
+      "required_before_stage": "06-architecture",
+      "options": ["Stripe", "Adyen"],
+      "recommendation": "Stripe — existing account and sandbox keys already provisioned via environment variables.",
+      "status": "resolved",
+      "resolution": "Stripe first; Adyen deferred to a follow-up run.",
+      "resolved_by": "Richardson Gunde",
+      "resolved_at": "2026-07-12T09:20:00.000Z",
+      "owner": "product-owner",
+      "stale_after_days": 7,
+      "created_at": "2026-07-12T09:05:00.000Z",
+      "updated_at": "2026-07-12T09:20:00.000Z",
+      "links": {}
+    }
+  ]
+}

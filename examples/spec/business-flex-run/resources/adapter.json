@@ -1,0 +1,23 @@
+{
+  "apiVersion": "rstack.dev/v1alpha1",
+  "kind": "Adapter",
+  "metadata": {
+    "name": "tau"
+  },
+  "spec": {
+    "framework": "tau",
+    "tier": "bridge",
+    "tools": [
+      "sdlc_agents", "sdlc_approve", "sdlc_build_next", "sdlc_clarify",
+      "sdlc_dashboard", "sdlc_decide", "sdlc_decisions", "sdlc_delegate",
+      "sdlc_dor_check", "sdlc_memory", "sdlc_orchestrate", "sdlc_plan",
+      "sdlc_rollback", "sdlc_spec", "sdlc_start", "sdlc_status",
+      "sdlc_trace", "sdlc_validate"
+    ],
+    "guard_wired": true,
+    "bridge": {
+      "entrypoint": "bin/rstack-bridge.ts",
+      "caller": "tau"
+    }
+  }
+}
