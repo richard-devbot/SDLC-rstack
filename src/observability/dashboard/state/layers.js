@@ -81,7 +81,7 @@ export function buildDiagnostics(runs, roots, indexMeta = null) {
     runCount: runs?.length ?? 0,
     taskCount: tasks.length,
     eventCount: (runs ?? []).reduce((total, run) => total + (run.events?.length ?? 0), 0),
-    evidenceCount: (runs ?? []).reduce((total, run) => total + (run.evidence?.length ?? 0), 0),
+    evidenceCount: (runs ?? []).reduce((total, run) => total + (run.evidenceCount ?? run.evidence?.length ?? 0), 0),
     // builder/validation payloads are only hydrated on fully-parsed runs, so
     // index-served runs must not be counted as "missing" artifacts.
     missingBuilderCount: fullyParsedTasks.filter((task) => !task.builder).length,

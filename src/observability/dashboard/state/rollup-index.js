@@ -50,7 +50,11 @@ import { readPipelineState, buildPipelineState } from '../../../core/harness/pip
 // v6 (#221): entries persist the compact pipeline_rollup so completed/index-
 // served runs stop re-reading pipeline-state.json on every 3s poll — the read
 // happens once at index time and is served from memory thereafter.
-export const INDEX_VERSION = 6;
+// v7 (#299 item 8): entries persist the TRUE evidence_count — the evidence
+// list is capped at 100, and consumers deriving counts from `.length` of the
+// capped array silently undercounted 100+-evidence runs to exactly 100 (the
+// same no-silent-caps violation #296 fixed, one level up).
+export const INDEX_VERSION = 7;
 export const DEFAULT_RETENTION_DAYS = 90;
 
 const STALL_MS = 30 * 60 * 1000;
@@ -199,6 +203,8 @@ export function entryFromRun(run, sig = null) {
     // each capped to what the client-state projection actually consumes, so
     // index-served runs match a full parse instead of rendering empty.
     evidence: (run.evidence ?? []).slice(-100),
+    // True total (#299 item 8) — the list above is capped; counts must not be.
+    evidence_count: (run.evidence ?? []).length,
     artifactIndex: (run.artifactIndex ?? []).slice(0, 80),
     timeline: (run.timeline ?? []).slice(0, 120),
     activityTimeline: (run.activityTimeline ?? []).slice(0, 120),
@@ -249,6 +255,7 @@ export function liteRunFromEntry(projectRoot, entry, now = Date.now()) {
     // before v4 lack them; the INDEX_VERSION bump forces a rebuild, and the
     // `?? []` keeps a stale/partial entry safe until then.
     evidence: entry.evidence ?? [],
+    evidenceCount: entry.evidence_count ?? (entry.evidence ?? []).length,
     artifactIndex: entry.artifactIndex ?? [],
     stageReports: entry.stage_reports ?? [],
     activityTimeline: entry.activityTimeline ?? [],
