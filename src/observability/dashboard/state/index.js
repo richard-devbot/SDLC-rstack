@@ -17,6 +17,7 @@ import { buildDecisionState } from './decisions.js';
 import { buildEnvironmentState } from './environment.js';
 import { buildReadinessProjection } from './readiness.js';
 import { buildOverviewProjection } from './overview.js';
+import { buildOperationsProjection } from './operations.js';
 import { buildRunWorkspaces } from './run-workspace.js';
 import { buildActions } from './actions.js';
 import { readConfiguredPolicies } from './configured-policy.js';
@@ -212,9 +213,16 @@ export async function buildFullState(projectRoot, options = {}) {
     actions: buildActions(stateWithReadiness),
   };
 
-  const stateWithOverview = {
+  // #284: Operations projection — consumes the inbox/environment/rollup
+  // projections above; sections are 'unknown' when a producer is silent.
+  const stateWithOperations = {
     ...stateWithActions,
-    overview: buildOverviewProjection(stateWithActions),
+    operations: buildOperationsProjection(stateWithActions),
+  };
+
+  const stateWithOverview = {
+    ...stateWithOperations,
+    overview: buildOverviewProjection(stateWithOperations),
   };
 
   const stateWithRunWorkspaces = {
