@@ -45,9 +45,10 @@ test('legacy pages resolve to one destination and every default is a child', () 
 
 test('shell renders desktop and mobile navigation from the same six-destination model', () => {
   const html = dashboardHtml(3008);
+  const visibleChildren = destinations.reduce((total, destination) => total + destination.children.filter((child) => !child.hidden).length, 0);
 
   assert.equal((html.match(/class="destination-link/g) || []).length, 12);
-  assert.equal((html.match(/class="secondary-link/g) || []).length, 30);
+  assert.equal((html.match(/class="secondary-link/g) || []).length, visibleChildren * 2);
   assert.equal((html.match(/data-primary-destination=/g) || []).length, 12);
   assert.match(
     html,

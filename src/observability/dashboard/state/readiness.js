@@ -124,6 +124,7 @@ function scopedState(state, runs) {
  */
 export function buildReadinessProjection(state, options = {}) {
   const runs = state?.runs ?? [];
+  const evidenceCenter = state?.evidenceCenter ?? null;
   const evaluatedAt = options.evaluatedAt ?? new Date().toISOString();
   const taskEntries = runs.flatMap((run) => (run.tasks ?? []).map((task) => ({ run, task })));
   const pipelineRuns = runs.filter((run) => run.pipelineRollup);
@@ -200,6 +201,14 @@ export function buildReadinessProjection(state, options = {}) {
       !hasRuns ? 'There are no runs to evaluate.' : failedPipelines.length ? `${failedPipelines.length} pipeline${failedPipelines.length === 1 ? '' : 's'} are blocked or failed.` : pipelineRuns.length === 0 ? 'No pipeline-state.json data is available.' : pipelineRuns.length < runs.length ? `${pipelineRuns.length}/${runs.length} runs have pipeline state.` : incompletePipelines.length ? `${incompletePipelines.length} pipeline${incompletePipelines.length === 1 ? '' : 's'} are incomplete or stale.` : 'All pipeline states are complete and current.', pipelineSources),
     check('alerts', 'Operational alerts', !hasRuns ? 'unknown' : criticalAlerts.length ? 'fail' : alerts.length ? 'warning' : 'pass',
       !hasRuns ? 'Alerts have no run scope.' : criticalAlerts.length ? `${criticalAlerts.length} critical alert${criticalAlerts.length === 1 ? '' : 's'} require action.` : alerts.length ? `${alerts.length} active alert${alerts.length === 1 ? '' : 's'} need review.` : 'No active operational alerts.', alertSources),
+    ...(evidenceCenter ? [check('evidence', 'Requirement evidence', !evidenceCenter.summary.expected ? 'unknown' : evidenceCenter.summary.failed ? 'fail' : evidenceCenter.summary.unknown ? 'unknown' : 'pass',
+      !evidenceCenter.summary.expected
+        ? 'Requirement evidence has not been evaluated.'
+        : evidenceCenter.summary.failed
+          ? `${evidenceCenter.summary.failed} expected evidence cell${evidenceCenter.summary.failed === 1 ? '' : 's'} failed or are blocked.`
+          : evidenceCenter.summary.unknown
+            ? `${evidenceCenter.summary.verified}/${evidenceCenter.summary.expected} expected evidence cells are verified; ${evidenceCenter.summary.unknown} remain unknown.`
+            : `All ${evidenceCenter.summary.expected} expected evidence cells are source-verified.`, evidenceCenter.sources ?? [])] : []),
     check('integrity', 'Source integrity', !hasRuns ? 'unknown' : integrityIssues.length ? 'fail' : 'pass',
       !hasRuns ? 'Source integrity has not been evaluated.' : integrityIssues.length ? `${integrityIssues.length} source file${integrityIssues.length === 1 ? '' : 's'} could not be parsed.` : 'No run-file integrity errors detected.', integrityIssues.map(({ run, issue }) => ({
         kind: 'integrity',
@@ -286,6 +295,15 @@ export function buildReadinessProjection(state, options = {}) {
       projectRoot: run.projectRoot ?? null,
       sourceRef: { kind: 'integrity', path: issue.path ?? `.rstack/runs/${run.runId}`, runId: run.runId, projectRoot: run.projectRoot ?? null },
     })),
+    ...(evidenceCenter?.rationale ?? []).filter((item) => item.status === 'failed').map((item) => ({
+      id: `evidence:${item.id}`,
+      type: 'evidence',
+      label: 'Requirement evidence failed',
+      detail: `${item.requirementId} has failed or blocked ${item.kind} evidence.`,
+      runId: item.sourceRefs[0]?.runId ?? null,
+      projectRoot: item.sourceRefs[0]?.projectRoot ?? null,
+      sourceRef: item.sourceRefs[0] ?? null,
+    })),
   ];
 
   const observedProof = validations.length > 0 || pipelineRuns.length > 0;
@@ -311,6 +329,7 @@ export function buildReadinessProjection(state, options = {}) {
     ...pipelineSources,
     ...approvalSources,
     ...alertSources,
+    ...(evidenceCenter?.sources ?? []),
   ]);
 
   const result = {
