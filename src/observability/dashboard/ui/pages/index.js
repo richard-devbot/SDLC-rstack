@@ -160,6 +160,7 @@ function pageBody(id) {
           <a class="tb-chip" href="/studio3d" target="_blank" rel="noopener" title="three.js live workspace">Enter the 3D Studio →</a>
         </div>
       </div>
+      <div class="studio-humans" id="studio-humans" aria-label="Human approval gates"></div>
       <div class="studio-grid" id="studio-grid"></div>
       <div class="panel studio-inspector" id="studio-inspector" style="display:none"></div>
     `,
