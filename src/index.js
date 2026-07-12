@@ -15,6 +15,7 @@
 // ── Core runtime ──────────────────────────────────────────────────────────────
 export { CANONICAL_SDLC_STAGES, assertCanonicalStages } from './core/harness/stages.js';
 export { validateBuilderContract, validateValidatorContract } from './core/harness/contracts.js';
+export { evaluateUntrustedPr, loadGateConfig, renderGateSummary, globToRegExp, DEFAULT_GATE_CONFIG, TRUSTED_ASSOCIATIONS, GATE_VERDICTS } from './security/untrusted-pr-gate.js';
 export { appendEvidenceEvent, validateEvidenceEvent } from './core/harness/evidence.js';
 export { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary } from './core/harness/guardrails.js';
 export { validateApprovalRecord, auditRunApprovals, trustedApprovedArtifacts, approvalAuditEvent, isSafeRunId, isSafeArtifactName, RUN_APPROVAL_STATUSES, QUEUE_APPROVAL_STATUSES, DASHBOARD_APPROVAL_SOURCES } from './core/harness/approval-audit.js';

@@ -94,6 +94,7 @@
               "reference/decision-readiness",
               "reference/configuration",
               "reference/protected-actions",
+              "reference/untrusted-pr-gate",
               "reference/loopholes-roadmap",
               "reference/research-program",
               "reference/research-backed-design",
