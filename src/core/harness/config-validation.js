@@ -166,6 +166,30 @@ export function validatePolicyConfig(parsed) {
       }
     }
   }
+  // #228: stage-keyed gates. Unknown stage ids are the silent-failure mode
+  // here — the gate keyed to a typo'd stage never fires — so they warn with
+  // the exact canonical form expected.
+  if (parsed.required_stage_approvals != null) {
+    if (!isPlainObject(parsed.required_stage_approvals)) {
+      issues.push({ field: 'required_stage_approvals', problem: 'must be an object of canonical-stage-id -> [artifact, ...] (e.g. "07-code": ["architecture.md"])' });
+    } else {
+      for (const [stageId, artifacts] of Object.entries(parsed.required_stage_approvals)) {
+        if (!getCanonicalStage(stageId)) {
+          issues.push({ field: `required_stage_approvals.${stageId}`, problem: 'unknown canonical stage id — this gate will NEVER fire; use a canonical 00-14 stage id like "07-code"' });
+        }
+        if (!Array.isArray(artifacts) || artifacts.some((artifact) => typeof artifact !== 'string' || !artifact.trim())) {
+          issues.push({ field: `required_stage_approvals.${stageId}`, problem: 'must be an array of non-empty artifact names — this gate will NOT be enforced as written' });
+        }
+      }
+    }
+  }
+  if (parsed.approvals != null) {
+    if (!isPlainObject(parsed.approvals)) {
+      issues.push({ field: 'approvals', problem: 'must be an object (e.g. { "every_stage": true })' });
+    } else if (parsed.approvals.every_stage != null && parsed.approvals.every_stage !== true && parsed.approvals.every_stage !== false) {
+      issues.push({ field: 'approvals.every_stage', problem: `must be a boolean, got ${JSON.stringify(parsed.approvals.every_stage)} — only the literal true enables the blanket per-stage gate` });
+    }
+  }
   if (parsed.enforce_in_express != null && typeof parsed.enforce_in_express !== 'boolean') {
     issues.push({ field: 'enforce_in_express', problem: `must be a boolean, got ${JSON.stringify(parsed.enforce_in_express)}` });
   }
