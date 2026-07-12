@@ -283,7 +283,7 @@ test('observed consumption reports telemetry provenance without treating configu
     runId: 'run-measured',
     projectRoot: '/workspace/measured',
     totals: { cost_usd: 3.25, tokens: 400 },
-    metrics: { cumulative_cost_usd: 3.25 },
+    metrics: { cumulative_cost_usd: 3.25, cumulative_tokens: { input: 300, output: 100, total: 400 } },
     events: [],
     tasks: [],
   }], { projects: [] });
@@ -294,7 +294,89 @@ test('observed consumption reports telemetry provenance without treating configu
     totalCostUsd: 3.25,
     metricsSources: { persisted: 1, events: 0 },
     lastMeasuredAt: null,
+    runs: [{
+      runId: 'run-measured', projectRoot: '/workspace/measured', projectId: null,
+      availability: 'available', costUsd: 3.25, tokens: 400, metricsSource: 'persisted',
+      measuredAt: null, sourcePath: '.rstack/runs/run-measured/metrics.json',
+      cap: { status: 'unavailable', runBudgetUsd: null, usedPercent: null, remainingUsd: null },
+    }],
+    projects: [{
+      projectId: null, projectRoot: '/workspace/measured', availability: 'available',
+      runCount: 1, runsWithTelemetry: 1, totalCostUsd: 3.25, totalTokens: 400,
+      metricsSources: { persisted: 1, events: 0 }, lastMeasuredAt: null,
+    }],
   });
+});
+
+test('persisted observation carries the metrics file measurement time', () => {
+  const model = buildBusinessFlexState([{
+    runId: 'run-timed', projectRoot: '/workspace/timed', totals: { cost_usd: 1, tokens: 10 },
+    metrics: { cumulative_cost_usd: 1, cumulative_tokens: { input: 5, output: 5, total: 10 } },
+    metricsMeasuredAt: '2026-07-12T08:30:00.000Z', events: [], tasks: [],
+  }], { projects: [] });
+  assert.equal(model.observedConsumption.runs[0].measuredAt, '2026-07-12T08:30:00.000Z');
+  assert.equal(model.observedConsumption.lastMeasuredAt, '2026-07-12T08:30:00.000Z');
+});
+
+test('observed consumption keeps measured zero distinct from unavailable telemetry', () => {
+  const model = buildBusinessFlexState([{
+    runId: 'run-zero', projectRoot: '/workspace/zero', totals: { cost_usd: 0, tokens: 0 },
+    metrics: { cumulative_cost_usd: 0, cumulative_tokens: { input: 0, output: 0, total: 0 } },
+    events: [], tasks: [],
+  }], { projects: [] });
+  assert.equal(model.observedConsumption.availability, 'available');
+  assert.equal(model.observedConsumption.totalCostUsd, 0);
+  assert.equal(model.observedConsumption.runs[0].costUsd, 0);
+  assert.equal(model.observedConsumption.runs[0].metricsSource, 'persisted');
+});
+
+test('observed consumption uses events when persisted metrics are drift-flagged without claiming a compatible cap position', () => {
+  const policy = { projects: [{ projectRoot: '/workspace/drift', budget: { availability: 'configured', runBudgetUsd: 3 } }] };
+  const model = buildBusinessFlexState([{
+    runId: 'run-drift', projectRoot: '/workspace/drift', totals: { cost_usd: 2.5, tokens: 200 },
+    metrics: { cumulative_cost_usd: 1, cumulative_tokens: { input: 50, output: 50, total: 100 } },
+    events: [
+      { type: 'cost_recorded', usd: 2.5, tokens: 200, ts: '2026-07-12T08:00:00.000Z' },
+      { type: 'metrics_write_failed', ts: '2026-07-12T08:00:01.000Z' },
+    ], tasks: [],
+  }], policy);
+  assert.equal(model.observedConsumption.runs[0].metricsSource, 'events');
+  assert.equal(model.observedConsumption.runs[0].measuredAt, '2026-07-12T08:00:00.000Z');
+  assert.deepEqual(model.observedConsumption.runs[0].cap, {
+    status: 'enforcement_stale', runBudgetUsd: 3, usedPercent: null, remainingUsd: null,
+  });
+});
+
+test('project observations reconcile without repeating global consumption', () => {
+  const policy = { projects: [
+    { projectId: 'a', projectRoot: '/a', budget: { availability: 'configured', runBudgetUsd: 5 } },
+    { projectId: 'b', projectRoot: '/b', budget: { availability: 'configured', runBudgetUsd: 2 } },
+  ] };
+  const measured = (runId, projectId, projectRoot, cost) => ({
+    runId, projectId, projectRoot, totals: { cost_usd: cost, tokens: 10 },
+    metrics: { cumulative_cost_usd: cost, cumulative_tokens: { input: 5, output: 5, total: 10 } }, events: [], tasks: [],
+  });
+  const model = buildBusinessFlexState([measured('run-a', 'a', '/a', 3), measured('run-b', 'b', '/b', 2)], policy);
+  assert.equal(model.observedConsumption.totalCostUsd, 5);
+  assert.deepEqual(model.observedConsumption.projects.map((project) => project.totalCostUsd), [3, 2]);
+  assert.equal(model.observedConsumption.runs[0].cap.status, 'within_cap');
+  assert.equal(model.observedConsumption.runs[0].cap.remainingUsd, 2);
+  assert.equal(model.observedConsumption.runs[1].cap.status, 'exhausted');
+  assert.equal(model.observedConsumption.runs[1].cap.remainingUsd, 0);
+});
+
+test('historical budget still compares when current profile is unavailable', () => {
+  const model = buildBusinessFlexState([{
+    runId: 'run-budget-only', projectRoot: '/workspace/budget-only',
+    profile: null, budgetPolicy: { run_budget_usd: 5 }, tasks: [],
+  }], { projects: [{
+    projectRoot: '/workspace/budget-only',
+    profile: { availability: 'missing', id: null, workflow: null },
+    budget: { availability: 'configured', runBudgetUsd: 10, dailyBudgetUsd: null, monthlyBudgetUsd: null },
+  }] });
+  assert.equal(model.runSnapshots[0].comparison, 'differs');
+  assert.deepEqual(model.runSnapshots[0].comparability, { profile: false, budget: true });
+  assert.deepEqual(model.runSnapshots[0].differences.map((item) => item.field), ['runBudgetUsd']);
 });
 
 // ---------------------------------------------------------------------------

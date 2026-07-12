@@ -23,29 +23,27 @@ function runHasCostTelemetry(run) {
 }
 
 function costSummaryHtml(s) {
-  var runs = s.runs || [];
-  if (!runs.length) {
+  var observed = businessFlexModel(s).observedConsumption || {};
+  if (!observed.runCount) {
     return emptyHtml('No runs in scope', 'Actual spend, token totals and provenance appear here once a pipeline run exists in the selected scope.');
   }
-  var telemetryRuns = runs.filter(runHasCostTelemetry);
-  if (!telemetryRuns.length) {
+  if (observed.availability !== 'available') {
     return emptyHtml('No cost telemetry recorded yet',
       'Actual spend appears when builder contracts report cost and context at validate — the harness persists it per stage to metrics.json. Nothing here is estimated: until telemetry lands, this stays empty instead of showing $0.00.');
   }
-  var totalCost = 0, totalTokens = 0, persisted = 0, recomputed = 0;
-  telemetryRuns.forEach(function(run) {
-    totalCost += Number((run.totals || {}).cost_usd) || 0;
-    totalTokens += run.tokenTotals ? Number(run.tokenTotals.total) || 0 : Number((run.totals || {}).tokens) || 0;
-    if (run.metricsSource === 'persisted') persisted += 1; else recomputed += 1;
-  });
-  var avg = totalCost / telemetryRuns.length;
+  var measurements = (observed.runs || []).filter(function(run) { return run.availability === 'available'; });
+  var totalCost = Number(observed.totalCostUsd) || 0;
+  var totalTokens = measurements.reduce(function(sum, run) { return sum + (Number(run.tokens) || 0); }, 0);
+  var persisted = Number((observed.metricsSources || {}).persisted) || 0;
+  var recomputed = Number((observed.metricsSources || {}).events) || 0;
+  var avg = totalCost / observed.runsWithTelemetry;
   return '<div class="proof-grid">' +
     '<div><div class="proof-value">$' + totalCost.toFixed(2) + '</div><div class="proof-label">actual tracked spend</div></div>' +
     '<div><div class="proof-value">' + fmtTokensCompact(totalTokens) + '</div><div class="proof-label">tokens (in + out)</div></div>' +
     '<div><div class="proof-value">$' + avg.toFixed(2) + '</div><div class="proof-label">avg / run with telemetry</div></div>' +
-    '<div><div class="proof-value">' + telemetryRuns.length + '/' + runs.length + '</div><div class="proof-label">runs reporting cost</div></div>' +
+    '<div><div class="proof-value">' + observed.runsWithTelemetry + '/' + observed.runCount + '</div><div class="proof-label">runs reporting cost</div></div>' +
     '</div>' +
-    '<div class="kv-note">Source: ' + persisted + ' run(s) from persisted metrics.json totals, ' + recomputed + ' recomputed from the event stream (legacy or drift-flagged runs).</div>';
+    '<div class="kv-note">Source: ' + persisted + ' run(s) from persisted metrics.json totals, ' + recomputed + ' recomputed from the event stream (legacy or drift-flagged runs). Last measured: ' + esc(fmtTime(observed.lastMeasuredAt)) + '.</div>';
 }
 
 function budgetPolicyLabel(availability) {
@@ -61,11 +59,11 @@ function budgetPolicyTone(availability) {
   return 'warn';
 }
 
-function configuredCapHtml(value, cadence) {
+function configuredCapHtml(value, cadence, loopEnforced) {
   if (value === null || value === undefined) {
     return '<div class="policy-cap missing"><span>—</span><small>No ' + esc(cadence) + ' cap configured</small></div>';
   }
-  return '<div class="policy-cap"><strong>$' + Number(value).toFixed(2) + ' / ' + esc(cadence) + '</strong><small>Enforced from file</small></div>';
+  return '<div class="policy-cap"><strong>$' + Number(value).toFixed(2) + ' / ' + esc(cadence) + '</strong><small>' + (loopEnforced ? 'Enforced by goal loop' : 'Configured policy only — no observed loop enforcement') + '</small></div>';
 }
 
 function configuredBudgetPolicyHtml(s) {
@@ -79,19 +77,22 @@ function configuredBudgetPolicyHtml(s) {
     var budget = project.budget || { availability: 'missing', issues: [] };
     var availability = budget.availability || 'missing';
     var projectLabel = project.projectName || shortName(project.projectRoot);
+    var projectObserved = (observed.projects || []).find(function(item) {
+      return (project.projectId && item.projectId === project.projectId) || item.projectRoot === project.projectRoot;
+    });
     var policyBody = availability === 'configured'
-      ? '<div class="policy-caps">' + configuredCapHtml(budget.runBudgetUsd, 'run') + configuredCapHtml(budget.dailyBudgetUsd, 'day') + configuredCapHtml(budget.monthlyBudgetUsd, 'month') + '</div>'
+      ? '<div class="policy-caps">' + configuredCapHtml(budget.runBudgetUsd, 'run', true) + configuredCapHtml(budget.dailyBudgetUsd, 'day', false) + configuredCapHtml(budget.monthlyBudgetUsd, 'month', false) + '</div>'
       : '<div class="policy-state ' + esc(availability) + '">' +
         '<div class="policy-state-copy">' + (availability === 'invalid' ? 'Invalid values are not presented as enforced.' : availability === 'inaccessible' ? 'The dashboard could not read this policy file.' : 'Add budget.json to arm file-backed cost limits.') + '</div>' +
         ((budget.issues || []).length ? '<ul class="policy-issues">' + budget.issues.slice(0, 4).map(function(issue) { return '<li>' + (issue.field ? '<b>' + esc(issue.field) + ':</b> ' : '') + esc(issue.problem || '') + '</li>'; }).join('') + '</ul>' : '') +
         '<button type="button" class="policy-action" onclick="showPage(\\'diagnostics\\')">Open Diagnostics</button></div>';
-    var consumption = observed.availability === 'available'
-      ? '<div class="policy-observation"><strong>$' + Number(observed.totalCostUsd || 0).toFixed(2) + '</strong><span>actual measured consumption · ' + esc(observed.runsWithTelemetry || 0) + ' reporting runs</span></div>'
+    var consumption = projectObserved && projectObserved.availability === 'available'
+      ? '<div class="policy-observation"><strong>$' + Number(projectObserved.totalCostUsd).toFixed(2) + '</strong><span>actual measured consumption · ' + esc(projectObserved.runsWithTelemetry) + '/' + esc(projectObserved.runCount) + ' reporting runs · ' + esc((projectObserved.metricsSources || {}).persisted) + ' persisted / ' + esc((projectObserved.metricsSources || {}).events) + ' events-derived</span></div>'
       : '<div class="policy-observation empty"><strong>No telemetry yet</strong><span>Configured limits do not count as spend. Actual use appears after metrics are recorded.</span></div>';
     return '<section class="configured-budget" aria-label="Budget policy for ' + esc(projectLabel) + '">' +
       '<div class="configured-budget-head"><div><div class="policy-kicker">Current enforced policy</div><div class="strong">' + esc(projectLabel) + '</div></div>' +
         pill(budgetPolicyTone(availability), budgetPolicyLabel(availability)) + '</div>' +
-      '<div class="configured-budget-grid"><div>' + policyBody + '<div class="policy-source">Source · ' + esc(budget.sourcePath || '.rstack/budget.json') + '</div></div>' + consumption + '</div>' +
+      '<div class="configured-budget-grid"><div>' + policyBody + '<div class="policy-source">Source · ' + esc(budget.sourcePath || '.rstack/budget.json') + ' · loaded ' + esc(fmtTime(project.loadedAt)) + '</div></div>' + consumption + '</div>' +
     '</section>';
   }).join('');
 }
@@ -100,17 +101,17 @@ function configuredBudgetPolicyHtml(s) {
 // project's .rstack/budget.json, the exact file the goal loop's cost brake
 // reads, so this bar shows the cap that actually stops the loop.
 function budgetGovernanceHtml(s) {
-  var runs = s.runs || [];
-  var policies = businessFlexModel(s).configuredPolicy && businessFlexModel(s).configuredPolicy.projects || [];
-  if (!runs.length) {
+  var model = businessFlexModel(s);
+  var observed = model.observedConsumption || {};
+  var measurements = observed.runs || [];
+  var policies = model.configuredPolicy && model.configuredPolicy.projects || [];
+  if (!observed.runCount) {
     var configured = policies.some(function(project) { return project.budget && project.budget.availability === 'configured'; });
     return configured
       ? emptyHtml('No telemetry yet', 'Current file-backed limits are shown above. Run consumption appears here only after a pipeline run records metrics.')
       : emptyHtml('Run consumption unavailable', 'A valid current budget policy and run telemetry are required before consumption can be evaluated.');
   }
-  var capped = runs.filter(function(run) {
-    return run.loopBudgetUsd !== null && run.loopBudgetUsd !== undefined && isFinite(Number(run.loopBudgetUsd));
-  });
+  var capped = measurements.filter(function(run) { return run.cap && run.cap.runBudgetUsd !== null; });
   if (!capped.length) {
     var validCapless = policies.some(function(project) {
       return project.budget && project.budget.availability === 'configured' && (project.budget.runBudgetUsd === null || project.budget.runBudgetUsd === undefined);
@@ -119,22 +120,26 @@ function budgetGovernanceHtml(s) {
       ? emptyHtml('No run cap configured', 'The valid .rstack/budget.json policy omits run_budget_usd, so the loop cost brake is not armed for run spend.')
       : emptyHtml('Run cap unavailable', 'The current policy is missing, invalid, or unreadable. Open Diagnostics before making a cost decision.');
   }
-  var rows = capped.slice(0, 12).map(function(run) {
-    var cap = Number(run.loopBudgetUsd);
-    var spent = Number((run.totals || {}).cost_usd) || 0;
-    var hasTelemetry = runHasCostTelemetry(run);
-    var pct = cap > 0 ? (spent / cap) * 100 : (spent > 0 ? 100 : 0);
-    var cls = pct >= 100 ? 'over' : pct >= 80 ? 'near' : 'ok';
-    var label = pct >= 100
+  var rows = capped.slice(0, 12).map(function(measurement) {
+    var cap = Number(measurement.cap.runBudgetUsd);
+    var spent = Number(measurement.costUsd) || 0;
+    var hasTelemetry = measurement.availability === 'available';
+    var pct = measurement.cap.usedPercent;
+    var exhausted = measurement.cap.status === 'exhausted';
+    var staleEnforcement = measurement.cap.status === 'enforcement_stale';
+    var cls = exhausted ? 'over' : 'ok';
+    var label = staleEnforcement
+      ? 'position unavailable — actual consumption is event-derived while the loop brake reads stale or missing metrics.json'
+      : exhausted
       ? 'cap reached — the loop will not start another iteration'
       : hasTelemetry
-        ? Math.round(pct) + '% of cap used — ' + (cap - spent > 0 ? '$' + (cap - spent).toFixed(2) + ' headroom' : 'no headroom')
+        ? Math.round(pct) + '% of cap used — $' + Number(measurement.cap.remainingUsd).toFixed(2) + ' headroom · within enforced cap'
         : 'no spend recorded yet against this cap';
     return '<div class="budget-row">' +
-      '<div class="budget-row-head"><div class="strong">' + esc(((run.manifest && run.manifest.goal) || run.runId).slice(0, 70)) + '</div>' +
+      '<div class="budget-row-head"><div class="strong">' + esc(measurement.runId) + '</div>' +
         '<div class="mono">' + (hasTelemetry ? '$' + spent.toFixed(2) : '—') + ' <span class="muted">of $' + cap.toFixed(2) + '</span></div></div>' +
-      '<div class="budget-track"><div class="budget-fill ' + cls + '" style="width:' + Math.min(100, Math.max(hasTelemetry ? 2 : 0, pct)).toFixed(1) + '%"></div></div>' +
-      '<div class="budget-note ' + cls + '">' + esc(label) + '</div>' +
+      (hasTelemetry && pct !== null ? '<div class="budget-track"><div class="budget-fill ' + cls + '" style="width:' + Math.min(100, Math.max(2, pct)).toFixed(1) + '%"></div></div>' : '') +
+      '<div class="budget-note ' + cls + '">' + esc(label) + ' · ' + moneySourcePill(measurement.metricsSource) + (measurement.measuredAt ? ' · ' + esc(fmtTime(measurement.measuredAt)) : '') + '</div>' +
     '</div>';
   }).join('');
   return '<div class="kv-note" style="margin-top:0;margin-bottom:10px">run_budget_usd is enforced in code, not by prompt text: the goal loop checks actual spend against this cap before every iteration and stops the run when it is reached.</div>' + rows;
@@ -143,14 +148,16 @@ function budgetGovernanceHtml(s) {
 function costRunRowsHtml(runs) {
   if (!(runs || []).length) return '<tr><td colspan="4" class="empty">No runs in scope</td></tr>';
   return runs.slice(0, 30).map(function(run) {
-    var totals = run.totals || {};
-    var hasTelemetry = runHasCostTelemetry(run);
-    var tokens = run.tokenTotals ? run.tokenTotals.total : Number(totals.tokens) || 0;
+    var measurement = Object.prototype.hasOwnProperty.call(run, 'availability');
+    var hasTelemetry = measurement ? run.availability === 'available' : runHasCostTelemetry(run);
+    var cost = measurement ? run.costUsd : (run.totals || {}).cost_usd;
+    var tokens = measurement ? run.tokens : run.tokenTotals ? run.tokenTotals.total : Number((run.totals || {}).tokens) || 0;
+    var source = measurement ? run.metricsSource : run.metricsSource;
     return '<tr class="clickable" tabindex="0" role="button" data-runid="' + esc(run.runId) + '" onclick="openDrawerRow(this)" aria-label="Open run details">' +
-      '<td><div class="strong">' + esc(((run.manifest && run.manifest.goal) || run.runId).slice(0, 60)) + '</div><div class="faint mono">' + esc(String((run.manifest && run.manifest.created_at) || '').slice(0, 16)) + '</div></td>' +
-      '<td class="mono">' + (hasTelemetry ? '$' + Number(totals.cost_usd || 0).toFixed(4) : '<span class="muted">—</span>') + '</td>' +
-      '<td class="mono">' + (tokens ? fmtTokensCompact(tokens) : '<span class="muted">—</span>') + '</td>' +
-      '<td>' + moneySourcePill(hasTelemetry ? run.metricsSource : 'none') + '</td>' +
+      '<td><div class="strong">' + esc(run.runId) + '</div><div class="faint mono">' + esc(shortName(run.projectRoot)) + '</div></td>' +
+      '<td class="mono">' + (hasTelemetry ? '$' + Number(cost).toFixed(4) : '<span class="muted">—</span>') + '</td>' +
+      '<td class="mono">' + (hasTelemetry ? fmtTokensCompact(tokens) : '<span class="muted">—</span>') + '</td>' +
+      '<td>' + moneySourcePill(hasTelemetry ? source : 'none') + (run.measuredAt ? '<div class="faint">' + esc(fmtTime(run.measuredAt)) + '</div>' : '') + '</td>' +
     '</tr>';
   }).join('');
 }
@@ -185,14 +192,16 @@ function stageCostAcrossRunsHtml(runs) {
 function costPlannedHtml(s) {
   var model = businessFlexModel(s);
   var budget = model.budget || {};
+  var observed = model.observedConsumption || {};
   var drivers = [];
   (s.runs || []).forEach(function(run) {
     (run.tasks || []).forEach(function(task) {
       if (task.budget_envelope) drivers.push({ task: task.title || task.id, runId: run.runId, cost: task.budget_envelope.estimated_ai_cost_usd || 0 });
     });
   });
-  var head = (Number(budget.runBudgetTotal) || Number(budget.estimatedTaskBudget))
-    ? '<div class="kv"><span>Profile run budget (planned)</span><b>$' + Number(budget.runBudgetTotal || 0).toFixed(2) + '</b></div>' +
+  var head = (Number(budget.runBudgetTotal) || Number(budget.estimatedTaskBudget) || observed.availability === 'available')
+    ? (observed.availability === 'available' ? '<div class="kv"><span>Observed actual</span><b>$' + Number(observed.totalCostUsd).toFixed(2) + '</b></div>' : '') +
+      '<div class="kv"><span>Profile run budget (planned snapshot)</span><b>$' + Number(budget.runBudgetTotal || 0).toFixed(2) + '</b></div>' +
       '<div class="kv"><span>Estimated task budget (planned)</span><b>$' + Number(budget.estimatedTaskBudget || 0).toFixed(2) + '</b></div>'
     : '';
   var rows = drivers.slice(0, 20).map(function(driver) {
@@ -203,6 +212,23 @@ function costPlannedHtml(s) {
       'Business Flex profile budgets and per-task estimates appear after init/profile and task routing metadata are written. These are plans — actual spend is tracked in the panels to the left.');
   }
   return head + rows;
+}
+
+function spendPolicyHistoryHtml(s) {
+  var model = businessFlexModel(s);
+  var snapshots = model.runSnapshots || [];
+  if (!snapshots.length) {
+    return emptyHtml('No historical run policy yet', 'A run stores the profile and budget policy used at start. Current .rstack policy remains visible above before the first run.');
+  }
+  return snapshots.slice(0, 20).map(function(snapshot) {
+    var differences = snapshot.differences || [];
+    var comparison = snapshot.comparison === 'differs' ? 'Changed since run' : snapshot.comparison === 'current' ? 'Matches current policy' : snapshot.comparison === 'partial' ? 'Partial current policy comparison' : 'Current policy unavailable';
+    return '<article class="policy-snapshot ' + (snapshot.comparison === 'differs' ? 'changed' : '') + '">' +
+      '<div class="agent-head"><div><div class="strong">' + esc(snapshot.runId) + '</div><div class="muted mono">Historical run snapshot · ' + esc(shortName(snapshot.projectRoot)) + '</div></div>' + pill(snapshot.comparison === 'differs' ? 'warn' : snapshot.comparison === 'current' ? 'pass' : 'idle', comparison) + '</div>' +
+      '<div class="policy-snapshot-caps"><span>Run <b>' + (snapshot.budget.runBudgetUsd == null ? '—' : '$' + Number(snapshot.budget.runBudgetUsd).toFixed(2)) + '</b></span><span>Day <b>' + (snapshot.budget.dailyBudgetUsd == null ? '—' : '$' + Number(snapshot.budget.dailyBudgetUsd).toFixed(2)) + '</b></span><span>Month <b>' + (snapshot.budget.monthlyBudgetUsd == null ? '—' : '$' + Number(snapshot.budget.monthlyBudgetUsd).toFixed(2)) + '</b></span></div>' +
+      (differences.length ? '<div class="policy-differences">' + differences.map(function(item) { return '<span>' + esc(item.field) + ': ' + esc(item.snapshot == null ? '—' : item.snapshot) + ' → ' + esc(item.current == null ? '—' : item.current) + '</span>'; }).join('') + '</div>' : '') +
+    '</article>';
+  }).join('') + '<button type="button" class="policy-action" onclick="showPage(\\'business-flex\\')">Open Business Flex routing detail</button>';
 }
 
 // Panels owned by this module are attached client-side so the shared page
@@ -222,6 +248,11 @@ function ensureCostBudgetPanels() {
   gov.id = 'cost-budget-governance-panel';
   gov.innerHTML = '<div class="panel-head"><span class="panel-title">Budget Consumption — Loop Cost Brake</span><span class="panel-note" id="cost-budget-governance-note"></span></div><div class="panel-body" id="cost-budget-governance"></div>';
   if (firstGrid) page.insertBefore(gov, firstGrid); else page.appendChild(gov);
+  var history = document.createElement('div');
+  history.className = 'panel';
+  history.id = 'cost-budget-history-panel';
+  history.innerHTML = '<div class="panel-head"><span class="panel-title">Historical Run Policy vs Current Policy</span><span class="panel-note" id="cost-budget-history-note"></span></div><div class="panel-body" id="cost-budget-history"></div>';
+  if (firstGrid) page.insertBefore(history, firstGrid); else page.appendChild(history);
   var grid = document.createElement('div');
   grid.className = 'grid-2';
   grid.id = 'cost-budget-money-grid';
@@ -234,13 +265,14 @@ function ensureCostBudgetPanels() {
 function renderCostBudget(s) {
   ensureCostBudgetPanels();
   var runs = s.runs || [];
+  var observed = businessFlexModel(s).observedConsumption || {};
   var policyProjects = businessFlexModel(s).configuredPolicy && businessFlexModel(s).configuredPolicy.projects || [];
   setText('cost-budget-count', runs.length + ' runs in scope');
   setHTML('cost-budget-summary', costSummaryHtml(s));
   setHTML('cost-budget-policy', configuredBudgetPolicyHtml(s));
   setText('cost-budget-policy-note', policyProjects.length ? policyProjects.length + ' project policy record' + (policyProjects.length === 1 ? '' : 's') : 'policy unavailable');
   setHTML('cost-budget-governance', budgetGovernanceHtml(s));
-  var capCount = runs.filter(function(run) { return run.loopBudgetUsd !== null && run.loopBudgetUsd !== undefined; }).length;
+  var capCount = (observed.runs || []).filter(function(run) { return run.cap && run.cap.runBudgetUsd !== null; }).length;
   var configuredCapCount = policyProjects.filter(function(project) {
     return project.budget && project.budget.availability === 'configured' && project.budget.runBudgetUsd !== null && project.budget.runBudgetUsd !== undefined;
   }).length;
@@ -251,8 +283,10 @@ function renderCostBudget(s) {
     ? capCount + ' run(s) under a run_budget_usd cap'
     : configuredCapCount ? configuredCapCount + ' current run cap' + (configuredCapCount === 1 ? '' : 's') + ' · no run telemetry'
       : validCapless ? 'No run cap configured' : 'policy unavailable');
-  setHTML('cost-budget-runs-table', costRunRowsHtml(runs));
-  setText('cost-budget-runs-note', runs.filter(runHasCostTelemetry).length + ' with telemetry');
+  setHTML('cost-budget-history', spendPolicyHistoryHtml(s));
+  setText('cost-budget-history-note', (businessFlexModel(s).runSnapshots || []).length + ' run snapshot' + ((businessFlexModel(s).runSnapshots || []).length === 1 ? '' : 's'));
+  setHTML('cost-budget-runs-table', costRunRowsHtml(observed.runs || []));
+  setText('cost-budget-runs-note', Number(observed.runsWithTelemetry || 0) + ' with telemetry');
   setHTML('cost-budget-stages', stageCostAcrossRunsHtml(runs));
   setHTML('cost-budget-drivers', costPlannedHtml(s));
 }

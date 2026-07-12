@@ -58,7 +58,11 @@ import { readPipelineState, buildPipelineState } from '../../../core/harness/pip
 // state in Diagnostics) and pick up the rollup's per-stage checkpoint status
 // (restorable/reason) via the persisted pipeline_rollup — legacy entries
 // rebuilt so index-served runs don't render an empty restore-point strip.
-export const INDEX_VERSION = 8;
+// v9 (#283): entries persist metrics_measured_at so index-served Spend views
+// expose when persisted telemetry was measured instead of losing file time.
+// (Renumbered from a colliding v8 in the merge — both #339 and #283 claimed
+// 8; one more self-healing rebuild picks up the Spend field everywhere.)
+export const INDEX_VERSION = 9;
 export const DEFAULT_RETENTION_DAYS = 90;
 
 const STALL_MS = 30 * 60 * 1000;
@@ -179,6 +183,7 @@ export function entryFromRun(run, sig = null) {
       stage_cost_usd: run.metrics?.stage_cost_usd ?? {},
       stage_tokens: run.metrics?.stage_tokens ?? {},
     },
+    metrics_measured_at: run.metricsMeasuredAt ?? null,
     totals: run.totals ?? null,
     cost_usd: run.totals?.cost_usd || metricCost || 0,
     tokens: run.totals?.tokens || metricTokens || 0,
@@ -246,6 +251,7 @@ export function liteRunFromEntry(projectRoot, entry, now = Date.now()) {
     workflow: entry.workflow ?? null,
     budgetPolicy: null,
     metrics: entry.metrics ?? {},
+    metricsMeasuredAt: entry.metrics_measured_at ?? null,
     tasks: (entry.tasks ?? []).map((task) => ({
       ...task,
       validation: task.validation_status ? { status: task.validation_status, checks: [] } : null,

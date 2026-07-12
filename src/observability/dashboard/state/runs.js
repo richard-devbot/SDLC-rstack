@@ -145,9 +145,10 @@ export async function getRunsForRoot(projectRoot, options = {}) {
     const integrity = [];
     const rel = (name) => join('.rstack', 'runs', runId, name);
 
-    const [manifest, metrics, tasksRaw, contextText, planText, requirements, runApprovals, projectProfile, budgetPolicy] = await Promise.all([
+    const [manifest, metrics, metricsMeasuredAt, tasksRaw, contextText, planText, requirements, runApprovals, projectProfile, budgetPolicy] = await Promise.all([
       readJsonTracked(join(runDir, 'manifest.json'), {}, integrity, rel('manifest.json')),
       readJsonTracked(join(runDir, 'metrics.json'), {}, integrity, rel('metrics.json')),
+      stat(join(runDir, 'metrics.json')).then((info) => info.mtime.toISOString()).catch(() => null),
       readJsonTracked(join(runDir, 'tasks.json'), null, integrity, rel('tasks.json')),
       readFile(join(runDir, 'context.md'), 'utf8').catch(() => ''),
       readFile(join(runDir, 'plan.md'), 'utf8').catch(() => ''),
@@ -181,6 +182,7 @@ export async function getRunsForRoot(projectRoot, options = {}) {
       workflow: manifest?.workflow || projectProfile?.workflow || tasksRaw?.workflow || null,
       budgetPolicy: tasksRaw?.budget_policy || budgetPolicy || null,
       metrics,
+      metricsMeasuredAt,
       tasks,
       events,
       evidence,

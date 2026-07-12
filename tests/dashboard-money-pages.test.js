@@ -21,6 +21,7 @@ import { runAnalyticsScript } from '../src/observability/dashboard/ui/pages/run-
 import { costBudgetScript } from '../src/observability/dashboard/ui/pages/cost-budget.js';
 import { complianceScript } from '../src/observability/dashboard/ui/pages/compliance.js';
 import { toClientState, readLoopBudgetCaps } from '../src/observability/dashboard/state/client-state.js';
+import { buildBusinessFlexState } from '../src/observability/dashboard/state/business-flex.js';
 
 // ── sandbox ──────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,7 @@ function sandbox(document, prelude = '') {
     return {
       fmtTokensCompact, moneySourcePill, analyticsKpisHtml, stageMoneyHtml,
       benchmarkPanelHtml, costSummaryHtml, configuredBudgetPolicyHtml, budgetGovernanceHtml, costRunRowsHtml,
-      stageCostAcrossRunsHtml, complianceReportModel, complianceScorecardHtml,
+      stageCostAcrossRunsHtml, spendPolicyHistoryHtml, complianceReportModel, complianceScorecardHtml,
       complianceControlsHtml, renderCostBudget, renderCompliance,
       seedBenchCache: function(runId, entry) { BENCH_CACHE[runId] = entry; },
       setState: function(s) { STATE = s; },
@@ -110,6 +111,11 @@ const BENCH_FIXTURE = {
 
 function clientRun(run = fixtureRun()) {
   return toClientState({ runs: [run] }).runs[0];
+}
+
+function spendState(runs = [fixtureRun()], configuredPolicy = { projects: [] }) {
+  const state = { runs, businessFlex: buildBusinessFlexState(runs, configuredPolicy) };
+  return toClientState(state);
 }
 
 function configuredBudgetState(overrides = {}) {
@@ -310,7 +316,7 @@ test('benchmark panel: real mode badge, missing artifact, junk numbers', () => {
 
 test('cost summary shows fixture spend, tokens and provenance counts', () => {
   const api = sandbox(fakeDom().document);
-  const html = api.costSummaryHtml({ runs: [clientRun()] });
+  const html = api.costSummaryHtml(spendState());
   assert.match(html, /\$4\.87/);
   assert.match(html, /1\.73M/);
   assert.match(html, /1 run\(s\) from persisted metrics\.json totals/);
@@ -318,29 +324,79 @@ test('cost summary shows fixture spend, tokens and provenance counts', () => {
 
 test('cost summary refuses to render $0.00 as real data', () => {
   const api = sandbox(fakeDom().document);
-  const html = api.costSummaryHtml({ runs: [clientRun(fixtureRun({ metrics: {}, totals: null, events: [] }))] });
+  const html = api.costSummaryHtml(spendState([fixtureRun({ metrics: {}, totals: null, events: [] })]));
   assert.match(html, /No cost telemetry recorded yet/);
   assert.doesNotMatch(html, /proof-value/, 'no numeric value cells rendered at all');
   assert.match(api.costSummaryHtml({ runs: [] }), /No runs in scope/);
 });
 
-test('budget governance bar: under, near, and over the enforced cap', () => {
+test('budget governance uses the exact loop boundary without an invented near threshold', () => {
   const api = sandbox(fakeDom().document);
-  const under = api.budgetGovernanceHtml({ runs: [{ ...clientRun(), loopBudgetUsd: 10 }] });
+  const policy = { projects: [{ projectRoot: '/tmp/fixture-project', budget: { availability: 'configured', runBudgetUsd: 10 } }] };
+  const under = api.budgetGovernanceHtml(spendState([fixtureRun()], policy));
   assert.match(under, /\$4\.87/);
   assert.match(under, /of \$10\.00/);
   assert.match(under, /49% of cap used — \$5\.13 headroom/);
   assert.match(under, /enforced in code/, 'governance copy states the loop stops on this cap');
   assert.match(under, /before every iteration/);
 
-  const over = api.budgetGovernanceHtml({
-    runs: [{ ...clientRun(), loopBudgetUsd: 4, totals: { cost_usd: 4.87 }, tokenTotals: { input: 1, output: 1, total: 2 } }],
-  });
+  policy.projects[0].budget.runBudgetUsd = 4;
+  const over = api.budgetGovernanceHtml(spendState([fixtureRun()], policy));
   assert.match(over, /cap reached — the loop will not start another iteration/);
   assert.match(over, /budget-fill over/);
 
-  const near = api.budgetGovernanceHtml({ runs: [{ ...clientRun(), loopBudgetUsd: 5.5 }] });
-  assert.match(near, /budget-fill near/);
+  policy.projects[0].budget.runBudgetUsd = 5.5;
+  const within = api.budgetGovernanceHtml(spendState([fixtureRun()], policy));
+  assert.match(within, /within enforced cap/);
+  assert.doesNotMatch(within, /near|warning/i);
+});
+
+test('measured zero renders as actual persisted telemetry while unavailable stays blank', () => {
+  const api = sandbox(fakeDom().document);
+  const zero = fixtureRun({ metrics: { cumulative_cost_usd: 0, cumulative_tokens: { input: 0, output: 0, total: 0 } }, totals: { cost_usd: 0, tokens: 0 }, events: [] });
+  const html = api.costSummaryHtml(spendState([zero]));
+  assert.match(html, /\$0\.00/);
+  assert.match(html, /persisted metrics/);
+  const unavailable = api.costSummaryHtml(spendState([fixtureRun({ metrics: {}, totals: null, events: [] })]));
+  assert.match(unavailable, /No cost telemetry recorded yet/);
+});
+
+test('event-derived consumption never renders a percentage against the persisted-file loop brake', () => {
+  const api = sandbox(fakeDom().document);
+  const run = fixtureRun({
+    totals: { cost_usd: 4, tokens: 20 },
+    events: [{ type: 'cost_recorded', usd: 4, tokens: 20, ts: '2026-07-12T08:00:00.000Z' }, { type: 'metrics_write_failed', ts: '2026-07-12T08:00:01.000Z' }],
+  });
+  const policy = { projects: [{ projectRoot: '/tmp/fixture-project', budget: { availability: 'configured', runBudgetUsd: 5 } }] };
+  const html = api.budgetGovernanceHtml(spendState([run], policy));
+  assert.match(html, /position unavailable/);
+  assert.match(html, /event-derived/);
+  assert.doesNotMatch(html, /budget-track|% of cap used/);
+});
+
+test('project policy cards use project-scoped consumption instead of the global total', () => {
+  const api = sandbox(fakeDom().document);
+  const runA = fixtureRun({ runId: 'run-a', projectId: 'a', projectRoot: '/a', metrics: { cumulative_cost_usd: 3, cumulative_tokens: { input: 5, output: 5, total: 10 } }, totals: { cost_usd: 3, tokens: 10 } });
+  const runB = fixtureRun({ runId: 'run-b', projectId: 'b', projectRoot: '/b', metrics: { cumulative_cost_usd: 2, cumulative_tokens: { input: 5, output: 5, total: 10 } }, totals: { cost_usd: 2, tokens: 10 } });
+  const policy = { projects: [
+    { projectId: 'a', projectRoot: '/a', projectName: 'A', loadedAt: '2026-07-12T09:00:00.000Z', budget: { availability: 'configured', runBudgetUsd: 5, dailyBudgetUsd: 10, monthlyBudgetUsd: 20, sourcePath: '.rstack/budget.json' } },
+    { projectId: 'b', projectRoot: '/b', projectName: 'B', loadedAt: '2026-07-12T09:00:00.000Z', budget: { availability: 'configured', runBudgetUsd: 5, dailyBudgetUsd: 10, monthlyBudgetUsd: 20, sourcePath: '.rstack/budget.json' } },
+  ] };
+  const html = api.configuredBudgetPolicyHtml(spendState([runA, runB], policy));
+  assert.match(html, /A[\s\S]*\$3\.00[\s\S]*B[\s\S]*\$2\.00/);
+  assert.doesNotMatch(html, /\$5\.00 actual measured consumption/g);
+  assert.match(html, /Configured policy only — no observed loop enforcement/);
+});
+
+test('Spend Center distinguishes historical run policy from current policy', () => {
+  const api = sandbox(fakeDom().document);
+  const run = fixtureRun({ budgetPolicy: { run_budget_usd: 5, daily_budget_usd: 20, monthly_budget_usd: 100 } });
+  const policy = { projects: [{ projectRoot: '/tmp/fixture-project', budget: { availability: 'configured', runBudgetUsd: 10, dailyBudgetUsd: 50, monthlyBudgetUsd: 500 }, profile: { availability: 'configured', id: null, workflow: null } }] };
+  const html = api.spendPolicyHistoryHtml(spendState([run], policy));
+  assert.match(html, /Historical run snapshot/);
+  assert.match(html, /Changed since run/);
+  assert.match(html, /runBudgetUsd: 5 → 10/);
+  assert.match(html, /Open Business Flex routing detail/);
 });
 
 test('configured budget policy renders 10/50/500 before the first run without inventing spend', () => {
@@ -399,8 +455,10 @@ test('spend-by-stage aggregates stage cost across runs in scope', () => {
 test('renderCostBudget paints all panels from fixture-shaped state', () => {
   const { document, els } = fakeDom();
   const api = sandbox(document);
-  const state = toClientState({ runs: [fixtureRun()] });
-  state.runs[0].loopBudgetUsd = 10; // as if budget.json carried the cap
+  const state = spendState([fixtureRun()], { projects: [{
+    projectRoot: '/tmp/fixture-project', projectName: 'fixture-project', loadedAt: '2026-07-12T09:00:00.000Z',
+    budget: { availability: 'configured', runBudgetUsd: 10, dailyBudgetUsd: null, monthlyBudgetUsd: null, sourcePath: '.rstack/budget.json' },
+  }] });
   api.renderCostBudget(state);
   assert.match(els.get('cost-budget-summary').innerHTML, /\$4\.87/);
   assert.match(els.get('cost-budget-governance').innerHTML, /49% of cap used/);

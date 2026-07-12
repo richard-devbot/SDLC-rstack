@@ -1467,10 +1467,8 @@ tr.clickable:hover td { background: #f8fbff; }
 .budget-track { height: 12px; background: var(--soft); border-radius: 6px; overflow: hidden; }
 .budget-fill { height: 100%; border-radius: 6px; }
 .budget-fill.ok { background: var(--green); }
-.budget-fill.near { background: var(--amber); }
 .budget-fill.over { background: var(--red); }
 .budget-note { font-size: 11px; margin-top: 4px; color: var(--muted); }
-.budget-note.near { color: var(--amber); }
 .budget-note.over { color: var(--red); font-weight: 700; }
 
 /* [wave:command] Command Center next-action + exec rollup, Decision Log (#94/#156/#215) */
