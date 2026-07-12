@@ -1,10 +1,29 @@
 // owner: RStack developed by Richardson Gunde
 
+// #72: compact review-independence view for a task card — builder harness vs
+// validator harnesses, verdict, and what is missing. Null when the run
+// predates independence evaluation (no block in validation.json).
+function independenceView(task) {
+  const independence = task.validation?.independence;
+  if (!independence || typeof independence !== 'object') return null;
+  return {
+    status: independence.status ?? 'PASS',
+    enforced: Boolean(independence.enforced),
+    waived: Boolean(independence.waived),
+    builderHarness: independence.builder?.harness ?? null,
+    validatorHarnesses: [...new Set((independence.validators ?? []).map((v) => v?.harness).filter(Boolean))],
+    sameHarnessFindings: independence.same_harness_findings ?? [],
+    missingValidatorTypes: independence.missing_validator_types ?? [],
+    explanation: independence.explanation ?? '',
+  };
+}
+
 export function buildAgentWork(runs) {
   return (runs ?? []).flatMap((run) => (run.tasks ?? []).map((task) => {
     const checks = task.validation?.checks ?? [];
     const passChecks = checks.filter((check) => check.status === 'PASS').length;
     return {
+      independence: independenceView(task),
       runId: run.runId,
       goal: run.manifest?.goal ?? '',
       host: run.host,

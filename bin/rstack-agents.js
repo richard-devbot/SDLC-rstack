@@ -41,6 +41,7 @@ import {
   runCheckpointStatus, formatCheckpointStatus,
   runApprovalsAudit, formatApprovalsAudit,
   runMemoryInspect, formatMemoryInspect,
+  runReviewIndependence, formatReviewIndependence,
 } from '../src/commands/exposure.js';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -721,6 +722,28 @@ program
       if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       else console.log(formatMemoryInspect(result));
       process.exit(result.healthy ? 0 : 1);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('review')
+  .description('Inspect review independence')
+  .command('independence [runId]')
+  .description('Audit builder vs validator harness identity against the review_policy (#72) — same-harness self-validation, missing validator types, cross-harness coverage')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--json', 'print the structured audit as JSON')
+  .action(async (runId, opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runReviewIndependence(projectRoot, { runId });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatReviewIndependence(result));
+      // Non-zero only on a confirmed policy violation — WARN (unverified
+      // identity or warn-fallback findings) stays informational.
+      process.exit(result.status === 'FAIL' ? 1 : 0);
     } catch (err) {
       log.error(err.message);
       process.exit(1);

@@ -56,6 +56,19 @@ export function validateBuilderContract(builder, expectedTaskId) {
       : "not set, defaulted to 'builder'",
   });
 
+  // Producer identity (#72): harness + model are optional informational fields
+  // — legacy contracts without them stay valid, but review-independence can
+  // only verify what the contract records.
+  for (const field of ['harness', 'model']) {
+    checks.push({
+      name: `builder_has_${field}`,
+      status: 'PASS',
+      evidence: (builder && hasOwn(builder, field) && builder[field])
+        ? String(builder[field])
+        : 'not set — review independence cannot verify this contract',
+    });
+  }
+
   if (builder && hasOwn(builder, 'task_id')) {
     const matches = !expectedTaskId || builder.task_id === expectedTaskId;
     checks.push({
@@ -229,6 +242,18 @@ export function validateBuilderCompleteness(builder, { expectedStageIds = [] } =
 
 export function validateValidatorContract(validator, expectedTaskId) {
   const checks = validateRequiredFields(validator, VALIDATOR_REQUIRED_FIELDS, 'validator');
+
+  // Reviewer identity (#72): harness + model + validator_type are optional
+  // informational fields, recorded so review independence is verifiable.
+  for (const field of ['harness', 'model', 'validator_type']) {
+    checks.push({
+      name: `validator_has_${field}`,
+      status: 'PASS',
+      evidence: (validator && hasOwn(validator, field) && validator[field])
+        ? String(validator[field])
+        : 'not set — review independence cannot verify this contract',
+    });
+  }
 
   if (validator && hasOwn(validator, 'task_id')) {
     const matches = !expectedTaskId || validator.task_id === expectedTaskId;
