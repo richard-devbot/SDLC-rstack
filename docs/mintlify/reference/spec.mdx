@@ -1,0 +1,51 @@
+---
+title: RStack Spec v1alpha1
+description: The normative spec for RStack's on-disk state — JSON schemas, conformance levels, and a validating example run.
+---
+
+<!-- owner: RStack developed by Richardson Gunde -->
+
+# RStack Spec v1alpha1
+
+The RStack Spec (`rstack.dev/v1alpha1`) pins down, normatively, the files a governed run writes and the lifecycle semantics the harness enforces. It is **derived from the shipped code, never from intent**: every schema, enum, and gate is backed by a runtime producer or validator in the repository, with the source module named next to each section. Nothing aspirational ships in the spec.
+
+## What ships
+
+| Artifact | Where |
+|---|---|
+| Normative spec (RFC-2119 language) | `spec/rstack-spec.md` |
+| Friendly walkthrough of one governed run | `spec/primer.md` |
+| Conformance levels + MUST lists | `spec/conformance.md` |
+| 13 JSON Schemas (draft-07) | `spec/schemas/*.schema.json` |
+| Complete validating example run | `examples/spec/business-flex-run/` |
+
+## Two kinds of schema
+
+- **Raw on-disk file schemas** describe exactly what RStack writes today: the builder contract (`builder.json`), validator contract (`validation.json`), approvals ledger, evidence ledger lines, and attestation envelopes — plus the raw shapes of `manifest.json`, `tasks.json`, `decisions.json`, `policy.json`, and `rstack.config.json` under each resource schema's `definitions`.
+- **Resource envelope schemas** are Kubernetes-style projections (`apiVersion: rstack.dev/v1alpha1`, `kind`, `metadata`, `spec`, `status`) for tools that exchange RStack resources: `Run`, `Task`, `Decision`, `Gate`, `Profile`, `Project`, `AgentRole`, `Adapter`. The attestation is exempt — it defines its own envelope (`schema: rstack.dev/attestation/v1alpha1`) exactly as the code writes it.
+
+The harness is a tolerant reader by design, so every schema keeps `additionalProperties: true`; only value sets the code actually closes (status enums, impacts, predicate types) are closed in the schemas.
+
+## Conformance levels
+
+| Level | Adds |
+|---|---|
+| `basic` | Run directory layout, manifest (`schema_version: 2`), tasks, builder/validator contracts, atomic writes, tolerant reads |
+| `business-flex` | Audited approvals (latest-record-wins, run binding, one-shot CONSUMED overrides), stage gates, claim order FAIL → BLOCKED → PENDING, the retry-policy table, evidence-before-DONE, guardrail defaults, the Decision Queue |
+| `enterprise` | Attestation envelopes, review independence (cross-harness policy), blanket per-stage human gates, governance packs, unclampable read-only validators |
+
+Claim conformance by level and version: *"conforms to RStack Spec `rstack.dev/v1alpha1`, level `business-flex`"*.
+
+## Validate anything
+
+```bash
+npx rstack-agents validate --schemas [--project <path>]
+```
+
+The command validates (1) every packaged schema compiles, (2) the packaged conformance example against every matching schema, and (3) the target project's **newest** run — tolerantly: missing files are SKIP, invalid files FAIL with the exact field path (e.g. `/tasks/1/status: must be equal to one of the allowed values`). Exit 0 clean, exit 1 on any FAIL. CI runs it on every push (`npm run validate:schemas`), so schema/producer drift cannot land silently.
+
+## Related pages
+
+- [Attestation Envelopes](/reference/attestations) — the `rstack.dev/attestation/v1alpha1` format in depth
+- [Configuration](/reference/configuration) — the `.rstack/*.json` files the Project/Gate/Profile schemas project
+- [Pipeline reference](/reference/pipeline) — the 15 canonical stages and run state

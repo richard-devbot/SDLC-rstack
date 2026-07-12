@@ -89,6 +89,7 @@
             "pages": [
               "reference/cli",
               "reference/pipeline",
+              "reference/spec",
               "reference/pi-tools",
               "reference/observability",
               "reference/decision-readiness",
