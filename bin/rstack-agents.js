@@ -35,6 +35,13 @@ import { addDecision, decide, readDecisions, summarizeDecisions } from '../src/c
 import { CANONICAL_SDLC_STAGES, getCanonicalStage } from '../src/core/harness/stages.js';
 import { dorCheck } from '../src/core/harness/readiness.js';
 import { log } from '../src/utils/logger.js';
+import {
+  runConfigValidate, formatConfigValidate,
+  runPipelineRollback, formatRollback,
+  runCheckpointStatus, formatCheckpointStatus,
+  runApprovalsAudit, formatApprovalsAudit,
+  runMemoryInspect, formatMemoryInspect,
+} from '../src/commands/exposure.js';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -611,6 +618,109 @@ program
     try {
       const exitCode = await validateCommand();
       process.exit(exitCode);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+// ── Exposure verbs (#229): thin CLI over existing harness functions ──────────
+
+pipelineCmd
+  .command('rollback <stage>')
+  .description('Restore a stage to its last verified checkpoint (deep-hash checked; CORRUPT/NO_CHECKPOINT/INVALID_STAGE fail closed). Previously only the goal loop could restore.')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('-r, --run-id <runId>', 'run id (defaults to latest run)')
+  .option('--json', 'print the structured result as JSON')
+  .action(async (stage, opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runPipelineRollback(projectRoot, { runId: opts.runId, stageId: stage });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatRollback(result));
+      process.exit(result.status === 'SUCCESS' ? 0 : 1);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+pipelineCmd
+  .command('checkpoint-status')
+  .description('List stage checkpoints and whether each is restorable (deep sha-256 integrity check, matching rollback)')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('-r, --run-id <runId>', 'run id (defaults to latest run)')
+  .option('--json', 'print the structured result as JSON')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runCheckpointStatus(projectRoot, { runId: opts.runId });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatCheckpointStatus(result));
+      // Informational: exit non-zero only if a checkpoint is present but CORRUPT.
+      process.exit(result.stages.some((s) => !s.restorable) ? 1 : 0);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('config')
+  .description('Inspect RStack project configuration')
+  .command('validate')
+  .description('Validate every .rstack/*.json config file up front (a typo in a threshold or policy is reported by file + field, not silently defaulted)')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--json', 'print the structured problem list as JSON')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runConfigValidate(projectRoot);
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatConfigValidate(result));
+      process.exit(result.ok ? 0 : 1);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('approvals')
+  .description('Inspect run approvals')
+  .command('audit [runId]')
+  .description('Audit a run\'s approvals.json for consistency — see WHY a record was rejected (tamper, replay, cross-run, malformed)')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--json', 'print the structured audit as JSON')
+  .action(async (runId, opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runApprovalsAudit(projectRoot, { runId });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatApprovalsAudit(result));
+      // Non-zero when any record failed the audit (a tamper/replay signal).
+      process.exit(result.rejected.length > 0 ? 1 : 0);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('memory')
+  .description('Inspect RStack episodic memory')
+  .command('inspect')
+  .description('Report the episodic memory store: episode count, size, recall hit-rate, signature/duplicate/stale diagnostics')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('-r, --run-id <runId>', 'run id for run-scoped diagnostics (optional)')
+  .option('--json', 'print the structured diagnostics as JSON')
+  .action(async (opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runMemoryInspect(projectRoot, { runId: opts.runId });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatMemoryInspect(result));
+      process.exit(result.healthy ? 0 : 1);
     } catch (err) {
       log.error(err.message);
       process.exit(1);

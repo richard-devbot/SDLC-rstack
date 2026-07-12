@@ -60,17 +60,25 @@ function safeStageId(stageId) {
   return s || null;
 }
 
+/** Task ids are plan ids (`003-architecture`); same hygiene as stages. */
+function safeTaskId(taskId) {
+  const s = String(taskId ?? '').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 64);
+  return s || null;
+}
+
 /**
  * Build the RStack context string for a run from already-loaded, structural
  * facts. Returns a short (<~1KB) plain string, or '' when there is nothing
  * worth injecting. Never throws; callers pass in whatever they could read.
  */
-export function buildContextString({ runId, stageId, pendingApprovalCount = 0, openDecisionCount = 0 }) {
+export function buildContextString({ runId, stageId, taskId, pendingApprovalCount = 0, openDecisionCount = 0, incomplete = false }) {
   const id = safeRunId(runId);
   if (!id) return '';
   const stage = safeStageId(stageId);
+  const task = safeTaskId(taskId);
   const parts = [];
-  parts.push(`RStack governed run active: ${id}${stage ? ` (current stage: ${stage})` : ''}.`);
+  const where = [stage ? `current stage: ${stage}` : null, task ? `task ${task}` : null].filter(Boolean).join(', ');
+  parts.push(`RStack governed run active: ${id}${where ? ` (${where})` : ''}${incomplete ? ' — INCOMPLETE' : ''}.`);
 
   const approvals = Number.isFinite(pendingApprovalCount) ? Math.max(0, Math.trunc(pendingApprovalCount)) : 0;
   const decisions = Number.isFinite(openDecisionCount) ? Math.max(0, Math.trunc(openDecisionCount)) : 0;
@@ -81,7 +89,16 @@ export function buildContextString({ runId, stageId, pendingApprovalCount = 0, o
     parts.push(`Blockers: ${bits.join(', ')} — resolve before shipping.`);
   }
 
-  parts.push(ORCHESTRATOR_POINTER);
+  if (incomplete) {
+    // #328: the packet is an INSTRUCTION, not a status line. The audit's root
+    // cause for "please continue" failing was exactly this — the old packet
+    // said where the session was but never what to do, so a fresh agent
+    // treated the run as trivia and restarted. Coordinates + the exact
+    // command + the two prohibitions make resumption the default action.
+    parts.push(`RESUME this run now: run \`rstack-agents pipeline run --run-id ${id} --max-steps 5\`, or follow the Session Resume contract in agents/core/orchestrator.md and continue at the current stage. Do NOT restart the pipeline, do NOT regenerate completed stages.`);
+  } else {
+    parts.push(ORCHESTRATOR_POINTER);
+  }
   const text = parts.join(' ');
   return text.length > MAX_CONTEXT_CHARS
     ? `${text.slice(0, MAX_CONTEXT_CHARS - 1)}…`
@@ -129,13 +146,32 @@ export async function runContext({
       return { additionalContext: '', hookEventName, reason: 'no active run — nothing to inject (silent no-op)' };
     }
 
-    // Current stage — best-effort. regenerateIfMissing builds the rollup if the
-    // run has none yet; a failure here just drops the stage from the packet.
+    // Current stage/task + completeness — best-effort. regenerateIfMissing
+    // builds the rollup if the run has none yet; a failure here just drops
+    // those facts from the packet. `incomplete` is asserted only from a
+    // readable rollup that is genuinely mid-flight (#328) — when the state
+    // can't be read we stay informational rather than issuing a resume
+    // instruction we can't back with coordinates.
     let stageId = null;
+    let taskId = null;
+    let incomplete = false;
     try {
       const state = await readPipelineState(projectRoot, selectedRun, { regenerateIfMissing: true });
       stageId = state?.current?.stage_id ?? null;
-    } catch { /* stage is optional in the packet */ }
+      taskId = state?.current?.task_id ?? null;
+      const stages = Array.isArray(state?.stages) ? state.stages : [];
+      const DONE = new Set(['PASS', 'PASSED', 'SUCCESS', 'SUCCEEDED', 'DONE', 'COMPLETED']);
+      const started = stages.some((stage) => stage.status && stage.status !== 'PENDING');
+      const allStagesDone = stages.length > 0 && stages.every((stage) => DONE.has(String(stage.status || '').toUpperCase()));
+      // A run is COMPLETE when its manifest says so (sdlc_status stamps DONE
+      // when every task passed + release gates cleared) or every stage
+      // passed. Stage-emptiness alone can't decide it: an express run
+      // legitimately finishes with most canonical stages untouched, and
+      // ordering RESUME on a done run forever would be the packet lying in
+      // the other direction.
+      const manifestDone = DONE.has(String(state?.run?.status ?? '').toUpperCase());
+      incomplete = Boolean(state) && started && !allStagesDone && !manifestDone;
+    } catch { /* stage/task/completeness are optional in the packet */ }
 
     // Pending approvals — the project-level queue (.rstack/approvals.jsonl),
     // filtered to this run when the entry carries a runId.
@@ -154,7 +190,7 @@ export async function runContext({
     } catch { /* decisions are optional in the packet */ }
 
     const additionalContext = buildContextString({
-      runId: selectedRun, stageId, pendingApprovalCount, openDecisionCount,
+      runId: selectedRun, stageId, taskId, pendingApprovalCount, openDecisionCount, incomplete,
     });
     return {
       additionalContext,

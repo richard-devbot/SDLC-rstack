@@ -80,7 +80,9 @@ export function toClientState(state) {
       workflow: run.workflow,
       budgetPolicy: run.budgetPolicy,
       profile: run.profile,
-      evidenceCount: (evidence ?? []).length,
+      // Prefer the true persisted total (#299 item 8): index-served runs carry
+      // a capped evidence LIST, so .length silently undercounted 100+ runs.
+      evidenceCount: run.evidenceCount ?? (evidence ?? []).length,
       evidenceRecent: (evidence ?? []).slice(-30).reverse().map((entry) => ({
         ts: entry.ts, task_id: entry.task_id, kind: entry.kind, status: entry.status, evidence: entry.evidence,
       })),
