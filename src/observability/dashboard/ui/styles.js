@@ -1743,4 +1743,39 @@ tr.clickable:hover td { background: #f8fbff; }
   .run-workspace-event { grid-template-columns:1fr; gap:5px; }
 }
 /* [/issue:280] */
+
+/* [issue:281] Normalized Action Inbox */
+.action-inbox-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:12px; }
+.action-inbox-summary > div { display:flex; justify-content:space-between; align-items:end; gap:12px; padding:16px; border:1px solid var(--line); border-radius:11px; background:var(--panel); }
+.action-inbox-summary span { color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.09em; }
+.action-inbox-summary strong { font-size:24px; }
+.action-inbox-filters { display:flex; gap:6px; overflow-x:auto; margin:0 0 12px; padding:5px; border:1px solid var(--line); border-radius:12px; background:var(--soft); scrollbar-width:thin; }
+.action-inbox-filter { flex:0 0 auto; display:flex; align-items:center; gap:9px; min-height:40px; padding:7px 13px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--muted); font:inherit; font-size:12px; font-weight:750; cursor:pointer; }
+.action-inbox-filter b { min-width:20px; padding:2px 6px; border-radius:999px; background:var(--panel); color:var(--text); font-size:10px; }
+.action-inbox-filter[aria-pressed="true"] { border-color:var(--line-strong); background:var(--panel); color:var(--text); }
+.action-inbox-filter:focus-visible { outline:3px solid rgba(21,112,239,.32); outline-offset:2px; }
+.action-inbox-list { display:grid; gap:10px; }
+.action-card { position:relative; overflow:hidden; padding:17px; border:1px solid var(--line); border-left:4px solid var(--blue); border-radius:11px; background:var(--panel); }
+.action-card.critical { border-left-color:var(--red); }
+.action-card.high, .action-card.medium { border-left-color:var(--amber); }
+.action-card.resolved { opacity:.78; }
+.action-card-main { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:18px; align-items:center; }
+.action-card-badges { display:flex; flex-wrap:wrap; gap:5px; }
+.action-card h3 { margin:10px 0 5px; font-size:15px; }
+.action-card p { margin:0 0 10px; color:var(--muted); line-height:1.45; }
+.action-next { display:grid; gap:3px; padding:10px 12px; border-radius:8px; background:var(--soft); }
+.action-next span { color:var(--blue); font-size:9px; font-weight:850; letter-spacing:.1em; text-transform:uppercase; }
+.action-next strong { font-size:12px; }
+.action-card-route { display:grid; justify-items:end; gap:6px; min-width:150px; }
+.action-card-route small, .action-signals { color:var(--faint); font-size:9px; }
+.action-signals { margin-top:7px; }
+
+@media (max-width:640px) {
+  .action-inbox-summary { grid-template-columns:1fr 1fr 1fr; }
+  .action-inbox-summary > div { display:grid; padding:11px; }
+  .action-card-main { grid-template-columns:1fr; }
+  .action-card-route { justify-items:stretch; min-width:0; }
+  .action-card-route .tb-chip { justify-content:center; width:100%; }
+}
+/* [/issue:281] */
 `;

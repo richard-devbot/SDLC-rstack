@@ -17,6 +17,7 @@ import { buildEnvironmentState } from './environment.js';
 import { buildReadinessProjection } from './readiness.js';
 import { buildOverviewProjection } from './overview.js';
 import { buildRunWorkspaces } from './run-workspace.js';
+import { buildActions } from './actions.js';
 import { readConfiguredPolicies } from './configured-policy.js';
 import { decorateRunIdentity, resolveProjectDescriptors } from './identity.js';
 import {
@@ -200,9 +201,14 @@ export async function buildFullState(projectRoot, options = {}) {
     readiness: buildReadinessProjection(baseState, { evaluatedAt: baseState.ts }),
   };
 
-  const stateWithOverview = {
+  const stateWithActions = {
     ...stateWithReadiness,
-    overview: buildOverviewProjection(stateWithReadiness),
+    actions: buildActions(stateWithReadiness),
+  };
+
+  const stateWithOverview = {
+    ...stateWithActions,
+    overview: buildOverviewProjection(stateWithActions),
   };
 
   const stateWithRunWorkspaces = {

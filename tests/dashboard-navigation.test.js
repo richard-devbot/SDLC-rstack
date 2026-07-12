@@ -24,8 +24,8 @@ test('six intent destinations cover every legacy page exactly once', () => {
   ]);
 
   const childIds = destinations.flatMap((item) => item.children.map((child) => child.id));
-  assert.equal(childIds.length, 22);
-  assert.equal(new Set(childIds).size, 22);
+  assert.equal(childIds.length, 23);
+  assert.equal(new Set(childIds).size, 23);
   assert.deepEqual(new Set(childIds), new Set(pages.map(([id]) => id)));
 });
 
@@ -47,7 +47,7 @@ test('shell renders desktop and mobile navigation from the same six-destination 
   const html = dashboardHtml(3008);
 
   assert.equal((html.match(/class="destination-link/g) || []).length, 12);
-  assert.equal((html.match(/class="secondary-link/g) || []).length, 34);
+  assert.equal((html.match(/class="secondary-link/g) || []).length, 30);
   assert.equal((html.match(/data-primary-destination=/g) || []).length, 12);
   assert.match(
     html,

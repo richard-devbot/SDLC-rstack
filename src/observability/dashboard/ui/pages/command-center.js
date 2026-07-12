@@ -82,6 +82,10 @@ function overviewTime(value) {
 function overviewActionRoute(action) {
   if (!action) return { page: 'diagnostics', label: 'Open diagnostics' };
   if (action.kind === 'approval') return { page: 'approvals', label: 'Review approval' };
+  if (action.kind === 'decision') return { page: 'action-inbox', label: 'Review decision' };
+  if (action.kind === 'configuration') return { page: 'diagnostics', label: 'Open diagnostics' };
+  if (action.kind === 'failure' || action.kind === 'audit') return { page: 'action-inbox', label: 'Open Action Inbox' };
+  if (action.kind === 'alert') return { page: 'live-feed', label: 'Open Operations' };
   if (action.kind === 'guardrail_blocked' || action.kind === 'failed') return { page: 'alerts-guardrails', label: 'Open blocker' };
   if (action.kind === 'complete') return { page: 'release-readiness', label: 'Review readiness' };
   if (action.kind === 'setup') return { page: 'operations', label: 'Open setup diagnostics' };

@@ -38,10 +38,11 @@ export const destinations = Object.freeze([
     child('security', 'Security'),
     child('compliance', 'Compliance'),
   ]),
-  destination('decisions', 'Decisions', 'decisions', 'approvals', [
-    child('approvals', 'Approvals'),
-    child('decisions', 'Decisions / Readiness'),
-    child('alerts-guardrails', 'Alerts & Guardrails'),
+  destination('decisions', 'Decisions', 'decisions', 'action-inbox', [
+    child('action-inbox', 'Action Inbox'),
+    child('approvals', 'Approvals', true),
+    child('decisions', 'Decisions / Readiness', true),
+    child('alerts-guardrails', 'Alerts & Guardrails', true),
   ]),
   destination('spend', 'Spend', 'spend', 'business-flex', [
     child('business-flex', 'Business Flex'),

@@ -25,6 +25,7 @@ import { teamPresenceScript } from './pages/team-presence.js';
 import { agentWorkScript } from './pages/agent-work.js';
 import { liveFeedScript } from './pages/live-feed.js';
 import { approvalsScript } from './pages/approvals.js';
+import { actionInboxScript } from './pages/action-inbox.js';
 import { decisionsScript } from './pages/decisions.js';
 import { releaseReadinessScript } from './pages/release-readiness.js';
 import { securityScript } from './pages/security.js';
@@ -54,6 +55,7 @@ export function clientScript(port) {
     agentWorkScript,
     liveFeedScript,
     approvalsScript,
+    actionInboxScript,
     decisionsScript,
     releaseReadinessScript,
     securityScript,

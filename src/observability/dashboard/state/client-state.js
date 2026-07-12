@@ -159,6 +159,7 @@ export function toClientState(state) {
     approvals: (state.approvals ?? []).slice(0, 100),
     pendingApprovals: (state.pendingApprovals ?? []).slice(0, 50),
     blockedGates: (state.blockedGates ?? []).slice(0, 50),
+    actions: (state.actions ?? []).slice(0, 250),
     agentWork: (state.agentWork ?? []).slice(0, 80).map((work) => ({
       agent: work.agent,
       taskId: work.taskId,
