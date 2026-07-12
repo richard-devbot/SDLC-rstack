@@ -401,6 +401,7 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
       .map((event) => `evidence.jsonl#${event.task_id || stage.id}`);
 
     const stageTaskIds = stageTasks.map((task) => task.id).filter(Boolean);
+    const checkpoint = verifyStageCheckpoint(dir, stage.id, { deep: true });
     stages.push({
       id: stage.id,
       title: stage.title,
@@ -422,7 +423,10 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
       // restorable:true for a same-size-tampered checkpoint that rollback then
       // refused as CORRUPT, so status over-promised. Only stages that actually
       // have a checkpoint pay the hash; the rest short-circuit on "no_checkpoint".
-      checkpoint_restorable: verifyStageCheckpoint(dir, stage.id, { deep: true }).restorable,
+      checkpoint_restorable: checkpoint.restorable,
+      // The reason distinguishes "no checkpoint" from CORRUPT (#215) —
+      // restorable:false alone hid the difference from every consumer.
+      checkpoint_reason: checkpoint.reason,
     });
   }
 

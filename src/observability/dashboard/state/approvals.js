@@ -71,6 +71,34 @@ export function summarizeApprovals(queueApprovals) {
   };
 }
 
+// #156 (CONSUMED lifecycle): the queue entry freezes at 'approved' the moment
+// a manager signs off, but a guardrail override is a one-shot credential —
+// the harness appends a run-level CONSUMED record when the claim spends it
+// (in-lock, before the attempt is granted). Cross-reference the run-level
+// history so the card shows the full lifecycle instead of a stale 'approved'.
+// Server-owned semantics: pages render `lifecycle`, they never re-derive it.
+export function annotateApprovalLifecycle(queueApprovals, runs) {
+  const latestByKey = new Map();
+  for (const run of runs ?? []) {
+    for (const record of run.approvals ?? []) {
+      if (!record?.artifact) continue;
+      const key = `${run.runId}|${record.artifact}`;
+      const previous = latestByKey.get(key);
+      if (!previous || String(record.timestamp ?? '') >= String(previous.timestamp ?? '')) {
+        latestByKey.set(key, record);
+      }
+    }
+  }
+  return (queueApprovals ?? []).map((item) => {
+    if (!item?.artifact || !item.runId) return item;
+    const latest = latestByKey.get(`${item.runId}|${item.artifact}`);
+    if (latest && String(latest.status ?? '').toUpperCase() === 'CONSUMED') {
+      return { ...item, lifecycle: 'consumed', consumedAt: latest.timestamp ?? null };
+    }
+    return item;
+  });
+}
+
 export async function resolveApprovalAcrossRoots(roots, id, decision, resolvedBy, options = {}) {
   for (const root of roots ?? []) {
     const ok = await resolveApproval(root, id, decision, resolvedBy, options);

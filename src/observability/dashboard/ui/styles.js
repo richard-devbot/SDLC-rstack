@@ -939,6 +939,8 @@ tr.clickable:hover td { background: #f8fbff; }
 .pill.fail, .pill.danger, .pill.critical { color: var(--red); border-color: #fecdca; background: #fff5f5; }
 .pill.running, .pill.active, .pill.warn, .pill.blocked { color: var(--amber); border-color: #fed7aa; background: #fff7ed; }
 .pill.info, .pill.ready, .pill.queued { color: var(--blue); border-color: #bfdbfe; background: #eff6ff; }
+/* Spent one-shot credentials (#156): visibly settled, neither success nor failure. */
+.pill.consumed { color: var(--muted); border-color: var(--line-strong); background: #f8fafc; }
 .feed-list, .stack-list { display: grid; gap: 8px; }
 .feed-row {
   display: grid;

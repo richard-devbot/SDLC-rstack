@@ -87,6 +87,19 @@ export function compactPipelineRollup(state, events) {
       before_saved: state.checkpoints?.before_saved ?? 0,
       after_saved: state.checkpoints?.after_saved ?? 0,
       reverted: state.checkpoints?.reverted ?? 0,
+      // Per-stage restore-point status (#215): only stages with a signal —
+      // a restorable checkpoint, or a reason worth surfacing (corrupt_*,
+      // legacy_unverified). "no_checkpoint" stages are omitted so the strip
+      // stays compact. restorable/reason come from the harness's on-disk
+      // deep verification (#132/#203), never inferred here.
+      stages: (state.stages ?? [])
+        .filter((stage) => stage.checkpoint_restorable === true
+          || (stage.checkpoint_reason && stage.checkpoint_reason !== 'no_checkpoint' && stage.checkpoint_reason !== 'invalid_stage'))
+        .map((stage) => ({
+          id: stage.id,
+          restorable: stage.checkpoint_restorable === true,
+          reason: stage.checkpoint_reason ?? null,
+        })),
     },
     goal_loop: {
       total: loop.total ?? 0,
