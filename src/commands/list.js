@@ -190,6 +190,30 @@ export async function listPlugins() {
   console.log('');
 }
 
+// #78: governance packs — profile-mapped posture bundles under <package>/packs/.
+export async function listGovernancePacks() {
+  const { listPacks, PROFILE_PACK_DEFAULTS } = await import('../core/packs.js');
+  const packs = listPacks();
+  if (!packs.length) {
+    log.warn('No governance packs found in this package.');
+    return;
+  }
+  console.log(chalk.bold(`\nrstack governance packs (${packs.length} total)\n`));
+  for (const pack of packs) {
+    const enforcement = pack.enforcement === 'blocking' ? chalk.red(pack.enforcement)
+      : pack.enforcement === 'warning' ? chalk.yellow(pack.enforcement) : chalk.cyan(pack.enforcement ?? '?');
+    const profiles = Object.entries(PROFILE_PACK_DEFAULTS)
+      .filter(([, names]) => names.includes(pack.dir))
+      .map(([profile]) => profile);
+    console.log(`  ${chalk.green(pack.dir)} [${enforcement}]${profiles.length ? chalk.gray(` — default in ${profiles.join(', ')}`) : ''}`);
+    if (pack.title) console.log(`      ${pack.title}`);
+    for (const issue of pack.issues ?? []) {
+      console.log(`      ${chalk.red('✗')} ${issue.field ? `${issue.field}: ` : ''}${issue.problem}`);
+    }
+  }
+  console.log('');
+}
+
 export async function addPlugin(name) {
   if (!name || !/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
     throw new Error(`Invalid plugin name "${name}". Use letters, digits, dots, dashes, underscores.`);

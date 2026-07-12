@@ -94,6 +94,7 @@
               "reference/decision-readiness",
               "reference/attestations",
               "reference/configuration",
+              "reference/governance-packs",
               "reference/protected-actions",
               "reference/untrusted-pr-gate",
               "reference/loopholes-roadmap",

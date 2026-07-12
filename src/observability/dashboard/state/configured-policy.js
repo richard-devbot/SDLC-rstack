@@ -8,6 +8,8 @@ import {
   validateRstackConfig,
 } from '../../../core/harness/config-validation.js';
 import { profileConfig } from '../../../core/profiles.js';
+// #78: governance packs — active set + enforcement level shown per project.
+import { enabledPacksForConfig, listPacks } from '../../../core/packs.js';
 
 const PROFILE_SOURCE = '.rstack/rstack.config.json';
 const BUDGET_SOURCE = '.rstack/budget.json';
@@ -76,9 +78,24 @@ function emptyProfile(availability, issues = []) {
     enabledAgents: [],
     enabledPlugins: [],
     dashboardPages: [],
+    governancePacks: [],
     sourcePath: PROFILE_SOURCE,
     issues,
   };
+}
+
+// Active pack names → {name, enforcement, title} using the packaged registry;
+// a name with no registry entry is still shown (enforcement unknown) rather
+// than hidden — the config claims it, the display reports the claim.
+function governancePacksView(config) {
+  let registry = [];
+  try {
+    registry = listPacks();
+  } catch { /* registry unreadable — names still shown below */ }
+  return enabledPacksForConfig(config).map((name) => {
+    const pack = registry.find((item) => item.dir === name);
+    return { name, enforcement: pack?.enforcement ?? 'unknown', title: pack?.title ?? name };
+  });
 }
 
 async function readProfilePolicy(root, io) {
@@ -101,6 +118,7 @@ async function readProfilePolicy(root, io) {
     enabledAgents: [...(merged.enabled_agents || [])],
     enabledPlugins: [...(merged.enabled_plugins || [])],
     dashboardPages: [...(merged.dashboard_pages || [])],
+    governancePacks: governancePacksView(merged),
     sourcePath: PROFILE_SOURCE,
     issues: [],
   };

@@ -1,0 +1,9 @@
+{
+  "name": "compliance-nist-ai-rmf",
+  "title": "Compliance Mapping: NIST AI RMF",
+  "description": "A documentation pack mapping NIST AI Risk Management Framework functions (GOVERN / MAP / MEASURE / MANAGE) onto the RStack artifacts that evidence them. No new enforcement — it makes existing evidence citable in a compliance review.",
+  "enforcement": "advisory",
+  "provides": ["compliance-mapping"],
+  "surfaces": { "docs": ["packs/compliance-nist-ai-rmf/mapping.md"] },
+  "references": ["https://www.nist.gov/itl/ai-risk-management-framework"]
+}

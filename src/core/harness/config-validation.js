@@ -21,6 +21,8 @@ import { validateContextPressureConfig } from './context-pressure.js';
 import { validateParallelGroupsConfig } from './parallel-benchmark.js';
 // #72: review_policy field rules live next to the defaults they guard.
 import { validateReviewPolicyConfig } from './review-independence.js';
+// #78: enabled_packs rules live next to the pack registry they check.
+import { validateEnabledPacksConfig } from '../packs.js';
 
 const KNOWN_PROFILES = ['business-flex', 'enterprise-webapp', 'lean-mvp'];
 const KNOWN_CHANNELS = ['slack', 'teams', 'discord', 'telegram', 'whatsapp'];
@@ -112,6 +114,10 @@ export function validateRstackConfig(parsed) {
     for (const found of validateParallelGroupsConfig(parsed.parallel_groups)) {
       issues.push(found);
     }
+  }
+  // #78: governance packs — unknown names are named, never silently ignored.
+  if (parsed.enabled_packs != null) {
+    issues.push(...validateEnabledPacksConfig(parsed.enabled_packs));
   }
   return issues;
 }

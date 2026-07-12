@@ -18,6 +18,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerProject } from '../core/tracker/registry.js';
 import { budgetPolicyForProfile, profileConfig } from '../core/profiles.js';
+import { packsForProfile } from '../core/packs.js';
 
 export const FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'tau', 'custom']);
 
@@ -162,13 +163,18 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
   // Persist opt-in quality gates (#256) under hooks.gates so the choice is
   // recorded in config even for hosts that don't consume the Claude Code hooks
   // file. Off by default: no `hooks` key is written unless gates were requested.
-  const configObject = selectedGates.length
-    ? { ...activeProfile, hooks: { ...(activeProfile.hooks ?? {}), gates: selectedGates } }
-    : activeProfile;
+  // #78: record the profile's governance-pack set explicitly, so posture is
+  // inspectable in config (and overridable) instead of implied by the profile.
+  const enabledPacks = packsForProfile(activeProfile.profile);
+  const configObject = {
+    ...activeProfile,
+    enabled_packs: enabledPacks,
+    ...(selectedGates.length ? { hooks: { ...(activeProfile.hooks ?? {}), gates: selectedGates } } : {}),
+  };
   await writeIfMissing(
     join(root, '.rstack', 'rstack.config.json'),
     JSON.stringify(configObject, null, 2) + '\n',
-    `.rstack/rstack.config.json (${activeProfile.profile} profile${selectedGates.length ? `, gates: ${selectedGates.join(',')}` : ''})`,
+    `.rstack/rstack.config.json (${activeProfile.profile} profile, packs: ${enabledPacks.join(',')}${selectedGates.length ? `, gates: ${selectedGates.join(',')}` : ''})`,
     report,
   );
   await writeIfMissing(

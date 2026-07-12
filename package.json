@@ -47,6 +47,7 @@
     "skills/",
     "prompts/",
     "plugins/",
+    "packs/",
     "docs/public/",
     "docs/HARNESS.md",
     "docs/quick-start-guide.md",
