@@ -75,6 +75,17 @@ function stageView(run, stage) {
 }
 
 function pipelineAction(run, readiness) {
+  const inboxAction = (readiness?.actions ?? []).find((action) => !['approved', 'rejected', 'consumed', 'resolved', 'expired'].includes(action.status));
+  if (inboxAction) {
+    return {
+      kind: inboxAction.type,
+      text: inboxAction.nextStep,
+      stageId: inboxAction.stageId ?? null,
+      taskId: inboxAction.taskId ?? null,
+      source: inboxAction.source ?? null,
+      actionId: inboxAction.id,
+    };
+  }
   const next = run?.pipelineRollup?.next_action;
   if (next?.text) {
     return {
@@ -130,9 +141,11 @@ export function buildOverviewProjection(state) {
     goal: run?.manifest?.goal ?? run?.goal ?? null,
     outcome: readiness.status ?? 'unknown',
     title: run ? (readiness.summary ?? 'Delivery outcome is not available.') : 'No delivery run has been evaluated.',
-    nextAction: pipelineAction(run, readiness),
+    nextAction: pipelineAction(run, { ...readiness, actions: state.actions ?? [] }),
     stages: run ? CANONICAL_SDLC_STAGES.map((stage) => stageView(run, stage)) : [],
-    actionCount: actionCount(state),
+    actionCount: state.actions
+      ? state.actions.filter((action) => !['approved', 'rejected', 'consumed', 'resolved', 'expired'].includes(action.status)).length
+      : actionCount(state),
     stale,
     eventsBehind: stale ? Number(run.pipelineRollup?.events_behind ?? 0) : 0,
     evaluatedAt: readiness.evaluatedAt ?? state.ts ?? null,

@@ -177,7 +177,8 @@ test('Business Hub exposes decisions and readiness from real .rstack files', asy
     assert.ok(state.decisions.runs[0].projectId);
 
     const html = dashboardHtml(3008);
-    assert.match(html, /data-page="decisions"/);
+    assert.match(html, /data-page="action-inbox"/);
+    assert.match(html, /id="page-decisions"/);
     assert.match(html, /id="decisions-list"/);
     assert.match(html, /function renderDecisions\(s\)/);
     assert.match(html, /function requestScopedState\(\)/);
