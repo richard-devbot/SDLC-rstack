@@ -48,10 +48,14 @@ export const destinations = Object.freeze([
     child('cost-budget', 'Spend Center'),
     child('business-flex', 'Business Flex', true),
   ]),
-  destination('operations', 'Operations', 'operations', 'live-feed', [
+  destination('operations', 'Operations', 'operations', 'operations-center', [
+    // #284: one consolidated Operations Center is the destination's face;
+    // the telemetry pages stay routable — the raw feed as visible secondary
+    // detail (hierarchy section 7), the rest reachable via deep links.
+    child('operations-center', 'Operations Center'),
     child('live-feed', 'Live Feed'),
-    child('team', 'Team & Presence'),
-    child('team-layers', 'Team & Layers'),
+    child('team', 'Team & Presence', true),
+    child('team-layers', 'Team & Layers', true),
     child('environment', 'Environment & Integrations'),
     child('diagnostics', 'Diagnostics'),
   ]),

@@ -36,6 +36,7 @@ import { traceabilityScript } from './pages/traceability.js';
 import { teamLayersScript } from './pages/team-layers.js';
 import { environmentScript } from './pages/environment.js';
 import { diagnosticsScript } from './pages/diagnostics.js';
+import { operationsScript } from './pages/operations.js';
 
 export function clientScript(port) {
   return [
@@ -66,6 +67,7 @@ export function clientScript(port) {
     teamLayersScript,
     environmentScript,
     diagnosticsScript,
+    operationsScript,
     coreScript(port),
   ].join('\n');
 }

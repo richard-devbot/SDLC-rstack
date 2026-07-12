@@ -284,6 +284,24 @@ function pageBody(id) {
     'cost-budget': '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Cost & Budget Summary</span><span class="panel-note" id="cost-budget-count"></span></div><div class="panel-body" id="cost-budget-summary"></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Cost Drivers & Assumptions</span></div><div class="panel-body"><div class="stack-list" id="cost-budget-drivers"></div></div></div></div>',
     'alerts-guardrails': '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Alerts</span><span class="panel-note" id="alerts-count"></span></div><div class="panel-body"><div class="stack-list" id="alerts-list"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Blocked Gates</span><span class="panel-note" id="blocked-count"></span></div><div class="panel-body"><div class="stack-list" id="blocked-list"></div></div></div></div>',
     traceability: '<div id="traceability-list"></div>',
+    'operations-center': `
+      <section class="ops-transport" id="ops-transport" aria-labelledby="ops-transport-title">
+        <div><div class="overview-eyebrow">Data transport &amp; freshness</div><h3 id="ops-transport-title">Transport</h3></div>
+        <div class="ops-transport-body" id="ops-transport-body" role="status"></div>
+      </section>
+      <div class="grid-2">
+        <div class="panel"><div class="panel-head"><span class="panel-title">Actionable Health</span><span class="panel-note" id="ops-health-note"></span></div><div class="panel-body" id="ops-health"></div></div>
+        <div class="panel"><div class="panel-head"><span class="panel-title">Integrations &amp; Environment</span><span class="panel-note" id="ops-integrations-note"></span></div><div class="panel-body" id="ops-integrations"></div></div>
+      </div>
+      <div class="grid-2" style="margin-top:16px">
+        <div class="panel"><div class="panel-head"><span class="panel-title">Recovery</span><span class="panel-note" id="ops-recovery-note"></span></div><div class="panel-body"><div class="stack-list" id="ops-recovery"></div></div></div>
+        <div class="panel"><div class="panel-head"><span class="panel-title">Context &amp; Memory Health</span><span class="panel-note" id="ops-context-note"></span></div><div class="panel-body" id="ops-context"></div></div>
+      </div>
+      <div class="grid-2" style="margin-top:16px">
+        <div class="panel"><div class="panel-head"><span class="panel-title">Agents &amp; Team</span><span class="panel-note" id="ops-agents-note"></span></div><div class="panel-body"><div class="stack-list" id="ops-agents"></div></div></div>
+        <div class="panel"><div class="panel-head"><span class="panel-title">Live Activity</span><span class="panel-note" id="ops-feed-note"></span></div><div class="panel-body" id="ops-feed"></div></div>
+      </div>
+    `,
     'team-layers': '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Stack Layers</span></div><div class="panel-body"><div class="grid-3" id="layers-grid"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Framework Breakdown</span></div><div class="table-wrap"><table><thead><tr><th>Framework</th><th>Runs</th><th>Pass</th><th>Fail</th><th>Cost</th></tr></thead><tbody id="framework-table"></tbody></table></div></div></div>',
     environment: [
       '<div id="env-gitignore-banner"></div>',
