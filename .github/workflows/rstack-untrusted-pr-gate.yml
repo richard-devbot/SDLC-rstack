@@ -34,7 +34,13 @@ jobs:
       - name: Checkout base branch (never the PR head)
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          # base.REF (branch name), not base.sha: the payload's base.sha is
+          # frozen at event time and goes stale across retargets — seen live
+          # on #348, where a PR retargeted to main still checked out the old
+          # base tree and crashed on the missing gate script. The branch name
+          # resolves to the CURRENT base tip, which is still base-repo code
+          # only — never the PR head.
+          ref: ${{ github.event.pull_request.base.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
