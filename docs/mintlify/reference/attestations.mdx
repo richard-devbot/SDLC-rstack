@@ -1,0 +1,72 @@
+---
+title: Attestation Envelopes
+description: Tamper-evident, verifiable envelopes around builder, validator, and release-readiness evidence.
+---
+
+<!-- owner: RStack developed by Richardson Gunde -->
+
+# Attestation Envelopes
+
+RStack already writes business-readable contracts for every governed task — `builder.json`, `validation.json`, and readiness reports. Attestations (#73) wrap those contracts in a DSSE-style envelope so the evidence is **tamper-evident**: the envelope records what was attested (run, task, commit, file checksums), who produced it (agent, harness, model), and the contract snapshot itself. Anyone can later verify that the evidence a report points at is still the evidence that was produced.
+
+## Artifacts
+
+```text
+.rstack/runs/<run-id>/attestations/
+  <task-id>.builder.attestation.json
+  <task-id>.validator.attestation.json
+  release-readiness.attestation.json
+```
+
+The layout is per-task (a multi-task run cannot be addressed by a single flat `builder.attestation.json`).
+
+## Envelope shape
+
+```json
+{
+  "schema": "rstack.dev/attestation/v1alpha1",
+  "subject": {
+    "run_id": "run-20260712-...",
+    "task_id": "007-code",
+    "commit": "4f2a...",
+    "files": [{ "path": ".rstack/runs/.../builder.json", "sha256": "..." }]
+  },
+  "producer": { "agent": "backend-builder", "harness": "claude-code", "model": "claude-sonnet-5" },
+  "predicateType": "rstack.dev/builder-contract/v1alpha1",
+  "predicate": { "...": "full contract snapshot" },
+  "created_at": "2026-07-12T...",
+  "signature": { "type": "unsigned | local-dev-signature", "value": "" }
+}
+```
+
+Predicate types: `rstack.dev/builder-contract/v1alpha1`, `rstack.dev/validator-contract/v1alpha1`, `rstack.dev/release-readiness/v1alpha1`.
+
+## CLI
+
+```bash
+rstack-agents attest [runId]                 # wrap every contract the run produced
+rstack-agents verify-attestations [runId]    # schema + subject checksums + predicate + signature
+rstack-agents verify-attestations --require-signature
+```
+
+`verify-attestations` exits non-zero only when an envelope is **invalid** (stale subject, mismatched run, malformed predicate, bad signature). Contracts that simply have no envelope yet are listed as `missing` — informational, because attestation is opt-in per run. A checkout with no `.rstack` run exits 0: nothing to verify is not a failure, which makes the command safe as a CI step (it runs in `ci.yml` after the test suite).
+
+## Unsigned local mode vs signed mode
+
+- **`unsigned`** (default): no key configured. The envelope still detects drift — subject checksums catch any post-hoc edit to contracts or claimed files — but proves nothing about the author.
+- **`local-dev-signature`**: set the `RSTACK_ATTESTATION_KEY` environment variable and `attest` produces an HMAC-SHA256 signature over the canonical (key-order-independent) envelope payload. Verification requires the same key — shared-secret integrity for a team that controls the key. The key is only ever read from the environment, never a CLI flag.
+- **Sigstore / keyless signing** is a deliberate extension point: `signature.type` is open, and the verifier reports unknown types honestly instead of pretending to verify them.
+
+## What verification checks
+
+| Check | Failure type |
+| --- | --- |
+| Envelope parses and `schema` is `rstack.dev/attestation/v1alpha1` | `malformed` / `schema` |
+| `subject.run_id` matches the run being verified | `mismatched-subject` |
+| Every subject file still exists with the recorded sha256 | `stale` |
+| Predicate status is a legal contract status and task ids agree | `invalid-predicate` |
+| Signature verifies (when present, or when `--require-signature`) | `signature` |
+
+## Business Hub
+
+The Run Report page shows an attestation timeline — one row per envelope with its verification verdict, producer signature type, and creation time — sourced from the same verifier the CLI uses.

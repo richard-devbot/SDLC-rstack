@@ -43,6 +43,7 @@ import {
   runMemoryInspect, formatMemoryInspect,
   runReviewIndependence, formatReviewIndependence,
 } from '../src/commands/exposure.js';
+import { runAttest, formatAttest, runVerifyAttestations, formatVerifyAttestations } from '../src/commands/attest.js';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -745,6 +746,49 @@ program
       // identity or warn-fallback findings) stays informational.
       process.exit(result.status === 'FAIL' ? 1 : 0);
     } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('attest [runId]')
+  .description('Wrap builder, validator, and release-readiness evidence in attestation envelopes (#73) — subject checksums + producer identity; signs with RSTACK_ATTESTATION_KEY when set')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--json', 'print the structured result as JSON')
+  .action(async (runId, opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runAttest(projectRoot, { runId });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatAttest(result));
+      process.exit(0);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('verify-attestations [runId]')
+  .description('Verify attestation envelopes for a run — schema, subject checksums (stale/tampered detection), predicate consistency, and optional signatures')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--require-signature', 'fail any unsigned envelope')
+  .option('--json', 'print the structured verification report as JSON')
+  .action(async (runId, opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runVerifyAttestations(projectRoot, { runId, requireSignature: Boolean(opts.requireSignature) });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatVerifyAttestations(result));
+      process.exit(result.ok ? 0 : 1);
+    } catch (err) {
+      // "No RStack run found" is an ordinary state in CI and fresh checkouts —
+      // nothing to verify is not a verification failure.
+      if (/No RStack run found/i.test(err.message)) {
+        console.log('verify-attestations: no RStack run on disk — nothing to verify.');
+        process.exit(0);
+      }
       log.error(err.message);
       process.exit(1);
     }
