@@ -60,16 +60,18 @@ function stageDrivers(run) {
 }
 
 function recoveryItems(run) {
-  const stages = run.pipelineRollup?.stages ?? {};
-  if (Array.isArray(stages)) {
-    return stages.filter((stage) => stage?.checkpoint_restorable !== undefined).map((stage) => ({
-      stageId: stage.stage_id ?? stage.id ?? null,
-      restorable: stage.checkpoint_restorable === true,
-      source: 'pipeline-state.json',
-    }));
-  }
-  return Object.entries(stages).filter(([, stage]) => stage?.checkpoint_restorable !== undefined)
-    .map(([stageId, stage]) => ({ stageId, restorable: stage.checkpoint_restorable === true, source: 'pipeline-state.json' }));
+  // The compact rollup's checkpoint block (#215) is the shipped contract:
+  // {id, restorable, reason} per stage, disk-verified at rollup build. The
+  // previous read targeted `pipelineRollup.stages`, a field the compact
+  // projection never carries — the recovery panel rendered permanently
+  // empty (found while building #284).
+  const stages = run.pipelineRollup?.checkpoints?.stages ?? [];
+  return stages.map((stage) => ({
+    stageId: stage.id ?? null,
+    restorable: stage.restorable === true,
+    reason: stage.reason ?? null,
+    source: 'pipeline-state.json',
+  }));
 }
 
 export function buildRunWorkspace(run, context = {}) {
