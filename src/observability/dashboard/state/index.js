@@ -15,6 +15,7 @@ import { buildBusinessFlexState } from './business-flex.js';
 import { buildDecisionState } from './decisions.js';
 import { buildEnvironmentState } from './environment.js';
 import { buildReadinessProjection } from './readiness.js';
+import { buildOverviewProjection } from './overview.js';
 import { readConfiguredPolicies } from './configured-policy.js';
 import { decorateRunIdentity, resolveProjectDescriptors } from './identity.js';
 import {
@@ -194,9 +195,14 @@ export async function buildFullState(projectRoot, options = {}) {
     readiness: buildReadinessProjection(baseState, { evaluatedAt: baseState.ts }),
   };
 
-  return {
+  const stateWithOverview = {
     ...stateWithReadiness,
-    layers: buildLayerSummaries(stateWithReadiness),
+    overview: buildOverviewProjection(stateWithReadiness),
+  };
+
+  return {
+    ...stateWithOverview,
+    layers: buildLayerSummaries(stateWithOverview),
   };
 }
 

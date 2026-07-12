@@ -41,6 +41,37 @@ function badgeFor(id) {
 function pageBody(id) {
   const bodies = {
     command: `
+      <section class="overview-decision-surface" id="overview-outcome" aria-labelledby="overview-outcome-title">
+        <div class="overview-outcome-main">
+          <div class="overview-eyebrow">Delivery outcome</div>
+          <div class="overview-outcome-line">
+            <span class="overview-state" id="overview-state">Loading</span>
+            <span class="overview-goal" id="overview-goal">Reading selected scope…</span>
+          </div>
+          <h2 id="overview-outcome-title">Evaluating delivery evidence…</h2>
+          <p class="overview-rationale" id="overview-rationale">The server-owned readiness projection will appear here.</p>
+          <div class="overview-next-action" id="overview-next-action" aria-live="polite"></div>
+        </div>
+        <aside class="overview-ledger" aria-label="Evaluation provenance">
+          <div><span>Coverage</span><strong id="overview-coverage">—</strong></div>
+          <div><span>Evaluated</span><strong id="overview-evaluated-at">—</strong></div>
+          <div><span>Actions</span><strong id="overview-action-count">—</strong></div>
+        </aside>
+      </section>
+
+      <div class="overview-freshness" id="overview-freshness" role="status"></div>
+
+      <section class="overview-proof" aria-labelledby="overview-proof-title">
+        <div class="overview-section-head">
+          <div>
+            <div class="overview-eyebrow">Goal → stage → proof → action</div>
+            <h3 id="overview-proof-title">Proof Rail</h3>
+          </div>
+          <button class="tb-chip" onclick="showPage('traceability')">Open all evidence</button>
+        </div>
+        <ol class="overview-proof-rail" id="overview-proof-rail" aria-label="Delivery stage proof"></ol>
+      </section>
+
       <div class="mission-brief" id="executive-mission-brief">
         <div class="mission-main">
           <div class="command-kicker">Executive mission brief</div>

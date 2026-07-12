@@ -222,6 +222,28 @@ test('command-center module renders next-action card, exec rollup and new attent
   assert.match(commandCenterScript, /newer event/);
 });
 
+test('overview decision surface renders server outcome and an accessible proof rail', () => {
+  for (const id of [
+    'overview-outcome',
+    'overview-outcome-title',
+    'overview-coverage',
+    'overview-evaluated-at',
+    'overview-next-action',
+    'overview-proof-rail',
+    'overview-action-count',
+  ]) {
+    assert.ok(commandCenterScript.includes(id), `Overview renderer carries #${id}`);
+  }
+
+  assert.match(commandCenterScript, /renderOverviewDecisionSurface/);
+  assert.match(commandCenterScript, /renderOverviewProofRail/);
+  assert.match(commandCenterScript, /No delivery run has been evaluated\./);
+  assert.match(commandCenterScript, /expected coverage unknown/);
+  assert.match(commandCenterScript, /aria-label/);
+  assert.match(commandCenterScript, /Source unavailable/);
+  assert.doesNotMatch(commandCenterScript, /overview[^\n]{0,80}(score|computed from gates)/i);
+});
+
 test('decisions module renders the resolved/waived Decision Log with who/when/impact', () => {
   assert.ok(decisionsScript.includes('decisions-log-panel'), 'log panel injected by the module');
   assert.match(decisionsScript, /Decision Log/);
