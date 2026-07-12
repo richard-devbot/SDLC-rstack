@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
 import { spawn } from 'node:child_process';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { join, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { appendFile, readFile, stat } from 'node:fs/promises';
 import { dashboardHtml } from './ui.js';
@@ -30,6 +30,7 @@ import { classifyDestructiveAction, destructiveApprovalArtifact } from '../../co
 import { consumeApprovedQueueArtifact, ensurePendingQueueApproval } from '../../core/tracker/approvals.js';
 import { decide } from '../../core/harness/decisions.js';
 import { latestRunId, runDirectory } from '../../core/harness/runs.js';
+import { verifyRunAttestations } from '../../core/harness/attestations.js';
 import { withFileLock } from '../../core/harness/safe-write.js';
 import { isSafeRunId } from '../../core/harness/approval-audit.js';
 
@@ -646,7 +647,30 @@ async function handleRunReport(req, url, res) {
     const runDir = await resolveRunDir(runId);
     if (!runDir) return sendJson(404, { error: 'run not found' });
     const { stages, deliverables } = await collectStageReports(runDir);
-    sendJson(200, { run: runId, stages, deliverables });
+    // #73: attestation verification for the run report — on-demand (page
+    // load, not the poll loop), best-effort: a verification crash must never
+    // take the report down with it.
+    let attestations = null;
+    try {
+      const projectRoot = dirname(dirname(dirname(runDir))); // <root>/.rstack/runs/<id>
+      const verified = await verifyRunAttestations(projectRoot, runId);
+      attestations = {
+        total: verified.total,
+        valid: verified.valid,
+        missing: verified.missing.length,
+        ok: verified.ok,
+        findings: verified.findings.map((finding) => ({
+          file: finding.file,
+          valid: finding.valid,
+          task_id: finding.task_id,
+          predicate_type: finding.predicate_type,
+          created_at: finding.created_at,
+          signature_type: finding.signature_type,
+          issues: finding.issues.slice(0, 3),
+        })),
+      };
+    } catch { /* no attestation data — the report renders without the section */ }
+    sendJson(200, { run: runId, stages, deliverables, attestations });
   } catch (err) {
     sendJson(500, { error: String(err?.message) });
   }
