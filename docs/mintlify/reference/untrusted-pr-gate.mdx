@@ -1,0 +1,57 @@
+---
+title: Untrusted PR Gate
+description: A supply-chain boundary for contributions from outside the maintainer trust circle.
+---
+
+<!-- owner: RStack developed by Richardson Gunde -->
+
+# Untrusted PR Gate
+
+RStack ships code that runs inside its users' development environments — its workflows run with repository credentials, its `package.json` lifecycle scripts execute on every `npm install`, and its harness core gates real approvals and budgets. A malicious or careless change to any of those, landed through an ordinary-looking PR, is a supply-chain incident for every downstream user (the risk class NIST SSDF SP 800-218 and SLSA exist to reduce).
+
+The untrusted PR gate (#75) draws that boundary explicitly: contributors outside the maintainer trust circle can freely improve docs, tests, and examples, but changes to protected paths or risky content patterns are blocked or routed to maintainer review.
+
+## How it works
+
+- `.github/workflows/rstack-untrusted-pr-gate.yml` runs on `pull_request_target` and is safe under it by construction: it checks out the **base branch only** (PR code never executes), installs **no dependencies**, and reads the PR's changed files and patch text through the GitHub API.
+- `src/security/untrusted-pr-gate.js` is the pure evaluator — author trust + changed files in, verdict + findings out. Trust comes from `author_association` (OWNER / MEMBER / COLLABORATOR are trusted); no hardcoded usernames.
+- Verdict ladder: `allow` < `needs-maintainer-review` (label applied, check passes) < `block` (check fails).
+
+## What gets flagged for untrusted authors
+
+| Signal | Default action |
+| --- | --- |
+| Change under a protected path (`.github/**`, `package.json`, `package-lock.json`, `.rstack/**`, `bin/**`, `scripts/**`, `src/core/harness/**`, `src/integrations/**`, `src/security/**`) | block |
+| npm lifecycle-script addition/mutation in any `package.json` | block |
+| New `uses:` action reference in a workflow file | block |
+| Credential-shaped added lines (key assignments, AWS key ids, private key blocks, token shapes) | block |
+| Path that is neither protected nor explicitly allowed (`docs/**`, `tests/**`, `examples/**`, `**/*.md`) | needs-maintainer-review |
+
+A gate evaluation failure also fails the check — the gate fails closed.
+
+## Configuration
+
+`.rstack/security/untrusted-pr-gate.json`, shallow-merged over the defaults:
+
+```json
+{
+  "protected_paths": [".github/**", "package.json", "src/core/harness/**"],
+  "allowed_untrusted_paths": ["docs/**", "tests/**", "examples/**"],
+  "content_heuristics": {
+    "package_json_lifecycle_scripts": "block",
+    "new_github_action_uses": "block",
+    "secret_like_values": "block"
+  },
+  "fallback": "needs-maintainer-review"
+}
+```
+
+A malformed config falls back to the defaults — the defaults are the strict posture.
+
+## For maintainers
+
+A `block` verdict is not a judgment of the contributor — it means the change needs your hands: review the diff, then either push the change yourself or, if your platform trust allows it, re-run after adjusting the config. `needs-maintainer-review` PRs get the label applied automatically and pass the check, so docs-adjacent contributions are never stalled on red CI.
+
+<Warning>
+Keep the workflow's three safety properties intact: base-checkout only, no dependency install, API-only reads of PR content. Adding a PR-head checkout or an `npm ci` to this workflow reintroduces exactly the attack it exists to block.
+</Warning>
