@@ -343,6 +343,26 @@ Tool-call and message budgets are checked at validation time from builder contra
 
 The extension also includes the guardrail summary in generated builder prompts so agents see the budgets they are held to.
 
+### Stage-keyed approval gates (#228)
+
+`.rstack/policy.json` supports blanket per-stage human gates alongside the task-keyed
+`required_approvals`:
+
+- **`required_stage_approvals`** — canonical stage id → artifact list. Any task whose canonical
+  stages (via `taskStageIds`, the same recipe the rollup and goal gate use) include the key must
+  see those artifacts APPROVED before it claims — no task ids needed.
+- **`approvals.every_stage: true`** — every task requires a `stage-approval:<stage-id>` sign-off
+  for each canonical stage it enters. Approving a stage once unblocks all tasks entering that
+  stage for the rest of the run (latest-record-wins, run-bound). A task that maps to no canonical
+  stage fails CLOSED on `stage-approval:<task-id>` — the blanket promise never silently skips.
+
+Both are explicit team policy, so — like `required_approvals` — they are enforced in every mode,
+express included. The derived artifacts merge into the claim gate's required list
+(`src/core/harness/stage-approvals.js`) and flow through the same audited approval path (#133,
+run binding #298): queue cards, manager paging, and replay rejection come for free.
+`validatePolicyConfig` (#151) warns on unknown stage keys — a gate keyed to a typo'd stage would
+otherwise never fire.
+
 ### Retry policy
 
 Post-validation task transitions are decided by `src/core/harness/retry-policy.js` (#123), not by prompts or inline attempt math. `classifyRetryDecision({ task, validation, events, guardrails })` is a pure function driven by the validator contract's `retry_recommendation`, bounded by the same attempt budgets as the claim gate (`maxTaskAttempts`, or `maxDestructiveTaskAttempts` for destructive tasks; attempts = recorded `task_started` events):
