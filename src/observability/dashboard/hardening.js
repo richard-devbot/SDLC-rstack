@@ -130,7 +130,14 @@ export function etagFor(payload) {
 // client-facing data changes only. Safe for cache correctness: a meaningful
 // data change is never *only* a timestamp or an index-internal counter — it
 // always moves a status, count, or id that survives this strip.
-const VOLATILE_KEY = /^(ts|generated_at|generatedAt|evaluated_at|evaluatedAt|computed_at|computedAt|loadedAt|freshnessMs|fullyParsedRuns|indexServedRuns)$/;
+//
+// `updatedAt` joined the list via the #96 regression suite: the diagnostics
+// index block restamps its own updatedAt on every poll, which silently
+// defeated 304 revalidation on multi-root setups — every poll was a fresh
+// ETag, exactly the failure mode this strip exists to prevent. Records whose
+// updatedAt moves for a real reason (an approval resolving) always move a
+// status alongside it, so the strip stays cache-correct.
+const VOLATILE_KEY = /^(ts|generated_at|generatedAt|evaluated_at|evaluatedAt|computed_at|computedAt|loadedAt|updatedAt|updated_at|freshnessMs|fullyParsedRuns|indexServedRuns)$/;
 
 export function stableStringify(value) {
   return JSON.stringify(stripVolatileKeys(value));
