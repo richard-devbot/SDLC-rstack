@@ -2,8 +2,8 @@
 
 import { URLSearchParams } from 'node:url';
 
-function child(id, label) {
-  return Object.freeze({ id, label, icon: '' });
+function child(id, label, hidden = false) {
+  return Object.freeze({ id, label, icon: '', hidden });
 }
 
 function destination(id, label, icon, defaultPage, children) {
@@ -23,12 +23,13 @@ export const destinations = Object.freeze([
   destination('overview', 'Overview', 'overview', 'command', [
     child('command', 'Command Center'),
   ]),
-  destination('runs', 'Runs', 'runs', 'projects', [
-    child('projects', 'Projects & Runs'),
-    child('workflow', 'Workflow Map'),
-    child('run-analytics', 'Run Analytics'),
-    child('studio', 'Studio'),
-    child('agent-work', 'Agent Work'),
+  destination('runs', 'Runs', 'runs', 'run-workspace', [
+    child('run-workspace', 'Run Workspace'),
+    child('projects', 'Projects & Runs', true),
+    child('workflow', 'Workflow Map', true),
+    child('run-analytics', 'Run Analytics', true),
+    child('studio', 'Studio', true),
+    child('agent-work', 'Agent Work', true),
   ]),
   destination('evidence', 'Evidence', 'evidence', 'release-readiness', [
     child('release-readiness', 'Release Readiness'),
@@ -74,7 +75,7 @@ export function destinationForPage(pageId) {
 }
 
 export function parseDashboardRoute({ hash = '', search = '' } = {}) {
-  const route = { page: '', run: '' };
+  const route = { page: '', run: '', section: '' };
   const query = new URLSearchParams(String(search).replace(/^\?/, ''));
   route.page = query.get('page') || '';
 
@@ -92,13 +93,15 @@ export function parseDashboardRoute({ hash = '', search = '' } = {}) {
   const hashParams = new URLSearchParams(rawHash);
   route.page = hashParams.get('page') || route.page;
   route.run = hashParams.get('run') || '';
+  route.section = hashParams.get('section') || '';
   return route;
 }
 
-export function formatDashboardHash({ pageId = '', runKey = '' } = {}) {
+export function formatDashboardHash({ pageId = '', runKey = '', section = '' } = {}) {
   const params = new URLSearchParams();
   if (pageId) params.set('page', pageId);
   if (runKey) params.set('run', runKey);
+  if (section) params.set('section', section);
   const value = params.toString();
   return value ? `#${value}` : '';
 }
@@ -118,16 +121,17 @@ function destinationIcon(icon) {
 
 function navigationGroups(surface) {
   return destinations.map((item) => {
+    const visibleChildren = item.children.filter((entry) => !entry.hidden);
     const active = item.id === destinations[0].id;
     const childId = `${surface}-destination-${item.id}-children`;
     return `<div class="destination-group${active ? ' active' : ''}" data-destination-group="${item.id}">` +
       `<button class="destination-link${active ? ' active' : ''}" type="button" title="${item.label}" data-primary-destination="${item.id}" aria-expanded="${active}" aria-controls="${childId}">` +
         destinationIcon(item.icon) +
-        `<span class="destination-copy"><span class="destination-label">${item.label}</span><span class="destination-hint">${item.children.length === 1 ? 'Your delivery outcome' : `${item.children.length} views`}</span></span>` +
+        `<span class="destination-copy"><span class="destination-label">${item.label}</span><span class="destination-hint">${visibleChildren.length === 1 ? (item.id === 'overview' ? 'Your delivery outcome' : visibleChildren[0].label) : `${visibleChildren.length} views`}</span></span>` +
         '<span class="destination-chevron" aria-hidden="true">›</span>' +
       '</button>' +
       `<div class="secondary-nav${active ? ' active' : ''}" id="${childId}"${active ? '' : ' hidden'}>` +
-        item.children.map((entry) => {
+        visibleChildren.map((entry) => {
           const current = entry.id === 'command';
           return `<button class="secondary-link${current ? ' active' : ''}" type="button" data-page="${entry.id}" data-parent-destination="${item.id}"${current ? ' aria-current="page"' : ''}>` +
             `<span class="secondary-marker" aria-hidden="true"></span><span>${entry.label}</span>` +
@@ -161,6 +165,8 @@ var DESTINATION_DEFAULTS = ${JSON.stringify(destinationDefaults)};
 var DEFAULT_PAGE = ${JSON.stringify(destinations[0].defaultPage)};
 var ACTIVE_PAGE = DEFAULT_PAGE;
 var ACTIVE_DESTINATION = PAGE_TO_DESTINATION[DEFAULT_PAGE];
+var RUN_WORKSPACE_SECTIONS = ['summary', 'work', 'timeline', 'artifacts', 'metrics'];
+var ACTIVE_RUN_SECTION = 'summary';
 var MOBILE_NAV_RETURN_FOCUS = null;
 var NAVIGATION_INITIALIZED = false;
 
@@ -171,8 +177,9 @@ function readDashboardRoute() {
   return parseDashboardRoute({ hash: location.hash || '', search: location.search || '' });
 }
 
-function writeDashboardRoute(pageId, runKey, mode) {
-  var hash = formatDashboardHash({ pageId: pageId || '', runKey: runKey || '' });
+function writeDashboardRoute(pageId, runKey, section, mode) {
+  if (section === 'push' || section === 'replace') { mode = section; section = ''; }
+  var hash = formatDashboardHash({ pageId: pageId || '', runKey: runKey || '', section: section || '' });
   var next = location.pathname + (location.search || '') + hash;
   if (mode === 'push') history.pushState(null, '', next);
   else history.replaceState(null, '', next);
@@ -214,10 +221,18 @@ function syncNavigationState(pageId) {
 function showPage(pageId, opts) {
   var options = opts || {};
   var resolvedPage = PAGE_TO_DESTINATION[pageId] ? pageId : DEFAULT_PAGE;
+  if (resolvedPage === 'run-workspace') {
+    ACTIVE_RUN_SECTION = RUN_WORKSPACE_SECTIONS.indexOf(options.section) >= 0 ? options.section : (ACTIVE_PAGE === 'run-workspace' ? ACTIVE_RUN_SECTION : 'summary');
+  }
   syncNavigationState(resolvedPage);
-  if (options.history !== false) writeDashboardRoute(ACTIVE_PAGE, SCOPE.run, 'push');
+  if (options.history !== false) writeDashboardRoute(ACTIVE_PAGE, SCOPE.run, ACTIVE_PAGE === 'run-workspace' ? ACTIVE_RUN_SECTION : '', 'push');
   if (options.closeMobile !== false) closeMobileNavigation();
   resetDashboardScroll();
+}
+
+function showRunWorkspaceSection(section, opts) {
+  showPage('run-workspace', { section: section, history: !(opts && opts.history === false), closeMobile: false });
+  if (typeof renderRunWorkspaceSection === 'function') renderRunWorkspaceSection();
 }
 
 function showDestination(destinationId, opts) {
@@ -342,10 +357,11 @@ function initDashboardNavigation() {
   if (panel) panel.addEventListener('keydown', handleMobileNavigationKeydown);
   window.addEventListener('popstate', function() {
     var route = readDashboardRoute();
-    showPage(route.page || DEFAULT_PAGE, { history: false, closeMobile: false });
+    showPage(route.page || DEFAULT_PAGE, { history: false, closeMobile: false, section: route.section });
     restoreScopeFromRoute(route.run);
+    if (typeof renderRunWorkspaceSection === 'function') renderRunWorkspaceSection();
   });
   var initialRoute = readDashboardRoute();
-  showPage(initialRoute.page || DEFAULT_PAGE, { history: false, closeMobile: false });
+  showPage(initialRoute.page || DEFAULT_PAGE, { history: false, closeMobile: false, section: initialRoute.section });
 }
 `;

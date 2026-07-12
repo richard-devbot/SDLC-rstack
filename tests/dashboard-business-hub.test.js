@@ -184,6 +184,7 @@ test('Business Hub exposes the planned production observability screens', () => 
   const expectedPages = [
     'command',
     'business-flex',
+    'run-workspace',
     'workflow',
     'projects',
     'run-report',
@@ -204,9 +205,10 @@ test('Business Hub exposes the planned production observability screens', () => 
   ];
 
   for (const page of expectedPages) {
-    assert.match(html, new RegExp(`data-page="${page}"`));
     assert.match(html, new RegExp(`id="page-${page}"`));
   }
+  assert.match(html, /data-page="run-workspace"/, 'Runs navigation points to the consolidated workspace');
+  assert.match(html, /"workflow":"runs"/, 'legacy run pages remain compatibility routes');
 });
 
 test('Business Hub navigation is organized around mission-critical SDLC functions', () => {

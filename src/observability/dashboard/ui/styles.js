@@ -1701,4 +1701,46 @@ tr.clickable:hover td { background: #f8fbff; }
   .overview-proof-step::after { top: auto; right: auto; bottom: -11px; left: 27px; width: 1px; height: 11px; }
 }
 /* [/issue:279] */
+
+/* [issue:280] Unified Run Workspace */
+.run-workspace-passport { display:grid; grid-template-columns:minmax(0,1fr) minmax(260px,360px); gap:24px; padding:24px; border:1px solid var(--line-strong); border-radius:16px; background:linear-gradient(135deg,var(--panel),rgba(21,112,239,.06)); }
+.run-workspace-passport h2 { margin:10px 0 8px; font-size:clamp(24px,3vw,38px); letter-spacing:-.03em; }
+.run-workspace-passport p { color:var(--muted); line-height:1.5; }
+.run-workspace-passport dl { margin:0; display:grid; align-content:center; }
+.run-workspace-passport dl div { display:grid; grid-template-columns:72px minmax(0,1fr); gap:10px; padding:10px 0; border-bottom:1px solid var(--line); }
+.run-workspace-passport dt { color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.1em; }
+.run-workspace-passport dd { margin:0; overflow-wrap:anywhere; font-size:11px; }
+.run-workspace-state-line { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:10px; color:var(--muted); font-size:11px; }
+.run-workspace-tabs { display:flex; gap:6px; overflow-x:auto; margin:14px 0; padding:5px; border:1px solid var(--line); border-radius:12px; background:var(--soft); scrollbar-width:thin; }
+.run-workspace-tab { flex:0 0 auto; min-height:40px; padding:8px 16px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--muted); font:inherit; font-size:12px; font-weight:750; cursor:pointer; }
+.run-workspace-tab[aria-selected="true"] { color:var(--text); border-color:var(--line-strong); background:var(--panel); box-shadow:0 2px 8px rgba(16,24,40,.07); }
+.run-workspace-tab:focus-visible { outline:3px solid rgba(21,112,239,.32); outline-offset:2px; }
+.run-workspace-panel[hidden] { display:none; }
+.run-workspace-summary-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
+.run-workspace-outcome { font-size:28px; font-weight:850; }
+.run-workspace-proof { display:grid; grid-template-columns:repeat(5,minmax(150px,1fr)); gap:8px; overflow-x:auto; margin:0; padding:2px 2px 8px; list-style:none; }
+.run-workspace-proof li { display:grid; grid-template-columns:28px minmax(0,1fr); gap:8px; padding:12px; border:1px solid var(--line); border-radius:9px; background:var(--soft); }
+.run-workspace-proof li > span { width:26px; height:26px; display:grid; place-items:center; border:1px solid var(--line-strong); border-radius:50%; font-weight:850; }
+.run-workspace-proof small { display:block; margin-top:4px; color:var(--muted); font-size:10px; }
+.run-workspace-card-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px; }
+.run-workspace-card { padding:16px; border:1px solid var(--line); border-radius:11px; background:var(--panel); }
+.run-workspace-card h3 { margin:12px 0; font-size:14px; overflow-wrap:anywhere; }
+.run-workspace-card-head { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+.run-workspace-timeline { position:relative; display:grid; gap:0; }
+.run-workspace-event { display:grid; grid-template-columns:minmax(145px,190px) minmax(0,1fr); gap:18px; padding:14px 12px; border-left:2px solid var(--line-strong); border-bottom:1px solid var(--line); }
+.run-workspace-event time { color:var(--muted); font-family:var(--mono); font-size:10px; }
+.run-workspace-event small { display:block; margin-top:4px; color:var(--muted); }
+.run-workspace-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:14px; }
+.run-workspace-metrics > div { display:grid; gap:6px; padding:16px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+.run-workspace-metrics span { color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.08em; }
+.run-workspace-empty { min-height:220px; display:grid; place-items:center; }
+
+@media (max-width:640px) {
+  .run-workspace-passport { grid-template-columns:1fr; padding:18px; }
+  .run-workspace-summary-grid { grid-template-columns:1fr; }
+  .run-workspace-proof { grid-template-columns:1fr; overflow-x:visible; }
+  .run-workspace-metrics { grid-template-columns:1fr 1fr; }
+  .run-workspace-event { grid-template-columns:1fr; gap:5px; }
+}
+/* [/issue:280] */
 `;

@@ -18,6 +18,7 @@ import { businessFlexScript } from './pages/business-flex.js';
 import { studioScript } from './pages/studio.js';
 import { workflowMapScript } from './pages/workflow-map.js';
 import { projectsRunsScript } from './pages/projects-runs.js';
+import { runWorkspaceScript } from './pages/run-workspace.js';
 import { runAnalyticsScript } from './pages/run-analytics.js';
 import { runReportScript } from './pages/run-report.js';
 import { teamPresenceScript } from './pages/team-presence.js';
@@ -46,6 +47,7 @@ export function clientScript(port) {
     studioScript,
     workflowMapScript,
     projectsRunsScript,
+    runWorkspaceScript,
     runAnalyticsScript,
     runReportScript,
     teamPresenceScript,

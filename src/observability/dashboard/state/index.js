@@ -16,6 +16,7 @@ import { buildDecisionState } from './decisions.js';
 import { buildEnvironmentState } from './environment.js';
 import { buildReadinessProjection } from './readiness.js';
 import { buildOverviewProjection } from './overview.js';
+import { buildRunWorkspaces } from './run-workspace.js';
 import { readConfiguredPolicies } from './configured-policy.js';
 import { decorateRunIdentity, resolveProjectDescriptors } from './identity.js';
 import {
@@ -204,9 +205,14 @@ export async function buildFullState(projectRoot, options = {}) {
     overview: buildOverviewProjection(stateWithReadiness),
   };
 
-  return {
+  const stateWithRunWorkspaces = {
     ...stateWithOverview,
-    layers: buildLayerSummaries(stateWithOverview),
+    runWorkspaces: buildRunWorkspaces(stateWithOverview.runs, stateWithOverview.readiness, stateWithOverview),
+  };
+
+  return {
+    ...stateWithRunWorkspaces,
+    layers: buildLayerSummaries(stateWithRunWorkspaces),
   };
 }
 
@@ -284,4 +290,3 @@ async function attachPipelineRollups(runs) {
     }
   }));
 }
-

@@ -196,6 +196,21 @@ function pageBody(id) {
       </div>
     `,
     projects: '<div class="grid-2"><div class="panel"><div class="panel-head"><span class="panel-title">Known Projects</span><span class="panel-note" id="projects-count"></span></div><div class="panel-body"><div class="grid-3" id="projects-grid"></div></div></div><div class="panel"><div class="panel-head"><span class="panel-title">Run Sessions</span><span class="panel-note" id="runs-count"></span></div><div class="table-wrap"><table><thead><tr><th>Status</th><th>Run</th><th>Project</th><th>Tasks</th><th>Duration</th><th>Cost</th></tr></thead><tbody id="runs-table"></tbody></table></div></div></div>',
+    'run-workspace': `
+      <div class="run-workspace-empty" id="run-workspace-empty"></div>
+      <div id="run-workspace-content">
+        <section class="run-workspace-passport" aria-labelledby="run-workspace-goal">
+          <div><div class="overview-eyebrow">Scoped run workspace</div><div class="run-workspace-state-line"><span class="overview-state" id="run-workspace-state">Loading</span><span id="run-workspace-freshness"></span></div><h2 id="run-workspace-goal">Loading run…</h2><p id="run-workspace-next"></p></div>
+          <dl><div><dt>Run</dt><dd class="mono" id="run-workspace-run-id">—</dd></div><div><dt>Project</dt><dd class="mono" id="run-workspace-project">—</dd></div><div><dt>Worktree</dt><dd class="mono" id="run-workspace-worktree">—</dd></div></dl>
+        </section>
+        <nav class="run-workspace-tabs" id="run-workspace-tabs" role="tablist" aria-label="Run workspace sections"></nav>
+        <section class="run-workspace-panel" id="run-workspace-summary" role="tabpanel"></section>
+        <section class="run-workspace-panel" id="run-workspace-work" role="tabpanel" hidden></section>
+        <section class="run-workspace-panel" id="run-workspace-timeline" role="tabpanel" hidden></section>
+        <section class="run-workspace-panel" id="run-workspace-artifacts" role="tabpanel" hidden></section>
+        <section class="run-workspace-panel" id="run-workspace-metrics" role="tabpanel" hidden></section>
+      </div>
+    `,
     'run-report': `
       <div class="panel">
         <div class="panel-head">

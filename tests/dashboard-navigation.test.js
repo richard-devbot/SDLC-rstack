@@ -24,8 +24,8 @@ test('six intent destinations cover every legacy page exactly once', () => {
   ]);
 
   const childIds = destinations.flatMap((item) => item.children.map((child) => child.id));
-  assert.equal(childIds.length, 21);
-  assert.equal(new Set(childIds).size, 21);
+  assert.equal(childIds.length, 22);
+  assert.equal(new Set(childIds).size, 22);
   assert.deepEqual(new Set(childIds), new Set(pages.map(([id]) => id)));
 });
 
@@ -47,7 +47,7 @@ test('shell renders desktop and mobile navigation from the same six-destination 
   const html = dashboardHtml(3008);
 
   assert.equal((html.match(/class="destination-link/g) || []).length, 12);
-  assert.equal((html.match(/class="secondary-link/g) || []).length, 42);
+  assert.equal((html.match(/class="secondary-link/g) || []).length, 34);
   assert.equal((html.match(/data-primary-destination=/g) || []).length, 12);
   assert.match(
     html,
@@ -62,22 +62,22 @@ test('shell renders desktop and mobile navigation from the same six-destination 
 test('dashboard route parser accepts legacy and combined page/run links', () => {
   assert.deepEqual(
     parseDashboardRoute({ hash: '#security', search: '' }),
-    { page: 'security', run: '' },
+    { page: 'security', run: '', section: '' },
   );
   assert.deepEqual(
-    parseDashboardRoute({ hash: '#page=diagnostics&run=run%3Aabc', search: '' }),
-    { page: 'diagnostics', run: 'run:abc' },
+    parseDashboardRoute({ hash: '#page=run-workspace&run=run%3Aabc&section=timeline', search: '' }),
+    { page: 'run-workspace', run: 'run:abc', section: 'timeline' },
   );
   assert.deepEqual(
     parseDashboardRoute({ hash: '#run=run-only', search: '?page=cost-budget' }),
-    { page: 'cost-budget', run: 'run-only' },
+    { page: 'cost-budget', run: 'run-only', section: '' },
   );
 });
 
 test('dashboard hash formatter preserves page and opaque run scope together', () => {
   assert.equal(
-    formatDashboardHash({ pageId: 'security', runKey: 'run:abc/123' }),
-    '#page=security&run=run%3Aabc%2F123',
+    formatDashboardHash({ pageId: 'run-workspace', runKey: 'run:abc/123', section: 'artifacts' }),
+    '#page=run-workspace&run=run%3Aabc%2F123&section=artifacts',
   );
   assert.equal(formatDashboardHash({ pageId: 'command', runKey: '' }), '#page=command');
   assert.equal(formatDashboardHash({ pageId: '', runKey: '' }), '');
@@ -87,7 +87,7 @@ test('client keeps legacy routing and mobile focus containment', () => {
   const bundle = clientScript(3008);
 
   assert.match(bundle, /function readDashboardRoute\(\)/);
-  assert.match(bundle, /function writeDashboardRoute\(pageId, runKey, mode\)/);
+  assert.match(bundle, /function writeDashboardRoute\(pageId, runKey, section, mode\)/);
   assert.match(bundle, /function showDestination\(destinationId/);
   assert.match(bundle, /function openMobileNavigation\(\)/);
   assert.match(bundle, /function closeMobileNavigation\(opts\)/);
