@@ -941,6 +941,12 @@ tr.clickable:hover td { background: #f8fbff; }
 .pill.info, .pill.ready, .pill.queued { color: var(--blue); border-color: #bfdbfe; background: #eff6ff; }
 /* Spent one-shot credentials (#156): visibly settled, neither success nor failure. */
 .pill.consumed { color: var(--muted); border-color: var(--line-strong); background: #f8fafc; }
+/* Operations Center (#284) */
+.ops-transport { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: #fff; margin-bottom: 16px; }
+.ops-transport-body { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ops-transport-mode { font-weight: 600; }
+.ops-stale-banner { flex-basis: 100%; color: var(--amber); background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 8px 10px; }
+@media (max-width: 640px) { .ops-transport { flex-direction: column; align-items: flex-start; } }
 .feed-list, .stack-list { display: grid; gap: 8px; }
 .feed-row {
   display: grid;
