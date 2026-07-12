@@ -91,6 +91,11 @@ export function toClientState(state) {
       timeline: (run.timeline ?? []).slice(0, 120),
       totals: run.totals ?? null,
       stageElapsed: run.stageElapsed ?? {},
+      // Migration state (#82, surfaced per #156): v1 legacy vs v2 manifests.
+      schemaVersion: run.manifest?.schema_version ?? null,
+      // Per-stage restore points (#132/#215) from the server-owned rollup —
+      // pages render this, they never re-derive restorability client-side.
+      checkpoints: run.pipelineRollup?.checkpoints ?? null,
       // Per-stage cost/token telemetry (#83/#135): the data flows to Run
       // Analytics now; dedicated UI rendering is follow-up work.
       stageCost: run.metrics?.stage_cost_usd ?? {},

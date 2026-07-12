@@ -2,7 +2,7 @@ import { join, resolve } from 'node:path';
 import { evaluateAlerts } from '../../alerts/engine.js';
 import { sourceRoots } from './roots.js';
 import { getIndexedRuns } from './rollup-index.js';
-import { getAllApprovals, buildBlockedGates, approvalRequestsFromBlockedGates, summarizeApprovals, resolveApprovalAcrossRoots } from './approvals.js';
+import { getAllApprovals, buildBlockedGates, approvalRequestsFromBlockedGates, summarizeApprovals, annotateApprovalLifecycle, resolveApprovalAcrossRoots } from './approvals.js';
 import { buildActivityFeed } from './feed.js';
 import { buildStageMatrix } from './stage-matrix.js';
 import { buildAgentGroups, buildAgentWork } from './agent-work.js';
@@ -88,7 +88,11 @@ export async function buildFullState(projectRoot, options = {}) {
     scopedDescriptors,
     scopeProjectId,
   );
-  const approvals = summarizeApprovals([...queueApprovals, ...actionableGateApprovals]);
+  // #156: cross-reference run-level records so one-shot overrides show their
+  // CONSUMED lifecycle instead of freezing at 'approved'.
+  const approvals = summarizeApprovals(
+    annotateApprovalLifecycle([...queueApprovals, ...actionableGateApprovals], runs),
+  );
   const feed = decorateScopedRecords(
     buildActivityFeed(runs), runs, scopedDescriptors, scopeProjectId,
   );
