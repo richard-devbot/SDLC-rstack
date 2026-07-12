@@ -10,12 +10,13 @@
 //   pipeline checkpoint-status → verifyStageCheckpoint   (checkpoints.js, deep)
 //   approvals audit [run-id]  → auditRunApprovals        (approval-audit.js)
 //   memory inspect            → runMemoryDiagnostics     (memory/diagnostics.js)
+//   review independence [run-id] → evaluateReviewIndependence (review-independence.js)
 //
 // Every function returns a structured result (so `--json` and tests use the
 // same shape) plus a companion formatter; bin/rstack-agents.js owns exit codes.
 
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { resolveRunId, runDirectory } from '../core/harness/runs.js';
@@ -24,6 +25,7 @@ import { rollbackToCheckpoint, verifyStageCheckpoint } from '../core/harness/che
 import { auditRunApprovals } from '../core/harness/approval-audit.js';
 import { CANONICAL_SDLC_STAGES } from '../core/harness/stages.js';
 import { runMemoryDiagnostics } from '../memory/diagnostics.js';
+import { evaluateReviewIndependence, loadReviewPolicy } from '../core/harness/review-independence.js';
 
 // ── config validate ──────────────────────────────────────────────────────────
 
@@ -119,6 +121,67 @@ export function formatApprovalsAudit(result) {
     for (const reason of r.reasons) lines.push(`      - ${reason}`);
   }
   if (result.rejected.length === 0) lines.push('  All records passed the consistency audit.');
+  return lines.join('\n');
+}
+
+// ── review independence [run-id] ─────────────────────────────────────────────
+
+async function readJsonQuiet(filePath) {
+  if (!existsSync(filePath)) return null;
+  try {
+    const parsed = JSON.parse(await readFile(filePath, 'utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+const INDEPENDENCE_RANK = { PASS: 0, WARN: 1, FAIL: 2 };
+
+// #72: audit a run's builder/validator identity against the CURRENT effective
+// review policy — recomputed live from the contracts on disk, so tightening
+// policy.json immediately shows which past tasks would no longer pass.
+export async function runReviewIndependence(projectRoot, { runId } = {}) {
+  const selected = await resolveRunId(projectRoot, runId);
+  const runDir = runDirectory(projectRoot, selected);
+  const policy = await loadReviewPolicy(projectRoot);
+  const taskState = await readJsonQuiet(join(runDir, 'tasks.json'));
+  const tasks = Array.isArray(taskState?.tasks) ? taskState.tasks : [];
+  const results = [];
+  for (const task of tasks) {
+    if (!task?.output_dir) continue;
+    const taskDir = join(projectRoot, task.output_dir);
+    const builder = await readJsonQuiet(join(taskDir, 'builder.json'));
+    const validators = [];
+    const validation = await readJsonQuiet(join(taskDir, 'validation.json'));
+    if (validation) validators.push(validation);
+    let entries = [];
+    try { entries = await readdir(taskDir); } catch { /* no task dir yet */ }
+    for (const entry of entries) {
+      if (!/^validator-.*\.json$/.test(entry)) continue;
+      const contract = await readJsonQuiet(join(taskDir, entry));
+      if (contract) validators.push(contract);
+    }
+    if (!builder && !validators.length) continue; // nothing executed yet — nothing to audit
+    const waiver = await readJsonQuiet(join(taskDir, 'independence-waiver.json'));
+    const independence = evaluateReviewIndependence({ builder, validators, policy, waiver });
+    results.push({ task_id: task.id, status: independence.status, independence });
+  }
+  const status = results.reduce((acc, r) => (INDEPENDENCE_RANK[r.status] > INDEPENDENCE_RANK[acc] ? r.status : acc), 'PASS');
+  const enforced = results.length ? results[0].independence.enforced : evaluateReviewIndependence({ policy }).enforced;
+  return { run_id: selected, enforced, status, policy, task_count: results.length, tasks: results };
+}
+
+export function formatReviewIndependence(result) {
+  if (!result.enforced) {
+    return `review independence (run ${result.run_id}): policy not enabled — set review_policy in .rstack/policy.json or use the enterprise-webapp profile.`;
+  }
+  const lines = [`review independence (run ${result.run_id}): ${result.status} — ${result.task_count} task(s) audited, fallback "${result.policy.fallback_behavior}".`];
+  for (const t of result.tasks) {
+    const mark = t.status === 'PASS' ? '✓' : t.status === 'WARN' ? '!' : '✗';
+    lines.push(`  ${mark} ${t.task_id}: ${t.independence.explanation}`);
+  }
+  if (!result.tasks.length) lines.push('  No builder/validator contracts on disk yet.');
   return lines.join('\n');
 }
 

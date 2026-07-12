@@ -19,6 +19,8 @@ import { rstackStateDir } from './runs.js';
 import { validateContextPressureConfig } from './context-pressure.js';
 // #159: parallel-groups config validation (data-independence + gate target).
 import { validateParallelGroupsConfig } from './parallel-benchmark.js';
+// #72: review_policy field rules live next to the defaults they guard.
+import { validateReviewPolicyConfig } from './review-independence.js';
 
 const KNOWN_PROFILES = ['business-flex', 'enterprise-webapp', 'lean-mvp'];
 const KNOWN_CHANNELS = ['slack', 'teams', 'discord', 'telegram', 'whatsapp'];
@@ -171,6 +173,10 @@ export function validatePolicyConfig(parsed) {
   }
   if (parsed.managers != null && (!Array.isArray(parsed.managers) || parsed.managers.some((manager) => typeof manager !== 'string' || !manager.trim()))) {
     issues.push({ field: 'managers', problem: 'must be an array of non-empty manager names/emails' });
+  }
+  // #72: cross-harness review independence policy block.
+  if (parsed.review_policy != null) {
+    issues.push(...validateReviewPolicyConfig(parsed.review_policy));
   }
   return issues;
 }

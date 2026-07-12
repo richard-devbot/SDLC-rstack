@@ -152,13 +152,24 @@ function feedRowHtml(item) {
   return '<div class="feed-row"><div class="feed-icon ' + esc(level) + '">' + icon + '</div><div><div class="feed-summary">' + esc(item.summary || '') + '</div><div class="feed-meta">' + (item.runId ? '<span>' + esc(item.runId.slice(-14)) + '</span>' : '') + (item.projectRoot ? '<span>' + esc(shortName(item.projectRoot)) + '</span>' : '') + (item.type ? '<span>' + esc(item.type) + '</span>' : '') + '</div></div><div class="feed-ts">' + timeHtml(item.ts) + '</div></div>';
 }
 
+// Review Independence (#72): builder harness vs validator harnesses and the
+// policy verdict, from the independence block persisted in validation.json.
+function independenceHtml(ind) {
+  if (!ind || !ind.enforced) return '';
+  var level = ind.status === 'FAIL' ? 'fail' : ind.status === 'WARN' ? 'warn' : 'pass';
+  var who = 'builder ' + (ind.builderHarness || 'unknown harness') + ' / validators ' + ((ind.validatorHarnesses || []).join(', ') || 'unknown harness');
+  var extras = (ind.waived ? ' (waived)' : '') + ((ind.missingValidatorTypes || []).length ? ' — missing: ' + ind.missingValidatorTypes.join(', ') : '');
+  return '<div class="muted" style="margin-top:6px">' + pill(level, 'independence ' + ind.status) + ' <span class="mono">' + esc(who + extras) + '</span></div>';
+}
+
 function agentItemHtml(work) {
   var total = work.totalChecks || 0;
   var rate = total ? Math.round((work.passChecks || 0) / total * 100) : 0;
   return '<div class="agent-item"><div class="agent-head"><div><div class="strong">' + esc(work.title || work.taskId) + '</div><div class="muted mono">' + esc(work.stageId || work.taskId || '') + ' / ' + esc(work.agent || '') + '</div></div>' + pill(work.status || 'ready') + '</div>' +
     '<div class="agent-summary">' + esc(work.summary || work.workDone || 'No builder summary yet.') + '</div>' +
     (total ? '<div class="progress" style="margin-top:8px"><div class="progress-fill" style="width:' + rate + '%"></div></div>' : '') +
-    '<div class="chips">' + chip((work.passChecks || 0) + '/' + total + ' checks') + chip((work.riskCount || 0) + ' risks') + (work.filesModified || []).slice(0, 2).map(chip).join('') + '</div></div>';
+    '<div class="chips">' + chip((work.passChecks || 0) + '/' + total + ' checks') + chip((work.riskCount || 0) + ' risks') + (work.filesModified || []).slice(0, 2).map(chip).join('') + '</div>' +
+    independenceHtml(work.independence) + '</div>';
 }
 
 function groupAgentWork(work) {
