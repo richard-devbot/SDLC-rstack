@@ -31,6 +31,7 @@ import { consumeApprovedQueueArtifact, ensurePendingQueueApproval } from '../../
 import { decide } from '../../core/harness/decisions.js';
 import { latestRunId, runDirectory } from '../../core/harness/runs.js';
 import { verifyRunAttestations } from '../../core/harness/attestations.js';
+import { scanRunDrift } from '../../core/harness/drift.js';
 import { withFileLock } from '../../core/harness/safe-write.js';
 import { isSafeRunId } from '../../core/harness/approval-audit.js';
 
@@ -676,6 +677,22 @@ async function handleRunReport(req, url, res) {
   }
 }
 
+// #74: on-demand traceability drift scan for one run (page load, not the
+// poll loop) — same sandboxed run resolution as the run report.
+async function handleDrift(req, url, res) {
+  const sendJson = (status, body) => sendJsonCacheable(req, res, status, body);
+  try {
+    const runId = url.searchParams.get('run') ?? '';
+    if (!runId) return sendJson(400, { error: 'run is required' });
+    const runDir = await resolveRunDir(runId);
+    if (!runDir) return sendJson(404, { error: 'run not found' });
+    const projectRoot = dirname(dirname(dirname(runDir))); // <root>/.rstack/runs/<id>
+    sendJson(200, await scanRunDrift(projectRoot, runId));
+  } catch (err) {
+    sendJson(500, { error: String(err?.message) });
+  }
+}
+
 async function handleArtifact(req, url, res) {
   const sendJson = (status, body) => sendJsonCacheable(req, res, status, body);
   try {
@@ -822,6 +839,13 @@ const requestHandler = async (req, res) => {
     const authErr = readAuthError(req, url);
     if (authErr) return denyRead(res, authErr);
     await handleArtifact(req, url, res);
+    return;
+  }
+
+  if (url.pathname === '/api/drift' && req.method === 'GET') {
+    const authErr = readAuthError(req, url);
+    if (authErr) return denyRead(res, authErr);
+    await handleDrift(req, url, res);
     return;
   }
 

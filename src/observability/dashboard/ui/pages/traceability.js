@@ -112,6 +112,34 @@ function traceChainCards(traces) {
   }).join('') || emptyHtml('No traceability data', 'Requirements and evidence appear after stage artifacts are written.');
 }
 
+// Traceability Drift (#74): on-demand scan of the newest run — requirements
+// without tasks, completed work without contracts, stale references,
+// contradicted readiness. Same scanner as the drift CLI.
+function driftFindingRow(f) {
+  return '<div class="feed-row"><div class="feed-icon ' + (f.severity === 'error' ? 'fail' : 'warn') + '">' + (f.severity === 'error' ? 'NO' : '!') + '</div>' +
+    '<div><div class="feed-summary">' + esc(f.message) + '</div>' +
+    '<div class="feed-meta"><span>' + esc(f.type) + '</span><span class="mono">' + esc(f.artifact || '') + '</span></div></div></div>';
+}
+
+function fillDriftCard(run) {
+  if (!run) { setHTML('drift-card-body', emptyHtml('No runs in scope', 'Drift is scanned per run once one exists.')); return; }
+  authAwareFetch('/api/drift?run=' + encodeURIComponent(run.runId))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d || d.error) { setHTML('drift-card-body', emptyHtml('Drift scan unavailable', (d && d.error) || '')); return; }
+      var s = d.summary || {};
+      setHTML('drift-card-kpis',
+        '<div class="stat-chip"><span class="stat-n">' + (s.requirements || 0) + '</span><span class="stat-l">requirements</span></div>' +
+        '<div class="stat-chip"><span class="stat-n">' + (s.tasks || 0) + '</span><span class="stat-l">tasks</span></div>' +
+        '<div class="stat-chip"><span class="stat-n">' + (s.missing_evidence || 0) + '</span><span class="stat-l">missing evidence</span></div>' +
+        '<div class="stat-chip"><span class="stat-n">' + (s.stale_references || 0) + '</span><span class="stat-l">stale references</span></div>');
+      setHTML('drift-card-status', pill(d.status === 'PASS' ? 'pass' : d.status === 'WARN' ? 'warn' : 'fail', 'drift ' + d.status) + ' <span class="mono">' + esc(run.runId.slice(-24)) + '</span>');
+      setHTML('drift-card-body', (d.findings || []).slice(0, 12).map(driftFindingRow).join('') ||
+        emptyHtml('No drift detected', 'Requirements, tasks, evidence, and approvals line up for this run.'));
+    })
+    .catch(function() { setHTML('drift-card-body', emptyHtml('Drift scan unavailable', '')); });
+}
+
 function renderTraceability(s) {
   var runs = s.runs || [];
   var specRuns = runs.filter(function(run) { return (run.stageReports || []).indexOf('02-requirements') !== -1; });
@@ -123,8 +151,11 @@ function renderTraceability(s) {
     '<div class="panel"><div class="panel-head"><span class="panel-title">Won\\u2019t Have (agreed exclusions)</span></div><div class="panel-body" id="req-wont-have"></div></div>' +
     '<div class="panel"><div class="panel-head"><span class="panel-title">Out of Scope</span></div><div class="panel-body" id="req-out-of-scope"></div></div>' +
     '</div>' +
+    '<div class="panel"><div class="panel-head"><span class="panel-title">Traceability Drift</span><span class="panel-note" id="drift-card-status"></span></div>' +
+    '<div class="panel-body"><div class="stat-chips" id="drift-card-kpis"></div><div id="drift-card-body" style="margin-top:12px"></div></div></div>' +
     '<div class="panel"><div class="panel-head"><span class="panel-title">Run Traceability Chains</span><span class="panel-note">' + (s.traceMap || []).length + ' runs</span></div><div class="panel-body" id="trace-chains"></div></div>');
   setHTML('trace-chains', traceChainCards(s.traceMap || []));
+  fillDriftCard(runs[0]);
   if (!specRuns.length) {
     var emptyMsg = emptyHtml('No requirement spec yet', 'Stage 02 (requirements) writes requirement_spec.json — the FR/NFR registry with categories, MoSCoW priorities and verification methods appears once a run in scope produces it.');
     setHTML('req-registry-body', '<tr><td colspan="6">' + emptyMsg + '</td></tr>');
