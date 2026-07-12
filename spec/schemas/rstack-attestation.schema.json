@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/attestation/v1alpha1",
+  "title": "RStack attestation envelope (attestations/*.attestation.json)",
+  "description": "DSSE-style envelope written by attestRun (src/core/harness/attestations.js, #73) at .rstack/runs/<run_id>/attestations/. This file defines its OWN envelope (the 'schema' field) and is therefore exempt from the Kubernetes-style resource envelope — the schema documents exactly what the code writes today.",
+  "type": "object",
+  "required": ["schema", "subject", "producer", "predicateType", "predicate", "created_at", "signature"],
+  "properties": {
+    "schema": {
+      "const": "rstack.dev/attestation/v1alpha1",
+      "description": "ATTESTATION_SCHEMA — verification rejects any other value."
+    },
+    "subject": {
+      "type": "object",
+      "required": ["run_id", "files"],
+      "description": "WHAT was attested: the run, the task, the commit, and file checksums.",
+      "properties": {
+        "run_id": { "type": "string", "description": "Must match the run being verified (mismatched-subject otherwise)." },
+        "task_id": { "type": ["string", "null"], "description": "Null for run-level attestations (release-readiness)." },
+        "commit": { "type": ["string", "null"], "description": "HEAD sha at attest time; null when the project is not a git checkout." },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+              "path": { "type": "string", "description": "Project-relative path." },
+              "sha256": { "type": ["string", "null"], "description": "Hex sha-256 at attest time; null records a path the contract CLAIMED but that did not exist." }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "producer": {
+      "type": "object",
+      "description": "WHO produced the attested contract — the #72 identity fields. Every key is recorded, null when unknown.",
+      "properties": {
+        "agent": { "type": ["string", "null"] },
+        "harness": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "predicateType": {
+      "type": "string",
+      "enum": [
+        "rstack.dev/builder-contract/v1alpha1",
+        "rstack.dev/validator-contract/v1alpha1",
+        "rstack.dev/release-readiness/v1alpha1"
+      ],
+      "description": "PREDICATE_TYPES — verification reports an unknown type as invalid-predicate."
+    },
+    "predicate": {
+      "type": "object",
+      "description": "The contract snapshot itself (builder.json / validation.json / readiness.json content at attest time)."
+    },
+    "created_at": {
+      "type": "string",
+      "description": "ISO-8601 timestamp minted by buildAttestation."
+    },
+    "signature": {
+      "type": "object",
+      "required": ["type", "value"],
+      "description": "Signing modes are modest by design: 'unsigned' (default, checksums still detect drift) or 'local-dev-signature' (HMAC-SHA256 keyed by RSTACK_ATTESTATION_KEY). signature.type is an open extension point — the verifier reports unknown types honestly instead of pretending to verify, so the schema does not close the enum.",
+      "properties": {
+        "type": { "type": "string", "description": "Known values today: 'unsigned' | 'local-dev-signature' (SIGNATURE_TYPES)." },
+        "value": { "type": "string", "description": "Empty string when unsigned; hex HMAC otherwise." }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

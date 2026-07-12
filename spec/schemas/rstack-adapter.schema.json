@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/adapter/v1alpha1",
+  "title": "RStack Adapter resource",
+  "description": "Kubernetes-style resource projection of one harness adapter. Derived from docs/integrations/adapter-contract.md and tests/bridge-conformance.test.js: a conforming adapter exposes exactly the 18-tool sdlc_* surface of the Pi reference adapter, shells every call to bin/rstack-bridge.ts (never reimplements SDLC logic), and routes shell/write tools through `rstack-agents guard` on the host's pre-tool-use hook.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "rstack.dev/v1alpha1" },
+    "kind": { "const": "Adapter" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "required": ["framework", "tier", "tools"],
+      "properties": {
+        "framework": { "type": "string", "description": "Host framework the adapter teaches to speak RStack (pi, claude-code, operator, tau, ...)." },
+        "tier": {
+          "type": "string",
+          "enum": ["native", "bridge", "guard-hook", "guided"],
+          "description": "Integration tier: native (Pi — in-process tools), bridge (Operator, Tau — bridge + guard hook), guard-hook (Claude Code — enforcement hook, agents drive the bridge/CLI), guided (self-wired via wire-your-own-harness.md)."
+        },
+        "tools": {
+          "type": "array",
+          "minItems": 18,
+          "maxItems": 18,
+          "description": "The exact 18-tool surface pinned by tests/bridge-conformance.test.js (npx tsx bin/rstack-bridge.ts --list). No renames, no subset, no extras.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "sdlc_agents", "sdlc_approve", "sdlc_build_next", "sdlc_clarify",
+              "sdlc_dashboard", "sdlc_decide", "sdlc_decisions", "sdlc_delegate",
+              "sdlc_dor_check", "sdlc_memory", "sdlc_orchestrate", "sdlc_plan",
+              "sdlc_rollback", "sdlc_spec", "sdlc_start", "sdlc_status",
+              "sdlc_trace", "sdlc_validate"
+            ]
+          }
+        },
+        "guard_wired": {
+          "type": "boolean",
+          "description": "Whether the host's shell-execution and file-write tools route through `rstack-agents guard` before executing (exit 0 allow / exit 2 block)."
+        },
+        "bridge": {
+          "type": "object",
+          "description": "Bridge invocation contract: stdout = raw tool result JSON; stderr + exit 1 = tool/harness error; exit 2 = usage error.",
+          "properties": {
+            "entrypoint": { "type": "string", "description": "bin/rstack-bridge.ts (rstack-operator-bridge.ts is a back-compat alias)." },
+            "caller": { "type": "string", "description": "RSTACK_BRIDGE_CALLER value." }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "status": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": true
+}

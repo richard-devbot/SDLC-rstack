@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/decision/v1alpha1",
+  "title": "RStack Decision resource",
+  "description": "Kubernetes-style resource projection of one Decision Queue item. The raw on-disk file is .rstack/runs/<run_id>/decisions.json (src/core/harness/decisions.js); every field below is guaranteed present on disk because normalizeDecision fills defaults on every read and write.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "rstack.dev/v1alpha1" },
+    "kind": { "const": "Decision" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "The decision_id (DEC-001, DEC-002, ...)." },
+        "run_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "required": ["question"],
+      "properties": {
+        "question": { "type": "string" },
+        "impact": { "type": "string", "enum": ["architecture", "security", "budget", "scope", "delivery"] },
+        "required_before_stage": { "type": "string", "description": "Canonical stage id; sdlc_decisions refuses non-canonical values at intake (#290). Default: 06-architecture." },
+        "options": { "type": "array" },
+        "recommendation": { "type": "string" },
+        "owner": { "type": "string" },
+        "stale_after_days": { "type": "number" }
+      },
+      "additionalProperties": true
+    },
+    "status": {
+      "type": "object",
+      "properties": {
+        "phase": { "type": "string", "enum": ["pending", "resolved", "waived"] },
+        "resolution": { "type": "string" },
+        "resolved_by": { "type": "string" },
+        "resolved_at": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "file": {
+      "type": "object",
+      "required": ["decisions"],
+      "description": "Raw decisions.json as writeDecisionsUnlocked writes it: { run_id, updated_at, decisions: [...] }. Readers also tolerate a bare array (legacy).",
+      "properties": {
+        "run_id": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "decisions": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    },
+    "decision": {
+      "type": "object",
+      "required": ["decision_id", "question", "impact", "required_before_stage", "status", "created_at", "updated_at"],
+      "description": "One normalized decision (normalizeDecision output).",
+      "properties": {
+        "decision_id": { "type": "string" },
+        "run_id": { "type": "string" },
+        "question": { "type": "string" },
+        "impact": { "type": "string", "enum": ["architecture", "security", "budget", "scope", "delivery"] },
+        "required_before_stage": { "type": "string" },
+        "options": { "type": "array" },
+        "recommendation": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "resolved", "waived"] },
+        "resolution": { "type": "string" },
+        "resolved_by": { "type": "string" },
+        "resolved_at": { "type": "string" },
+        "owner": { "type": "string" },
+        "stale_after_days": { "type": "number" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "links": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    }
+  }
+}

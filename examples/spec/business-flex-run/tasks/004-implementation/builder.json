@@ -1,0 +1,51 @@
+{
+  "task_id": "004-implementation",
+  "agent": "agent.07-code",
+  "harness": "pi",
+  "model": "claude-sonnet-4-5",
+  "status": "PASS",
+  "summary": "Implemented the governed checkout flow: cart-to-payment handoff, Stripe session creation behind a feature flag, and idempotent order persistence. No placeholder stubs; scope limited to the checkout module.",
+  "files_modified": [
+    "src/checkout/session.ts",
+    "src/checkout/order-store.ts",
+    "src/routes/checkout.ts"
+  ],
+  "tests_run": [
+    "npm test -- checkout (18 passing, 0 failing)",
+    "npm run typecheck (0 errors)"
+  ],
+  "risks": [
+    "Stripe webhook retries are at-least-once; order persistence is idempotency-keyed to compensate."
+  ],
+  "next_steps": [
+    "005-testing adds integration coverage for the webhook path."
+  ],
+  "memory_summary": {
+    "work_done": "Checkout flow implemented end-to-end with idempotent order writes and a feature flag for rollout.",
+    "evidence": [
+      "src/checkout/session.ts",
+      "npm test -- checkout (18 passing)"
+    ]
+  },
+  "stage_summaries": [
+    {
+      "stage_id": "07-code",
+      "work_done": "Checkout session, order store, and route wired per the approved architecture; error handling covers declined payments and webhook replays.",
+      "evidence": [
+        "src/routes/checkout.ts",
+        "npm run typecheck (0 errors)"
+      ]
+    }
+  ],
+  "execution": {
+    "tools_used": ["read", "edit", "bash"]
+  },
+  "cost": {
+    "estimated_usd": 1.4,
+    "actual_usd": 1.15
+  },
+  "context": {
+    "prompt_tokens": 41250,
+    "completion_tokens": 6320
+  }
+}

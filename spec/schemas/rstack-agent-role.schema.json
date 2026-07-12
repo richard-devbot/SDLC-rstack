@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/agent-role/v1alpha1",
+  "title": "RStack AgentRole resource",
+  "description": "Kubernetes-style resource projection of one governed agent role. Derived from the core role definitions (agents/core/orchestrator.md, builder.md, validator.md — frontmatter: name, description, model, disallowedTools) and the stage-keyed validator registry (src/core/harness/validator-registry.js). Roles are enforced in code, not prompt text: validators are read-only via the sandbox (#119) and read_only=true is unclampable in registry overrides.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "rstack.dev/v1alpha1" },
+    "kind": { "const": "AgentRole" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "Role slug, matching /^[a-z0-9][a-z0-9.-]*$/ (the packaged-agent validate rule)." }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "required": ["role"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["orchestrator", "builder", "validator", "specialist"],
+          "description": "Core contract roles. Orchestrator decomposes and routes (never executes); builder executes one task and writes builder.json; validator verifies read-only and writes validation.json; specialists are domain agents routed by the orchestrator."
+        },
+        "description": { "type": "string" },
+        "model": { "type": "string", "description": "Advisory model hint from the role frontmatter (the host framework picks the model)." },
+        "read_only": {
+          "type": "boolean",
+          "description": "True for validator-context roles. Enforced by the validator sandbox — write/edit tools, destructive shell, git mutations, publish/deploy, and secret-path redirects are denied with no override path."
+        },
+        "disallowed_tools": { "type": "array", "items": { "type": "string" } },
+        "writes_contract": {
+          "type": ["string", "null"],
+          "description": "The contract file this role owns: builder.json (builder), validation.json (validator), null (orchestrator/specialist)."
+        },
+        "validator_profile": {
+          "type": "object",
+          "description": "For stage validators: the registry entry (DEFAULT_VALIDATOR_REGISTRY or .rstack/validators/registry.json override).",
+          "properties": {
+            "stage_id": { "type": ["string", "null"] },
+            "validator": { "type": "string" },
+            "model_hint": { "type": "string" },
+            "read_only": { "const": true, "description": "A project override cannot set read_only=false — the registry loader forces it back to true." },
+            "priority": { "type": "number", "description": "Highest priority wins when one task targets several registered stages (security 100 > compliance 90 > code 80 > testing 70 > architecture 60 > generic 0)." },
+            "required_checks": { "type": "array", "items": { "type": "string" } },
+            "output_contract_fields": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "status": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": true
+}

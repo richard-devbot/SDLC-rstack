@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/approvals/v1alpha1",
+  "title": "RStack run-level approvals ledger (approvals.json)",
+  "description": "The append-only array at .rstack/runs/<run_id>/approvals.json. Derived from the ApprovalRecord type in src/integrations/pi/rstack-sdlc.ts and validateApprovalRecord / RUN_APPROVAL_STATUSES in src/core/harness/approval-audit.js. Statuses are exact-case UPPERCASE — 'approved' is malformed, not a synonym. Gate decisions use latest-record-wins per artifact after the #133 consistency audit; a record failing audit is treated as ABSENT.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "artifact", "status", "approver", "timestamp"],
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "Writer-minted unique id (e.g. app-2026-07-12T09-00-00-000Z). Every known writer mints one; duplicates in an artifact's history are replay (approval_no_replay)."
+      },
+      "artifact": {
+        "type": "string",
+        "description": "Artifact or gate name — a file/stage name, never a path (isSafeArtifactName). Reserved prefixes: 'guardrail-override:<task_id>' (one-shot attempt override, #149), 'stage-approval:<stage-id>' (blanket per-stage gate, #228), 'destructive-action:<task_id>' (destructive-action unblock, #131)."
+      },
+      "status": {
+        "type": "string",
+        "enum": ["APPROVED", "REJECTED", "PENDING", "CONSUMED"],
+        "description": "RUN_APPROVAL_STATUSES. CONSUMED is the harness-written marker that spends a one-shot override; latest-record-wins means a CONSUMED record shadows the earlier APPROVED one."
+      },
+      "approver": {
+        "type": "string",
+        "description": "Who signed off (resolved user identity), or 'rstack-harness' for CONSUMED markers."
+      },
+      "timestamp": {
+        "type": "string",
+        "description": "ISO-8601 timestamp; must parse (approval_timestamp_valid) and be non-decreasing within an artifact's history (approval_ordering_sane, 60s skew tolerance)."
+      },
+      "comments": {
+        "type": "string",
+        "description": "Optional free-form sign-off comments."
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Run binding (#298): stamped by every current writer; the #133 audit rejects records bound to another run (cross-run replay). Optional because legacy records predate the stamp and are grandfathered."
+      },
+      "source": {
+        "type": "string",
+        "description": "Optional writer source. 'dashboard' / 'business-hub' claims the authenticated Business Hub path and must carry token-verified actor evidence (approval_token_evidence_present)."
+      },
+      "actor": {
+        "type": "object",
+        "description": "Dashboard-path actor evidence: { name, via: 'dashboard', tokenVerified: true }.",
+        "properties": {
+          "name": { "type": "string" },
+          "via": { "type": "string" },
+          "tokenVerified": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "additionalProperties": true
+  }
+}

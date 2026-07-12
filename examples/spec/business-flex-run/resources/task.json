@@ -1,0 +1,34 @@
+{
+  "apiVersion": "rstack.dev/v1alpha1",
+  "kind": "Task",
+  "metadata": {
+    "name": "004-implementation",
+    "run_id": "2026-07-12-0900-governed-checkout-flow"
+  },
+  "spec": {
+    "title": "Implementation",
+    "description": "Build scoped, working code that follows the architecture and existing project conventions.",
+    "domains": ["backend", "frontend", "data"],
+    "acceptance_criteria": [
+      "Required behavior is implemented without placeholder TODO stubs",
+      "Files changed stay within scope"
+    ],
+    "stage_artifacts": [
+      {
+        "stage_id": "07-code",
+        "artifact": "code_report.json",
+        "path": ".rstack/runs/2026-07-12-0900-governed-checkout-flow/artifacts/stages/07-code/code_report.json"
+      }
+    ],
+    "output_dir": ".rstack/runs/2026-07-12-0900-governed-checkout-flow/tasks/004-implementation",
+    "pipeline_agents": ["agent.07-code"],
+    "budget_envelope": {
+      "currency": "USD",
+      "estimated_ai_cost_usd": 4,
+      "approval_required_above_usd": 25
+    }
+  },
+  "status": {
+    "phase": "PASS"
+  }
+}
