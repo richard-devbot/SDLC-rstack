@@ -17,7 +17,7 @@ const NAV_IDS = pages.map(([id]) => id);
 
 test('served client bundle contains every page module', () => {
   const bundle = clientScript(3008);
-  assert.equal(NAV_IDS.length, 21, 'nav registry lists all 21 pages');
+  assert.equal(NAV_IDS.length, 22, 'registry lists 21 compatibility pages plus Run Workspace');
   for (const id of NAV_IDS) {
     assert.match(bundle, new RegExp(`// ── page: ${id} `), `page module banner for "${id}" is in the bundle`);
     assert.match(bundle, new RegExp(`registerPage\\('${id}',`), `page "${id}" self-registers with the registry`);
@@ -26,7 +26,7 @@ test('served client bundle contains every page module', () => {
 
 test('served bundle is syntactically valid JS and inline-script safe (#216 review F1)', () => {
   const bundle = clientScript(3008);
-  // 20 page modules get edited in parallel and live inside template literals
+  // Page modules live inside template literals
   // that eslint cannot see into — a syntax error in any of them would pass
   // tests yet kill the whole dashboard at load. Compiling (not executing) the
   // bundle catches that here instead of in the browser.
@@ -52,7 +52,7 @@ test('registry order matches the historical applyState render order', () => {
   const order = [...bundle.matchAll(/registerPage\('([\w-]+)',/g)].map((m) => m[1]);
   assert.deepEqual(order, [
     'command', 'business-flex', 'studio', 'workflow', 'projects',
-    'run-analytics', 'run-report', 'team', 'agent-work', 'live-feed',
+    'run-workspace', 'run-analytics', 'run-report', 'team', 'agent-work', 'live-feed',
     'approvals', 'decisions', 'release-readiness', 'security', 'compliance',
     'cost-budget', 'alerts-guardrails', 'traceability', 'team-layers', 'environment', 'diagnostics',
   ]);
