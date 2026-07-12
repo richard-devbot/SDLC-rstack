@@ -7,6 +7,7 @@ import { buildActivityFeed } from './feed.js';
 import { buildStageMatrix } from './stage-matrix.js';
 import { buildAgentGroups, buildAgentWork } from './agent-work.js';
 import { buildTraceMap } from './traceability.js';
+import { buildEvidenceProjection } from './evidence.js';
 import { buildProjectSummaries } from './projects.js';
 import { buildDiagnostics, buildLayerSummaries } from './layers.js';
 import { buildStageTrends, persistedTokenTotals } from '../../metrics/derive.js';
@@ -196,9 +197,14 @@ export async function buildFullState(projectRoot, options = {}) {
     ts: new Date().toISOString(),
   };
 
-  const stateWithReadiness = {
+  const stateWithEvidence = {
     ...baseState,
-    readiness: buildReadinessProjection(baseState, { evaluatedAt: baseState.ts }),
+    evidenceCenter: buildEvidenceProjection(baseState, { evaluatedAt: baseState.ts }),
+  };
+
+  const stateWithReadiness = {
+    ...stateWithEvidence,
+    readiness: buildReadinessProjection(stateWithEvidence, { evaluatedAt: baseState.ts }),
   };
 
   const stateWithActions = {

@@ -238,73 +238,53 @@ test('resolveStageArtifactPath returns null when a stage produced nothing', () =
 
 // ── #90: Requirements & Traceability registry ──
 
-const REQUIREMENT_SPEC = {
-  functional: [
-    { id: 'F-001', description: 'Reject invoices with mismatched totals', category: 'functional', priority: 'must', acceptance: ['422 on mismatch'], verification: 'Integration test: POST /invoices returns 422' },
-    { id: 'F-002', description: 'Export monthly report', category: 'functional', priority: 'could', verification: 'Manual demo' },
-  ],
-  non_functional: [
-    { id: 'N-001', category: 'nonfunctional', furps: 'performance', requirement: 'API stays fast under load', metric: 'p95 < 200ms @ 1000 users', priority: 'should', verification: 'k6 load test in CI' },
-  ],
-  user_stories: [{ id: 'US-001', story: 'As a clerk...', criteria: ['...'] }],
-  out_of_scope: ['Mobile app'],
-  wont_have: [{ id: 'F-009', description: 'Multi-currency support', reason: 'deferred to next iteration' }],
-  requirement_sources: ['docs/existing-spec.md'],
-  status: 'PASS',
-};
-
-const TEST_REPORT = {
-  test_levels: {
-    unit: { technique: 'white-box', tests: 28, status: 'PASS' },
-    acceptance: { technique: 'black-box', tests: 5, status: 'PASS', requirements_covered: ['F-001'] },
-  },
-  results: { passed: 33, failed: 0 },
-  security_tests: ['auth_bypass: PASS'],
-  status: 'PASS',
-};
-
-function traceabilityState(stageReports) {
+function traceabilityState(status = 'unknown') {
+  const cell = (kind, cellStatus, sourceRefs = []) => ({ kind, expected: true, observed: sourceRefs.length > 0, status: cellStatus, availability: sourceRefs.length ? 'available' : 'not_observed', sourceRefs });
+  const source = { kind: 'validation', path: '.rstack/runs/run-quality-1/tasks/08-testing/validation.json', runId: 'run-quality-1', projectRoot: '/p', linkable: true };
   return {
-    runs: [{ runId: 'run-quality-1', projectRoot: '/p', stageReports, tasks: [] }],
-    traceMap: [],
+    evidenceCenter: {
+      status,
+      evaluatedAt: '2026-07-12T09:00:00.000Z',
+      kinds: ['implementation', 'test', 'security', 'compliance', 'approval'],
+      summary: { requirements: 1, expected: 5, verified: status === 'verified' ? 5 : 1, failed: status === 'blocked' ? 1 : 0, unknown: status === 'unknown' ? 4 : 0, coveragePercent: status === 'verified' ? 100 : 20 },
+      rows: [{ id: '/p:run-quality-1:F-001', requirementId: 'F-001', requirement: 'Reject invoices with mismatched totals', priority: 'must', projectRoot: '/p', runId: 'run-quality-1', cells: {
+        implementation: cell('implementation', status === 'blocked' ? 'failed' : 'verified', [source]),
+        test: cell('test', status === 'verified' ? 'verified' : 'unknown'),
+        security: cell('security', status === 'verified' ? 'verified' : 'unknown'),
+        compliance: cell('compliance', status === 'verified' ? 'verified' : 'unknown'),
+        approval: cell('approval', status === 'verified' ? 'verified' : 'unknown'),
+      }}],
+      sources: [source],
+      rationale: [{ id: 'F-001:implementation', requirementId: 'F-001', kind: 'implementation', status: status === 'blocked' ? 'failed' : 'verified', sourceRefs: [source] }],
+    },
   };
 }
 
-test('traceability page renders the FR/NFR registry with MoSCoW priority, verification and test coverage', async () => {
-  const pagesApi = loadPages({ report: { stages: { '02-requirements': REQUIREMENT_SPEC, '08-testing': TEST_REPORT }, deliverables: {} } });
-  pagesApi.render('traceability', traceabilityState(['02-requirements', '08-testing']));
-  await tick();
-  const body = pagesApi.html('req-registry-body');
+test('Evidence Center renders the server-owned tri-state projection and real source path', () => {
+  const pagesApi = loadPages();
+  pagesApi.render('traceability', traceabilityState('unknown'));
+  const body = pagesApi.html('traceability-list');
   assert.match(body, /F-001/);
   assert.match(body, /Reject invoices/);
-  assert.match(body, /must/);
-  assert.match(body, /Integration test: POST \/invoices returns 422/);
-  assert.match(body, /tested/);                      // F-001 covered by acceptance tests
-  assert.match(body, /acceptance/);
-  assert.match(body, /no test in this run references F-002/); // honest gap
-  assert.match(body, /N-001/);
-  assert.match(body, /performance/);                 // FURPS+ category
-  assert.match(body, /p95 &lt; 200ms/);
-  // Won't-have and out-of-scope rendered separately.
-  assert.match(pagesApi.html('req-wont-have'), /Multi-currency support/);
-  assert.match(pagesApi.html('req-wont-have'), /deferred to next iteration/);
-  assert.match(pagesApi.html('req-out-of-scope'), /Mobile app/);
-  // Coverage KPI matches the data: 1 of 3 requirements covered.
-  assert.match(pagesApi.html('req-registry-kpis'), /1\/3/);
+  assert.match(body, /Verified/);
+  assert.match(body, /Unknown \/ not evaluated/);
+  assert.match(body, /validation\.json/);
+  assert.match(body, /1 of 5 expected/);
 });
 
-test('traceability coverage column is honest when the run has no test report', async () => {
-  const pagesApi = loadPages({ report: { stages: { '02-requirements': REQUIREMENT_SPEC }, deliverables: {} } });
-  pagesApi.render('traceability', traceabilityState(['02-requirements']));
-  await tick();
-  assert.match(pagesApi.html('req-registry-body'), /stage 08 links tests by requirement ID/);
-});
-
-test('traceability page explains which stage produces the registry when no spec exists', () => {
+test('Evidence Center distinguishes failed evidence from unknown evidence', () => {
   const pagesApi = loadPages();
-  pagesApi.render('traceability', { runs: [{ runId: 'r1', stageReports: [] }], traceMap: [] });
-  assert.match(pagesApi.html('req-registry-body'), /No requirement spec yet/);
-  assert.match(pagesApi.html('req-registry-body'), /Stage 02 \(requirements\) writes requirement_spec\.json/);
+  pagesApi.render('traceability', traceabilityState('blocked'));
+  const body = pagesApi.html('traceability-list');
+  assert.match(body, /Failed \/ blocked/);
+  assert.match(body, /Unknown \/ not evaluated/);
+});
+
+test('Evidence Center is honest when no requirement projection exists', () => {
+  const pagesApi = loadPages();
+  pagesApi.render('traceability', { evidenceCenter: { status: 'unknown', summary: {}, rows: [], sources: [], rationale: [], kinds: [], evaluatedAt: null } });
+  assert.match(pagesApi.html('traceability-list'), /Not evaluated/);
+  assert.match(pagesApi.html('traceability-list'), /No evidence rows in this view/);
   assert.equal(pagesApi.fetchCalls.length, 0, 'no report fetch without a spec-bearing run');
 });
 

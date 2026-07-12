@@ -31,12 +31,12 @@ export const destinations = Object.freeze([
     child('studio', 'Studio', true),
     child('agent-work', 'Agent Work', true),
   ]),
-  destination('evidence', 'Evidence', 'evidence', 'release-readiness', [
-    child('release-readiness', 'Release Readiness'),
-    child('traceability', 'Requirements & Traceability'),
-    child('run-report', 'Run Report'),
-    child('security', 'Security'),
-    child('compliance', 'Compliance'),
+  destination('evidence', 'Evidence', 'evidence', 'traceability', [
+    child('traceability', 'Evidence Center'),
+    child('release-readiness', 'Release Readiness', true),
+    child('run-report', 'Run Report', true),
+    child('security', 'Security', true),
+    child('compliance', 'Compliance', true),
   ]),
   destination('decisions', 'Decisions', 'decisions', 'action-inbox', [
     child('action-inbox', 'Action Inbox'),
