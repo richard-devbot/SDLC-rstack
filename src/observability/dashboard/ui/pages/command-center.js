@@ -23,6 +23,8 @@ function renderCommand(s) {
   setText('command-status-chip', hasAttention ? 'Needs review' : activeRunCount ? 'Live work running' : 'All clear');
   setClass('command-status-chip', 'command-status ' + (hasAttention ? 'warn' : activeRunCount ? 'active' : 'ok'));
   renderExecutiveMissionBrief(s);
+  renderOverviewDecisionSurface(s);
+  renderOverviewProofRail(s);
   ensureCommandWavePanels();
   renderCommandExecRollup(s);
   renderCommandNextAction(s);
@@ -58,6 +60,93 @@ function renderCommand(s) {
   var feed = (s.feed || []).slice(0, 12);
   setText('command-feed-count', feed.length + ' events');
   setHTML('command-feed', feed.length ? feed.map(feedRowHtml).join('') : emptyHtml('No activity yet', 'Events appear as runs execute.'));
+}
+
+function overviewStateLabel(status) {
+  return ({ blocked: 'Blocked', at_risk: 'At risk', ready: 'Ready', unknown: 'Unknown' })[status] || 'Unknown';
+}
+
+function overviewCoverageText(coverage) {
+  if (!coverage || coverage.percent === null || coverage.percent === undefined) return 'Not evaluated';
+  var evaluated = coverage.evaluated;
+  var expected = coverage.expected;
+  return coverage.percent + '%' + (evaluated !== undefined && expected !== undefined ? ' · ' + evaluated + '/' + expected + ' checks' : '');
+}
+
+function overviewTime(value) {
+  if (!value) return 'Not evaluated';
+  var date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function overviewActionRoute(action) {
+  if (!action) return { page: 'diagnostics', label: 'Open diagnostics' };
+  if (action.kind === 'approval') return { page: 'approvals', label: 'Review approval' };
+  if (action.kind === 'guardrail_blocked' || action.kind === 'failed') return { page: 'alerts-guardrails', label: 'Open blocker' };
+  if (action.kind === 'complete') return { page: 'release-readiness', label: 'Review readiness' };
+  if (action.kind === 'setup') return { page: 'operations', label: 'Open setup diagnostics' };
+  return { page: 'workflow', label: 'Open run workspace' };
+}
+
+function renderOverviewDecisionSurface(s) {
+  var overview = s.overview || {};
+  var readiness = s.readiness || { status: 'unknown', coverage: {} };
+  var status = readiness.status || overview.outcome || 'unknown';
+  var noRun = !overview.focusRunId;
+  var title = noRun ? 'No delivery run has been evaluated.' : (overview.title || readiness.summary || 'Delivery outcome is not available.');
+  var action = overview.nextAction || { text: 'Start an RStack run to evaluate delivery readiness.', kind: 'setup', source: null };
+  var route = overviewActionRoute(action);
+
+  setText('overview-state', overviewStateLabel(status));
+  setClass('overview-state', 'overview-state ' + status);
+  setText('overview-goal', overview.goal || (noRun ? 'No active run' : 'Goal unavailable'));
+  setText('overview-outcome-title', title);
+  setText('overview-rationale', readiness.summary || title);
+  setText('overview-coverage', overviewCoverageText(readiness.coverage || overview.coverage));
+  setText('overview-evaluated-at', overviewTime(overview.evaluatedAt || readiness.evaluatedAt));
+  setText('overview-action-count', String(overview.actionCount || 0));
+  setHTML('overview-next-action',
+    '<div><span class="overview-next-label">Next action</span><strong>' + esc(action.text || 'No action is available from this snapshot.') + '</strong>' +
+      '<span class="overview-source">' + (action.source && action.source.path ? esc(action.source.path) : 'Source unavailable') + '</span></div>' +
+    '<button class="tb-chip" data-page="' + esc(route.page) + '" onclick="showPageFromChip(this)">' + esc(route.label) + '</button>');
+
+  setHTML('overview-freshness', overview.stale
+    ? '<strong>Saved snapshot is stale.</strong> ' + esc(overview.eventsBehind || 0) + ' newer event' + ((overview.eventsBehind || 0) === 1 ? '' : 's') + ' exist. The last-known outcome remains visible; regenerate pipeline state for a current recommendation.'
+    : '');
+}
+
+function overviewProofText(proof) {
+  if (!proof) return 'Proof unavailable';
+  if (proof.expected !== null && proof.expected !== undefined) return proof.attached + '/' + proof.expected + ' proof attached';
+  if (proof.attached > 0) return proof.attached + ' attached · expected coverage unknown';
+  return proof.availability === 'unknown' ? 'Proof expectation unknown' : 'No proof attached';
+}
+
+function overviewStageIcon(state) {
+  return ({ passed: '✓', failed: '!', blocked: '×', in_progress: '→', not_started: '○', unknown: '?' })[state] || '?';
+}
+
+function renderOverviewProofRail(s) {
+  var stages = (s.overview && s.overview.stages) || [];
+  if (!stages.length) {
+    setHTML('overview-proof-rail', '<li class="overview-proof-empty"><strong>No stage proof yet.</strong><span>Start a run and canonical stage evidence will appear here.</span></li>');
+    return;
+  }
+  setHTML('overview-proof-rail', stages.map(function(stage) {
+    var source = stage.source && stage.source.path ? stage.source.path : 'Source unavailable';
+    var meta = [stage.owner || 'Owner unavailable'];
+    if (stage.elapsed !== null && stage.elapsed !== undefined) meta.push(Math.round(stage.elapsed / 1000) + 's elapsed');
+    return '<li class="overview-proof-step ' + esc(stage.state) + '" tabindex="0" aria-label="' +
+      esc(stage.label + ': ' + stage.state.replace('_', ' ') + '. ' + overviewProofText(stage.proof) + '. ' + source) + '">' +
+      '<span class="overview-proof-mark" aria-hidden="true">' + esc(overviewStageIcon(stage.state)) + '</span>' +
+      '<div class="overview-proof-copy"><span class="overview-proof-stage">' + esc(stage.label) + '</span>' +
+      '<strong>' + esc(stage.state.replace('_', ' ')) + '</strong>' +
+      '<span>' + esc(overviewProofText(stage.proof)) + '</span>' +
+      '<span>' + esc(meta.join(' · ')) + '</span>' +
+      '<span class="overview-source">' + esc(source) + '</span>' +
+      (stage.primaryBlocker ? '<span class="overview-proof-blocker">' + esc(stage.primaryBlocker) + '</span>' : '') +
+      '</div></li>';
+  }).join(''));
 }
 
 function renderExecutiveMissionBrief(s) {

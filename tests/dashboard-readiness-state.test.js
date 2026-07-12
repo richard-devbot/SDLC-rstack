@@ -15,6 +15,7 @@ import { join } from 'node:path';
 
 import { buildFullState, toClientState } from '../src/observability/dashboard/state/index.js';
 import { buildReadinessProjection } from '../src/observability/dashboard/state/readiness.js';
+import { buildOverviewProjection } from '../src/observability/dashboard/state/overview.js';
 import { clientScript } from '../src/observability/dashboard/ui/client.js';
 import { libScript } from '../src/observability/dashboard/ui/lib.js';
 import { commandCenterScript } from '../src/observability/dashboard/ui/pages/command-center.js';
@@ -92,6 +93,82 @@ function snapshot(overrides = {}) {
     ...overrides,
   };
 }
+
+test('overview projection keeps an unevaluated scope unknown and action-oriented', () => {
+  const overview = buildOverviewProjection({
+    runs: [],
+    stageMatrix: [],
+    readiness: buildReadinessProjection(snapshot({ runs: [] })),
+    pendingApprovals: [],
+    blockedGates: [],
+    alerts: [],
+    ts: '2026-07-12T08:00:00.000Z',
+  });
+
+  assert.equal(overview.focusRunId, null);
+  assert.equal(overview.outcome, 'unknown');
+  assert.equal(overview.title, 'No delivery run has been evaluated.');
+  assert.match(overview.nextAction.text, /Start an RStack run/i);
+  assert.equal(overview.nextAction.source, null);
+  assert.deepEqual(overview.stages, []);
+  assert.equal(overview.actionCount, 0);
+});
+
+test('overview proof rail translates persisted stage state without inventing expected proof', () => {
+  const candidate = run({
+    runId: 'run-proof',
+    manifest: { goal: 'Ship the evidence cockpit', status: 'IN_PROGRESS' },
+    stageReports: ['06-architecture'],
+    stageElapsed: { '06-architecture': 84000 },
+    tasks: [{
+      id: 'architecture-task',
+      title: 'Approve the architecture',
+      stageId: '06-architecture',
+      status: 'PASS',
+      validation: { status: 'PASS', total_checks: 2, pass_checks: 2 },
+      evidence_count: 3,
+      agent_name: 'architecture-agent',
+    }, {
+      id: 'code-task',
+      title: 'Build the cockpit',
+      stageId: '07-code',
+      status: 'BLOCKED',
+      validation: null,
+      evidence_count: 1,
+      agent_name: 'builder-agent',
+    }],
+    pipelineRollup: {
+      status: 'BLOCKED', stale: true, events_behind: 2,
+      next_action: { kind: 'guardrail_blocked', stage_id: '07-code', task_id: 'code-task', text: 'Approve one guarded retry.' },
+    },
+  });
+  const readiness = buildReadinessProjection(snapshot({ runs: [candidate] }));
+  const overview = buildOverviewProjection({
+    ...snapshot({ runs: [candidate] }),
+    readiness,
+    ts: '2026-07-12T08:00:00.000Z',
+  });
+
+  assert.equal(overview.focusRunId, 'run-proof');
+  assert.equal(overview.outcome, 'blocked');
+  assert.equal(overview.goal, 'Ship the evidence cockpit');
+  assert.equal(overview.stale, true, 'freshness is separate from the blocked outcome');
+  assert.equal(overview.nextAction.text, 'Approve one guarded retry.');
+  assert.equal(overview.nextAction.source.path, '.rstack/runs/run-proof/pipeline-state.json');
+
+  const architecture = overview.stages.find((stage) => stage.id === '06-architecture');
+  assert.equal(architecture.state, 'passed');
+  assert.equal(architecture.proof.attached, 3);
+  assert.equal(architecture.proof.expected, null);
+  assert.equal(architecture.proof.availability, 'available');
+  assert.equal(architecture.label, 'Architecture');
+  assert.equal(architecture.source.path, '.rstack/runs/run-proof/artifacts/stages/06-architecture/system_design.json');
+
+  const code = overview.stages.find((stage) => stage.id === '07-code');
+  assert.equal(code.state, 'blocked');
+  assert.equal(code.proof.availability, 'partial');
+  assert.equal(code.primaryBlocker, 'Build the cockpit');
+});
 
 test('an empty project scope is unknown, never ready', async () => {
   const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-readiness-empty-'));
