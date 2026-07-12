@@ -1,0 +1,13 @@
+{
+  "name": "cross-harness-review",
+  "title": "Cross-Harness Review Independence",
+  "description": "The same model/harness that builds a change must not be the only actor validating it (#72). Contracts record producer identity (agent, harness, model); the review_policy escalates same-harness self-validation per profile — warning under business-flex, blocking under enterprise-webapp.",
+  "enforcement": "warning",
+  "provides": ["review-independence-policy", "contract-identity", "independence-artifact"],
+  "surfaces": {
+    "cli": ["rstack-agents review independence"],
+    "config": [".rstack/policy.json (review_policy block)"],
+    "artifacts": ["validation.json independence block"]
+  },
+  "references": ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
+}

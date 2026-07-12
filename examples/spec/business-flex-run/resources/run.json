@@ -1,0 +1,22 @@
+{
+  "apiVersion": "rstack.dev/v1alpha1",
+  "kind": "Run",
+  "metadata": {
+    "name": "2026-07-12-0900-governed-checkout-flow"
+  },
+  "spec": {
+    "goal": "Add a governed checkout flow with audit-ready evidence",
+    "mode": "interactive",
+    "profile": "business-flex",
+    "workflow": "production-business-sdlc",
+    "project_root": "/workspaces/acme-shop",
+    "rstack_version": "2.0.0",
+    "started_by": { "name": "Richardson Gunde", "email": null }
+  },
+  "status": {
+    "phase": "DONE",
+    "created_at": "2026-07-12T09:00:00.000Z",
+    "updated_at": "2026-07-12T11:45:00.000Z",
+    "schema_version": 2
+  }
+}

@@ -54,9 +54,15 @@ import { readPipelineState, buildPipelineState } from '../../../core/harness/pip
 // list is capped at 100, and consumers deriving counts from `.length` of the
 // capped array silently undercounted 100+-evidence runs to exactly 100 (the
 // same no-silent-caps violation #296 fixed, one level up).
-// v8 (#283): entries persist metrics_measured_at so index-served Spend views
+// v8 (#156/#215): entries persist the manifest schema_version (migration
+// state in Diagnostics) and pick up the rollup's per-stage checkpoint status
+// (restorable/reason) via the persisted pipeline_rollup — legacy entries
+// rebuilt so index-served runs don't render an empty restore-point strip.
+// v9 (#283): entries persist metrics_measured_at so index-served Spend views
 // expose when persisted telemetry was measured instead of losing file time.
-export const INDEX_VERSION = 8;
+// (Renumbered from a colliding v8 in the merge — both #339 and #283 claimed
+// 8; one more self-healing rebuild picks up the Spend field everywhere.)
+export const INDEX_VERSION = 9;
 export const DEFAULT_RETENTION_DAYS = 90;
 
 const STALL_MS = 30 * 60 * 1000;
@@ -154,6 +160,9 @@ export function entryFromRun(run, sig = null) {
     completed_at: run.manifest?.completed_at ?? null,
     goal: String(run.manifest?.goal ?? '').slice(0, 200),
     framework: run.manifest?.framework ?? run.manifest?.mode ?? 'unknown',
+    // Manifest schema version (#82 migrations, surfaced per #156): v1 legacy
+    // vs v2 must stay observable when the run is served from the index.
+    schema_version: run.manifest?.schema_version ?? null,
     host: run.host ?? 'unknown',
     workflow: run.workflow ?? null,
     profile: run.profile?.profile ?? run.manifest?.profile ?? null,
@@ -233,6 +242,7 @@ export function liteRunFromEntry(projectRoot, entry, now = Date.now()) {
       created_at: entry.started_at ?? null,
       completed_at: entry.completed_at ?? null,
       framework: entry.framework ?? 'unknown',
+      schema_version: entry.schema_version ?? null,
       started_by: entry.started_by ?? null,
       ...(entry.profile ? { profile: entry.profile } : {}),
       ...(entry.workflow ? { workflow: entry.workflow } : {}),

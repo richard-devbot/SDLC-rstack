@@ -87,6 +87,35 @@ function exportEvidenceProjection() {
   URL.revokeObjectURL(link.href);
 }
 
+// Traceability Drift (#74): on-demand scan of the newest run — requirements
+// without tasks, completed work without contracts, stale references,
+// contradicted readiness. Same scanner as the drift CLI; renders below the
+// Evidence Center as its own panel (ported across the #282 rewrite).
+function driftFindingRow(f) {
+  return '<div class="feed-row"><div class="feed-icon ' + (f.severity === 'error' ? 'fail' : 'warn') + '">' + (f.severity === 'error' ? 'NO' : '!') + '</div>' +
+    '<div><div class="feed-summary">' + esc(f.message) + '</div>' +
+    '<div class="feed-meta"><span>' + esc(f.type) + '</span><span class="mono">' + esc(f.artifact || '') + '</span></div></div></div>';
+}
+
+function fillDriftCard(run) {
+  if (!run) { setHTML('drift-card-body', emptyHtml('No runs in scope', 'Drift is scanned per run once one exists.')); return; }
+  authAwareFetch('/api/drift?run=' + encodeURIComponent(run.runId))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d || d.error) { setHTML('drift-card-body', emptyHtml('Drift scan unavailable', (d && d.error) || '')); return; }
+      var s = d.summary || {};
+      setHTML('drift-card-kpis',
+        '<div class="stat-chip"><span class="stat-n">' + (s.requirements || 0) + '</span><span class="stat-l">requirements</span></div>' +
+        '<div class="stat-chip"><span class="stat-n">' + (s.tasks || 0) + '</span><span class="stat-l">tasks</span></div>' +
+        '<div class="stat-chip"><span class="stat-n">' + (s.missing_evidence || 0) + '</span><span class="stat-l">missing evidence</span></div>' +
+        '<div class="stat-chip"><span class="stat-n">' + (s.stale_references || 0) + '</span><span class="stat-l">stale references</span></div>');
+      setHTML('drift-card-status', pill(d.status === 'PASS' ? 'pass' : d.status === 'WARN' ? 'warn' : 'fail', 'drift ' + d.status) + ' <span class="mono">' + esc(run.runId.slice(-24)) + '</span>');
+      setHTML('drift-card-body', (d.findings || []).slice(0, 12).map(driftFindingRow).join('') ||
+        emptyHtml('No drift detected', 'Requirements, tasks, evidence, and approvals line up for this run.'));
+    })
+    .catch(function() { setHTML('drift-card-body', emptyHtml('Drift scan unavailable', '')); });
+}
+
 function renderTraceability(s) {
   var model = s.evidenceCenter || { status: 'unknown', summary: {}, rows: [], sources: [], rationale: [], kinds: [] };
   var views = [['summary','Summary'],['matrix','Matrix'],['rationale','Readiness rationale']];
@@ -98,7 +127,10 @@ function renderTraceability(s) {
       : '<div class="evidence-rationale-list">' + evidenceRationale(model) + '</div>';
   setHTML('traceability-list',
     '<div class="evidence-toolbar"><nav aria-label="Evidence Center views">' + views.map(function(item) { return '<button type="button" aria-pressed="' + (EVIDENCE_VIEW === item[0]) + '" onclick="setEvidenceView(\\'' + item[0] + '\\')">' + item[1] + '</button>'; }).join('') + '</nav>' +
-    '<button type="button" class="tb-chip" onclick="exportEvidenceProjection()">Export same projection</button></div>' + body);
+    '<button type="button" class="tb-chip" onclick="exportEvidenceProjection()">Export same projection</button></div>' + body +
+    '<div class="panel" style="margin-top:16px"><div class="panel-head"><span class="panel-title">Traceability Drift</span><span class="panel-note" id="drift-card-status"></span></div>' +
+    '<div class="panel-body"><div class="stat-chips" id="drift-card-kpis"></div><div id="drift-card-body" style="margin-top:12px"></div></div></div>');
+  fillDriftCard((s.runs || [])[0]);
 }
 
 registerPage('traceability', {

@@ -28,6 +28,10 @@ Make selected stages require approval **in every mode**, including express runs:
   "required_approvals": {
     "008-release-readiness": ["release-readiness.json"]
   },
+  "required_stage_approvals": {
+    "07-code": ["architecture.md"]
+  },
+  "approvals": { "every_stage": true },
   "enforce_in_express": true,
   "managers": ["maya@acme.com", "lena@acme.com"]
 }
@@ -35,6 +39,14 @@ Make selected stages require approval **in every mode**, including express runs:
 
 - **`required_approvals`** — task id → artifacts that must be approved before
   that task can run. Enforced in interactive **and** express mode.
+- **`required_stage_approvals`** — canonical stage id (`00-environment` …
+  `14-cost-estimation`) → artifacts that must be approved before **any task
+  entering that stage** can run. No task ids needed. Enforced in every mode.
+- **`approvals.every_stage`** — blanket human gate: every task must have a
+  `stage-approval:<stage-id>` artifact approved for each canonical stage it
+  enters (e.g. `sdlc_approve(artifact="stage-approval:07-code", ...)`).
+  Approving a stage once unblocks all tasks entering that stage for the rest
+  of the run. Enforced in every mode.
 - **`enforce_in_express`** — also apply the default interactive gates to
   express runs.
 - **`managers`** — only these people may resolve approvals (see below).

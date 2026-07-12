@@ -19,6 +19,10 @@ import { rstackStateDir } from './runs.js';
 import { validateContextPressureConfig } from './context-pressure.js';
 // #159: parallel-groups config validation (data-independence + gate target).
 import { validateParallelGroupsConfig } from './parallel-benchmark.js';
+// #72: review_policy field rules live next to the defaults they guard.
+import { validateReviewPolicyConfig } from './review-independence.js';
+// #78: enabled_packs rules live next to the pack registry they check.
+import { validateEnabledPacksConfig } from '../packs.js';
 
 const KNOWN_PROFILES = ['business-flex', 'enterprise-webapp', 'lean-mvp'];
 const KNOWN_CHANNELS = ['slack', 'teams', 'discord', 'telegram', 'whatsapp'];
@@ -111,6 +115,10 @@ export function validateRstackConfig(parsed) {
       issues.push(found);
     }
   }
+  // #78: governance packs — unknown names are named, never silently ignored.
+  if (parsed.enabled_packs != null) {
+    issues.push(...validateEnabledPacksConfig(parsed.enabled_packs));
+  }
   return issues;
 }
 
@@ -166,11 +174,39 @@ export function validatePolicyConfig(parsed) {
       }
     }
   }
+  // #228: stage-keyed gates. Unknown stage ids are the silent-failure mode
+  // here — the gate keyed to a typo'd stage never fires — so they warn with
+  // the exact canonical form expected.
+  if (parsed.required_stage_approvals != null) {
+    if (!isPlainObject(parsed.required_stage_approvals)) {
+      issues.push({ field: 'required_stage_approvals', problem: 'must be an object of canonical-stage-id -> [artifact, ...] (e.g. "07-code": ["architecture.md"])' });
+    } else {
+      for (const [stageId, artifacts] of Object.entries(parsed.required_stage_approvals)) {
+        if (!getCanonicalStage(stageId)) {
+          issues.push({ field: `required_stage_approvals.${stageId}`, problem: 'unknown canonical stage id — this gate will NEVER fire; use a canonical 00-14 stage id like "07-code"' });
+        }
+        if (!Array.isArray(artifacts) || artifacts.some((artifact) => typeof artifact !== 'string' || !artifact.trim())) {
+          issues.push({ field: `required_stage_approvals.${stageId}`, problem: 'must be an array of non-empty artifact names — this gate will NOT be enforced as written' });
+        }
+      }
+    }
+  }
+  if (parsed.approvals != null) {
+    if (!isPlainObject(parsed.approvals)) {
+      issues.push({ field: 'approvals', problem: 'must be an object (e.g. { "every_stage": true })' });
+    } else if (parsed.approvals.every_stage != null && parsed.approvals.every_stage !== true && parsed.approvals.every_stage !== false) {
+      issues.push({ field: 'approvals.every_stage', problem: `must be a boolean, got ${JSON.stringify(parsed.approvals.every_stage)} — only the literal true enables the blanket per-stage gate` });
+    }
+  }
   if (parsed.enforce_in_express != null && typeof parsed.enforce_in_express !== 'boolean') {
     issues.push({ field: 'enforce_in_express', problem: `must be a boolean, got ${JSON.stringify(parsed.enforce_in_express)}` });
   }
   if (parsed.managers != null && (!Array.isArray(parsed.managers) || parsed.managers.some((manager) => typeof manager !== 'string' || !manager.trim()))) {
     issues.push({ field: 'managers', problem: 'must be an array of non-empty manager names/emails' });
+  }
+  // #72: cross-harness review independence policy block.
+  if (parsed.review_policy != null) {
+    issues.push(...validateReviewPolicyConfig(parsed.review_policy));
   }
   return issues;
 }

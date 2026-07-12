@@ -1,0 +1,41 @@
+# Untrusted PR gate (#75): protects workflows, package metadata, the harness
+# core, and .rstack policy from changes by contributors outside the maintainer
+# trust boundary.
+#
+# SECURITY MODEL — pull_request_target runs with base-repo credentials, which
+# is safe here ONLY because this job:
+#   1. checks out the BASE branch (never the PR head — no PR code executes),
+#   2. installs nothing (the evaluator is dependency-free; no `npm ci`),
+#   3. reads the PR's changed files + patch text through the GitHub API.
+# Keep it that way: adding a PR-head checkout or a dependency install to this
+# workflow reintroduces exactly the attack it exists to block.
+
+name: Untrusted PR gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write # apply the needs-maintainer-review label
+
+jobs:
+  gate:
+    name: Untrusted PR gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base branch (never the PR head)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Evaluate the PR against the gate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/untrusted-pr-gate.mjs

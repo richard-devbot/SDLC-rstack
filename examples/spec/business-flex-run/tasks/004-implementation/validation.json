@@ -1,0 +1,39 @@
+{
+  "task_id": "004-implementation",
+  "validator": "rstack-pi-extension",
+  "harness": "pi",
+  "model": null,
+  "validator_type": "code",
+  "validator_profile": {
+    "stage_id": "07-code",
+    "validator": "validator.07-code",
+    "model_hint": "haiku",
+    "required_checks": [
+      "builder_contract_complete",
+      "files_modified_exist",
+      "tests_run_evidence",
+      "no_placeholder_stubs"
+    ]
+  },
+  "status": "PASS",
+  "checks": [
+    { "name": "builder_has_task_id", "status": "PASS", "evidence": "present" },
+    { "name": "builder_status_allowed", "status": "PASS", "evidence": "PASS" },
+    { "name": "builder_task_id_matches", "status": "PASS", "evidence": "004-implementation" },
+    { "name": "builder_summary_meaningful", "status": "PASS", "evidence": "summary present" },
+    { "name": "builder_tests_run_has_evidence", "status": "PASS", "evidence": "2 item(s)" },
+    { "name": "builder_memory_summary_exists", "status": "PASS", "evidence": "present" },
+    { "name": "stage_summary_07-code_exists", "status": "PASS", "evidence": "present" },
+    { "name": "files_modified_exist", "status": "PASS", "evidence": "3 of 3 claimed files present" },
+    { "name": "tests_run_evidence", "status": "PASS", "evidence": "npm test -- checkout (18 passing, 0 failing)" },
+    { "name": "no_placeholder_stubs", "status": "PASS", "evidence": "no TODO/FIXME stub signatures in files_modified" },
+    { "name": "review_independence", "status": "PASS", "evidence": "builder harness 'pi' judged by external validator harness 'claude-code' — cross-harness review satisfied" }
+  ],
+  "issues": [],
+  "independence": {
+    "status": "PASS",
+    "enforced": true,
+    "explanation": "builder harness 'pi' judged by external validator harness 'claude-code' — cross-harness review satisfied"
+  },
+  "retry_recommendation": "none"
+}

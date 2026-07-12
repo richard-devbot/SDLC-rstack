@@ -1,0 +1,12 @@
+{
+  "name": "attestations",
+  "title": "Attestation Envelopes",
+  "description": "Wraps builder, validator, and release-readiness evidence in DSSE-style envelopes (#73): subject checksums make post-hoc edits detectable, producer identity says who did the work, and RSTACK_ATTESTATION_KEY upgrades from unsigned to HMAC-signed mode.",
+  "enforcement": "warning",
+  "provides": ["evidence-envelopes", "tamper-detection", "signing"],
+  "surfaces": {
+    "cli": ["rstack-agents attest", "rstack-agents verify-attestations"],
+    "artifacts": [".rstack/runs/<run-id>/attestations/"]
+  },
+  "references": ["https://github.com/secure-systems-lab/dsse", "https://slsa.dev/spec/v1.0/provenance"]
+}

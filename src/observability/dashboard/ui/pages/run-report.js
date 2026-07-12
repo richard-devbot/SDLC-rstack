@@ -325,9 +325,28 @@ function loadRunReport(runId) {
     if (!report || report.error) { grid.innerHTML = emptyHtml('No report', report && report.error); return; }
     grid.innerHTML = STAGE_CARD_ORDER.map(function(stageId) {
       return stageCardHtml(stageId, report.stages[stageId], false);
-    }).join('');
+    }).join('') + attestationCardHtml(report.attestations);
     animateReport(grid);
   });
+}
+
+// Attestation timeline (#73): verification status of the run's evidence
+// envelopes — subject checksums, predicate consistency, signatures.
+function attestationCardHtml(a) {
+  if (!a || (!a.total && !a.missing)) return '';
+  var head = '<div class="agent-head"><div class="strong">Attestations</div>' +
+    pill(a.ok ? 'pass' : 'fail', a.valid + '/' + a.total + ' valid') +
+    (a.missing ? pill('warn', a.missing + ' missing') : '') + '</div>';
+  var rows = (a.findings || []).map(function(f) {
+    var kind = (f.predicate_type || '').indexOf('builder') >= 0 ? 'builder'
+      : (f.predicate_type || '').indexOf('validator') >= 0 ? 'validator' : 'release-readiness';
+    var issueText = f.valid ? '' : ' — ' + (f.issues || []).map(function(i) { return i.type; }).join(', ');
+    return '<div class="feed-row"><div class="feed-icon ' + (f.valid ? 'pass' : 'fail') + '">' + (f.valid ? 'OK' : 'NO') + '</div>' +
+      '<div><div class="feed-summary">' + esc(kind + (f.task_id ? ' ' + f.task_id : '') + issueText) + '</div>' +
+      '<div class="feed-meta"><span>' + esc(f.signature_type || 'unsigned') + '</span></div></div>' +
+      '<div class="feed-ts">' + timeHtml(f.created_at) + '</div></div>';
+  }).join('');
+  return '<div class="agent-group">' + head + (rows || '<div class="muted">No envelopes yet — run rstack-agents attest.</div>') + '</div>';
 }
 
 function reportKpi(label, value, tone) {

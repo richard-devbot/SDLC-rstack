@@ -36,6 +36,17 @@ jobs:
       - name: Validate packaged agents
         run: npm run validate
 
+      # #71: the RStack Spec schemas, conformance example, and (tolerantly)
+      # any local run must validate — a schema/producer drift fails CI here.
+      - name: Validate spec schemas
+        run: npm run validate:schemas
+
+      # #73: verify attestation envelopes when a governed run is on disk.
+      # A checkout with no .rstack run exits 0 ("nothing to verify") — the
+      # step gates on INVALID envelopes, not on the absence of runs.
+      - name: Verify attestations
+        run: node bin/rstack-agents.js verify-attestations --json
+
       - name: Verify npm package contents
         run: npm pack --dry-run
 

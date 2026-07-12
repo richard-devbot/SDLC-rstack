@@ -12,7 +12,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { listAgents, listSkills, listPlugins, addPlugin } from '../src/commands/list.js';
+import { listAgents, listSkills, listPlugins, listGovernancePacks, addPlugin } from '../src/commands/list.js';
 import { loadPipelineStatus, formatPipelineStatus } from '../src/commands/pipeline.js';
 import { runPipeline, formatRunReport } from '../src/commands/pipeline-run.js';
 import { runGoalLoop, formatLoopReport, loadGoalDefinition } from '../src/commands/pipeline-loop.js';
@@ -20,6 +20,7 @@ import { adoptProject, formatAdoptionReport } from '../src/commands/adopt.js';
 import { envScan, formatEnvScan } from '../src/commands/env-scan.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
+import { runValidateSchemas, formatValidateSchemas } from '../src/commands/validate-schemas.js';
 import { runGuardCommand, readStdinText } from '../src/commands/guard.js';
 import { runGateCommand, readStdinText as readGateStdin, GATE_NAMES } from '../src/commands/gate.js';
 import { runObserveCommand, readStdinText as readObserveStdin } from '../src/commands/observe.js';
@@ -41,7 +42,10 @@ import {
   runCheckpointStatus, formatCheckpointStatus,
   runApprovalsAudit, formatApprovalsAudit,
   runMemoryInspect, formatMemoryInspect,
+  runReviewIndependence, formatReviewIndependence,
 } from '../src/commands/exposure.js';
+import { runAttest, formatAttest, runVerifyAttestations, formatVerifyAttestations } from '../src/commands/attest.js';
+import { runDrift, formatDrift } from '../src/commands/drift.js';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -90,6 +94,18 @@ listCmd
   .action(async () => {
     try {
       await listPlugins();
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+listCmd
+  .command('packs')
+  .description('List governance packs (#78) with enforcement levels and which profiles enable them by default')
+  .action(async () => {
+    try {
+      await listGovernancePacks();
     } catch (err) {
       log.error(err.message);
       process.exit(1);
@@ -613,9 +629,18 @@ program
 
 program
   .command('validate')
-  .description('Validate packaged agent definitions')
-  .action(async () => {
+  .description('Validate packaged agent definitions; with --schemas, validate the RStack Spec v1alpha1 schemas, conformance examples, and (tolerantly) the newest local run')
+  .option('--schemas', 'validate spec/schemas/*.schema.json + examples/spec/business-flex-run + the target project\'s newest .rstack run (missing files SKIP, invalid files FAIL with the field path)')
+  .option('-p, --project <path>', 'project root for --schemas run-state validation (defaults to current directory)')
+  .option('--json', 'with --schemas: print the structured report as JSON')
+  .action(async (opts) => {
     try {
+      if (opts.schemas) {
+        const report = await runValidateSchemas({ project: resolve(opts.project ?? process.cwd()) });
+        if (opts.json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+        else console.log(formatValidateSchemas(report));
+        process.exit(report.ok ? 0 : 1);
+      }
       const exitCode = await validateCommand();
       process.exit(exitCode);
     } catch (err) {
@@ -722,6 +747,97 @@ program
       else console.log(formatMemoryInspect(result));
       process.exit(result.healthy ? 0 : 1);
     } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('review')
+  .description('Inspect review independence')
+  .command('independence [runId]')
+  .description('Audit builder vs validator harness identity against the review_policy (#72) — same-harness self-validation, missing validator types, cross-harness coverage')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--json', 'print the structured audit as JSON')
+  .action(async (runId, opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runReviewIndependence(projectRoot, { runId });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatReviewIndependence(result));
+      // Non-zero only on a confirmed policy violation — WARN (unverified
+      // identity or warn-fallback findings) stays informational.
+      process.exit(result.status === 'FAIL' ? 1 : 0);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('attest [runId]')
+  .description('Wrap builder, validator, and release-readiness evidence in attestation envelopes (#73) — subject checksums + producer identity; signs with RSTACK_ATTESTATION_KEY when set')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--json', 'print the structured result as JSON')
+  .action(async (runId, opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runAttest(projectRoot, { runId });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatAttest(result));
+      process.exit(0);
+    } catch (err) {
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('verify-attestations [runId]')
+  .description('Verify attestation envelopes for a run — schema, subject checksums (stale/tampered detection), predicate consistency, and optional signatures')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--require-signature', 'fail any unsigned envelope')
+  .option('--json', 'print the structured verification report as JSON')
+  .action(async (runId, opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runVerifyAttestations(projectRoot, { runId, requireSignature: Boolean(opts.requireSignature) });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatVerifyAttestations(result));
+      process.exit(result.ok ? 0 : 1);
+    } catch (err) {
+      // "No RStack run found" is an ordinary state in CI and fresh checkouts —
+      // nothing to verify is not a verification failure.
+      if (/No RStack run found/i.test(err.message)) {
+        console.log('verify-attestations: no RStack run on disk — nothing to verify.');
+        process.exit(0);
+      }
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('drift [runId]')
+  .description('Detect traceability drift (#74) — requirements without tasks, completed work without contracts, stale file references, contradicted readiness')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--all', 'scan every run under .rstack/runs instead of one run')
+  .option('--strict', 'exit non-zero on warnings too (default: errors only)')
+  .option('--json', 'print the structured drift report as JSON')
+  .action(async (runId, opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runDrift(projectRoot, { runId, all: Boolean(opts.all) });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatDrift(result));
+      // Warning mode by default (#74 CI acceptance): FAIL gates, WARN reports.
+      const failed = result.status === 'FAIL' || (opts.strict && result.status === 'WARN');
+      process.exit(failed ? 1 : 0);
+    } catch (err) {
+      if (/No RStack run found/i.test(err.message)) {
+        console.log('drift: no RStack run on disk — nothing to scan.');
+        process.exit(0);
+      }
       log.error(err.message);
       process.exit(1);
     }

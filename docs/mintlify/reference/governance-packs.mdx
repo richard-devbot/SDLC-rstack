@@ -1,0 +1,46 @@
+---
+title: Governance Packs
+description: Profile-mapped bundles of governance capability with declared enforcement levels.
+---
+
+<!-- owner: RStack developed by Richardson Gunde -->
+
+# Governance Packs
+
+Profiles are RStack's posture dial; governance packs (#78) make the posture **concrete and inspectable**. Each pack is a named bundle of governance capability with a declared enforcement level, defined by a `pack.json` under the package's `packs/` directory. Packs are declarative metadata over enforcement that lives in the harness — enabling a pack records intent and surfaces posture in the Business Hub; the enforcement code ships with RStack either way.
+
+## The packs
+
+| Pack | Enforcement | What it provides |
+| --- | --- | --- |
+| `dor-basic` | advisory | Decision queue + readiness report, non-blocking |
+| `dor-enterprise` | blocking | Same, but pending required decisions block build prep |
+| `cross-harness-review` | warning | Contract identity + review independence policy (#72) |
+| `attestations` | warning | Tamper-evident evidence envelopes + verification (#73) |
+| `drift-detection` | warning | Traceability drift scanner + Hub card (#74) |
+| `untrusted-pr-gate` | blocking | Supply-chain PR boundary for public repos (#75) |
+| `compliance-nist-ai-rmf` | advisory | NIST AI RMF ↔ RStack evidence mapping table |
+| `compliance-iso-42001` | advisory | ISO/IEC 42001 ↔ RStack evidence mapping table |
+
+## Which profile fits which team
+
+- **`lean-mvp`** → `dor-basic`. Prototypes and MVPs: see what's unresolved and what it costs, without any gate stopping you. Choose this when speed of iteration matters more than review ceremony — the evidence trail still accrues.
+- **`business-flex`** → `dor-basic`, `cross-harness-review` (warning), `drift-detection` (warning). Client-facing delivery teams: approval gates and contracts are active, same-harness self-validation and traceability drift are *reported* rather than blocking. Choose this when a human reviews the warnings weekly.
+- **`enterprise-webapp`** → `dor-enterprise`, `cross-harness-review` (blocking), `attestations`, `drift-detection`, `untrusted-pr-gate`, both compliance mappings. Regulated or audit-facing teams: unresolved decisions and same-harness validation block, evidence is envelope-wrapped, and the repo boundary is gated. Choose this when "prove it" is a stakeholder, not a preference.
+
+The ladder changes **governance posture, not process weight** — the same 15-stage pipeline runs in every profile; packs decide what blocks versus what reports.
+
+## Using packs
+
+```bash
+rstack-agents init --profile enterprise-webapp   # records the enterprise pack set
+rstack-agents list packs                          # all packs, enforcement, profile defaults
+```
+
+`init` writes the active set to `.rstack/rstack.config.json`:
+
+```json
+{ "profile": "enterprise-webapp", "enabled_packs": ["dor-enterprise", "cross-harness-review", "..."] }
+```
+
+Override `enabled_packs` to tune posture without changing profile; `rstack-agents config validate` names unknown pack names instead of ignoring them. The Business Hub's policy ledger shows the active packs with their enforcement levels next to the operating profile.

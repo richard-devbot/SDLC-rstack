@@ -141,7 +141,9 @@ export function builderContractKey(builder) {
 
 // Deterministic JSON: object keys sorted at every level so key ordering never
 // changes the hash. Arrays keep their order (order is meaningful there).
-function canonicalJson(value) {
+// Exported for attestations (#73): envelope signing needs the same
+// key-order-independent canonical form the contract dedupe key uses.
+export function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (value && typeof value === 'object') {
     const keys = Object.keys(value).sort();

@@ -1,0 +1,12 @@
+{
+  "name": "dor-basic",
+  "title": "Definition-of-Ready (advisory)",
+  "description": "Front-loads product/architecture/budget decisions into the decision queue and reports readiness before build work starts, without blocking. The lightest useful gate: teams see what is unresolved, agents do not stall on it.",
+  "enforcement": "advisory",
+  "provides": ["decision-queue", "readiness-report"],
+  "surfaces": {
+    "cli": ["rstack-agents gate dor"],
+    "artifacts": [".rstack/runs/<run-id>/readiness.json", ".rstack/runs/<run-id>/dor-report.json"]
+  },
+  "references": ["https://www.nist.gov/itl/ai-risk-management-framework"]
+}

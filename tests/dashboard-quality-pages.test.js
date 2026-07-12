@@ -288,6 +288,30 @@ test('Evidence Center is honest when no requirement projection exists', () => {
   assert.equal(pagesApi.fetchCalls.length, 0, 'no report fetch without a spec-bearing run');
 });
 
+// Drift card (#74), ported across the #282 Evidence Center rewrite: the panel
+// renders below the Evidence Center and scans the newest run in scope — drift
+// is about the run's own artifacts, not the stage-02 spec.
+test('traceability drift card renders scan findings from /api/drift (#74)', async () => {
+  const pagesApi = loadPages({
+    report: {
+      status: 'FAIL',
+      summary: { requirements: 2, tasks: 3, missing_evidence: 1, stale_references: 1, errors: 1, warnings: 1 },
+      findings: [
+        { severity: 'error', type: 'missing-builder-contract', artifact: 't/builder.json', message: 'Task 001 is PASS but has no builder contract.' },
+        { severity: 'warning', type: 'stale-file-reference', artifact: 't/builder.json', message: 'Task 001 claims modified file src/gone.js, which no longer exists.' },
+      ],
+    },
+  });
+  pagesApi.render('traceability', { runs: [{ runId: 'r1', stageReports: [] }], traceMap: [] });
+  await tick();
+  const driftFetches = pagesApi.fetchCalls.filter((url) => url.indexOf('/api/drift') === 0);
+  assert.deepEqual(driftFetches, ['/api/drift?run=r1']);
+  assert.match(pagesApi.html('drift-card-status'), /drift FAIL/);
+  assert.match(pagesApi.html('drift-card-body'), /missing-builder-contract/);
+  assert.match(pagesApi.html('drift-card-body'), /no builder contract/);
+  assert.match(pagesApi.html('drift-card-kpis'), /missing evidence/);
+});
+
 // ── #91: Security threat registry ──
 
 const THREAT_MODEL = {

@@ -1,0 +1,29 @@
+{
+  "apiVersion": "rstack.dev/v1alpha1",
+  "kind": "AgentRole",
+  "metadata": {
+    "name": "validator.07-code"
+  },
+  "spec": {
+    "role": "validator",
+    "description": "Stage-07 code validator: verifies the builder contract read-only and writes validation.json. Cannot modify files — the validator sandbox denies writes, destructive shell, git mutations, publish/deploy, and secret-path redirects with no override path.",
+    "model": "opus",
+    "read_only": true,
+    "disallowed_tools": ["Write", "Edit", "NotebookEdit"],
+    "writes_contract": "validation.json",
+    "validator_profile": {
+      "stage_id": "07-code",
+      "validator": "validator.07-code",
+      "model_hint": "haiku",
+      "read_only": true,
+      "priority": 80,
+      "required_checks": [
+        "builder_contract_complete",
+        "files_modified_exist",
+        "tests_run_evidence",
+        "no_placeholder_stubs"
+      ],
+      "output_contract_fields": ["files_modified", "tests_run", "summary"]
+    }
+  }
+}

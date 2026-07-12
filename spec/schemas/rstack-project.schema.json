@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/project/v1alpha1",
+  "title": "RStack Project resource",
+  "description": "Kubernetes-style resource projection of one RStack-governed project. The raw on-disk file is .rstack/rstack.config.json (validateRstackConfig in src/core/harness/config-validation.js, written by init from the active profile), under definitions.file. Project identity is the filesystem root; roots that have used RStack are registered in ~/.rstack/known-projects.json as a plain array of absolute paths (src/core/tracker/registry.js).",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "rstack.dev/v1alpha1" },
+    "kind": { "const": "Project" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "root": { "type": "string", "description": "Absolute project root — the canonical project identity (filesystem-only resolution, #276)." }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "description": "The project's .rstack/rstack.config.json content (see definitions.file).",
+      "additionalProperties": true
+    },
+    "status": { "type": "object", "additionalProperties": true }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "file": {
+      "type": "object",
+      "description": "Raw .rstack/rstack.config.json. init writes the full active profile plus enabled_packs; every block is optional on read and malformed values warn with the default applied (never silently) — validateRstackConfig.",
+      "properties": {
+        "profile": { "type": "string", "enum": ["business-flex", "enterprise-webapp", "lean-mvp"] },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "enabled_domains": { "type": "array", "items": { "type": "string" } },
+        "enabled_agents": { "type": "array", "items": { "type": "string" } },
+        "enabled_plugins": { "type": "array", "items": { "type": "string" } },
+        "enabled_packs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Governance packs (#78); unknown pack names warn and are ignored (validateEnabledPacksConfig)."
+        },
+        "workflow": { "type": "string" },
+        "dashboard_pages": { "type": "array", "items": { "type": "string" } },
+        "business_stage_order": { "type": "array", "items": { "type": "string" } },
+        "guardrails": {
+          "type": "object",
+          "description": "Overrides of DEFAULT_HARNESS_GUARDRAILS (src/core/harness/guardrails.js): maxTaskAttempts (2), maxDestructiveTaskAttempts (1), maxToolCallsPerTask (40), maxMessagesPerTask (25), requireBuilderContract, requireValidatorContract, requireEvidenceForPass, requireUserApprovalForDestructiveActions, requireUserApprovalForPublishDeployOrForcePush (all true). Unknown keys are ignored with a warning.",
+          "additionalProperties": true
+        },
+        "loop": {
+          "type": "object",
+          "description": "Goal-loop bound overrides (DEFAULT_LOOP_BOUNDS: maxIterations 3, maxStepsPerIteration 10). maxIterations is clamped to the LOOP_HARD_CAP of 20 — no config can exceed it.",
+          "properties": {
+            "maxIterations": { "type": "number", "minimum": 1 },
+            "maxStepsPerIteration": { "type": "number", "minimum": 1 }
+          },
+          "additionalProperties": true
+        },
+        "checkpoints": {
+          "type": "object",
+          "description": "critical_stages: array of canonical stage ids that get pre/post restore points (default 06/07/08/09/12).",
+          "properties": {
+            "critical_stages": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": true
+        },
+        "context_pressure": {
+          "type": "object",
+          "description": "Context-pressure warning thresholds (#136), validated by validateContextPressureConfig.",
+          "additionalProperties": true
+        },
+        "parallel_groups": {
+          "type": "object",
+          "description": "Parallel-group execution config (#159/#208): enabled only at >=40% measured improvement; groups must be data-independent; max 6 stages per group.",
+          "additionalProperties": true
+        },
+        "hooks": {
+          "type": "object",
+          "description": "Recorded host-hook choices (e.g. gates: [plan, tdd, scope] from init --gates).",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

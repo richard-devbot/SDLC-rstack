@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/run/v1alpha1",
+  "title": "RStack Run resource",
+  "description": "Kubernetes-style resource projection of one governed run. The raw on-disk file it projects is .rstack/runs/<run_id>/manifest.json — its exact shape (RunManifest in src/integrations/pi/rstack-sdlc.ts, schema_version 2 via src/core/harness/migrations.js) lives under definitions.manifest and is what the schema validator checks against real runs.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "rstack.dev/v1alpha1" },
+    "kind": { "const": "Run" },
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "The run_id (timestamp-slug, matches ^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$ with no '..')." }
+      },
+      "additionalProperties": true
+    },
+    "spec": {
+      "type": "object",
+      "required": ["goal", "mode"],
+      "properties": {
+        "goal": { "type": "string" },
+        "mode": { "type": "string", "enum": ["interactive", "express"] },
+        "profile": { "type": "string", "description": "Active profile at sdlc_start (business-flex | enterprise-webapp | lean-mvp)." },
+        "workflow": { "type": "string" },
+        "project_root": { "type": "string" },
+        "rstack_version": { "type": "string" },
+        "started_by": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "email": { "type": ["string", "null"] }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "status": {
+      "type": "object",
+      "properties": {
+        "phase": { "type": "string", "enum": ["STARTED", "CLARIFYING", "PLANNED", "IN_PROGRESS", "BLOCKED", "DONE"] },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "schema_version": { "type": "number" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "manifest": {
+      "type": "object",
+      "required": ["run_id", "created_at", "updated_at", "goal", "mode", "status", "project_root"],
+      "description": "Raw manifest.json as sdlc_start writes it. schema_version is optional on disk: unversioned manifests are treated as v1 and migrated to 2 on read (migrateManifest).",
+      "properties": {
+        "schema_version": { "type": "number", "description": "MANIFEST_SCHEMA_VERSION = 2." },
+        "run_id": { "type": "string" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "goal": { "type": "string" },
+        "mode": { "type": "string", "enum": ["interactive", "express"] },
+        "status": { "type": "string", "enum": ["STARTED", "CLARIFYING", "PLANNED", "IN_PROGRESS", "BLOCKED", "DONE"] },
+        "project_root": { "type": "string" },
+        "rstack_version": { "type": "string" },
+        "traceability_path": { "type": "string" },
+        "started_by": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "email": { "type": ["string", "null"] }
+          },
+          "additionalProperties": true
+        },
+        "profile": { "type": "string" },
+        "workflow": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

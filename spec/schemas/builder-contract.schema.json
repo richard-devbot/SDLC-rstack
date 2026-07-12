@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "rstack.dev/builder-contract/v1alpha1",
+  "title": "RStack builder contract (builder.json)",
+  "description": "The contract a builder writes at .rstack/runs/<run_id>/tasks/<task_id>/builder.json. Derived from validateBuilderContract / validateBuilderCompleteness in src/core/harness/contracts.js — required fields and status enum match the code exactly. The harness is a tolerant reader: unknown fields are allowed and preserved.",
+  "type": "object",
+  "required": ["task_id", "status", "summary", "files_modified", "tests_run", "risks", "next_steps"],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Task this contract belongs to. Must equal the claimed task id — sdlc_validate FAILs builder_task_id_matches otherwise."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "BLOCKED", "DONE_WITH_CONCERNS"],
+      "description": "BUILDER_STATUSES. FAIL/BLOCKED are valid contracts that can never pass validation (builder_reported_not_pass)."
+    },
+    "summary": {
+      "type": "string",
+      "description": "What was done. Passing contracts (PASS / DONE_WITH_CONCERNS) must carry at least 10 meaningful characters (builder_summary_meaningful)."
+    },
+    "files_modified": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Project-relative paths the builder touched. Checked for existence by the files_modified_exist validator check."
+    },
+    "tests_run": {
+      "type": "array",
+      "description": "Commands run, or 'SKIPPED: <reason>' entries. Passing contracts must include at least one meaningful entry (builder_tests_run_has_evidence)."
+    },
+    "risks": {
+      "type": "array",
+      "description": "Known risks. Required to be present and an array; content is free-form."
+    },
+    "next_steps": {
+      "type": "array",
+      "description": "Follow-up work. Required to be present and an array; content is free-form."
+    },
+    "agent": {
+      "type": "string",
+      "description": "Optional executor identity; defaults to 'builder' when absent."
+    },
+    "harness": {
+      "type": ["string", "null"],
+      "description": "Optional producer identity (#72). Absent on legacy contracts — review independence cannot verify an identity that was never recorded."
+    },
+    "model": {
+      "type": ["string", "null"],
+      "description": "Optional producer model identity (#72)."
+    },
+    "memory_summary": {
+      "type": "object",
+      "description": "Required on passing contracts (builder_memory_summary_exists).",
+      "properties": {
+        "work_done": { "type": "string", "description": "At least 10 meaningful characters on passing contracts." },
+        "evidence": { "type": "array", "description": "Proof paths or commands; at least one meaningful entry on passing contracts." }
+      },
+      "additionalProperties": true
+    },
+    "stage_summaries": {
+      "type": "array",
+      "description": "One entry per canonical stage the task targets. Passing contracts must cover every expected stage id and use only known stage ids.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "stage_id": { "type": "string" },
+          "work_done": { "type": "string" },
+          "evidence": { "type": "array" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "execution": {
+      "type": "object",
+      "description": "Optional v2 telemetry block; when present it must be an object (builder_v2_execution_is_object). tools_used, when present, must be an array.",
+      "properties": {
+        "tools_used": { "type": "array" }
+      },
+      "additionalProperties": true
+    },
+    "cost": {
+      "type": "object",
+      "description": "Optional v2 telemetry block. estimated_usd / actual_usd, when present, must be numeric (builder_v2_cost_values_are_numeric).",
+      "additionalProperties": true
+    },
+    "context": {
+      "type": "object",
+      "description": "Optional v2 telemetry block; when present it must be an object.",
+      "additionalProperties": true
+    },
+    "routing": {
+      "type": "object",
+      "description": "Optional v2 telemetry block; recorded, not extracted.",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -49,6 +49,17 @@ function policyLaneStateHtml(record, kind) {
   '</div>';
 }
 
+// Governance packs (#78): the active posture bundles with their enforcement
+// level — blocking packs read as enforced policy, advisory as visibility.
+function governancePacksHtml(packs) {
+  if (!packs || !packs.length) return '';
+  var tone = { blocking: 'fail', warning: 'warn', advisory: 'info' };
+  return '<div class="policy-kicker" style="margin-top:10px">Governance packs</div>' +
+    '<div class="chips">' + packs.slice(0, 8).map(function(pack) {
+      return pill(tone[pack.enforcement] || 'idle', pack.name + ' · ' + (pack.enforcement || 'unknown'));
+    }).join('') + '</div>';
+}
+
 function businessPolicyLedgerHtml(model) {
   var projects = model.configuredPolicy && model.configuredPolicy.projects || [];
   var observed = model.observedConsumption || {};
@@ -63,7 +74,8 @@ function businessPolicyLedgerHtml(model) {
     var profileBody = profile.availability === 'configured'
       ? '<div class="policy-value">' + esc(profile.name || profile.id) + '</div>' +
         '<div class="policy-workflow mono">' + esc(profile.workflow || 'Workflow unavailable') + '</div>' +
-        '<div class="chips">' + (profile.enabledDomains || []).slice(0, 6).map(chip).join('') + '</div>'
+        '<div class="chips">' + (profile.enabledDomains || []).slice(0, 6).map(chip).join('') + '</div>' +
+        governancePacksHtml(profile.governancePacks)
       : policyLaneStateHtml(profile, 'profile');
     var budgetBody = budget.availability === 'configured'
       ? '<div class="policy-caps">' + policyCapHtml(budget.runBudgetUsd, 'run') +
