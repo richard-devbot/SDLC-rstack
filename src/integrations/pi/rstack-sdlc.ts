@@ -35,6 +35,9 @@ import { prepareRunState, prepareStageFolders, updateRunMetrics } from "../../co
 import { checkpointEvent, isCriticalStage, loadProjectCriticalStages, rollbackToCheckpoint, saveStageCheckpoint } from "../../core/harness/checkpoints.js";
 import { addDecision, decide, readDecisions, summarizeDecisions } from "../../core/harness/decisions.js";
 import { assertReadyForStage, dorCheck, latestStageId } from "../../core/harness/readiness.js";
+// #228: blanket per-stage human gates — stage-keyed approval artifacts
+// merged into the claim gate's required list.
+import { requiredStageApprovalArtifacts } from "../../core/harness/stage-approvals.js";
 import { withFileLock, writeJsonAtomic, writeFileAtomic } from "../../core/harness/safe-write.js";
 import { readSessionPin, writeSessionPin } from "../../core/harness/runs.js";
 import { resolveUserIdentity } from "../../core/harness/identity.js";
@@ -720,13 +723,18 @@ function requiredApprovalsForTask(taskId: string): string[] {
 
 type RunPolicy = {
   required_approvals?: Record<string, string[]>;
+  required_stage_approvals?: Record<string, string[]>;
+  approvals?: { every_stage?: boolean };
   enforce_in_express?: boolean;
 };
 
 // .rstack/policy.json — the team's approval policy. required_approvals entries
-// (exact task id → artifacts) are enforced in EVERY mode, so "no dev change
-// ships without manager approval" survives express runs. enforce_in_express
-// additionally applies the default interactive gates to express mode.
+// (exact task id → artifacts), required_stage_approvals entries (stage id →
+// artifacts, no task ids needed), and approvals.every_stage (blanket
+// stage-approval:<stage-id> sign-off, #228) are enforced in EVERY mode, so
+// "no dev change ships without manager approval" survives express runs.
+// enforce_in_express additionally applies the default interactive gates to
+// express mode.
 async function readRunPolicy(projectRoot: string): Promise<RunPolicy> {
   const path = join(projectRoot, ".rstack", "policy.json");
   if (!existsSync(path)) return {};
@@ -738,11 +746,15 @@ async function readRunPolicy(projectRoot: string): Promise<RunPolicy> {
   }
 }
 
-async function effectiveRequiredApprovals(projectRoot: string, manifest: RunManifest, taskId: string): Promise<string[]> {
+async function effectiveRequiredApprovals(projectRoot: string, manifest: RunManifest, task: any): Promise<string[]> {
   const policy = await readRunPolicy(projectRoot);
+  const taskId = task?.id;
   const defaults = manifest.mode === "express" && !policy.enforce_in_express ? [] : requiredApprovalsForTask(taskId);
   const policyRequired = policy.required_approvals?.[taskId] ?? [];
-  return [...new Set([...defaults, ...policyRequired])];
+  // #228: stage-keyed gates — derived from the task's canonical stages via
+  // taskStageIds, the same recipe the rollup and goal gate use.
+  const stageRequired = requiredStageApprovalArtifacts(policy, taskStageIds(task ?? {}), { taskId });
+  return [...new Set([...defaults, ...policyRequired, ...stageRequired])];
 }
 
 function missingApprovals(approvals: ApprovalRecord[], required: string[], expectedRunId?: string): string[] {
@@ -1799,7 +1811,7 @@ export default function (pi: ExtensionAPI) {
           }
           return { taskState, task, missing: [] as string[], requiredApprovals: [] as string[], readiness: null as any, guardrailCheck, guardrailAlreadyBlocked: alreadyBlocked, approvalAuditEvents };
         }
-        const requiredApprovals = await effectiveRequiredApprovals(projectRoot, manifest, task.id);
+        const requiredApprovals = await effectiveRequiredApprovals(projectRoot, manifest, task);
         const missing = missingApprovals(runApprovals, requiredApprovals, manifest.run_id);
         if (missing.length) return { taskState, task, missing, requiredApprovals, readiness: null as any, guardrailCheck, approvalAuditEvents };
         const readinessStage = latestStageId((task.stage_artifacts || []).map((artifact: any) => artifact?.stage_id).filter(Boolean));
@@ -2544,7 +2556,7 @@ export default function (pi: ExtensionAPI) {
       const next = tasks.find((t: any) => ["PENDING", "READY", "FAIL", "IN_PROGRESS", "BLOCKED"].includes(t.status));
       const runDir = join(runsDir(projectRoot), manifest.run_id);
       const approvals = await readApprovals(runDir);
-      const nextMissingApprovals = next && next.status !== "IN_PROGRESS" ? missingApprovals(approvals, await effectiveRequiredApprovals(projectRoot, manifest, next.id), manifest.run_id) : [];
+      const nextMissingApprovals = next && next.status !== "IN_PROGRESS" ? missingApprovals(approvals, await effectiveRequiredApprovals(projectRoot, manifest, next), manifest.run_id) : [];
       const releaseMissingApprovals = manifest.mode !== "express" ? missingApprovals(approvals, ["plan.md", "requirements.json", "architecture.md", "release-readiness.json"], manifest.run_id) : [];
       if (tasks.length > 0 && !next && tasks.every((t: any) => t.status === "PASS") && releaseMissingApprovals.length === 0) {
         manifest.status = "DONE";
