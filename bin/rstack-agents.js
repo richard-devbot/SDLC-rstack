@@ -44,6 +44,7 @@ import {
   runReviewIndependence, formatReviewIndependence,
 } from '../src/commands/exposure.js';
 import { runAttest, formatAttest, runVerifyAttestations, formatVerifyAttestations } from '../src/commands/attest.js';
+import { runDrift, formatDrift } from '../src/commands/drift.js';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -787,6 +788,32 @@ program
       // nothing to verify is not a verification failure.
       if (/No RStack run found/i.test(err.message)) {
         console.log('verify-attestations: no RStack run on disk — nothing to verify.');
+        process.exit(0);
+      }
+      log.error(err.message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('drift [runId]')
+  .description('Detect traceability drift (#74) — requirements without tasks, completed work without contracts, stale file references, contradicted readiness')
+  .option('-p, --project <path>', 'project root (defaults to current directory)')
+  .option('--all', 'scan every run under .rstack/runs instead of one run')
+  .option('--strict', 'exit non-zero on warnings too (default: errors only)')
+  .option('--json', 'print the structured drift report as JSON')
+  .action(async (runId, opts) => {
+    try {
+      const projectRoot = resolve(opts.project ?? process.cwd());
+      const result = await runDrift(projectRoot, { runId, all: Boolean(opts.all) });
+      if (opts.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      else console.log(formatDrift(result));
+      // Warning mode by default (#74 CI acceptance): FAIL gates, WARN reports.
+      const failed = result.status === 'FAIL' || (opts.strict && result.status === 'WARN');
+      process.exit(failed ? 1 : 0);
+    } catch (err) {
+      if (/No RStack run found/i.test(err.message)) {
+        console.log('drift: no RStack run on disk — nothing to scan.');
         process.exit(0);
       }
       log.error(err.message);
