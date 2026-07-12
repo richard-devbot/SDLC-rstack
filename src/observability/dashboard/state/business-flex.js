@@ -1,48 +1,124 @@
 // owner: RStack developed by Richardson Gunde
 
+import { hasMetricsWriteDrift, persistedTokenTotals } from '../../metrics/derive.js';
+
 function optionalBudgetValue(value) {
   if (value === null || value === undefined) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function runHasTelemetry(run) {
-  const totals = run?.totals ?? {};
-  if (Number(totals.cost_usd) > 0 || Number(totals.tokens) > 0) return true;
-  const metrics = run?.metrics ?? {};
-  if (Number(metrics.cumulative_cost_usd) > 0) return true;
-  const tokens = metrics.cumulative_tokens;
-  return Number(tokens?.total ?? tokens) > 0;
+function latestMeasurementTime(run) {
+  const eventTime = (run?.events ?? [])
+    .filter((event) => event?.type === 'cost_recorded' && event.ts)
+    .map((event) => event.ts)
+    .sort()
+    .at(-1) ?? null;
+  return eventTime ?? run?.metricsMeasuredAt ?? null;
 }
 
-function buildObservedConsumption(runs) {
-  const telemetryRuns = (runs ?? []).filter(runHasTelemetry);
-  if (!telemetryRuns.length) {
-    return {
-      availability: 'unavailable',
-      runCount: (runs ?? []).length,
-      runsWithTelemetry: 0,
-      totalCostUsd: null,
-      metricsSources: { persisted: 0, events: 0 },
-      lastMeasuredAt: null,
-    };
+function currentPolicyForRun(run, policyProjects) {
+  return (policyProjects ?? []).find((project) => (
+    (run.projectId && project.projectId === run.projectId)
+    || project.projectRoot === run.projectRoot
+  )) ?? null;
+}
+
+function capPosition(run, measurement, policyProjects) {
+  const policy = currentPolicyForRun(run, policyProjects);
+  const budget = policy?.budget;
+  if (!budget || budget.availability !== 'configured') {
+    return { status: budget?.availability ?? 'unavailable', runBudgetUsd: null, usedPercent: null, remainingUsd: null };
   }
-  const timestamps = telemetryRuns.flatMap((run) => (run.events ?? [])
-    .map((event) => event.ts)
-    .filter(Boolean))
-    .sort();
+  const cap = optionalBudgetValue(budget.runBudgetUsd);
+  if (cap === null) return { status: 'no_cap', runBudgetUsd: null, usedPercent: null, remainingUsd: null };
+  if (measurement.availability !== 'available') {
+    return { status: 'unavailable', runBudgetUsd: cap, usedPercent: null, remainingUsd: null };
+  }
+  // The loop reads metrics.json directly. Event-derived consumption is the
+  // honest observed total after drift, but it is not a compatible numerator
+  // for claiming what the persisted-file brake will do next.
+  if (measurement.metricsSource !== 'persisted') {
+    return { status: 'enforcement_stale', runBudgetUsd: cap, usedPercent: null, remainingUsd: null };
+  }
+  const spent = measurement.costUsd;
+  const exhausted = spent >= cap;
   return {
-    availability: 'available',
+    status: exhausted ? 'exhausted' : 'within_cap',
+    runBudgetUsd: cap,
+    usedPercent: cap > 0 ? Math.round((spent / cap) * 1000) / 10 : 100,
+    remainingUsd: Math.max(0, Math.round((cap - spent) * 10000) / 10000),
+  };
+}
+
+function runMeasurement(run, policyProjects) {
+  const persisted = persistedTokenTotals(run?.metrics);
+  const drifted = hasMetricsWriteDrift(run?.events);
+  const costEvents = (run?.events ?? []).filter((event) => event?.type === 'cost_recorded');
+  const metricsSource = persisted && !drifted ? 'persisted' : costEvents.length ? 'events' : null;
+  const available = metricsSource !== null;
+  const measurement = {
+    runId: run.runId,
+    projectRoot: run.projectRoot ?? null,
+    projectId: run.projectId ?? null,
+    availability: available ? 'available' : 'unavailable',
+    costUsd: available ? Number(run.totals?.cost_usd ?? run.metrics?.cumulative_cost_usd) || 0 : null,
+    tokens: available ? Number(run.totals?.tokens ?? persisted?.total) || 0 : null,
+    metricsSource: metricsSource ?? 'none',
+    measuredAt: available ? latestMeasurementTime(run) : null,
+    sourcePath: available
+      ? metricsSource === 'persisted' ? `.rstack/runs/${run.runId}/metrics.json` : `.rstack/runs/${run.runId}/events.jsonl`
+      : null,
+  };
+  measurement.cap = capPosition(run, measurement, policyProjects);
+  return measurement;
+}
+
+function projectObservations(runs, measurements, policyProjects) {
+  const keys = new Map();
+  for (const project of policyProjects ?? []) {
+    keys.set(project.projectId ?? project.projectRoot, { projectId: project.projectId ?? null, projectRoot: project.projectRoot ?? null });
+  }
+  for (const run of runs ?? []) {
+    const key = run.projectId ?? run.projectRoot;
+    if (!keys.has(key)) keys.set(key, { projectId: run.projectId ?? null, projectRoot: run.projectRoot ?? null });
+  }
+  return [...keys.entries()].map(([key, identity]) => {
+    const projectRuns = (runs ?? []).filter((run) => (run.projectId ?? run.projectRoot) === key);
+    const observed = measurements.filter((measurement) => (measurement.projectId ?? measurement.projectRoot) === key && measurement.availability === 'available');
+    const stamps = observed.map((measurement) => measurement.measuredAt).filter(Boolean).sort();
+    return {
+      ...identity,
+      availability: observed.length ? 'available' : 'unavailable',
+      runCount: projectRuns.length,
+      runsWithTelemetry: observed.length,
+      totalCostUsd: observed.length ? observed.reduce((sum, measurement) => sum + measurement.costUsd, 0) : null,
+      totalTokens: observed.length ? observed.reduce((sum, measurement) => sum + measurement.tokens, 0) : null,
+      metricsSources: {
+        persisted: observed.filter((measurement) => measurement.metricsSource === 'persisted').length,
+        events: observed.filter((measurement) => measurement.metricsSource === 'events').length,
+      },
+      lastMeasuredAt: stamps.at(-1) ?? null,
+    };
+  });
+}
+
+function buildObservedConsumption(runs, policyProjects) {
+  const measurements = (runs ?? []).map((run) => runMeasurement(run, policyProjects));
+  const observed = measurements.filter((measurement) => measurement.availability === 'available');
+  const timestamps = observed.map((measurement) => measurement.measuredAt).filter(Boolean).sort();
+  return {
+    availability: observed.length ? 'available' : 'unavailable',
     runCount: (runs ?? []).length,
-    runsWithTelemetry: telemetryRuns.length,
-    totalCostUsd: telemetryRuns.reduce((sum, run) => (
-      sum + (Number(run.totals?.cost_usd ?? run.metrics?.cumulative_cost_usd) || 0)
-    ), 0),
+    runsWithTelemetry: observed.length,
+    totalCostUsd: observed.length ? observed.reduce((sum, measurement) => sum + measurement.costUsd, 0) : null,
     metricsSources: {
-      persisted: telemetryRuns.filter((run) => Object.keys(run.metrics ?? {}).length > 0).length,
-      events: telemetryRuns.filter((run) => Object.keys(run.metrics ?? {}).length === 0).length,
+      persisted: observed.filter((measurement) => measurement.metricsSource === 'persisted').length,
+      events: observed.filter((measurement) => measurement.metricsSource === 'events').length,
     },
     lastMeasuredAt: timestamps.at(-1) ?? null,
+    runs: measurements,
+    projects: projectObservations(runs, measurements, policyProjects),
   };
 }
 
@@ -62,13 +138,17 @@ function runPolicySnapshot(run) {
   };
 }
 
-function snapshotDifferences(snapshot, current) {
+function snapshotDifferences(snapshot, current, comparability) {
   const fields = [
-    ['profileId', snapshot.profile.id, current.profile.id],
-    ['workflow', snapshot.profile.workflow, current.profile.workflow],
-    ['runBudgetUsd', snapshot.budget.runBudgetUsd, current.budget.runBudgetUsd],
-    ['dailyBudgetUsd', snapshot.budget.dailyBudgetUsd, current.budget.dailyBudgetUsd],
-    ['monthlyBudgetUsd', snapshot.budget.monthlyBudgetUsd, current.budget.monthlyBudgetUsd],
+    ...(comparability.profile ? [
+      ['profileId', snapshot.profile.id, current.profile.id],
+      ['workflow', snapshot.profile.workflow, current.profile.workflow],
+    ] : []),
+    ...(comparability.budget ? [
+      ['runBudgetUsd', snapshot.budget.runBudgetUsd, current.budget.runBudgetUsd],
+      ['dailyBudgetUsd', snapshot.budget.dailyBudgetUsd, current.budget.dailyBudgetUsd],
+      ['monthlyBudgetUsd', snapshot.budget.monthlyBudgetUsd, current.budget.monthlyBudgetUsd],
+    ] : []),
   ];
   return fields
     .filter(([, previous, configured]) => previous !== configured)
@@ -82,17 +162,20 @@ function buildRunSnapshots(runs, policyProjects) {
       (run.projectId && project.projectId === run.projectId)
       || project.projectRoot === run.projectRoot
     ));
-    const comparable = current
-      && current.profile?.availability === 'configured'
-      && current.budget?.availability === 'configured';
-    const differences = comparable ? snapshotDifferences(snapshot, current) : [];
+    const comparability = {
+      profile: Boolean(current && current.profile?.availability === 'configured'),
+      budget: Boolean(current && current.budget?.availability === 'configured'),
+    };
+    const comparable = comparability.profile || comparability.budget;
+    const differences = comparable ? snapshotDifferences(snapshot, current, comparability) : [];
     return {
       runId: run.runId,
       runKey: run.scopeKey ?? null,
       projectId: run.projectId ?? current?.projectId ?? null,
       projectRoot: run.projectRoot ?? null,
       ...snapshot,
-      comparison: comparable ? (differences.length ? 'differs' : 'current') : 'unavailable',
+      comparison: comparable ? (differences.length ? 'differs' : comparability.profile && comparability.budget ? 'current' : 'partial') : 'unavailable',
+      comparability,
       differences,
     };
   });
@@ -156,7 +239,7 @@ export function buildBusinessFlexState(runs = [], configuredPolicy = { projects:
   };
   return {
     configuredPolicy: configuredPolicy ?? { projects: [] },
-    observedConsumption: buildObservedConsumption(runs),
+    observedConsumption: buildObservedConsumption(runs, configuredPolicy?.projects),
     plannedEnvelopes,
     runSnapshots: buildRunSnapshots(runs, configuredPolicy?.projects),
     profiles: [...profileMap.values()].map((entry) => ({

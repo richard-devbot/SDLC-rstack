@@ -54,7 +54,9 @@ import { readPipelineState, buildPipelineState } from '../../../core/harness/pip
 // list is capped at 100, and consumers deriving counts from `.length` of the
 // capped array silently undercounted 100+-evidence runs to exactly 100 (the
 // same no-silent-caps violation #296 fixed, one level up).
-export const INDEX_VERSION = 7;
+// v8 (#283): entries persist metrics_measured_at so index-served Spend views
+// expose when persisted telemetry was measured instead of losing file time.
+export const INDEX_VERSION = 8;
 export const DEFAULT_RETENTION_DAYS = 90;
 
 const STALL_MS = 30 * 60 * 1000;
@@ -172,6 +174,7 @@ export function entryFromRun(run, sig = null) {
       stage_cost_usd: run.metrics?.stage_cost_usd ?? {},
       stage_tokens: run.metrics?.stage_tokens ?? {},
     },
+    metrics_measured_at: run.metricsMeasuredAt ?? null,
     totals: run.totals ?? null,
     cost_usd: run.totals?.cost_usd || metricCost || 0,
     tokens: run.totals?.tokens || metricTokens || 0,
@@ -238,6 +241,7 @@ export function liteRunFromEntry(projectRoot, entry, now = Date.now()) {
     workflow: entry.workflow ?? null,
     budgetPolicy: null,
     metrics: entry.metrics ?? {},
+    metricsMeasuredAt: entry.metrics_measured_at ?? null,
     tasks: (entry.tasks ?? []).map((task) => ({
       ...task,
       validation: task.validation_status ? { status: task.validation_status, checks: [] } : null,

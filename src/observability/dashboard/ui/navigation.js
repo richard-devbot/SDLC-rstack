@@ -44,9 +44,9 @@ export const destinations = Object.freeze([
     child('decisions', 'Decisions / Readiness', true),
     child('alerts-guardrails', 'Alerts & Guardrails', true),
   ]),
-  destination('spend', 'Spend', 'spend', 'business-flex', [
-    child('business-flex', 'Business Flex'),
-    child('cost-budget', 'Cost & Budget'),
+  destination('spend', 'Spend', 'spend', 'cost-budget', [
+    child('cost-budget', 'Spend Center'),
+    child('business-flex', 'Business Flex', true),
   ]),
   destination('operations', 'Operations', 'operations', 'live-feed', [
     child('live-feed', 'Live Feed'),
