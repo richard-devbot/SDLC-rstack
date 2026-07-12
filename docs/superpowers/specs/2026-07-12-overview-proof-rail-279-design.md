@@ -1,5 +1,7 @@
 # Availability-aware Overview and Proof Rail (#279)
 
+RStack developed by Richardson Gunde
+
 ## Outcome
 
 The Overview becomes the decision surface for the selected project/run scope. Its first viewport answers five questions in order: what outcome is supported, how fresh and complete the evaluation is, what the user should do next, how the delivery moved through canonical stages, and how many actionable items require review.

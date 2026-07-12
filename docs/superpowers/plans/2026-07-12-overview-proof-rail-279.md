@@ -1,5 +1,7 @@
 # Availability-aware Overview and Proof Rail Implementation Plan
 
+RStack developed by Richardson Gunde
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the KPI-first Overview with a server-truthful outcome, next action, responsive Proof Rail, and ordered secondary telemetry.
