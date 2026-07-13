@@ -62,9 +62,10 @@ export function createResourcePool() {
     workSurface: material(0xb9c2c5, { metalness: 0.28, roughness: 0.5 }),
     chair: material(0x5e7880, { metalness: 0.18, roughness: 0.72 }),
     monitor: material(0x27363b, { metalness: 0.34, roughness: 0.3, emissive: 0x12242a, emissiveIntensity: 0.22 }),
+    screenGlow: material(0xbfe8ff, { metalness: 0, roughness: 0.3, emissive: 0x9fd8ff, emissiveIntensity: 0.95 }),
     library: material(0x9aa8a4, { metalness: 0.2, roughness: 0.64 }),
     governanceGlass: new THREE.MeshPhysicalMaterial({ color: 0xc7e7e7, transparent: true, opacity: 0.26, roughness: 0.12, metalness: 0.05, depthWrite: false }),
-    floorLight: material(0xd7d2c5, { metalness: 0.08, roughness: 0.84 }),
+    floorLight: material(0xe3ded2, { metalness: 0.08, roughness: 0.45 }),
     statuses: Object.fromEntries(Object.entries(STATUS_COLORS).map(([status, color]) => [
       status,
       material(color, {

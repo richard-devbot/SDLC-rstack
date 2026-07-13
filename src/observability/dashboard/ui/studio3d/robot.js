@@ -37,11 +37,11 @@ export const ROBOT_PELVIS_HEIGHT = 1.34;
 const FLEET_BUCKETS = Object.freeze([
   Object.freeze({ id: 'shellSlab', geometry: 'slab', material: 'robotShell', partsPerRobot: 4 }),
   Object.freeze({ id: 'shellCylinder', geometry: 'cylinder', material: 'robotShell', partsPerRobot: 10 }),
-  Object.freeze({ id: 'jointSphere', geometry: 'sphere', material: 'robotJoint', partsPerRobot: 15 }),
+  Object.freeze({ id: 'jointSphere', geometry: 'sphere', material: 'robotJoint', partsPerRobot: 14 }),
   Object.freeze({ id: 'jointSlab', geometry: 'slab', material: 'robotJoint', partsPerRobot: 1 }),
   Object.freeze({ id: 'jointCylinder', geometry: 'cylinder', material: 'robotJoint', partsPerRobot: 2 }),
   Object.freeze({ id: 'screen', geometry: 'slab', material: 'robotScreen', partsPerRobot: 1 }),
-  Object.freeze({ id: 'face', geometry: 'sphere', material: 'face', partsPerRobot: 3 }),
+  Object.freeze({ id: 'face', geometry: 'sphere', material: 'face', partsPerRobot: 4 }),
   Object.freeze({ id: 'roleBand', geometry: 'slab', material: 'roleBand', partsPerRobot: 1 }),
 ]);
 
@@ -139,18 +139,19 @@ export function createHumanoidRobot(pool, data = {}) {
   const head = joints.head = pivot('head', neck, [0, 0.2, 0]);
   // Oversized rounded head with side pods and an antenna — expressive and
   // recognizably humanoid without any downloaded character asset.
+  const faceMaterial = pool.materials.robotFace.clone();
   head.add(mesh(pool.geometries.sphere, pool.materials.robotShell, [0.27, 0.23, 0.25], [0, 0.08, 0], 'headShell'));
   head.add(mesh(pool.geometries.sphere, pool.materials.robotJoint, [0.075, 0.095, 0.095], [-0.27, 0.07, 0], 'earPodLeft'));
   head.add(mesh(pool.geometries.sphere, pool.materials.robotJoint, [0.075, 0.095, 0.095], [0.27, 0.07, 0], 'earPodRight'));
   head.add(mesh(pool.geometries.cylinder, pool.materials.robotJoint, [0.018, 0.2, 0.018], [0, 0.38, 0], 'antenna'));
-  head.add(mesh(pool.geometries.sphere, pool.materials.robotJoint, [0.038, 0.038, 0.038], [0, 0.5, 0], 'antennaTip'));
+  // Status-glow antenna tip: shares the semantic face material, so it lights
+  // in the same color as the robot's expression state.
+  head.add(mesh(pool.geometries.sphere, faceMaterial, [0.038, 0.038, 0.038], [0, 0.5, 0], 'antennaTip'));
   const faceDisplay = new THREE.Group();
   faceDisplay.name = 'faceDisplay';
   faceDisplay.position.set(0, 0.06, 0.2);
   const screen = mesh(pool.geometries.slab, pool.materials.robotScreen, [0.32, 0.18, 0.055], [0, 0, 0], 'faceScreen');
   faceDisplay.add(screen);
-
-  const faceMaterial = pool.materials.robotFace.clone();
   const eyeLeft = mesh(pool.geometries.sphere, faceMaterial, [0.07, 0.078, 0.03], [-0.09, 0.01, 0.035], 'eyeLeft');
   const eyeRight = mesh(pool.geometries.sphere, faceMaterial, [0.07, 0.078, 0.03], [0.09, 0.01, 0.035], 'eyeRight');
   faceDisplay.add(eyeLeft, eyeRight);
@@ -258,6 +259,7 @@ export function createRobotFleetRenderer(pool, { maxRobots = 17 } = {}) {
     meshObject.name = `Robot fleet · ${definition.id}`;
     meshObject.count = 0;
     meshObject.frustumCulled = false;
+    meshObject.castShadow = true;
     meshObject.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     meshObject.userData.interactive = true;
     meshObject.userData.entityRefs = [];

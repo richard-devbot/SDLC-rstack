@@ -26,6 +26,12 @@ test('responsive stylesheet keeps the semantic Studio primary at 390px', () => {
   assert.match(css, /\[data-renderer="semantic-only"\]/);
   // The cutaway office revision removed every world-space text surface.
   assert.doesNotMatch(css, /studio-overlays|studio-world-label/);
+  // Immersive desktop default: the live 3D office is the page; the semantic
+  // tree and timeline hide behind the Semantic view toggle...
+  assert.match(css, /#studio-app\[data-renderer="three"\] \.semantic-studio[^{]*{[^}]*display:\s*none/s);
+  assert.match(css, /#studio-app\[data-renderer="three"\] \.studio-timeline-shell[^}]*display/s);
+  // ...while mobile stays semantic-first even when the small canvas renders.
+  assert.match(css, /@media\s*\(max-width:\s*600px\)[\s\S]+data-renderer="three"\] \.semantic-studio\s*{\s*display:\s*block/s);
   assert.doesNotMatch(css, /width:\s*380px/);
 });
 

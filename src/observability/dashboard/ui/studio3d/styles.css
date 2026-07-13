@@ -469,6 +469,15 @@ button { min-height: 44px; }
 #studio-app[data-renderer="semantic"] .studio-camera-controls,
 #studio-app[data-renderer="semantic-only"] .studio-camera-controls { display: none; }
 
+/* Immersive default: while the 3D office is live on desktop, the company
+   floor IS the page. The complete semantic tree and lifecycle timeline stay
+   one click away on the Semantic view toggle and remain the canonical
+   accessibility surface; the click-open inspector stays available. */
+#studio-app[data-renderer="three"] .semantic-studio,
+#studio-app[data-renderer="three"] .studio-timeline-shell { display: none; }
+
+#studio-app[data-renderer="three"] .studio-camera-controls { left: 18px; }
+
 #studio-app[data-motion="reduced"] *,
 #studio-app[data-motion="reduced"] *::before,
 #studio-app[data-motion="reduced"] *::after {
@@ -531,7 +540,12 @@ button { min-height: 44px; }
     justify-content: space-between;
   }
 
+  /* Mobile stays semantic-first even while the small canvas renders. */
+  #studio-app[data-renderer="three"] .semantic-studio { display: block; }
+  #studio-app[data-renderer="three"] .studio-timeline-shell { display: block; }
+
   .semantic-studio,
+  #studio-app[data-renderer="three"] .semantic-studio,
   #studio-app[data-renderer="semantic"] .semantic-studio,
   #studio-app[data-renderer="semantic-only"] .semantic-studio {
     position: relative;

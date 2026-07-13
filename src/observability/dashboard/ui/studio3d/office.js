@@ -235,6 +235,8 @@ function createFurnitureInstances(pool, desks) {
   keyboards.name = 'Office keyboards';
   const legs = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.graphiteLight, allDesks.length * 2);
   legs.name = 'Desk legs';
+  const screenGlow = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.screenGlow, allDesks.length);
+  screenGlow.name = 'Occupied screen glow';
   const transform = new THREE.Object3D();
 
   const writeInstance = (mesh, index, desk, position, scale) => {
@@ -257,12 +259,30 @@ function createFurnitureInstances(pool, desks) {
     writeInstance(legs, index * 2 + 1, desk, [0.5, 0.51, 0], [0.07, 0.94, 0.55]);
   });
 
+  // A desk screen lights only while a real observed session occupies it.
+  const refreshScreenGlow = () => {
+    allDesks.forEach((desk, index) => {
+      writeInstance(
+        screenGlow,
+        index,
+        desk,
+        [0, 1.55, 0.215],
+        desk.occupant ? [0.5, 0.32, 0.02] : [0.0001, 0.0001, 0.0001],
+      );
+    });
+    screenGlow.instanceMatrix.needsUpdate = true;
+  };
+  refreshScreenGlow();
+
   for (const mesh of [builderTops, validatorTops, chairs, chairBacks, monitors, keyboards, legs]) {
     mesh.instanceMatrix.needsUpdate = true;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
   }
-  return [builderTops, validatorTops, chairs, chairBacks, monitors, keyboards, legs];
+  return {
+    meshes: [builderTops, validatorTops, chairs, chairBacks, monitors, keyboards, legs, screenGlow],
+    refreshScreenGlow,
+  };
 }
 
 function createStageCells(pool) {
@@ -368,7 +388,8 @@ export function createOfficeEnvironment(pool) {
   const validatorWorkstations = new THREE.Group();
   validatorWorkstations.name = 'Validator workstations';
   desks.validator.forEach((desk) => validatorWorkstations.add(desk.object));
-  object.add(builderWorkstations, validatorWorkstations, ...createFurnitureInstances(pool, desks));
+  const furniture = createFurnitureInstances(pool, desks);
+  object.add(builderWorkstations, validatorWorkstations, ...furniture.meshes);
 
   const boards = createMissionBoards(pool);
   const cells = createStageCells(pool);
@@ -383,6 +404,7 @@ export function createOfficeEnvironment(pool) {
     goalToken: named.goalToken,
     governanceBeacon: named.governanceBeacon,
     vaultLight: named.vaultLight,
+    refreshScreenGlow: furniture.refreshScreenGlow,
     dispose() {
       object.removeFromParent();
       floor.geometry.dispose();
@@ -405,7 +427,9 @@ export function assignOfficeProjection(office, projection, pool) {
     workstationBySession.set(session.id, desk);
   });
 
-  // The goal token illuminates only from the projected orchestrator state.
+  // The goal token illuminates only from the projected orchestrator state,
+  // and desk screens light only for their occupying session.
   office.goalToken.material = pool.statusMaterial(projection.orchestrator?.status);
+  office.refreshScreenGlow?.();
   return workstationBySession;
 }

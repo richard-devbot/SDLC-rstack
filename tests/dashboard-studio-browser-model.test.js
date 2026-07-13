@@ -112,9 +112,12 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   }
   assert.match(sceneSource, /createOfficeEnvironment/);
   assert.match(sceneSource, /createAgentAnimator/);
-  // World-space labels were removed with the cutaway office revision.
+  // World-space labels were removed with the cutaway office revision;
+  // in-canvas attention is icon-only status badges, never prose.
   assert.equal(existsSync(overlaysPath), false);
   assert.doesNotMatch(sceneSource, /createStudioOverlays|overlayRoot|studio-world-label/);
+  assert.match(sceneSource, /statusBadge/);
+  assert.match(sceneSource, /syncStatusBadges/);
   assert.match(sceneSource, /MAX_DETAILED_RIGS\s*=\s*16/);
   assert.match(sceneSource, /DRAW_CALL_CEILING\s*=\s*90/);
   assert.match(sceneSource, /TRIANGLE_CEILING\s*=\s*200_000/);

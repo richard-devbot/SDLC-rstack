@@ -80,8 +80,8 @@ export const STUDIO_TOPOLOGY = Object.freeze({
   builderPool: slot('builder-bullpen', -11, 0, 4.5),
   validator: slot('validator-lab', 10, 0, 4, Math.PI),
   handoffDock: point(5.5, 0, 2),
-  overviewTarget: point(0, 0.6, 0),
-  overviewCamera: point(21, 24, 27),
+  overviewTarget: point(0, 0.4, -0.5),
+  overviewCamera: point(17.5, 19.5, 22.5),
   routes: Object.freeze({
     dispatch_to_library: Object.freeze([
       point(-16, 0, 10),

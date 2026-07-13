@@ -3,7 +3,7 @@
  *
  * owner: RStack developed by Richardson Gunde
  */
-/* global ResizeObserver, performance, devicePixelRatio */
+/* global ResizeObserver, performance, devicePixelRatio, document */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createAgentAnimator } from './animator.js';
@@ -48,7 +48,7 @@ export function createStudioScene(canvas, {
   });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.98;
+  renderer.toneMappingExposure = 1.06;
   renderer.setClearColor(0xcbd2cf, 1);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -125,6 +125,66 @@ export function createStudioScene(canvas, {
   });
   transitions.setMotion(motionMode);
   animator.setMotion(motionMode);
+
+  // Icon-only status badges floating above robots — one glyph and color per
+  // source-backed status, never prose. Detailed facts stay in the inspector.
+  const BADGE_STYLES = Object.freeze({
+    active: ['#d98719', '⚙'],
+    starting: ['#2867d6', '…'],
+    queued: ['#2867d6', '…'],
+    waiting: ['#7254c7', '⏳'],
+    blocked: ['#c9473b', '!'],
+    failed: ['#c9473b', '!'],
+    completed: ['#2f8f74', '✓'],
+    stopped: ['#8a9097', '·'],
+    unknown: ['#8a9097', '·'],
+  });
+  const badgeMaterials = new Map();
+
+  function badgeMaterial(status) {
+    const key = Object.hasOwn(BADGE_STYLES, status) ? status : 'unknown';
+    if (badgeMaterials.has(key)) return badgeMaterials.get(key);
+    const [color, glyph] = BADGE_STYLES[key];
+    const canvasEl = document.createElement('canvas');
+    canvasEl.width = 96;
+    canvasEl.height = 96;
+    const context = canvasEl.getContext('2d');
+    context.beginPath();
+    context.arc(48, 48, 40, 0, Math.PI * 2);
+    context.fillStyle = color;
+    context.fill();
+    context.lineWidth = 6;
+    context.strokeStyle = 'rgba(255,255,255,0.92)';
+    context.stroke();
+    context.font = '600 46px ui-sans-serif, system-ui, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = '#ffffff';
+    context.fillText(glyph, 48, 52);
+    const texture = new THREE.CanvasTexture(canvasEl);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+    badgeMaterials.set(key, material);
+    return material;
+  }
+
+  function syncStatusBadges() {
+    for (const [key, handle] of reconciler.entries()) {
+      if (!handle.robot) continue;
+      let badge = handle.object.getObjectByName('statusBadge');
+      if (!badge) {
+        badge = new THREE.Sprite(badgeMaterial('unknown'));
+        badge.name = 'statusBadge';
+        badge.scale.setScalar(0.62);
+        badge.renderOrder = 30;
+        handle.object.add(badge);
+      }
+      const status = handle.object.userData.status ?? 'unknown';
+      badge.material = badgeMaterial(status);
+      badge.position.set(0, key.startsWith('orchestrator:') ? 3.45 : 3.3, 0);
+      badge.visible = status !== 'unknown';
+    }
+  }
 
   function disposeDynamic(object) {
     if (!object) return;
@@ -310,6 +370,7 @@ export function createStudioScene(canvas, {
     reconciler.apply(projection);
     robotFleet.reconcile(reconciler.entries());
     applyRestingStates();
+    syncStatusBadges();
     robotFleet.update();
     refreshProjectionGeometry();
     transitions.ingest(projection.timeline, { prime: firstTimeline });
@@ -404,6 +465,11 @@ export function createStudioScene(canvas, {
     workstationBySession.clear();
     [...office.desks.builder, ...office.desks.validator].forEach((desk) => { desk.occupant = null; });
     disposeDynamic(capabilityInstances);
+    for (const material of badgeMaterials.values()) {
+      material.map?.dispose();
+      material.dispose();
+    }
+    badgeMaterials.clear();
     office.dispose();
     controls.dispose();
     pool.dispose();
