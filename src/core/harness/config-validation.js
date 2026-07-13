@@ -291,6 +291,15 @@ export function validatePolicyConfig(parsed) {
   if (parsed.enforce_in_express != null && typeof parsed.enforce_in_express !== 'boolean') {
     issues.push({ field: 'enforce_in_express', problem: `must be a boolean, got ${JSON.stringify(parsed.enforce_in_express)}` });
   }
+  // #285: cockpit-controls opt-in. Only the literal true enables state-changing
+  // hub controls; a typo'd key silently leaves the feature OFF, so warn.
+  if (parsed.cockpit_controls != null) {
+    if (!isPlainObject(parsed.cockpit_controls)) {
+      issues.push({ field: 'cockpit_controls', problem: 'must be an object (e.g. { "enabled": true })' });
+    } else if (parsed.cockpit_controls.enabled != null && typeof parsed.cockpit_controls.enabled !== 'boolean') {
+      issues.push({ field: 'cockpit_controls.enabled', problem: `must be a boolean, got ${JSON.stringify(parsed.cockpit_controls.enabled)} — only the literal true enables cockpit controls` });
+    }
+  }
   if (parsed.managers != null && (!Array.isArray(parsed.managers) || parsed.managers.some((manager) => typeof manager !== 'string' || !manager.trim()))) {
     issues.push({ field: 'managers', problem: 'must be an array of non-empty manager names/emails' });
   }

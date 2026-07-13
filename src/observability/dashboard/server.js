@@ -30,6 +30,21 @@ import { classifyDestructiveAction, destructiveApprovalArtifact } from '../../co
 import { consumeApprovedQueueArtifact, ensurePendingQueueApproval } from '../../core/tracker/approvals.js';
 import { decide } from '../../core/harness/decisions.js';
 import { latestRunId, runDirectory } from '../../core/harness/runs.js';
+import {
+  COCKPIT_ACTION_TYPES,
+  COCKPIT_AUDIT_EVENTS,
+  RESUME_MAX_STEPS,
+  appendLedgerEntry,
+  checkpointRestoreArtifact,
+  claimIdempotencyKey,
+  cockpitControlsEnabled,
+  completeLedgerEntry,
+  isCanonicalStageId,
+  isKnownCockpitAction,
+  isValidIdempotencyKey,
+} from '../../core/harness/cockpit-actions.js';
+import { runPipeline } from '../../commands/pipeline-run.js';
+import { rollbackToCheckpoint, verifyStageCheckpoint } from '../../core/harness/checkpoints.js';
 import { verifyRunAttestations } from '../../core/harness/attestations.js';
 import { scanRunDrift } from '../../core/harness/drift.js';
 import { withFileLock } from '../../core/harness/safe-write.js';
@@ -602,6 +617,244 @@ async function handleDecide(req, res) {
   });
 }
 
+// ── Cockpit controls (#285) ──────────────────────────────────────────────
+// Authenticated, audited, idempotent run/recovery actions. Same trust boundary
+// as every write endpoint (handleGuardedPost: Content-Type + approval token +
+// CSRF origin + 64KB cap + the per-IP rate limiter that already ran). OFF by
+// default: the feature flag is checked per the TARGET run's project root before
+// any work. See docs/security/cockpit-controls-threat-model.md.
+
+const str200 = (value) => (typeof value === 'string' ? value.slice(0, 200) : null);
+
+async function readTargetPolicy(root) {
+  const raw = await readFile(join(root, '.rstack', 'policy.json'), 'utf8').catch(() => '');
+  return safeJson(raw) ?? {};
+}
+
+// Locate the project root (among the roots the hub watches) that owns runId,
+// via manifest.json presence — never trusting the body as a path.
+async function resolveRunRoot(runId) {
+  if (!isSafeRunId(runId)) return null;
+  const roots = await sourceRoots(PROJECT_ROOT, {});
+  return roots.find((root) => existsSync(join(root, '.rstack', 'runs', runId, 'manifest.json'))) ?? null;
+}
+
+// Append the immutable per-run audit event to the run timeline. Never carries
+// a token or secret. Best-effort: the action already succeeded.
+async function appendCockpitRunEvent(root, runId, event) {
+  const eventsPath = join(runDirectory(root, runId), 'events.jsonl');
+  await withFileLock(eventsPath, async () => {
+    await appendFile(eventsPath, JSON.stringify({ ts: new Date().toISOString(), ...event }) + '\n');
+  });
+}
+
+// resume-run: advance the run via the model-free runner, bounded, stopping at
+// every human gate by construction (#124). Re-derives eligibility from ground
+// truth — a run with no actionable model-free work is 409 not_eligible.
+async function executeResumeRun(root, runId, resolvedBy) {
+  const report = await runPipeline(root, { runId, maxSteps: RESUME_MAX_STEPS });
+  const executed = report.steps.some((step) => step.action && step.action !== 'stop');
+  // These stop reasons mean "nothing the operator can advance right now" — a
+  // gate to resolve, or already complete. missing_contract is NOT here: that is
+  // a real advance (the packet is prepared and awaits the operator's agent).
+  const NOT_ELIGIBLE = new Set(['complete', 'no_actionable_work', 'pending_approval', 'blocked_retry_policy', 'ask_user', 'dry_run']);
+  if (!executed && NOT_ELIGIBLE.has(report.stopped_on)) {
+    return {
+      status: 409,
+      phase: 'failed',
+      outcome: 'not_eligible',
+      detail: `resume-run is not eligible: ${report.stopped_on}`,
+      body: { ok: false, error: 'not_eligible', reason: report.stopped_on, detail: report.steps.at(-1)?.detail ?? null },
+    };
+  }
+  const body = {
+    ok: true,
+    action: COCKPIT_ACTION_TYPES.RESUME_RUN,
+    runId,
+    outcome: 'accepted',
+    stopped_on: report.stopped_on,
+    steps: report.steps.map((step) => ({ step: step.step, action: step.action, task_id: step.task_id ?? null, detail: step.detail })),
+    actor: resolvedBy,
+  };
+  return {
+    status: 202,
+    phase: 'completed',
+    outcome: 'accepted',
+    detail: `resume-run advanced ${report.steps.length} step(s); stopped_on ${report.stopped_on}`,
+    body,
+    runEvent: {
+      type: COCKPIT_AUDIT_EVENTS[COCKPIT_ACTION_TYPES.RESUME_RUN],
+      actor: resolvedBy,
+      steps: report.steps.length,
+      stopped_on: report.stopped_on,
+      source: 'business-hub',
+    },
+  };
+}
+
+// restore-checkpoint: destructive two-step (mirrors /api/env-write). Deep-verify
+// the checkpoint, require an approved one-shot artifact, then roll back.
+async function executeRestoreCheckpoint(root, runId, stageId, resolvedBy) {
+  if (!isCanonicalStageId(stageId)) {
+    return {
+      status: 400, phase: 'failed', outcome: 'invalid_stage',
+      detail: `"${stageId}" is not a canonical SDLC stage id`,
+      body: { ok: false, error: 'invalid_stage', detail: `"${stageId}" is not a canonical SDLC stage id` },
+    };
+  }
+  const runDir = runDirectory(root, runId);
+  // Ground truth, not the client's claim: deep sha-256 verification before any
+  // approval is consumed, so a malformed request can never burn a one-shot.
+  const verification = verifyStageCheckpoint(runDir, stageId, { deep: true });
+  if (!verification.restorable) {
+    return {
+      status: 409, phase: 'failed', outcome: 'not_eligible',
+      detail: `checkpoint for ${stageId} is not restorable (${verification.reason})`,
+      body: { ok: false, error: 'not_eligible', reason: verification.reason, detail: verification.detail ?? null },
+    };
+  }
+  const artifact = checkpointRestoreArtifact(runId, stageId);
+  const approval = await consumeApprovedQueueArtifact(root, artifact);
+  if (!approval) {
+    const pending = await ensurePendingQueueApproval(root, {
+      id: `checkpoint-restore:${runId}:${stageId}`,
+      artifact,
+      type: 'checkpoint_restore',
+      title: `Restore ${stageId} checkpoint (run ${runId})`,
+      detail: `Business Hub requests approval to restore the ${stageId} stage of run ${runId} from its last verified checkpoint. Destructive — overwrites current stage artifacts.`,
+      requestedBy: resolvedBy,
+      runId,
+      taskId: stageId,
+      category: 'checkpoint_restore',
+    });
+    return {
+      status: 409, phase: 'failed', outcome: 'approval_required',
+      detail: `approval required for ${artifact}`,
+      body: { ok: false, error: 'approval_required', artifact, approval_id: pending.id, detail: `Approve '${artifact}' on the Approvals page, then submit the restore again.` },
+    };
+  }
+  const result = await rollbackToCheckpoint(runDir, stageId);
+  if (result.status !== 'SUCCESS') {
+    // The one-shot approval was consumed but the restore failed (e.g. the
+    // checkpoint was tampered between verify and rollback) — fail closed and
+    // record it. A retry needs a fresh approval.
+    return {
+      status: 409, phase: 'failed', outcome: 'error',
+      detail: `restore failed after approval: ${result.status}`,
+      body: { ok: false, error: 'restore_failed', status: result.status, detail: result.detail ?? null },
+    };
+  }
+  const body = {
+    ok: true,
+    action: COCKPIT_ACTION_TYPES.RESTORE_CHECKPOINT,
+    runId, stageId,
+    outcome: 'accepted',
+    status: result.status,
+    approvedBy: approval.resolvedBy ?? null,
+    detail: result.detail,
+  };
+  return {
+    status: 202, phase: 'completed', outcome: 'accepted',
+    detail: `restored ${stageId} from checkpoint (approved by ${approval.resolvedBy ?? 'unknown'})`,
+    body,
+    runEvent: {
+      type: COCKPIT_AUDIT_EVENTS[COCKPIT_ACTION_TYPES.RESTORE_CHECKPOINT],
+      actor: resolvedBy,
+      stage_id: stageId,
+      approved_by: approval.resolvedBy ?? null,
+      source: 'business-hub',
+    },
+  };
+}
+
+async function handleCockpitAction(req, res) {
+  let auditCtx = {};
+  const audit = (entry) => {
+    appendLedgerEntry(PROJECT_ROOT, {
+      remote: req.socket?.remoteAddress ?? null,
+      origin: req.headers?.origin ?? null,
+      ...auditCtx,
+      ...entry,
+    }).catch((err) => process.stderr.write(`[rstack-business] cockpit audit failed: ${err?.message}\n`));
+  };
+  handleGuardedPost(req, res, {
+    // Denials from the shared chain (bad Content-Type, auth, oversized) audit here.
+    audit: (entry) => audit({ phase: 'denied', ...entry }),
+    onBody: async (parsed, fail) => {
+      const { action, runId, stageId, idempotencyKey, resolvedBy } = parsed;
+      auditCtx = { action: str200(action), runId: str200(runId), stageId: str200(stageId), actor: str200(resolvedBy) };
+
+      if (!isKnownCockpitAction(action)) {
+        audit({ phase: 'denied', outcome: 'error', reason: 'unknown action' });
+        return fail(400, `unknown action — expected one of ${Object.values(COCKPIT_ACTION_TYPES).join(', ')}`);
+      }
+      if (!resolvedBy || typeof resolvedBy !== 'string') {
+        audit({ phase: 'denied', outcome: 'error', reason: 'resolvedBy required' });
+        return fail(400, 'resolvedBy (operator identity) is required');
+      }
+      if (!isValidIdempotencyKey(idempotencyKey)) {
+        audit({ phase: 'denied', outcome: 'error', reason: 'invalid idempotencyKey' });
+        return fail(400, 'idempotencyKey (8–128 chars of [A-Za-z0-9._:-]) is required');
+      }
+      if (!isSafeRunId(runId)) {
+        audit({ phase: 'denied', outcome: 'error', reason: 'unsafe run id' });
+        return fail(400, 'unsafe or missing run id');
+      }
+      const targetRoot = await resolveRunRoot(runId);
+      if (!targetRoot) {
+        audit({ phase: 'denied', outcome: 'not_found', reason: 'run not found' });
+        return fail(404, 'run not found');
+      }
+      // Feature flag, authoritative per target root (never inferred from the
+      // client): OFF → 403 before any work.
+      if (!cockpitControlsEnabled(await readTargetPolicy(targetRoot), process.env)) {
+        audit({ phase: 'denied', outcome: 'forbidden', reason: 'cockpit controls disabled' });
+        return fail(403, 'cockpit controls are disabled — set RSTACK_COCKPIT_CONTROLS=1 or policy cockpit_controls.enabled');
+      }
+      if (action === COCKPIT_ACTION_TYPES.RESTORE_CHECKPOINT && !stageId) {
+        audit({ phase: 'denied', outcome: 'error', reason: 'stageId required' });
+        return fail(400, 'stageId is required for restore-checkpoint');
+      }
+
+      const meta = { action, runId, stageId: stageId ?? null, actor: resolvedBy, remote: req.socket?.remoteAddress ?? null, origin: req.headers?.origin ?? null };
+      // Idempotency: claim the key atomically. A completed key replays its
+      // stored result; an in-flight key is a duplicate (409).
+      const claim = await claimIdempotencyKey(targetRoot, idempotencyKey, meta);
+      if (claim.status === 'completed') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...(claim.result ?? {}), replayed: true }));
+        return;
+      }
+      if (claim.status === 'in_progress') {
+        audit({ phase: 'denied', outcome: 'in_progress', reason: 'duplicate in-flight request' });
+        return fail(409, 'a request with this idempotencyKey is already in progress');
+      }
+
+      const outcome = action === COCKPIT_ACTION_TYPES.RESUME_RUN
+        ? await executeResumeRun(targetRoot, runId, resolvedBy)
+        : await executeRestoreCheckpoint(targetRoot, runId, stageId, resolvedBy);
+
+      await completeLedgerEntry(targetRoot, idempotencyKey, {
+        phase: outcome.phase,
+        meta,
+        outcome: outcome.outcome,
+        detail: outcome.detail,
+        result: outcome.phase === 'completed' ? outcome.body : undefined,
+      });
+      if (outcome.runEvent) {
+        await appendCockpitRunEvent(targetRoot, runId, outcome.runEvent).catch((err) => {
+          process.stderr.write(`[rstack-business] cockpit run event failed: ${err?.message}\n`);
+        });
+      }
+      res.writeHead(outcome.status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(outcome.body));
+      if (outcome.phase === 'completed') {
+        broadcastSnapshot().catch((err) => process.stderr.write(`[rstack-business] cockpit broadcast error: ${err?.message}\n`));
+      }
+    },
+  });
+}
+
 // Send a JSON response with a strong content-hash ETag on 200s, answering a
 // matching If-None-Match with an empty 304 instead of the full body.
 // `hashInput` lets callers hash a stable projection of the body (e.g. the
@@ -826,6 +1079,11 @@ const requestHandler = async (req, res) => {
 
   if (url.pathname === '/api/decide' && req.method === 'POST') {
     await handleDecide(req, res);
+    return;
+  }
+
+  if (url.pathname === '/api/action' && req.method === 'POST') {
+    await handleCockpitAction(req, res);
     return;
   }
 

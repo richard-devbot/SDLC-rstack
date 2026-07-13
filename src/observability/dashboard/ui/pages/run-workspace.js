@@ -144,6 +144,186 @@ function renderRunWorkspaceSection() {
   });
 }
 
+// ── Cockpit controls (#285) ────────────────────────────────────────
+// Render ONLY the server-declared allowedActions. A disabled action shows the
+// server's reason; a stale/offline snapshot disables everything. Invocation
+// goes through a confirmation dialog that repeats the target + consequence,
+// then POSTs to /api/action with a per-intent idempotency key.
+
+function cockpitRunForState(s, workspace) {
+  var cockpit = s.cockpit;
+  if (!cockpit || !cockpit.enabled) return null;
+  var runId = workspace && workspace.identity ? workspace.identity.runId : null;
+  if (!runId) return null;
+  return (cockpit.runs || []).find(function(entry) { return entry.runId === runId; }) || null;
+}
+
+function cockpitActionHtml(action) {
+  var risk = action.risk === 'high' ? 'critical' : 'info';
+  var badges = pill(risk, action.risk + ' risk') + (action.requiresApproval ? pill('pending', 'approval required') : pill('ready', 'no approval'));
+  var control = action.enabled
+    ? '<button class="btn primary" type="button"' +
+        ' data-cockpit-action="' + esc(action.type) + '"' +
+        ' data-cockpit-run="' + esc(action.target.runId) + '"' +
+        ' data-cockpit-stage="' + esc(action.target.stageId || '') + '"' +
+        ' data-cockpit-title="' + esc(action.confirm.title) + '"' +
+        ' data-cockpit-consequence="' + esc(action.confirm.consequence) + '"' +
+        ' data-cockpit-target="' + esc(action.confirm.target) + '"' +
+        ' data-cockpit-approval="' + (action.requiresApproval ? '1' : '0') + '"' +
+        ' onclick="cockpitConfirm(this)">' + esc(action.confirm.title) + '</button>'
+    : '<button class="btn" type="button" disabled aria-disabled="true" title="' + esc(action.disabledReason || 'unavailable') + '">' + esc(action.confirm.title) + '</button>' +
+      '<div class="muted" style="margin-top:6px">' + esc(action.disabledReason || 'This action is unavailable.') + '</div>';
+  return '<div class="approval-card" style="margin-bottom:10px"><div class="agent-head"><div>' +
+    '<div class="strong">' + esc(action.confirm.title) + '</div>' +
+    '<div class="muted">' + esc(action.confirm.consequence) + '</div></div>' + badges + '</div>' +
+    '<div class="approval-actions">' + control + '</div></div>';
+}
+
+function cockpitControlsPanelHtml(cockpit, cockpitRun) {
+  if (!cockpit || !cockpit.enabled || !cockpitRun) return '';
+  var actions = cockpitRun.allowedActions || [];
+  var body = actions.length
+    ? actions.map(cockpitActionHtml).join('')
+    : emptyHtml('No controls available', 'This run currently exposes no cockpit actions.');
+  var staleNote = cockpitRun.stale
+    ? '<div class="ops-note" style="margin:0 0 10px">This run snapshot is stale — controls are disabled until it refreshes.</div>'
+    : '';
+  return '<div class="panel" id="run-workspace-controls" style="margin-bottom:16px">' +
+    '<div class="panel-head"><span class="panel-title">Cockpit controls</span>' +
+    '<span class="panel-note">Authenticated, audited, governed — server-declared</span></div>' +
+    '<div class="panel-body">' + staleNote + body + '</div></div>';
+}
+
+function renderRunWorkspaceControls(s, workspace) {
+  var container = document.getElementById('run-workspace-summary');
+  if (!container) return;
+  var existing = document.getElementById('run-workspace-controls');
+  if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  var html = cockpitControlsPanelHtml(s.cockpit, cockpitRunForState(s, workspace));
+  if (!html) return;
+  var wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  container.insertBefore(wrap.firstChild, container.firstChild);
+}
+
+// Build a per-intent idempotency key that satisfies the server contract
+// (8–128 chars of [A-Za-z0-9._:-]). A fresh click = a fresh intent = a new key;
+// re-submitting the SAME key (browser retry) is deduped server-side.
+function cockpitIdempotencyKey(action, run, stage) {
+  var raw = 'ck-' + action + '-' + run + '-' + (stage || 'x') + '-' + Date.now() + '-' + Math.floor(Math.random() * 1e9);
+  var safe = raw.replace(/[^A-Za-z0-9._:-]/g, '-');
+  return safe.slice(0, 120);
+}
+
+function cockpitCredentials() {
+  var resolvedBy = localStorage.getItem('rstack-approver-name') || '';
+  if (!resolvedBy && typeof window.prompt === 'function') {
+    resolvedBy = window.prompt('Your operator name for this action') || '';
+    if (resolvedBy) localStorage.setItem('rstack-approver-name', resolvedBy);
+  }
+  var token = sessionStorage.getItem('rstack-approval-token') || '';
+  if (!token && typeof window.prompt === 'function') {
+    token = window.prompt('Approval token (RSTACK_APPROVAL_TOKEN set on the hub)') || '';
+    if (token) sessionStorage.setItem('rstack-approval-token', token);
+  }
+  return { resolvedBy: resolvedBy || 'dashboard', token: token };
+}
+
+function cockpitConfirm(btn) {
+  var data = {
+    action: btn.getAttribute('data-cockpit-action'),
+    run: btn.getAttribute('data-cockpit-run'),
+    stage: btn.getAttribute('data-cockpit-stage') || null,
+    title: btn.getAttribute('data-cockpit-title'),
+    consequence: btn.getAttribute('data-cockpit-consequence'),
+    target: btn.getAttribute('data-cockpit-target'),
+    requiresApproval: btn.getAttribute('data-cockpit-approval') === '1'
+  };
+  cockpitOpenModal(data);
+}
+
+function cockpitCloseModal() {
+  var overlay = document.getElementById('cockpit-modal');
+  if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  if (window.__cockpitKeyHandler) { document.removeEventListener('keydown', window.__cockpitKeyHandler); window.__cockpitKeyHandler = null; }
+}
+
+function cockpitOpenModal(data) {
+  cockpitCloseModal();
+  var overlay = document.createElement('div');
+  overlay.id = 'cockpit-modal';
+  overlay.setAttribute('style', 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px');
+  var approvalNote = data.requiresApproval
+    ? '<p class="muted">This is a destructive action. It runs only after a manager approves the request on the Approvals page; your submission first opens that governed request.</p>'
+    : '';
+  overlay.innerHTML =
+    '<div role="dialog" aria-modal="true" aria-labelledby="cockpit-modal-title" ' +
+    'style="background:var(--panel,#12151c);color:inherit;border:1px solid var(--border,#2a2f3a);border-radius:12px;max-width:520px;width:100%;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,0.5)">' +
+      '<h2 id="cockpit-modal-title" style="margin:0 0 8px;font-size:18px">' + esc(data.title) + '</h2>' +
+      '<div class="mono muted" style="margin-bottom:10px">' + esc(data.target) + '</div>' +
+      '<p style="margin:0 0 10px">' + esc(data.consequence) + '</p>' + approvalNote +
+      '<div id="cockpit-modal-status" role="status" aria-live="polite" style="min-height:20px;margin:10px 0"></div>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">' +
+        '<button class="btn" type="button" id="cockpit-cancel" onclick="cockpitCloseModal()">Cancel</button>' +
+        '<button class="btn primary" type="button" id="cockpit-confirm">Confirm</button>' +
+      '</div>' +
+    '</div>';
+  overlay.addEventListener('click', function(event) { if (event.target === overlay) cockpitCloseModal(); });
+  document.body.appendChild(overlay);
+  window.__cockpitKeyHandler = function(event) { if (event.key === 'Escape') cockpitCloseModal(); };
+  document.addEventListener('keydown', window.__cockpitKeyHandler);
+  var confirmBtn = document.getElementById('cockpit-confirm');
+  confirmBtn.onclick = function() { cockpitSubmit(data); };
+  confirmBtn.focus();
+}
+
+function cockpitSetStatus(text, tone) {
+  var el = document.getElementById('cockpit-modal-status');
+  if (el) el.innerHTML = '<span class="' + (tone || 'muted') + '">' + esc(text) + '</span>';
+}
+
+function cockpitSubmit(data) {
+  var creds = cockpitCredentials();
+  var confirmBtn = document.getElementById('cockpit-confirm');
+  if (confirmBtn) confirmBtn.disabled = true;
+  cockpitSetStatus('Submitting…', 'muted');
+  var payload = {
+    action: data.action,
+    runId: data.run,
+    idempotencyKey: cockpitIdempotencyKey(data.action, data.run, data.stage),
+    resolvedBy: creds.resolvedBy
+  };
+  if (data.stage) payload.stageId = data.stage;
+  fetch('/api/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-rstack-approval-token': creds.token },
+    body: JSON.stringify(payload)
+  }).then(function(response) {
+    return response.json().catch(function() { return {}; }).then(function(body) { return { status: response.status, body: body }; });
+  }).then(function(result) {
+    if (result.status === 202 || result.status === 200) {
+      cockpitSetStatus('Accepted — reconciling from the run timeline. See the Timeline tab.', 'strong');
+      fetchState();
+      setTimeout(cockpitCloseModal, 1400);
+      return;
+    }
+    if (confirmBtn) confirmBtn.disabled = false;
+    if (result.status === 409 && result.body.error === 'approval_required') {
+      cockpitSetStatus('Approval required — approve "' + (result.body.artifact || 'the request') + '" on the Approvals page, then run this again.', 'muted');
+      fetchState();
+      return;
+    }
+    if (result.status === 409 && result.body.error === 'not_eligible') {
+      cockpitSetStatus('Not eligible: ' + (result.body.reason || result.body.detail || 'the run state changed'), 'muted');
+      return;
+    }
+    cockpitSetStatus('Failed (' + result.status + '): ' + (result.body.error || result.body.detail || 'request rejected'), 'muted');
+  }).catch(function(err) {
+    if (confirmBtn) confirmBtn.disabled = false;
+    cockpitSetStatus('Failed: ' + err.message, 'muted');
+  });
+}
+
 function renderRunWorkspace(s) {
   setHTML('run-workspace-tabs', runWorkspaceTabsHtml());
   var workspace = runWorkspaceForState(s);
@@ -160,6 +340,7 @@ function renderRunWorkspace(s) {
   if (content) content.hidden = false;
   renderRunWorkspacePassport(workspace);
   renderRunWorkspaceSummary(workspace);
+  renderRunWorkspaceControls(s, workspace);
   renderRunWorkspaceWork(workspace.sections.work);
   renderRunWorkspaceTimeline(workspace.sections.timeline);
   renderRunWorkspaceArtifacts(workspace, workspace.sections.artifacts);
