@@ -90,8 +90,8 @@ export function studio3dHtml(port) {
 </style>
 <script type="importmap">
 { "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    "three": "/studio3d/vendor/three.module.js",
+    "three/addons/": "/studio3d/vendor/"
 } }
 </script>
 </head>

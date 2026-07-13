@@ -5,6 +5,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { dirname, join, resolve, sep } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { appendFile, readFile, stat } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { dashboardHtml } from './ui.js';
 import { studio3dHtml } from './ui/studio3d.js';
 import { buildFullState, resolveDashboardApproval, toClientState } from './state/index.js';
@@ -69,6 +70,23 @@ const PROJECT_ROOT = CLI.project
   ? resolve(CLI.project)
   : resolve(process.env.RSTACK_PROJECT_ROOT ?? process.cwd());
 const NO_BROWSER = CLI.noBrowser || process.env.RSTACK_NO_BROWSER === '1';
+const DASHBOARD_DIR = dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = resolve(DASHBOARD_DIR, '../../..');
+
+const STUDIO_STATIC = new Map([
+  ['/studio3d/assets/app.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/app.js'), type: 'text/javascript; charset=utf-8' }],
+  ['/studio3d/assets/model.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/model.js'), type: 'text/javascript; charset=utf-8' }],
+  ['/studio3d/assets/transport.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/transport.js'), type: 'text/javascript; charset=utf-8' }],
+  ['/studio3d/assets/dom.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/dom.js'), type: 'text/javascript; charset=utf-8' }],
+  ['/studio3d/assets/topology.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/topology.js'), type: 'text/javascript; charset=utf-8' }],
+  ['/studio3d/assets/geometry.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/geometry.js'), type: 'text/javascript; charset=utf-8' }],
+  ['/studio3d/assets/scene.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/scene.js'), type: 'text/javascript; charset=utf-8' }],
+  ['/studio3d/assets/reconciler.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/reconciler.js'), type: 'text/javascript; charset=utf-8' }],
+  ['/studio3d/assets/transitions.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/transitions.js'), type: 'text/javascript; charset=utf-8' }],
+  ['/studio3d/assets/styles.css', { path: join(DASHBOARD_DIR, 'ui/studio3d/styles.css'), type: 'text/css; charset=utf-8' }],
+  ['/studio3d/vendor/three.module.js', { path: join(PACKAGE_ROOT, 'node_modules/three/build/three.module.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
+  ['/studio3d/vendor/controls/OrbitControls.js', { path: join(PACKAGE_ROOT, 'node_modules/three/examples/jsm/controls/OrbitControls.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
+]);
 
 const clients = new Set();
 let pollInterval = null;
@@ -1084,6 +1102,31 @@ const requestHandler = async (req, res) => {
 
   if (url.pathname === '/api/action' && req.method === 'POST') {
     await handleCockpitAction(req, res);
+    return;
+  }
+
+  if (req.method === 'GET' && STUDIO_STATIC.has(url.pathname)) {
+    const asset = STUDIO_STATIC.get(url.pathname);
+    try {
+      const body = await readFile(asset.path);
+      res.writeHead(200, {
+        'Content-Type': asset.type,
+        'Cache-Control': asset.immutable
+          ? 'public, max-age=31536000, immutable'
+          : 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.end(body);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Studio asset not found');
+    }
+    return;
+  }
+
+  if (url.pathname.startsWith('/studio3d/assets/') || url.pathname.startsWith('/studio3d/vendor/')) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Studio asset not found');
     return;
   }
 
