@@ -86,19 +86,22 @@ This bibliography records the sources used to ground the RStack SDLC research na
 
 ## Productivity and delivery research
 
-### METR experienced open-source developer productivity study
-- **Reference:** METR, *Measuring the Impact of Early-2025 AI on Experienced Open-Source Developer Productivity*.
+### METR experienced open-source developer productivity study (early-2025 RCT + 2026 follow-up)
+- **Reference (original):** METR, *Measuring the Impact of Early-2025 AI on Experienced Open-Source Developer Productivity* (Jul 10, 2025).
 - **URL:** https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/
-- **Verified page description during research:** `We conduct a randomized controlled trial to understand how early-2025 AI tools affect the productivity of experienced open-source developers working on their own repositories. Surprisingly, we find that when developers use AI tools, they take 19% longer...`
-- **Why it matters to RStack:** The study is a caution against assuming AI coding tools automatically improve productivity in mature codebases. RStack's claim must be that governance and structure reduce ambiguity and rework, not that AI alone guarantees speed.
-- **RStack connection:** Supports the paper problem statement and claims discipline.
+- **Verified page description during research:** `We conduct a randomized controlled trial to understand how early-2025 AI tools affect the productivity of experienced open-source developers working on their own repositories. Surprisingly, we find that when developers use AI tools, they take 19% longer...` The page now carries an out-of-date banner pointing to the follow-up.
+- **Reference (follow-up):** METR, *Uplift update* (Feb 24, 2026) — https://metr.org/blog/2026-02-24-uplift-update/. With newer agentic tools (Claude Code / Codex era) the measured effect is **statistically indistinguishable from zero**: returning developers −18% (95% CI −38%…+9%), newly-recruited −4% (CI −15%…+9%). METR flags the data as an unreliable signal (selection bias) and is redesigning the experiment; it characterizes both estimates as likely lower bounds.
+- **Scope discipline:** the **19% slowdown figure is specific to the early-2025 tools in the original RCT** and must never be cited unqualified — always pair it with the 2026 update. The durable, tool-independent finding is the **perception gap**: developers believed AI made them ~20% faster while the measurement showed them slower. "No measured effect" must not be reported as "AI does not help."
+- **Why it matters to RStack:** Caution against assuming AI coding tools automatically improve productivity in mature codebases, and direct evidence that self-reported speed is unreliable — RStack's claim is that governance and structure reduce ambiguity and rework and make delivery *measurable*, not that AI alone guarantees speed.
+- **RStack connection:** Supports the paper problem statement and claims discipline (the perception gap motivates observable, evidence-backed state over self-report).
 
-### Google DORA 2024 report
-- **Reference:** Google Cloud DORA, *Accelerate State of DevOps Report 2024*.
-- **URL:** https://dora.dev/research/2024/
-- **Verified page description during research:** `DORA is a long running research program that seeks to understand the capabilities that drive software delivery and operations performance.`
-- **Why it matters to RStack:** Provides delivery-performance and operational-excellence context for measuring AI-SDLC outcomes.
-- **RStack connection:** Supports metrics such as cycle time, validation pass rate, deployment confidence, and reliability.
+### Google DORA reports (2025 baseline; 2024 for the reversal)
+- **Reference (current baseline):** Google Cloud DORA, *State of DevOps Report 2025* (Sept 2025, ~5,000 respondents).
+- **URL:** https://dora.dev/dora-report-2025/
+- **Verified findings during research:** AI adoption now shows a **positive** relationship with software-delivery *throughput* — a reversal of the 2024 finding — but **remains negatively associated with delivery *stability***; ~90% of respondents use AI and >80% self-report productivity gains. Findings are survey **correlations, not causal**.
+- **Why it matters to RStack:** The strongest current empirical support for the RStack thesis — throughput-without-stability is precisely the failure mode a governed loop (approval gates, validation, evidence) targets.
+- **Reference (prior year, for the reversal):** Google Cloud DORA, *Accelerate State of DevOps Report 2024* — https://dora.dev/research/2024/. Retained only to document that the AI↔throughput relationship *reversed* between 2024 and 2025; cite 2025 as the delivery baseline.
+- **RStack connection:** Supports metrics such as cycle time, validation pass rate, deployment confidence, and reliability — and the throughput/stability split RStack governance is designed to reconcile.
 
 ### Stack Overflow Developer Survey AI section
 - **Reference:** Stack Overflow Developer Survey 2024, AI section.
