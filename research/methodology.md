@@ -89,8 +89,8 @@ Use external references to locate RStack in the broader AI-SDLC landscape:
 - NIST SSDF,
 - OWASP LLM Top 10,
 - SLSA, DSSE, Sigstore,
-- DORA research,
-- METR productivity study,
+- DORA research (2025 report as the delivery baseline; 2024 only to document the AI↔throughput reversal),
+- METR experienced-developer RCT (early-2025) and its Feb-2026 follow-up,
 - Stack Overflow Developer Survey.
 
 ## Measurement model
@@ -205,7 +205,8 @@ No paper or documentation claim should be written as fact unless it has one of t
 - "RStack is designed to reduce ambiguity before agent execution."
 - "The current implementation records builder and validator contracts."
 - "Future work will test whether Decision Queue and DoR gates reduce rework."
-- "METR's study cautions that AI coding tools do not automatically improve productivity on mature repositories."
+- "METR's early-2025 RCT measured a slowdown on mature repositories, and its 2026 follow-up found an effect indistinguishable from zero — AI coding tools do not automatically improve productivity; developers also misjudged their own speed-up (the perception gap)." (Never cite the 19% figure unqualified; do not report the null as "AI does not help.")
+- "DORA's 2025 report associates AI adoption with higher delivery throughput but lower delivery stability — a correlation, not causation — which is the failure mode RStack's governed loop targets."
 
 ### Avoid unless measured
 

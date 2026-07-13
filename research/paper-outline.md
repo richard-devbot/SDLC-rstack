@@ -26,8 +26,8 @@ AI coding agents can generate software quickly, but unstructured agent use often
 - AI coding tools and agentic workflows.
 - Augment Code AI-SDLC reference architecture.
 - `ai-sdlc-framework/ai-sdlc` as prior-art governance framework.
-- DevOps/DORA delivery-performance research.
-- METR productivity caution.
+- DevOps/DORA delivery-performance research (2025 baseline: AI adoption raises throughput but lowers stability — the throughput-without-stability gap RStack targets; correlational).
+- METR productivity caution — framed as the **perception gap** (developers felt faster while measured slower) and delivery *stability*, not the early-2025 19% figure (superseded by the 2026 follow-up: effect indistinguishable from zero; do not overclaim the null).
 - NIST AI RMF, NIST SSDF, OWASP LLM Top 10.
 - SLSA/DSSE/Sigstore provenance patterns.
 
