@@ -1,8 +1,9 @@
 /**
- * Deterministic spatial slots for the Agent Force company floor.
+ * Authored spatial anchors for the Agent Force living company.
  *
  * Semantic mission and department IDs arrive from state.studio. This module
- * owns positions only, so it cannot drift from the server's canonical model.
+ * owns positions and deterministic routes only, so it cannot invent runtime
+ * state or drift from the server's canonical model.
  *
  * owner: RStack developed by Richardson Gunde
  */
@@ -10,51 +11,80 @@ function point(x, y, z) {
   return Object.freeze([x, y, z]);
 }
 
-function ringSlots(prefix, count, radiusX, radiusZ, y, phase = -Math.PI / 2) {
-  return Object.freeze(Array.from({ length: count }, (_, index) => {
-    const angle = phase + (index / count) * Math.PI * 2;
-    const x = Math.cos(angle) * radiusX;
-    const z = Math.sin(angle) * radiusZ;
-    return Object.freeze({
-      id: `${prefix}-${index + 1}`,
-      index,
-      angle,
-      position: point(Number(x.toFixed(4)), y, Number(z.toFixed(4))),
-      rotation: point(0, Number((-angle + Math.PI / 2).toFixed(4)), 0),
-    });
-  }));
+function slot(id, x, y, z, yaw = 0) {
+  return Object.freeze({
+    id,
+    position: point(x, y, z),
+    rotation: point(0, yaw, 0),
+  });
 }
 
+function row(prefix, count, startX, stepX, z, yaw = 0, offset = 0) {
+  return Object.freeze(Array.from({ length: count }, (_, index) => (
+    slot(`${prefix}-${index + offset + 1}`, startX + index * stepX, 0, z, yaw)
+  )));
+}
+
+const EMPTY_ROUTE = Object.freeze([]);
+
 export const STUDIO_TOPOLOGY = Object.freeze({
-  orchestrator: Object.freeze({
-    id: 'orchestrator-hq',
-    position: point(0, 0.55, 0),
-    rotation: point(0, 0, 0),
-  }),
-  missions: ringSlots('mission-slot', 8, 10.5, 7.2, 0.28),
-  departments: ringSlots('department-slot', 15, 15.5, 10.6, 0.12, -Math.PI / 2 + Math.PI / 15),
-  builderPool: Object.freeze({
-    id: 'builder-pool',
-    position: point(8.2, 0.18, 8.4),
-    rotation: point(0, -0.7, 0),
-  }),
-  validator: Object.freeze({
-    id: 'validator-lab',
-    position: point(-12.8, 0.2, 5.8),
-    rotation: point(0, 0.7, 0),
+  orchestrator: slot('orchestrator-hq', 0, 0, -10),
+  dispatch: slot('dispatch', -15, 0, 8, Math.PI / 2),
+  library: Object.freeze({
+    ...slot('skills-library', -13, 0, -6, Math.PI / 2),
+    entry: point(-10.5, 0, -6),
   }),
   governance: Object.freeze({
-    id: 'governance-deck',
-    position: point(0, 4.8, -1.2),
-    rotation: point(0, 0, 0),
+    ...slot('governance-room', 13, 0, -7, -Math.PI / 2),
+    entry: point(10.5, 0, -7),
   }),
   evidence: Object.freeze({
-    id: 'evidence-vault',
-    position: point(12.8, 0.18, -5.8),
-    rotation: point(0, -0.8, 0),
+    ...slot('evidence-vault', 14, 0, 7, -Math.PI / 2),
+    entry: point(11.5, 0, 7),
   }),
+  missions: row('mission-board', 8, -10.5, 3, -12.5),
+  departments: Object.freeze([
+    ...row('department', 8, -10.5, 3, -1.8),
+    ...row('department', 7, -9, 3, 1.8, Math.PI, 8),
+  ]),
+  builderDesks: row('builder-desk', 8, -10.5, 3, 8.5, Math.PI),
+  validatorDesks: row('validator-desk', 4, 3.5, 3, 8.5, Math.PI),
+  builderPool: slot('builder-bullpen', -6, 0, 8.5, Math.PI),
+  validator: slot('validator-lab', 8, 0, 8.5, Math.PI),
   overviewTarget: point(0, 0.8, 0),
-  overviewCamera: point(19, 22, 26),
+  overviewCamera: point(22, 26, 29),
+  routes: Object.freeze({
+    dispatch_to_library: Object.freeze([
+      point(-15, 0, 8),
+      point(-12, 0, 5),
+      point(-10.5, 0, -6),
+    ]),
+    library_to_builder: Object.freeze([
+      point(-10.5, 0, -6),
+      point(-8, 0, 3.8),
+      point(-6, 0, 7),
+    ]),
+    library_to_validator: Object.freeze([
+      point(-10.5, 0, -6),
+      point(0, 0, 3.8),
+      point(8, 0, 7),
+    ]),
+    builder_to_validator: Object.freeze([
+      point(-6, 0, 7),
+      point(0, 0, 5.3),
+      point(8, 0, 7),
+    ]),
+    assignment_to_governance: Object.freeze([
+      point(0, 0, 5.3),
+      point(8, 0, 2),
+      point(10.5, 0, -7),
+    ]),
+    assignment_to_vault: Object.freeze([
+      point(0, 0, 5.3),
+      point(8, 0, 5.3),
+      point(11.5, 0, 7),
+    ]),
+  }),
 });
 
 export function topologySlot(kind, index = 0) {
@@ -63,17 +93,17 @@ export function topologySlot(kind, index = 0) {
   return STUDIO_TOPOLOGY[kind] ?? STUDIO_TOPOLOGY.orchestrator;
 }
 
+export function workstationSlot(session, _projection, sessionIndex = 0) {
+  const slots = session?.role === 'validator'
+    ? STUDIO_TOPOLOGY.validatorDesks
+    : STUDIO_TOPOLOGY.builderDesks;
+  return slots[sessionIndex % slots.length];
+}
+
 export function sessionPosition(session, projection, sessionIndex = 0) {
-  if (session?.role === 'validator') {
-    const base = STUDIO_TOPOLOGY.validator.position;
-    return point(base[0] + (sessionIndex % 3) * 1.1 - 1.1, base[1] + 0.12, base[2] + Math.floor(sessionIndex / 3) * 1.15);
-  }
-  const missionIndex = Math.max(0, (projection?.missions ?? []).findIndex((mission) => mission.id === session?.mission_id));
-  const slot = topologySlot('mission', missionIndex);
-  const side = sessionIndex % 2 === 0 ? -1 : 1;
-  return point(
-    slot.position[0] + Math.cos(slot.angle + Math.PI / 2) * (1.3 + Math.floor(sessionIndex / 2) * 0.75) * side,
-    0.36,
-    slot.position[2] + Math.sin(slot.angle + Math.PI / 2) * (1.3 + Math.floor(sessionIndex / 2) * 0.75) * side,
-  );
+  return workstationSlot(session, projection, sessionIndex).position;
+}
+
+export function routePoints(name) {
+  return STUDIO_TOPOLOGY.routes[name] ?? EMPTY_ROUTE;
 }
