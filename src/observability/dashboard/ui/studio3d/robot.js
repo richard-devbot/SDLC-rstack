@@ -27,6 +27,17 @@ const STATUS_FACES = Object.freeze({
   unknown: 'neutral',
 });
 
+const FLEET_BUCKETS = Object.freeze([
+  Object.freeze({ id: 'shellSlab', geometry: 'slab', material: 'robotShell', partsPerRobot: 6 }),
+  Object.freeze({ id: 'shellCylinder', geometry: 'cylinder', material: 'robotShell', partsPerRobot: 8 }),
+  Object.freeze({ id: 'jointSphere', geometry: 'sphere', material: 'robotJoint', partsPerRobot: 12 }),
+  Object.freeze({ id: 'jointSlab', geometry: 'slab', material: 'robotJoint', partsPerRobot: 1 }),
+  Object.freeze({ id: 'jointCylinder', geometry: 'cylinder', material: 'robotJoint', partsPerRobot: 1 }),
+  Object.freeze({ id: 'screen', geometry: 'slab', material: 'robotScreen', partsPerRobot: 1 }),
+  Object.freeze({ id: 'face', geometry: 'sphere', material: 'face', partsPerRobot: 3 }),
+  Object.freeze({ id: 'roleBand', geometry: 'slab', material: 'roleBand', partsPerRobot: 1 }),
+]);
+
 function mesh(geometry, material, scale, position = [0, 0, 0], name = '') {
   const object = new THREE.Mesh(geometry, material);
   object.scale.set(...scale);
@@ -188,4 +199,109 @@ export function createHumanoidRobot(pool, data = {}) {
   handle.update(data);
   handle.setPose('standing');
   return handle;
+}
+
+function fleetBucketFor(meshObject, robot, pool) {
+  if (meshObject.name === 'roleBand') return 'roleBand';
+  if (meshObject.material === robot.faceMaterial) return 'face';
+  if (meshObject.material === pool.materials.robotScreen) return 'screen';
+  if (meshObject.material === pool.materials.robotShell) {
+    return meshObject.geometry === pool.geometries.slab ? 'shellSlab' : 'shellCylinder';
+  }
+  if (meshObject.material === pool.materials.robotJoint) {
+    if (meshObject.geometry === pool.geometries.sphere) return 'jointSphere';
+    return meshObject.geometry === pool.geometries.slab ? 'jointSlab' : 'jointCylinder';
+  }
+  return null;
+}
+
+export function createRobotFleetRenderer(pool, { maxRobots = 17 } = {}) {
+  const object = new THREE.Group();
+  object.name = 'Batched articulated robot fleet';
+  const dynamicMaterials = [];
+  const hiddenSources = new Set();
+  const buckets = new Map();
+
+  for (const definition of FLEET_BUCKETS) {
+    let selectedMaterial = pool.materials[definition.material];
+    if (definition.material === 'face' || definition.material === 'roleBand') {
+      selectedMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        metalness: 0.28,
+        roughness: 0.4,
+        emissive: definition.material === 'face' ? 0x273039 : 0x000000,
+        emissiveIntensity: definition.material === 'face' ? 0.34 : 0,
+      });
+      dynamicMaterials.push(selectedMaterial);
+    }
+    const meshObject = new THREE.InstancedMesh(
+      pool.geometries[definition.geometry],
+      selectedMaterial,
+      maxRobots * definition.partsPerRobot,
+    );
+    meshObject.name = `Robot fleet · ${definition.id}`;
+    meshObject.count = 0;
+    meshObject.frustumCulled = false;
+    meshObject.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    meshObject.userData.interactive = true;
+    meshObject.userData.entityRefs = [];
+    object.add(meshObject);
+    buckets.set(definition.id, { meshObject, items: [] });
+  }
+
+  function update() {
+    const roots = new Set();
+    for (const bucket of buckets.values()) {
+      bucket.items.forEach((item) => roots.add(item.robot.object));
+    }
+    roots.forEach((root) => root.updateMatrixWorld(true));
+    for (const bucket of buckets.values()) {
+      bucket.items.forEach((item, index) => {
+        bucket.meshObject.setMatrixAt(index, item.source.matrixWorld);
+        if (bucket.meshObject.material.vertexColors) {
+          bucket.meshObject.setColorAt(index, item.source.material.color);
+        }
+      });
+      bucket.meshObject.instanceMatrix.needsUpdate = true;
+      if (bucket.meshObject.instanceColor) bucket.meshObject.instanceColor.needsUpdate = true;
+    }
+  }
+
+  function reconcile(entries) {
+    hiddenSources.forEach((source) => { source.visible = true; });
+    hiddenSources.clear();
+    for (const bucket of buckets.values()) {
+      bucket.items.length = 0;
+      bucket.meshObject.userData.entityRefs = [];
+    }
+    const robots = entries
+      .filter(([key, handle]) => (key.startsWith('orchestrator:') || key.startsWith('session:')) && handle.robot)
+      .slice(0, maxRobots);
+    for (const [, handle] of robots) {
+      const ref = handle.object.userData.entityRef;
+      handle.object.traverse((source) => {
+        if (!source.isMesh) return;
+        const bucketId = fleetBucketFor(source, handle.robot, pool);
+        const bucket = buckets.get(bucketId);
+        if (!bucket || bucket.items.length >= bucket.meshObject.instanceMatrix.count) return;
+        source.visible = false;
+        hiddenSources.add(source);
+        bucket.items.push({ source, robot: handle.robot, ref });
+        bucket.meshObject.userData.entityRefs.push(ref);
+      });
+    }
+    for (const bucket of buckets.values()) bucket.meshObject.count = bucket.items.length;
+    update();
+  }
+
+  function dispose() {
+    hiddenSources.forEach((source) => { source.visible = true; });
+    hiddenSources.clear();
+    for (const bucket of buckets.values()) bucket.meshObject.dispose();
+    dynamicMaterials.forEach((entry) => entry.dispose());
+    object.removeFromParent();
+  }
+
+  return { object, reconcile, update, dispose };
 }

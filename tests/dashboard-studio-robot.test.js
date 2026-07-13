@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { createResourcePool } from '../src/observability/dashboard/ui/studio3d/geometry.js';
 import {
   createHumanoidRobot,
+  createRobotFleetRenderer,
 } from '../src/observability/dashboard/ui/studio3d/robot.js';
 import {
   ROBOT_JOINT_NAMES,
@@ -115,5 +116,60 @@ test('reset removes prior session pose and status before reuse', () => {
 
   robot.dispose();
   assert.equal(robot.object.parent, null);
+  pool.dispose();
+});
+
+test('fleet renderer batches seventeen articulated robots into at most eight draws', () => {
+  const pool = createResourcePool();
+  const handles = Array.from({ length: 17 }, (_, index) => createHumanoidRobot(pool, {
+    id: `robot-${index + 1}`,
+    kind: index === 0 ? 'orchestrator' : 'session',
+    role: index === 0 ? 'orchestrator' : index % 4 === 0 ? 'validator' : 'builder',
+    status: 'active',
+  }));
+  const entries = handles.map((robot, index) => [
+    `${index === 0 ? 'orchestrator' : 'session'}:robot-${index + 1}`,
+    { object: robot.object, robot },
+  ]);
+  const fleet = createRobotFleetRenderer(pool);
+  fleet.reconcile(entries);
+  fleet.update();
+
+  assert.ok(fleet.object instanceof THREE.Group);
+  assert.ok(fleet.object.children.length <= 8);
+  assert.ok(fleet.object.children.every((child) => child instanceof THREE.InstancedMesh));
+  assert.ok(fleet.object.children.every((child) => child.count > 0));
+  assert.ok(handles.every((robot) => {
+    let hidden = true;
+    robot.object.traverse((object) => { if (object.isMesh && object.visible) hidden = false; });
+    return hidden;
+  }));
+  assert.deepEqual(fleet.object.children[0].userData.entityRefs[0], { kind: 'orchestrator', id: 'robot-1' });
+
+  fleet.dispose();
+  handles.forEach((robot) => robot.dispose());
+  pool.dispose();
+});
+
+test('fleet reconciliation restores robots that leave the active batch', () => {
+  const pool = createResourcePool();
+  const first = createHumanoidRobot(pool, { id: 'robot-first', kind: 'session', status: 'active' });
+  const second = createHumanoidRobot(pool, { id: 'robot-second', kind: 'session', status: 'active' });
+  const fleet = createRobotFleetRenderer(pool, { maxRobots: 1 });
+
+  fleet.reconcile([['session:robot-first', { object: first.object, robot: first }]]);
+  fleet.reconcile([['session:robot-second', { object: second.object, robot: second }]]);
+
+  const visibleMeshes = (robot) => {
+    let count = 0;
+    robot.object.traverse((object) => { if (object.isMesh && object.visible) count += 1; });
+    return count;
+  };
+  assert.ok(visibleMeshes(first) > 0);
+  assert.equal(visibleMeshes(second), 0);
+
+  fleet.dispose();
+  first.dispose();
+  second.dispose();
   pool.dispose();
 });

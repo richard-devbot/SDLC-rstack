@@ -30,6 +30,12 @@ test('responsive stylesheet keeps the semantic Studio primary at 390px', () => {
   assert.doesNotMatch(css, /width:\s*380px/);
 });
 
+test('semantic-only view keeps a clearly labelled path back to 3D', () => {
+  const source = readFileSync(APP_PATH, 'utf8');
+
+  assert.match(source, /semanticButton\.textContent\s*=\s*semanticOnly\s*\?\s*'Show 3D view'\s*:\s*'Semantic view'/);
+});
+
 test('DOM renderer uses semantic buttons, focus restoration, and safe text insertion', () => {
   const source = readFileSync(DOM_PATH, 'utf8');
 
@@ -58,5 +64,6 @@ test('overlay selection returns through the existing semantic inspector path', (
   const source = readFileSync(APP_PATH, 'utf8');
   assert.match(source, /studio-overlays/);
   assert.match(source, /dom\.select\(ref/);
+  assert.match(source, /studioDrawCalls/);
   assert.doesNotMatch(source, /innerHTML\s*=/);
 });

@@ -18,15 +18,19 @@ import {
 import { assignOfficeProjection, createOfficeEnvironment } from './office.js';
 import { createStudioOverlays } from './overlays.js';
 import { createEntityReconciler } from './reconciler.js';
+import { createRobotFleetRenderer } from './robot.js';
 import { STUDIO_TOPOLOGY } from './topology.js';
 import { createTransitionScheduler } from './transitions.js';
 
 const QUALITY = Object.freeze({
-  high: { pixelRatio: 1.5, shadows: true },
-  balanced: { pixelRatio: 1.25, shadows: false },
-  low: { pixelRatio: 1, shadows: false },
+  high: { pixelRatio: 1.5, shadows: true, frameInterval: 0 },
+  balanced: { pixelRatio: 1.25, shadows: false, frameInterval: 0 },
+  low: { pixelRatio: 1, shadows: false, frameInterval: 1000 / 15 },
 });
 const QUALITY_ORDER = ['high', 'balanced', 'low'];
+const MAX_DETAILED_RIGS = 16;
+const DRAW_CALL_CEILING = 90;
+const TRIANGLE_CEILING = 200_000;
 
 function easeInOut(value) {
   return value < 0.5 ? 2 * value * value : 1 - Math.pow(-2 * value + 2, 2) / 2;
@@ -36,6 +40,7 @@ export function createStudioScene(canvas, {
   motion = 'full',
   overlayRoot = null,
   onSelect = () => {},
+  onDiagnostics = () => {},
   onRendererState = () => {},
 } = {}) {
   const renderer = new THREE.WebGLRenderer({
@@ -49,7 +54,7 @@ export function createStudioScene(canvas, {
   renderer.toneMappingExposure = 0.98;
   renderer.setClearColor(0xcbd2cf, 1);
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0xcbd2cf, 0.012);
@@ -81,6 +86,8 @@ export function createStudioScene(canvas, {
   const pool = createResourcePool();
   const office = createOfficeEnvironment(pool);
   scene.add(office.object);
+  const robotFleet = createRobotFleetRenderer(pool, { maxRobots: MAX_DETAILED_RIGS + 1 });
+  scene.add(robotFleet.object);
   const reconciler = createEntityReconciler({
     scene,
     factories: createEntityFactories(pool),
@@ -106,6 +113,7 @@ export function createStudioScene(canvas, {
   let firstTimeline = true;
   let controlsActive = false;
   let transitionCostMs = 0;
+  let lastRenderedAt = 0;
 
   const animator = createAgentAnimator({
     scene,
@@ -160,7 +168,20 @@ export function createStudioScene(canvas, {
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, quality.pixelRatio));
     renderer.shadowMap.enabled = quality.shadows;
     key.castShadow = quality.shadows;
+    overlays?.setQuality?.(tier);
     resize();
+  }
+
+  function enforceQualityCeilings(now) {
+    const overGeometryBudget = renderer.info.render.calls > DRAW_CALL_CEILING
+      || renderer.info.render.triangles > TRIANGLE_CEILING;
+    const overCpuBudget = transitionCostMs > 4;
+    if ((!overGeometryBudget && !overCpuBudget) || now - lastTierChange < 2_000) return;
+    const index = QUALITY_ORDER.indexOf(qualityTier);
+    if (index < QUALITY_ORDER.length - 1) {
+      applyQuality(QUALITY_ORDER[index + 1]);
+      lastTierChange = now;
+    }
   }
 
   function samplePerformance(now) {
@@ -192,15 +213,21 @@ export function createStudioScene(canvas, {
 
   function renderFrame(now) {
     if (destroyed || pauseReasons.size) return;
+    const frameInterval = QUALITY[qualityTier].frameInterval;
+    if (frameInterval && now - lastRenderedAt < frameInterval) return;
+    lastRenderedAt = now;
     transitions.tick(now);
     const transitionStarted = performance.now();
     const workforceActive = animator.update(now);
     transitionCostMs = performance.now() - transitionStarted;
+    robotFleet.update();
     updateCameraTween(now);
     controls.update();
     overlays?.update(camera, reconciler.entries(), canvas.getBoundingClientRect());
     renderer.render(scene, camera);
     samplePerformance(now);
+    enforceQualityCeilings(now);
+    onDiagnostics(diagnostics());
     if (!workforceActive && transitions.pending() === 0 && !cameraTween && !controlsActive) {
       renderer.setAnimationLoop(null);
     }
@@ -265,14 +292,16 @@ export function createStudioScene(canvas, {
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
     const hits = raycaster.intersectObjects(scene.children, true);
-    const hit = hits.find((entry) => entry.object.userData.interactive && entry.object.userData.entityRef);
+    const hit = hits.find((entry) => entry.object.userData.interactive && (
+      entry.object.userData.entityRef || entry.object.userData.entityRefs?.[entry.instanceId]
+    ));
     if (!hit) return;
-    const ref = hit.object.userData.entityRef;
+    const ref = hit.object.userData.entityRef ?? hit.object.userData.entityRefs?.[hit.instanceId];
     if (select(ref)) onSelect(ref);
   }
 
   function applyRestingStates() {
-    (projection.sessions ?? []).slice(-16).forEach((session) => {
+    (projection.sessions ?? []).slice(-MAX_DETAILED_RIGS).forEach((session) => {
       const handle = reconciler.get({ kind: 'session', id: session.id });
       if (!handle) return;
       const workstation = workstationBySession.get(session.id);
@@ -292,7 +321,9 @@ export function createStudioScene(canvas, {
     workstationBySession.clear();
     assigned.forEach((desk, sessionId) => workstationBySession.set(sessionId, desk));
     reconciler.apply(projection);
+    robotFleet.reconcile(reconciler.entries());
     applyRestingStates();
+    robotFleet.update();
     overlays?.reconcile(projection, reconciler.entries());
     refreshProjectionGeometry();
     transitions.ingest(projection.timeline, { prime: firstTimeline });
@@ -380,6 +411,7 @@ export function createStudioScene(canvas, {
     canvas.removeEventListener('webglcontextrestored', onContextRestored);
     controls.removeEventListener('start', onControlsStart);
     controls.removeEventListener('end', onControlsEnd);
+    robotFleet.dispose();
     reconciler.clear();
     transitions.clear();
     animator.clear();

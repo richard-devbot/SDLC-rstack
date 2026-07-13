@@ -86,6 +86,19 @@ test('Studio serves pinned Three.js locally and rejects unlisted paths', async (
     assert.equal(controls.status, 200);
     assert.match(await controls.text(), /class OrbitControls/);
 
+    for (const asset of [
+      'behavior.js',
+      'robot-poses.js',
+      'robot.js',
+      'office.js',
+      'animator.js',
+      'overlays.js',
+    ]) {
+      const response = await fetch(`${server.baseUrl}/studio3d/assets/${asset}`);
+      assert.equal(response.status, 200, asset);
+      assert.match(response.headers.get('content-type'), /javascript/);
+    }
+
     assert.equal((await fetch(`${server.baseUrl}/studio3d/vendor/..%2F..%2Fpackage.json`)).status, 404);
     assert.equal((await fetch(`${server.baseUrl}/studio3d/vendor/not-allowed.js`)).status, 404);
     assert.equal((await fetch(`${server.baseUrl}/studio3d/assets/not-allowed.js`)).status, 404);

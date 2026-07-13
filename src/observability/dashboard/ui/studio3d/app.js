@@ -61,6 +61,14 @@ async function ensureScene(studio) {
       motion: currentMotion,
       overlayRoot,
       onSelect: (ref) => dom.select(ref, { focus: false }),
+      onDiagnostics: (stats) => {
+        app.dataset.studioQualityTier = stats.qualityTier;
+        app.dataset.studioDrawCalls = String(stats.drawCalls);
+        app.dataset.studioTriangles = String(stats.triangles);
+        app.dataset.studioActiveRigs = String(stats.activeRigs);
+        app.dataset.studioActiveTransitions = String(stats.activeTransitions);
+        app.dataset.studioTransitionCostMs = stats.transitionCostMs.toFixed(3);
+      },
       onRendererState: (state) => {
         banner.hidden = state === 'ready';
         banner.textContent = state === 'context-lost'
@@ -120,6 +128,7 @@ semanticButton.addEventListener('click', () => {
   const semanticOnly = app.dataset.renderer !== 'semantic-only';
   app.dataset.renderer = semanticOnly ? 'semantic-only' : (scene ? 'three' : 'semantic');
   semanticButton.setAttribute('aria-pressed', String(semanticOnly));
+  semanticButton.textContent = semanticOnly ? 'Show 3D view' : 'Semantic view';
   if (semanticOnly) scene?.pause('semantic-only');
   else scene?.resume('semantic-only');
 });

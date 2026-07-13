@@ -34,6 +34,7 @@ export function studio3dHtml() {
       <div class="studio-status-cluster">
         <output id="studio-connection" class="studio-connection" aria-live="polite">Connecting</output>
         <span id="studio-freshness" class="studio-freshness">Snapshot unavailable</span>
+        <button id="studio-semantic-toggle" class="studio-icon-button" type="button" aria-pressed="false">Semantic view</button>
         <button id="studio-motion" class="studio-icon-button" type="button" aria-pressed="false">Reduce motion</button>
       </div>
     </header>
@@ -45,7 +46,6 @@ export function studio3dHtml() {
         <div id="studio-renderer-banner" class="studio-renderer-banner" role="status" hidden></div>
         <div class="studio-camera-controls" aria-label="3D view controls">
           <button id="studio-overview" type="button">Overview</button>
-          <button id="studio-semantic-toggle" type="button" aria-pressed="true">Semantic view</button>
         </div>
       </div>
 

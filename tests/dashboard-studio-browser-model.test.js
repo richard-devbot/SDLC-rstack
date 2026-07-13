@@ -30,6 +30,7 @@ test('Studio shell is semantic-first, local, and independent of a fixed port', (
   assert.match(html, /<div id="studio-overlays" class="studio-overlays" aria-hidden="true"><\/div>/);
   assert.match(html, /<section id="semantic-studio"/);
   assert.match(html, /<div id="studio-announcer"[^>]+aria-live="polite"/);
+  assert.match(html, /studio-status-cluster[\s\S]+id="studio-semantic-toggle"[^>]+aria-pressed="false"[\s\S]+<\/header>/);
   assert.match(html, /<link rel="stylesheet" href="\/studio3d\/assets\/styles\.css">/);
   assert.match(html, /<script type="module" src="\/studio3d\/assets\/app\.js"><\/script>/);
   assert.doesNotMatch(html, /localhost|unpkg|jsdelivr|new WebSocket\('ws:/);
@@ -111,6 +112,13 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /createOfficeEnvironment/);
   assert.match(sceneSource, /createAgentAnimator/);
   assert.match(sceneSource, /createStudioOverlays/);
+  assert.match(sceneSource, /MAX_DETAILED_RIGS\s*=\s*16/);
+  assert.match(sceneSource, /DRAW_CALL_CEILING\s*=\s*90/);
+  assert.match(sceneSource, /TRIANGLE_CEILING\s*=\s*200_000/);
+  assert.match(sceneSource, /enforceQualityCeilings/);
+  assert.match(sceneSource, /onDiagnostics/);
+  assert.match(sceneSource, /THREE\.PCFShadowMap/);
+  assert.doesNotMatch(sceneSource, /PCFSoftShadowMap/);
   assert.doesNotMatch(sceneSource, /pulseEntity|moveCapsule/);
   assert.match(sceneSource, /webglcontextlost/);
   assert.match(sceneSource, /webglcontextrestored/);

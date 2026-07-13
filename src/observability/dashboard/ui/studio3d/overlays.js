@@ -23,9 +23,10 @@ function labelText(key, data) {
   return { title: String(title), detail: String(detail) };
 }
 
-function shouldShow(key, data, selectedKey) {
+function shouldShow(key, data, selectedKey, lowQuality) {
   if (!data) return false;
   if (key === selectedKey || key.startsWith('orchestrator:')) return true;
+  if (lowQuality && !['waiting', 'blocked', 'failed'].includes(data.status)) return false;
   if (key.startsWith('session:')) return HIGH_VALUE.has(data.status);
   if (key.startsWith('governance:')) return true;
   return ['blocked', 'failed', 'waiting'].includes(data.status);
@@ -34,6 +35,9 @@ function shouldShow(key, data, selectedKey) {
 export function createStudioOverlays(root, { onSelect = () => {} } = {}) {
   const labels = new Map();
   let selectedKey = null;
+  let lowQuality = false;
+  let lastProjection = null;
+  let lastEntries = [];
 
   function createLabel(key, handle) {
     const label = root.ownerDocument.createElement('div');
@@ -47,10 +51,12 @@ export function createStudioOverlays(root, { onSelect = () => {} } = {}) {
   }
 
   function reconcile(_projection, entries) {
+    lastProjection = _projection;
+    lastEntries = entries;
     const desired = new Set();
     for (const [key, handle] of entries) {
       const data = handle.object.userData.data;
-      if (!shouldShow(key, data, selectedKey)) continue;
+      if (!shouldShow(key, data, selectedKey, lowQuality)) continue;
       desired.add(key);
       const entry = labels.get(key) ?? createLabel(key, handle);
       entry.handle = handle;
@@ -94,7 +100,14 @@ export function createStudioOverlays(root, { onSelect = () => {} } = {}) {
     for (const { label } of labels.values()) label.remove();
     labels.clear();
     selectedKey = null;
+    lastProjection = null;
+    lastEntries = [];
   }
 
-  return { reconcile, update, select, clear };
+  function setQuality(tier) {
+    lowQuality = tier === 'low';
+    if (lastProjection) reconcile(lastProjection, lastEntries);
+  }
+
+  return { reconcile, update, select, setQuality, clear };
 }
