@@ -941,6 +941,20 @@ tr.clickable:hover td { background: #f8fbff; }
 .pill.info, .pill.ready, .pill.queued { color: var(--blue); border-color: #bfdbfe; background: #eff6ff; }
 /* Spent one-shot credentials (#156): visibly settled, neither success nor failure. */
 .pill.consumed { color: var(--muted); border-color: var(--line-strong); background: #f8fafc; }
+/* Studio v2 (#352): human approval rail + gate/checkpoint chips */
+.studio-humans { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 14px 0; }
+.studio-humans-title { flex-basis: 100%; color: var(--faint); font-size: 11px; letter-spacing: 0.08em; }
+.studio-human { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; background: #fff; }
+.studio-human.waiting { border-color: #fed7aa; background: #fff7ed; box-shadow: 0 0 0 3px #fff7ed; }
+.studio-human-avatar { font-size: 22px; }
+.ws-gate { margin-top: 6px; font-size: 11px; border-radius: 8px; padding: 4px 8px; }
+.ws-gate.closed { color: var(--red); background: #fff5f5; border: 1px solid #fecdca; font-weight: 600; }
+.ws-gate.open { color: var(--green); background: #f0fdf4; border: 1px solid #bbf7d0; }
+.ws-gate.spent { color: var(--muted); background: #f8fafc; border: 1px solid var(--line-strong); }
+.workstation.gated { outline: 2px solid #fecdca; }
+.ws-checkpoint { margin-top: 4px; font-size: 11px; color: var(--muted); }
+.ws-checkpoint.corrupt { color: var(--red); font-weight: 600; }
+.ws-inspector-gates { margin: 8px 0; display: flex; gap: 6px; flex-wrap: wrap; }
 /* Operations Center (#284) */
 .ops-transport { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: #fff; margin-bottom: 16px; }
 .ops-transport-body { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

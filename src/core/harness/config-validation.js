@@ -25,7 +25,7 @@ import { validateReviewPolicyConfig } from './review-independence.js';
 import { validateEnabledPacksConfig } from '../packs.js';
 
 const KNOWN_PROFILES = ['business-flex', 'enterprise-webapp', 'lean-mvp'];
-const KNOWN_CHANNELS = ['slack', 'teams', 'discord', 'telegram', 'whatsapp'];
+const KNOWN_CHANNELS = ['slack', 'teams', 'discord', 'telegram', 'whatsapp', 'email'];
 const MEMORY_WRITE_POLICIES = ['validator-approved-only', 'validation-attempts'];
 const NUMERIC_BUDGET_FIELDS = ['run_budget_usd', 'daily_budget_usd', 'monthly_budget_usd', 'require_approval_above_usd'];
 
@@ -143,6 +143,92 @@ export function validateBudgetConfig(parsed) {
   return issues;
 }
 
+// #353: the email channel + people layer. Recipient addresses are checked
+// for basic shape only, and any credential-shaped key is a hard error — the
+// ACS access key lives ONLY in RSTACK_ACS_CONNECTION_STRING (env), never in
+// this committable file. `access[_-]?key` / `connection[_-]?string` extend
+// the SECRETISH_KEY pattern because they are the exact ACS secret shapes.
+const NOTIFICATIONS_SECRETISH_KEY = /token|secret|password|api[_-]?key|credential|access[_-]?key|connection[_-]?string/i;
+const EMAIL_ADDRESS_SHAPE = /.+@.+\..+/;
+const EMAIL_CHANNEL_FIELDS = ['endpoint', 'sender'];
+const RECIPIENT_FIELDS = ['name', 'email'];
+
+function validateEmailChannel(config, issues) {
+  for (const [key, value] of Object.entries(config)) {
+    if (key.startsWith('_')) continue;
+    if (NOTIFICATIONS_SECRETISH_KEY.test(key)) {
+      issues.push({ field: `channels.email.${key}`, problem: 'credential-shaped key — the ACS access key belongs in the RSTACK_ACS_CONNECTION_STRING environment variable, NEVER in .rstack/notifications.json; remove this field' });
+      continue;
+    }
+    if (!EMAIL_CHANNEL_FIELDS.includes(key)) {
+      issues.push({ field: `channels.email.${key}`, problem: `unknown key — expected ${EMAIL_CHANNEL_FIELDS.join(' | ')}; this key is ignored` });
+      continue;
+    }
+    if (typeof value !== 'string' || !value.trim()) {
+      issues.push({ field: `channels.email.${key}`, problem: `must be a non-empty string, got ${JSON.stringify(value)}` });
+    }
+  }
+  if (typeof config.sender === 'string' && config.sender.trim() && !EMAIL_ADDRESS_SHAPE.test(config.sender)) {
+    issues.push({ field: 'channels.email.sender', problem: `"${config.sender}" does not look like an email address (name@host.tld) — ACS will reject sends from it` });
+  }
+}
+
+function validateRecipients(recipients, issues) {
+  if (!isPlainObject(recipients)) {
+    issues.push({ field: 'recipients', problem: 'must be an object of role -> { name?, email } (role names are free-form, e.g. manager / team_lead / developer / tester / cicd)' });
+    return;
+  }
+  for (const [role, entry] of Object.entries(recipients)) {
+    if (role.startsWith('_')) continue;
+    if (NOTIFICATIONS_SECRETISH_KEY.test(role)) {
+      issues.push({ field: `recipients.${role}`, problem: 'credential-shaped key — secrets belong in environment variables, NEVER in .rstack/notifications.json; remove this field' });
+      continue;
+    }
+    if (!isPlainObject(entry)) {
+      issues.push({ field: `recipients.${role}`, problem: `must be an object like { "name": "Priya", "email": "priya@example.com" }, got ${JSON.stringify(entry)}` });
+      continue;
+    }
+    for (const key of Object.keys(entry)) {
+      if (key.startsWith('_')) continue;
+      if (NOTIFICATIONS_SECRETISH_KEY.test(key)) {
+        issues.push({ field: `recipients.${role}.${key}`, problem: 'credential-shaped key — secrets belong in environment variables, NEVER in .rstack/notifications.json; remove this field' });
+      } else if (!RECIPIENT_FIELDS.includes(key)) {
+        issues.push({ field: `recipients.${role}.${key}`, problem: `unknown key — expected ${RECIPIENT_FIELDS.join(' | ')}; this key is ignored` });
+      }
+    }
+    if (typeof entry.email !== 'string' || !EMAIL_ADDRESS_SHAPE.test(entry.email)) {
+      issues.push({ field: `recipients.${role}.email`, problem: `must be an email address (name@host.tld), got ${JSON.stringify(entry.email)} — this recipient can NEVER receive approval mail` });
+    }
+    if (entry.name != null && typeof entry.name !== 'string') {
+      issues.push({ field: `recipients.${role}.name`, problem: `must be a string, got ${JSON.stringify(entry.name)}` });
+    }
+  }
+}
+
+// The #228 lesson: a route whose roles all miss the recipients map is the
+// silent-failure mode here — the approval email NEVER sends — so it warns
+// with the exact resolution outcome, never fails silently.
+function validateRouting(routing, recipients, issues) {
+  if (!isPlainObject(routing)) {
+    issues.push({ field: 'routing', problem: 'must be an object of pattern -> [role, ...] (patterns: exact artifact names, guardrail-override:* / stage-approval:* / destructive-action:* wildcards, or canonical stage ids)' });
+    return;
+  }
+  const knownRoles = isPlainObject(recipients) ? Object.keys(recipients) : [];
+  for (const [pattern, roles] of Object.entries(routing)) {
+    if (pattern.startsWith('_')) continue;
+    if (!Array.isArray(roles) || roles.some((role) => typeof role !== 'string' || !role.trim())) {
+      issues.push({ field: `routing.${pattern}`, problem: `must be an array of non-empty role names, got ${JSON.stringify(roles)} — this route will NOT send as written` });
+      continue;
+    }
+    const missing = roles.filter((role) => !knownRoles.includes(role));
+    if (missing.length === roles.length && roles.length > 0) {
+      issues.push({ field: `routing.${pattern}`, problem: `none of [${roles.join(', ')}] exist in recipients — this route resolves to NOBODY and the approval email will never send` });
+    } else if (missing.length > 0) {
+      issues.push({ field: `routing.${pattern}`, problem: `role(s) ${missing.join(', ')} not found in recipients — those roles resolve to nobody` });
+    }
+  }
+}
+
 export function validateNotificationsConfig(parsed) {
   const issues = [];
   if (parsed.channels != null) {
@@ -155,9 +241,13 @@ export function validateNotificationsConfig(parsed) {
         issues.push({ field: `channels.${name}`, problem: `unknown channel — expected ${KNOWN_CHANNELS.join(' | ')}; this channel is ignored` });
       } else if (!isPlainObject(config)) {
         issues.push({ field: `channels.${name}`, problem: 'must be an object with the channel credentials (e.g. webhook)' });
+      } else if (name === 'email') {
+        validateEmailChannel(config, issues);
       }
     }
   }
+  if (parsed.recipients != null) validateRecipients(parsed.recipients, issues);
+  if (parsed.routing != null) validateRouting(parsed.routing, parsed.recipients, issues);
   return issues;
 }
 
@@ -200,6 +290,15 @@ export function validatePolicyConfig(parsed) {
   }
   if (parsed.enforce_in_express != null && typeof parsed.enforce_in_express !== 'boolean') {
     issues.push({ field: 'enforce_in_express', problem: `must be a boolean, got ${JSON.stringify(parsed.enforce_in_express)}` });
+  }
+  // #285: cockpit-controls opt-in. Only the literal true enables state-changing
+  // hub controls; a typo'd key silently leaves the feature OFF, so warn.
+  if (parsed.cockpit_controls != null) {
+    if (!isPlainObject(parsed.cockpit_controls)) {
+      issues.push({ field: 'cockpit_controls', problem: 'must be an object (e.g. { "enabled": true })' });
+    } else if (parsed.cockpit_controls.enabled != null && typeof parsed.cockpit_controls.enabled !== 'boolean') {
+      issues.push({ field: 'cockpit_controls.enabled', problem: `must be a boolean, got ${JSON.stringify(parsed.cockpit_controls.enabled)} — only the literal true enables cockpit controls` });
+    }
   }
   if (parsed.managers != null && (!Array.isArray(parsed.managers) || parsed.managers.some((manager) => typeof manager !== 'string' || !manager.trim()))) {
     issues.push({ field: 'managers', problem: 'must be an array of non-empty manager names/emails' });

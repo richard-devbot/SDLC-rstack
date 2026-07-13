@@ -97,8 +97,8 @@ test('notifyAll with nothing configured is a silent no-op', async () => {
   assert.deepEqual(results, []);
 });
 
-test('all five channels are registered in the router', () => {
-  assert.deepEqual(Object.keys(CHANNEL_SENDERS).sort(), ['discord', 'slack', 'teams', 'telegram', 'whatsapp']);
+test('all six channels are registered in the router', () => {
+  assert.deepEqual(Object.keys(CHANNEL_SENDERS).sort(), ['discord', 'email', 'slack', 'teams', 'telegram', 'whatsapp']);
 });
 
 test('postJson rejects a stalled webhook instead of hanging (#291)', async () => {

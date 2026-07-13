@@ -124,6 +124,44 @@ async function checkConfigs(projectRoot) {
     'Fix the flagged fields in .rstack/*.json (run `rstack-agents doctor --json` to see every issue)');
 }
 
+// --- email approval notifications (#353) -------------------------------------
+
+// PASS when the three configuration halves line up (env connection string +
+// sender in notifications.json + at least one recipient); WARN naming exactly
+// what is missing when partially configured; null (skip silently) when wholly
+// unconfigured — email is opt-in and its absence is not a problem to report.
+// Never FAIL: notifications are best-effort by contract and cannot block work.
+function checkEmailNotifications(projectRoot, env = process.env) {
+  const hasKey = Boolean(env.RSTACK_ACS_CONNECTION_STRING);
+  let sender = '';
+  let recipientCount = 0;
+  const path = join(projectRoot, '.rstack', 'notifications.json');
+  if (existsSync(path)) {
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8'));
+      const configured = parsed?.channels?.email?.sender;
+      sender = typeof configured === 'string' ? configured.trim() : '';
+      const recipients = parsed?.recipients;
+      if (recipients && typeof recipients === 'object' && !Array.isArray(recipients)) {
+        recipientCount = Object.values(recipients)
+          .filter((entry) => entry && typeof entry === 'object' && /.+@.+\..+/.test(String(entry.email ?? ''))).length;
+      }
+    } catch { /* malformed json is the config-validation check's finding */ }
+  }
+  if (!hasKey && !sender && recipientCount === 0) return null; // wholly unconfigured — skip
+  if (hasKey && sender && recipientCount > 0) {
+    return check('email approval notifications', PASS,
+      `ACS email configured — sender ${sender}, ${recipientCount} recipient(s), access key from RSTACK_ACS_CONNECTION_STRING`);
+  }
+  const missing = [];
+  if (!hasKey) missing.push('RSTACK_ACS_CONNECTION_STRING (env — "endpoint=https://...;accesskey=...")');
+  if (!sender) missing.push('channels.email.sender in .rstack/notifications.json');
+  if (recipientCount === 0) missing.push('at least one recipients.<role>.email in .rstack/notifications.json');
+  return check('email approval notifications', WARN,
+    `email is partially configured — approval emails will NOT send. Missing: ${missing.join('; ')}`,
+    'Set RSTACK_ACS_CONNECTION_STRING in the environment and add channels.email.sender + recipients/routing to .rstack/notifications.json (see docs/mintlify/reference/approvals.mdx)');
+}
+
 // --- framework wiring -------------------------------------------------------
 
 async function detectFrameworkLocal(projectRoot) {
@@ -551,6 +589,11 @@ export async function runDoctor({ framework, project, cwd = process.cwd() } = {}
   // State + config
   checks.push(checkRstackDir(projectRoot));
   checks.push(await checkConfigs(projectRoot));
+
+  // Email approval notifications (#353) — reported only when at least one
+  // half is configured; a wholly-unconfigured opt-in feature is not a finding.
+  const emailCheck = checkEmailNotifications(projectRoot);
+  if (emailCheck) checks.push(emailCheck);
 
   // Framework wiring (explicit --framework, else auto-detect; else all-generic)
   const detected = framework ?? await detectFrameworkLocal(projectRoot);

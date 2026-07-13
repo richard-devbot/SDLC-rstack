@@ -10,9 +10,14 @@
  *       "teams":    { "webhook": "https://....webhook.office.com/..." },
  *       "discord":  { "webhook": "https://discord.com/api/webhooks/..." },
  *       "telegram": { "bot_token": "123:abc", "chat_id": "-100123" },
- *       "whatsapp": { "token": "...", "phone_number_id": "...", "to": "15551234567" }
+ *       "whatsapp": { "token": "...", "phone_number_id": "...", "to": "15551234567" },
+ *       "email":    { "sender": "DoNotReply@....azurecomm.net", "endpoint": "https://... (optional)" }
  *     }
  *   }
+ *
+ * The email channel (#353) additionally requires the RSTACK_ACS_CONNECTION_STRING
+ * environment variable (the ACS access key NEVER lives in this file) and routes
+ * per person via the `recipients` + `routing` maps (see recipients.js).
  *
  * Layer rule: notifications are fire-and-forget — a webhook failure must never
  * fail a run. notifyAll never throws; it returns per-channel results.
@@ -27,6 +32,7 @@ import { sendTeams } from './channels/teams.js';
 import { sendDiscord } from './channels/discord.js';
 import { sendTelegram } from './channels/telegram.js';
 import { sendWhatsApp } from './channels/whatsapp.js';
+import { sendEmail } from './channels/email.js';
 
 export const CHANNEL_SENDERS = Object.freeze({
   slack: sendSlack,
@@ -34,6 +40,7 @@ export const CHANNEL_SENDERS = Object.freeze({
   discord: sendDiscord,
   telegram: sendTelegram,
   whatsapp: sendWhatsApp,
+  email: sendEmail,
 });
 
 function fileConfig(projectRoot) {
@@ -75,7 +82,22 @@ function envChannels(env) {
 
 /** Resolve the effective channel configuration. Env wins over file config. */
 export function resolveChannels({ projectRoot, env = process.env } = {}) {
-  return { ...fileConfig(projectRoot), ...envChannels(env) };
+  const channels = { ...fileConfig(projectRoot), ...envChannels(env) };
+  // Email (#353) is split across two sources by design: the access key lives
+  // ONLY in the RSTACK_ACS_CONNECTION_STRING env var (never in .rstack json),
+  // while the committable half (sender address + optional endpoint override)
+  // lives in channels.email of notifications.json. The channel is enabled
+  // only when BOTH halves are present — otherwise it is dropped entirely so
+  // hasConfiguredChannels stays honest.
+  const connectionString = env.RSTACK_ACS_CONNECTION_STRING;
+  const emailFile = channels.email && typeof channels.email === 'object' && !Array.isArray(channels.email) ? channels.email : null;
+  const sender = typeof emailFile?.sender === 'string' ? emailFile.sender.trim() : '';
+  if (connectionString && sender) {
+    channels.email = { ...emailFile, sender, connection_string: connectionString, projectRoot };
+  } else {
+    delete channels.email;
+  }
+  return channels;
 }
 
 export function hasConfiguredChannels(options = {}) {
@@ -85,6 +107,12 @@ export function hasConfiguredChannels(options = {}) {
 /**
  * Send a Slack-format payload to every configured channel.
  * Never throws. Returns [{ channel, ok, detail }].
+ *
+ * `options.meta` (#353) carries structured context ADDITIVELY — it is passed
+ * to every sender as a third argument the existing webhook channels simply
+ * ignore, so their payloads are byte-identical to before. The email channel
+ * uses it for per-person approval routing:
+ *   { kind: 'approval_required', run_id, task_id, artifacts, stage_ids?, reason? }
  */
 export async function notifyAll(slackPayload, options = {}) {
   const channels = resolveChannels(options);
@@ -92,7 +120,7 @@ export async function notifyAll(slackPayload, options = {}) {
   const names = Object.keys(channels).filter((name) => senders[name]);
   const results = await Promise.all(names.map(async (name) => {
     try {
-      const detail = await senders[name](channels[name], slackPayload);
+      const detail = await senders[name](channels[name], slackPayload, options.meta);
       return { channel: name, ok: true, detail: String(detail).slice(0, 200) };
     } catch (err) {
       return { channel: name, ok: false, detail: String(err?.message ?? err).slice(0, 200) };

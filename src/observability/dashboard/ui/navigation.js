@@ -28,7 +28,9 @@ export const destinations = Object.freeze([
     child('projects', 'Projects & Runs', true),
     child('workflow', 'Workflow Map', true),
     child('run-analytics', 'Run Analytics', true),
-    child('studio', 'Studio', true),
+    // #352: the Studio is the showcase surface — visible again (the #278
+    // shell had demoted it to a hidden route and it read as removed).
+    child('studio', 'Studio'),
     child('agent-work', 'Agent Work', true),
   ]),
   destination('evidence', 'Evidence', 'evidence', 'traceability', [
