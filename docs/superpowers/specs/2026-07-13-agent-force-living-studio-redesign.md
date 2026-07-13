@@ -631,3 +631,31 @@ The following record verifies the approved architectural cutaway-office revision
   inspector both functioned.
 - Desktop WebGL diagnostics on that fixture: high quality tier, 57 draw calls,
   23,262 triangles — below the 90-call and 200,000-triangle release ceilings.
+
+## Immersive revision (Richardson-directed, 2026-07-13)
+
+Product direction from a live review of the cutaway office: the Studio page
+should BE the live 3D company, not a dashboard wrapped around one.
+
+- On desktop, while the 3D renderer is active, the semantic company-map panel
+  and the lifecycle timeline are hidden; the office fills the workspace. The
+  complete semantic tree, timeline, and every operational fact remain one
+  click away on the Semantic view toggle, which stays the canonical
+  accessibility surface. The click-open inspector remains available over the
+  canvas. Mobile stays semantic-first.
+- Icon-only status badges float above robots inside the canvas: one glyph and
+  color per source-backed status (working, waiting, blocked/failed, complete,
+  starting). Badges carry no prose, names, or values — those remain in the
+  inspector and semantic view. This amends the earlier blanket prohibition,
+  which now reads: no world-space text panels, labels, cards, speech bubbles,
+  or tooltips; icon-only status glyphs are permitted.
+- Game-feel polish within the CPU ceilings: status-glow antenna tips sharing
+  the semantic face material, occupied-desk screen glow driven only by real
+  desk occupancy, robot shadows, a polished floor, and a tighter overview
+  framing.
+
+Verified live: full-bleed render at 55–70 draw calls, and a real appended
+lifecycle journey (delegation → session start → capability pickup → activity →
+handoff → artifact → approval wait → completion) animated a fourth robot
+through the office with zero page errors, with freshness flipping to
+Fresh · Observed seconds ago.
