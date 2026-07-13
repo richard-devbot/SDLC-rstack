@@ -26,10 +26,15 @@ AI coding agents can generate software quickly, but unstructured agent use often
 - AI coding tools and agentic workflows.
 - Augment Code AI-SDLC reference architecture.
 - `ai-sdlc-framework/ai-sdlc` as prior-art governance framework.
-- DevOps/DORA delivery-performance research (2025 baseline: AI adoption raises throughput but lowers stability — the throughput-without-stability gap RStack targets; correlational).
-- METR productivity caution — framed as the **perception gap** (developers felt faster while measured slower) and delivery *stability*, not the early-2025 19% figure (superseded by the 2026 follow-up: effect indistinguishable from zero; do not overclaim the null).
-- NIST AI RMF, NIST SSDF, OWASP LLM Top 10.
-- SLSA/DSSE/Sigstore provenance patterns.
+- DevOps/DORA delivery-performance research (2024 baseline; 2025: AI positive for throughput, still negative for stability).
+- METR productivity evidence: early-2025 RCT (19% slowdown, superseded) + Feb 2026 follow-up (~zero measured effect); the durable finding is the perception gap.
+- NIST AI RMF; NIST SSDF SP 800-218/218A and the open AI-assisted-SDLC gap (draft SSDF v1.2, COSAIS).
+- OWASP LLM Top 10 (2025) and OWASP Top 10 for Agentic Applications (2026, ASI01–ASI10).
+- SLSA v1.2 (incl. Source Track), DSSE/in-toto attestation framework, Sigstore.
+- EU AI Act status: GPAI obligations in force, Art. 50 transparency from Aug 2026, high-risk deadlines deferred by the Digital Omnibus (Dec 2027 / Aug 2028).
+- Agent interoperability: MCP 2026-07-28 stateless revision; A2A v1.0 under the Linux Foundation — interop standardization matured while agent-governance standardization is still forming.
+
+(Evidence details and citation rules: `research/evidence-refresh-2026-07.md`.)
 
 ## 3. RStack architecture
 
@@ -149,7 +154,10 @@ Main finding:
 - Drift detection.
 - Untrusted PR gate.
 - Governance packs.
-- MCP/A2A server.
+- MCP/A2A server (target the stateless MCP 2026-07-28 revision; A2A v1.0).
+- in-toto-conformant attestations (payloadType media types, Statement payload, ITE-5 multi-signature) — parked in #79.
+- SLSA v1.2 Source Track alignment for the PR gate and review independence — parked in #79.
+- OWASP ASI (Agentic Top 10) mapping pack beside NIST AI RMF / ISO 42001 — parked in #79.
 - External benchmark study.
 
 ## 10. Conclusion
