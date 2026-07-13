@@ -1,5 +1,7 @@
 # Agent Force Studio 3D Implementation Plan
 
+RStack developed by Richardson Gunde
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a production-ready 3D Agent Force Studio that truthfully visualizes RStack orchestration, mission work, temporary agent sessions, governance, and evidence from server-owned state.
