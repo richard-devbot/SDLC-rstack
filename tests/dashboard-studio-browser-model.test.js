@@ -27,6 +27,7 @@ test('Studio shell is semantic-first, local, and independent of a fixed port', (
 
   assert.match(html, /<main id="studio-app"/);
   assert.match(html, /<canvas id="studio-canvas" aria-hidden="true"/);
+  assert.match(html, /<div id="studio-overlays" class="studio-overlays" aria-hidden="true"><\/div>/);
   assert.match(html, /<section id="semantic-studio"/);
   assert.match(html, /<div id="studio-announcer"[^>]+aria-live="polite"/);
   assert.match(html, /<link rel="stylesheet" href="\/studio3d\/assets\/styles\.css">/);
@@ -97,8 +98,10 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.equal(typeof createEntityReconciler, 'function');
   const scenePath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'scene.js');
   const geometryPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'geometry.js');
+  const overlaysPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'overlays.js');
   const sceneSource = readFileSync(scenePath, 'utf8');
   const geometrySource = readFileSync(geometryPath, 'utf8');
+  const overlaysSource = readFileSync(overlaysPath, 'utf8');
   for (const name of ['reconcile', 'select', 'focus', 'setMotion', 'diagnostics', 'pause', 'resume', 'destroy']) {
     assert.match(sceneSource, new RegExp(`${name}\\b`));
   }
@@ -107,11 +110,15 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   }
   assert.match(sceneSource, /createOfficeEnvironment/);
   assert.match(sceneSource, /createAgentAnimator/);
+  assert.match(sceneSource, /createStudioOverlays/);
   assert.doesNotMatch(sceneSource, /pulseEntity|moveCapsule/);
   assert.match(sceneSource, /webglcontextlost/);
   assert.match(sceneSource, /webglcontextrestored/);
   assert.match(sceneSource, /setAnimationLoop/);
   assert.match(geometrySource, /InstancedMesh/);
+  assert.match(overlaysSource, /textContent/);
+  assert.match(overlaysSource, /HIGH_VALUE/);
+  assert.doesNotMatch(overlaysSource, /innerHTML\s*=/);
 });
 
 test('transition scheduler animates unseen source events once and respects reduced motion', () => {

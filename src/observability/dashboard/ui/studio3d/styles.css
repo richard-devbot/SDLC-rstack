@@ -1,23 +1,23 @@
 /* Agent Force Studio — RStack developed by Richardson Gunde */
 :root {
-  color-scheme: dark;
-  --studio-bg: #080b10;
-  --studio-surface: #10151d;
-  --studio-raised: #171d27;
-  --studio-panel: rgba(15, 20, 28, 0.94);
-  --studio-line: rgba(183, 200, 221, 0.16);
-  --studio-line-strong: rgba(229, 184, 96, 0.38);
-  --studio-text: #f5f1e8;
-  --studio-muted: #9ca8b7;
-  --studio-dim: #697586;
-  --studio-amber: #e5b860;
-  --studio-amber-soft: #6d5124;
-  --studio-blue: #71a7ff;
-  --studio-green: #66d09b;
-  --studio-red: #ff7d74;
-  --studio-violet: #ac8cff;
+  color-scheme: light;
+  --studio-bg: #eeece5;
+  --studio-surface: #fffdf8;
+  --studio-raised: #f5f3ed;
+  --studio-panel: rgba(255, 253, 248, 0.94);
+  --studio-line: rgba(78, 86, 92, 0.18);
+  --studio-line-strong: rgba(217, 135, 25, 0.42);
+  --studio-text: #20242a;
+  --studio-muted: #68707a;
+  --studio-dim: #8a9097;
+  --studio-amber: #d98719;
+  --studio-amber-soft: #d7b77f;
+  --studio-blue: #2867d6;
+  --studio-green: #2f8f74;
+  --studio-red: #c9473b;
+  --studio-violet: #7254c7;
   --studio-radius: 14px;
-  --studio-shadow: 0 22px 60px rgba(0, 0, 0, 0.38);
+  --studio-shadow: 0 22px 60px rgba(32, 36, 42, 0.16);
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -30,7 +30,7 @@ body {
   margin: 0;
   overflow-x: clip;
   background:
-    radial-gradient(circle at 52% -10%, rgba(229, 184, 96, 0.12), transparent 34rem),
+    radial-gradient(circle at 52% -10%, rgba(217, 135, 25, 0.15), transparent 34rem),
     var(--studio-bg);
   color: var(--studio-text);
 }
@@ -71,8 +71,8 @@ button { min-height: 44px; }
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   background:
-    linear-gradient(rgba(255,255,255,0.014) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.014) 1px, transparent 1px);
+    linear-gradient(rgba(32,36,42,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(32,36,42,0.025) 1px, transparent 1px);
   background-size: 32px 32px;
 }
 
@@ -85,7 +85,7 @@ button { min-height: 44px; }
   align-items: center;
   gap: 20px;
   border-bottom: 1px solid var(--studio-line);
-  background: rgba(8, 11, 16, 0.9);
+  background: rgba(255, 253, 248, 0.92);
   backdrop-filter: blur(20px);
 }
 
@@ -104,10 +104,10 @@ button { min-height: 44px; }
   place-items: center;
   border: 1px solid var(--studio-line-strong);
   border-radius: 11px;
-  background: linear-gradient(145deg, #302818, #121720);
+  background: linear-gradient(145deg, #fff4d9, #e9e3d6);
   color: var(--studio-amber);
   font: 800 18px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  box-shadow: inset 0 0 24px rgba(229, 184, 96, 0.1);
+  box-shadow: inset 0 0 24px rgba(217, 135, 25, 0.12);
 }
 
 .studio-brand strong,
@@ -199,8 +199,9 @@ button { min-height: 44px; }
   inset: 0;
   overflow: hidden;
   background:
-    radial-gradient(circle at 50% 30%, rgba(49, 64, 86, 0.33), transparent 46%),
-    linear-gradient(180deg, #0c1119, #07090d);
+    radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.78), transparent 46%),
+    linear-gradient(145deg, #fffefb, #e9e7df);
+  border-color: #d5d3cc;
 }
 
 #studio-canvas {
@@ -208,6 +209,42 @@ button { min-height: 44px; }
   width: 100%;
   height: 100%;
 }
+
+.studio-overlays {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.studio-world-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 9rem;
+  max-width: 15rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #d7d4cc;
+  border-left: 3px solid var(--studio-amber);
+  border-radius: 0.55rem;
+  background: rgba(255, 253, 248, 0.94);
+  color: var(--studio-text);
+  box-shadow: 0 0.5rem 1.2rem rgba(32, 36, 42, 0.12);
+  pointer-events: auto;
+  text-align: left;
+  transform-origin: left bottom;
+  cursor: pointer;
+}
+
+.studio-world-label strong,
+.studio-world-label span { display: block; }
+.studio-world-label strong { font-size: 0.76rem; line-height: 1.2; }
+.studio-world-label span { margin-top: 0.2rem; color: var(--studio-muted); font-size: 0.68rem; }
+.studio-world-label[data-state="waiting"],
+.studio-world-label[data-state="blocked"],
+.studio-world-label[data-state="failed"] { border-left-color: var(--studio-red); }
+.studio-world-label[data-selected="true"] { outline: 3px solid rgba(217, 135, 25, 0.3); }
 
 .studio-camera-controls {
   position: absolute;
@@ -222,8 +259,8 @@ button { min-height: 44px; }
 .studio-renderer-banner,
 .studio-fallback {
   border: 1px solid var(--studio-line-strong);
-  background: rgba(27, 22, 14, 0.94);
-  color: #f9db9a;
+  background: rgba(255, 249, 232, 0.96);
+  color: #744a12;
   box-shadow: var(--studio-shadow);
 }
 
@@ -300,7 +337,7 @@ button { min-height: 44px; }
   padding: 11px;
   border: 1px solid var(--studio-line);
   border-radius: 11px;
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(32, 36, 42, 0.025);
   color: var(--studio-text);
   text-align: left;
   cursor: pointer;
@@ -308,14 +345,14 @@ button { min-height: 44px; }
 }
 
 .studio-entity:hover {
-  border-color: rgba(229, 184, 96, 0.5);
-  background: rgba(229, 184, 96, 0.055);
+  border-color: rgba(217, 135, 25, 0.5);
+  background: rgba(217, 135, 25, 0.07);
   transform: translateY(-1px);
 }
 
 .studio-entity[aria-current="true"] {
   border-color: var(--studio-amber);
-  background: rgba(229, 184, 96, 0.1);
+  background: rgba(217, 135, 25, 0.11);
   box-shadow: inset 3px 0 var(--studio-amber);
 }
 
@@ -376,7 +413,7 @@ button { min-height: 44px; }
   overflow-y: auto;
   border: 1px solid var(--studio-line-strong);
   border-radius: var(--studio-radius);
-  background: rgba(12, 16, 23, 0.97);
+  background: rgba(255, 253, 248, 0.98);
   box-shadow: var(--studio-shadow);
 }
 
@@ -405,7 +442,7 @@ button { min-height: 44px; }
   padding: 12px 18px 14px;
   overflow: hidden;
   border-top: 1px solid var(--studio-line);
-  background: rgba(8, 11, 16, 0.95);
+  background: rgba(255, 253, 248, 0.96);
 }
 
 .studio-timeline {
@@ -447,7 +484,7 @@ button { min-height: 44px; }
 }
 
 .studio-fallback h2 { margin: 0 0 4px; font-size: 14px; }
-.studio-fallback p { margin: 0; color: #d8c59f; font-size: 11px; line-height: 1.45; }
+.studio-fallback p { margin: 0; color: #6f6250; font-size: 11px; line-height: 1.45; }
 .studio-noscript { margin: 20px; color: var(--studio-text); }
 
 #studio-app[data-renderer="semantic"] .studio-scene-shell,
@@ -517,6 +554,8 @@ button { min-height: 44px; }
     border-bottom: 1px solid var(--studio-line);
   }
 
+  .studio-overlays { display: none; }
+
   #studio-app[data-renderer="semantic"] .studio-scene-shell,
   #studio-app[data-renderer="semantic-only"] .studio-scene-shell { display: none; }
 
@@ -539,7 +578,7 @@ button { min-height: 44px; }
     overflow: visible;
     border: 0;
     border-radius: 0;
-    background: rgba(8, 11, 16, 0.96);
+    background: rgba(255, 253, 248, 0.98);
     box-shadow: none;
   }
 
@@ -584,4 +623,6 @@ button { min-height: 44px; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+
+  .studio-world-label { transition: none; }
 }

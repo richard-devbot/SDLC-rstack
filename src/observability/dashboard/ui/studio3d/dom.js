@@ -16,6 +16,8 @@ const ANNOUNCED_TYPES = new Set([
   'dor_gate_blocked',
   'guardrail_blocked',
   'task_human_context_required',
+  'artifact_emitted',
+  'agent_session_completed',
 ]);
 
 function element(doc, tag, className = '', text = null) {
@@ -150,6 +152,9 @@ export function createStudioDom(root, {
         fact(doc, 'Model', entity.model),
         fact(doc, 'Sandbox', entity.sandbox_id),
         fact(doc, 'Waiting for', entity.waiting_reason),
+        fact(doc, 'Stages', entity.stage_ids?.length ? entity.stage_ids.join(', ') : 'Unavailable'),
+        fact(doc, 'Activity class', entity.activity_class ? statusLabel(entity.activity_class) : 'Unavailable'),
+        fact(doc, 'Last activity', entity.last_activity_at),
       );
     }
     inspectorBody.append(facts);

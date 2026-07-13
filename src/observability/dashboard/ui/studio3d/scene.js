@@ -16,6 +16,7 @@ import {
   createWorkPacket,
 } from './geometry.js';
 import { assignOfficeProjection, createOfficeEnvironment } from './office.js';
+import { createStudioOverlays } from './overlays.js';
 import { createEntityReconciler } from './reconciler.js';
 import { STUDIO_TOPOLOGY } from './topology.js';
 import { createTransitionScheduler } from './transitions.js';
@@ -33,6 +34,7 @@ function easeInOut(value) {
 
 export function createStudioScene(canvas, {
   motion = 'full',
+  overlayRoot = null,
   onSelect = () => {},
   onRendererState = () => {},
 } = {}) {
@@ -84,6 +86,7 @@ export function createStudioScene(canvas, {
     factories: createEntityFactories(pool),
   });
   const workstationBySession = new Map();
+  let overlays = null;
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -119,6 +122,14 @@ export function createStudioScene(canvas, {
   });
   transitions.setMotion(motionMode);
   animator.setMotion(motionMode);
+
+  if (overlayRoot) {
+    overlays = createStudioOverlays(overlayRoot, {
+      onSelect: (ref) => {
+        if (select(ref)) onSelect(ref);
+      },
+    });
+  }
 
   function disposeDynamic(object) {
     if (!object) return;
@@ -187,6 +198,7 @@ export function createStudioScene(canvas, {
     transitionCostMs = performance.now() - transitionStarted;
     updateCameraTween(now);
     controls.update();
+    overlays?.update(camera, reconciler.entries(), canvas.getBoundingClientRect());
     renderer.render(scene, camera);
     samplePerformance(now);
     if (!workforceActive && transitions.pending() === 0 && !cameraTween && !controlsActive) {
@@ -242,6 +254,7 @@ export function createStudioScene(canvas, {
     }
     if (!reconciler.get(ref)) return false;
     selectedRef = ref;
+    overlays?.select(ref);
     const level = options.level ?? (ref.kind === 'session' ? 'agent' : 'mission');
     return focus(ref, level);
   }
@@ -280,6 +293,7 @@ export function createStudioScene(canvas, {
     assigned.forEach((desk, sessionId) => workstationBySession.set(sessionId, desk));
     reconciler.apply(projection);
     applyRestingStates();
+    overlays?.reconcile(projection, reconciler.entries());
     refreshProjectionGeometry();
     transitions.ingest(projection.timeline, { prime: firstTimeline });
     firstTimeline = false;
@@ -369,6 +383,7 @@ export function createStudioScene(canvas, {
     reconciler.clear();
     transitions.clear();
     animator.clear();
+    overlays?.clear();
     workstationBySession.clear();
     [...office.desks.builder, ...office.desks.validator].forEach((desk) => { desk.occupant = null; });
     disposeDynamic(capabilityInstances);

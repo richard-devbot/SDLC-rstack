@@ -10,6 +10,7 @@ import { join } from 'node:path';
 
 const CSS_PATH = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'styles.css');
 const DOM_PATH = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'dom.js');
+const APP_PATH = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'app.js');
 
 test('responsive stylesheet keeps the semantic Studio primary at 390px', () => {
   const css = readFileSync(CSS_PATH, 'utf8');
@@ -23,6 +24,9 @@ test('responsive stylesheet keeps the semantic Studio primary at 390px', () => {
   assert.match(css, /\.studio-fallback\s*{[^}]*position:\s*static/s);
   assert.match(css, /:focus-visible/);
   assert.match(css, /\[data-renderer="semantic-only"\]/);
+  assert.match(css, /\.studio-overlays\s*{[^}]*pointer-events:\s*none/s);
+  assert.match(css, /\.studio-world-label\s*{[^}]*pointer-events:\s*auto/s);
+  assert.match(css, /@media\s*\(max-width:\s*600px\)[\s\S]+\.studio-overlays\s*{[^}]*display:\s*none/s);
   assert.doesNotMatch(css, /width:\s*380px/);
 });
 
@@ -32,6 +36,9 @@ test('DOM renderer uses semantic buttons, focus restoration, and safe text inser
   assert.match(source, /dataset\.entityKind/);
   assert.match(source, /aria-current/);
   assert.match(source, /identity_confidence/);
+  for (const field of ['stage_ids', 'activity_class', 'skill_ids', 'plugin_ids', 'specialist_ids', 'source', 'last_activity_at']) {
+    assert.match(source, new RegExp(`${field}\\b`));
+  }
   assert.match(source, /trigger\.focus/);
   assert.match(source, /textContent/);
   assert.doesNotMatch(source, /innerHTML\s*=/);
@@ -41,8 +48,15 @@ test('DOM renderer uses semantic buttons, focus restoration, and safe text inser
 test('live announcements are limited to high-value operational changes', () => {
   const source = readFileSync(DOM_PATH, 'utf8');
 
-  for (const type of ['agent_session_failed', 'agent_waiting', 'handoff_created', 'approval_gate_blocked']) {
+  for (const type of ['agent_session_failed', 'agent_waiting', 'handoff_created', 'approval_gate_blocked', 'artifact_emitted', 'agent_session_completed']) {
     assert.match(source, new RegExp(`'${type}'`));
   }
   assert.doesNotMatch(source, /ANNOUNCED_TYPES[^;]+agent_activity/s);
+});
+
+test('overlay selection returns through the existing semantic inspector path', () => {
+  const source = readFileSync(APP_PATH, 'utf8');
+  assert.match(source, /studio-overlays/);
+  assert.match(source, /dom\.select\(ref/);
+  assert.doesNotMatch(source, /innerHTML\s*=/);
 });

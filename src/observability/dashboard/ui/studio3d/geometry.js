@@ -88,6 +88,7 @@ function entityHandle(object, signalMesh, pool) {
       signalMesh.material = pool.statusMaterial(data.status);
       object.userData.status = data.status ?? 'unknown';
       object.userData.count = data.count ?? data.counts?.sessions ?? 0;
+      object.userData.data = data;
     },
     dispose() {},
   };

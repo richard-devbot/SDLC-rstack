@@ -12,7 +12,7 @@ export function studio3dHtml() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="light">
   <title>Agent Force Studio · RStack</title>
   <link rel="stylesheet" href="/studio3d/assets/styles.css">
   <script type="importmap">{"imports":{"three":"/studio3d/vendor/three.module.js","three/addons/":"/studio3d/vendor/"}}</script>
@@ -41,6 +41,7 @@ export function studio3dHtml() {
     <section class="studio-workspace" aria-label="Agent Force operational workspace">
       <div class="studio-scene-shell">
         <canvas id="studio-canvas" aria-hidden="true"></canvas>
+        <div id="studio-overlays" class="studio-overlays" aria-hidden="true"></div>
         <div id="studio-renderer-banner" class="studio-renderer-banner" role="status" hidden></div>
         <div class="studio-camera-controls" aria-label="3D view controls">
           <button id="studio-overview" type="button">Overview</button>
