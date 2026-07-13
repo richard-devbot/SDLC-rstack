@@ -131,14 +131,15 @@ test('transition scheduler animates unseen source events once and respects reduc
   scheduler.ingest([event]);
   scheduler.tick(16);
   assert.equal(applied.length, 1);
-  assert.equal(applied[0].kind, 'dispatch');
-  assert.equal(applied[0].duration_ms, 900);
+  assert.equal(applied[0].intent.action, 'delegate');
+  assert.equal(applied[0].intent.sessionId, 'session-1');
+  assert.equal(applied[0].duration_ms, 700);
 
   scheduler.setMotion('reduced');
   scheduler.ingest([{ ...event, id: 'event-2', type: 'artifact_emitted' }]);
   scheduler.tick(32);
   assert.equal(applied.length, 2);
-  assert.equal(applied[1].kind, 'artifact');
+  assert.equal(applied[1].intent.action, 'return_evidence');
   assert.equal(applied[1].duration_ms, 0);
 });
 

@@ -8,26 +8,27 @@
  * owner: RStack developed by Richardson Gunde
  */
 import { timelineIdentity } from './model.js';
+import { behaviorIntent } from './behavior.js';
 
-const TRANSITION_TYPES = Object.freeze({
-  delegation_requested: Object.freeze({ kind: 'dispatch', duration_ms: 900 }),
-  agent_session_started: Object.freeze({ kind: 'materialize', duration_ms: 560 }),
-  agent_session_ready: Object.freeze({ kind: 'ready', duration_ms: 420 }),
-  agent_capabilities_attached: Object.freeze({ kind: 'dock', duration_ms: 420 }),
-  agent_activity: Object.freeze({ kind: 'pulse', duration_ms: 320 }),
-  agent_waiting: Object.freeze({ kind: 'governance', duration_ms: 640 }),
-  approval_gate_blocked: Object.freeze({ kind: 'governance', duration_ms: 640 }),
-  dor_gate_blocked: Object.freeze({ kind: 'governance', duration_ms: 640 }),
-  guardrail_blocked: Object.freeze({ kind: 'governance', duration_ms: 640 }),
-  task_human_context_required: Object.freeze({ kind: 'governance', duration_ms: 640 }),
-  task_retry_exhausted: Object.freeze({ kind: 'governance', duration_ms: 640 }),
-  task_blocked_by_validator: Object.freeze({ kind: 'governance', duration_ms: 640 }),
-  handoff_created: Object.freeze({ kind: 'handoff', duration_ms: 800 }),
-  artifact_emitted: Object.freeze({ kind: 'artifact', duration_ms: 800 }),
-  task_retry_scheduled: Object.freeze({ kind: 'retry', duration_ms: 700 }),
-  agent_session_completed: Object.freeze({ kind: 'shutdown', duration_ms: 650 }),
-  agent_session_failed: Object.freeze({ kind: 'shutdown', duration_ms: 650 }),
-  agent_session_stopped: Object.freeze({ kind: 'shutdown', duration_ms: 650 }),
+const EVENT_DURATIONS = Object.freeze({
+  delegation_requested: 700,
+  agent_session_started: 1200,
+  agent_session_ready: 1300,
+  agent_capabilities_attached: 1500,
+  agent_activity: 650,
+  agent_waiting: 900,
+  approval_gate_blocked: 900,
+  dor_gate_blocked: 900,
+  guardrail_blocked: 900,
+  task_human_context_required: 900,
+  task_retry_exhausted: 500,
+  task_blocked_by_validator: 900,
+  handoff_created: 1400,
+  artifact_emitted: 1300,
+  task_retry_scheduled: 1200,
+  agent_session_completed: 700,
+  agent_session_failed: 500,
+  agent_session_stopped: 1100,
 });
 
 const MAX_SEEN_EVENTS = 500;
@@ -76,16 +77,16 @@ export function createTransitionScheduler({
       (Date.parse(left?.timestamp ?? '') || 0) - (Date.parse(right?.timestamp ?? '') || 0)
     ));
     for (const item of ordered) {
-      const definition = TRANSITION_TYPES[item?.type];
-      if (!definition) continue;
+      const intent = behaviorIntent(item);
+      if (!intent) continue;
       const identity = eventIdentity(item);
       if (!remember(identity)) continue;
       changed = true;
       if (!prime) {
         queue.push({
           id: identity,
-          kind: definition.kind,
-          duration_ms: motion === 'reduced' ? 0 : definition.duration_ms,
+          intent,
+          duration_ms: motion === 'reduced' ? 0 : EVENT_DURATIONS[item.type],
           event: item,
         });
       }
@@ -122,4 +123,3 @@ export function createTransitionScheduler({
     pending: () => queue.length,
   };
 }
-
