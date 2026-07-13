@@ -50,6 +50,32 @@ jobs:
       - name: Verify npm package contents
         run: npm pack --dry-run
 
+  browser-regression:
+    # #96 Phase 2: real-browser journeys + axe accessibility scans + responsive
+    # viewports. Isolated from the core matrix so browser flakiness never
+    # destabilizes the deterministic suite, and it installs the Chromium the
+    # suite skips without. One Node version is enough for a rendering suite.
+    name: Browser regression (#96 Phase 2)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium (headless shell) for browser tests
+        run: npx playwright-core install --with-deps --only-shell chromium
+
+      - name: Run browser regression suite
+        run: npm run test:browser
+
   security-baseline:
     name: Security baseline
     runs-on: ubuntu-latest
