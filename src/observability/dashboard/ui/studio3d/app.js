@@ -96,7 +96,11 @@ const transport = createStudioTransport({
   onConnection: (state) => {
     dom.setConnection(state);
     if (['stale', 'disconnected', 'error'].includes(state.state)) scene?.pause(state.state);
-    else if (state.state === 'live') scene?.resume('transport');
+    else if (state.state === 'live') {
+      scene?.resume('stale');
+      scene?.resume('disconnected');
+      scene?.resume('error');
+    }
   },
 });
 

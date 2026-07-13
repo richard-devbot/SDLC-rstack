@@ -5,6 +5,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { studio3dHtml } from '../src/observability/dashboard/ui/studio3d.js';
 import {
@@ -16,6 +18,9 @@ import {
   webSocketUrl,
 } from '../src/observability/dashboard/ui/studio3d/transport.js';
 import { createStudioDom } from '../src/observability/dashboard/ui/studio3d/dom.js';
+import { STUDIO_TOPOLOGY } from '../src/observability/dashboard/ui/studio3d/topology.js';
+import { createEntityReconciler } from '../src/observability/dashboard/ui/studio3d/reconciler.js';
+import { createTransitionScheduler } from '../src/observability/dashboard/ui/studio3d/transitions.js';
 
 test('Studio shell is semantic-first, local, and independent of a fixed port', () => {
   const html = studio3dHtml();
@@ -76,4 +81,71 @@ test('transport derives secure same-origin URLs and preserves read authenticatio
 
 test('semantic renderer is available without constructing WebGL', () => {
   assert.equal(typeof createStudioDom, 'function');
+});
+
+test('topology has one HQ, eight mission bays, and fifteen unique departments', () => {
+  assert.equal(STUDIO_TOPOLOGY.orchestrator.id, 'orchestrator-hq');
+  assert.equal(STUDIO_TOPOLOGY.missions.length, 8);
+  assert.equal(new Set(STUDIO_TOPOLOGY.missions.map((item) => item.id)).size, 8);
+  assert.equal(STUDIO_TOPOLOGY.departments.length, 15);
+  assert.equal(new Set(STUDIO_TOPOLOGY.departments.map((item) => item.id)).size, 15);
+  assert.notDeepEqual(STUDIO_TOPOLOGY.validator.position, STUDIO_TOPOLOGY.builderPool.position);
+  assert.equal(Object.isFrozen(STUDIO_TOPOLOGY), true);
+});
+
+test('scene modules expose stable reconciliation, selection, diagnostics, and cleanup', () => {
+  assert.equal(typeof createEntityReconciler, 'function');
+  const scenePath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'scene.js');
+  const geometryPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'geometry.js');
+  const sceneSource = readFileSync(scenePath, 'utf8');
+  const geometrySource = readFileSync(geometryPath, 'utf8');
+  for (const name of ['reconcile', 'select', 'setMotion', 'diagnostics', 'pause', 'resume', 'destroy']) {
+    assert.match(sceneSource, new RegExp(`${name}\\b`));
+  }
+  assert.match(sceneSource, /webglcontextlost/);
+  assert.match(sceneSource, /webglcontextrestored/);
+  assert.match(sceneSource, /setAnimationLoop/);
+  assert.match(geometrySource, /InstancedMesh/);
+});
+
+test('transition scheduler animates unseen source events once and respects reduced motion', () => {
+  const applied = [];
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+  const scheduler = createTransitionScheduler({ apply: (transition) => applied.push(transition), storage });
+  const event = {
+    id: 'event-1',
+    type: 'delegation_requested',
+    timestamp: '2026-07-13T10:00:00.000Z',
+    source: 'events.jsonl',
+    entity_id: 'session-1',
+    task_id: '004-implementation',
+  };
+
+  scheduler.ingest([event]);
+  scheduler.tick(0);
+  scheduler.ingest([event]);
+  scheduler.tick(16);
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].kind, 'dispatch');
+  assert.equal(applied[0].duration_ms, 900);
+
+  scheduler.setMotion('reduced');
+  scheduler.ingest([{ ...event, id: 'event-2', type: 'artifact_emitted' }]);
+  scheduler.tick(32);
+  assert.equal(applied.length, 2);
+  assert.equal(applied[1].kind, 'artifact');
+  assert.equal(applied[1].duration_ms, 0);
+});
+
+test('transition scheduler can prime historical events without replaying them', () => {
+  const applied = [];
+  const scheduler = createTransitionScheduler({ apply: (transition) => applied.push(transition), storage: null });
+  scheduler.ingest([{ id: 'historical', type: 'agent_session_started', timestamp: '2026-07-13T09:00:00.000Z', source: 'events.jsonl' }], { prime: true });
+  scheduler.tick(0);
+  assert.deepEqual(applied, []);
 });
