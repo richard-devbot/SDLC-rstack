@@ -1899,7 +1899,16 @@ export default function (pi: ExtensionAPI) {
             const payload = formatSlackStageMessage(manifest.run_id, task.id, "APPROVAL_PENDING", {
               message: `Guardrail blocked ${task.id}: ${guardrailCheck.violations.map((violation: any) => violation.reason).join("; ")}. Approve '${guardrailCheck.override_artifact}' via sdlc_approve or the Business Hub to allow one more attempt.`,
             });
-            await notifyAll(payload, { projectRoot });
+            // #353: additive approval metadata — existing channels ignore it;
+            // the email channel routes it per person (role → recipient).
+            await notifyAll(payload, { projectRoot, meta: {
+              kind: "approval_required",
+              run_id: manifest.run_id,
+              task_id: task.id,
+              artifacts: [guardrailCheck.override_artifact],
+              stage_ids: taskStageIds(task),
+              reason: `Guardrail blocked ${task.id}: ${guardrailCheck.violations.map((violation: any) => violation.reason).join("; ")}`,
+            } });
           } catch (err) {
             console.error("Failed to send guardrail-gate notification:", err);
           }
@@ -1942,7 +1951,16 @@ export default function (pi: ExtensionAPI) {
           const payload = formatSlackStageMessage(manifest.run_id, task.id, "APPROVAL_PENDING", {
             message: `Approval gate blocked ${task.id}. Missing approval(s): ${missing.join(", ")}. Approve from the Business Hub or via sdlc_approve.`,
           });
-          await notifyAll(payload, { projectRoot });
+          // #353: additive approval metadata — existing channels ignore it;
+          // the email channel routes it per person (role → recipient).
+          await notifyAll(payload, { projectRoot, meta: {
+            kind: "approval_required",
+            run_id: manifest.run_id,
+            task_id: task.id,
+            artifacts: missing,
+            stage_ids: taskStageIds(task),
+            reason: `Approval gate blocked ${task.id}. Missing approval(s): ${missing.join(", ")}`,
+          } });
         } catch (err) {
           console.error("Failed to send approval-gate notification:", err);
         }
@@ -2450,7 +2468,16 @@ export default function (pi: ExtensionAPI) {
             const payload = formatSlackStageMessage(manifest.run_id, task.id, "APPROVAL_PENDING", {
               message: `Task ${task.id} exhausted its retry budget (${retryDecision.attempt}/${retryDecision.max_attempts}). Approve '${overrideArtifact}' via sdlc_approve or the Business Hub to allow exactly one more attempt.`,
             });
-            await notifyAll(payload, { projectRoot });
+            // #353: additive approval metadata — existing channels ignore it;
+            // the email channel routes it per person (role → recipient).
+            await notifyAll(payload, { projectRoot, meta: {
+              kind: "approval_required",
+              run_id: manifest.run_id,
+              task_id: task.id,
+              artifacts: [overrideArtifact],
+              stage_ids: taskStageIds(task),
+              reason: `Task ${task.id} exhausted its retry budget (${retryDecision.attempt}/${retryDecision.max_attempts}): ${retryDecision.reason}`,
+            } });
           } catch (err) {
             console.error("Failed to send retry-exhausted notification:", err);
           }
