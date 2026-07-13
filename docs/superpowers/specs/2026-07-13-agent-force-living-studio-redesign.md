@@ -591,3 +591,43 @@ full-suite verification record before merge.
   false.
 - Reduced motion stopped transition animation, and the semantic-only control preserved
   an explicit, tested `Show 3D view` path back to the rendered office.
+
+## Cutaway-office revision verification record
+
+The following record verifies the approved architectural cutaway-office revision on
+2026-07-13 (branch `claude/studio-cutaway-office`, built on baseline `85badbe`).
+
+- Studio-focused suite: 51 tests passed, 0 failed.
+- Full repository suite: 1,316 tests passed, 0 failed.
+- TypeScript typecheck passed; ESLint 0 errors (the same three pre-existing warnings
+  in unrelated checkpoint and papercut tests); all 196 packaged agents validated;
+  security baseline clean.
+- The in-canvas text prohibition is enforced and pinned: `overlays.js` is deleted,
+  the `#studio-overlays` host is no longer mounted, `.studio-world-label` styles are
+  removed, the server no longer serves the module (asserted 404), and regression
+  tests fail if any of them return.
+- The scene renders one continuous cutaway building — instanced perimeter walls
+  (near walls lowered), corridor with four north-room door openings and the bullpen
+  door, Skills Library with stocked shelves and pickup counter, Orchestrator HQ with
+  wood finish, strategy table, and status-lit goal token, Governance Room with review
+  table, benches, and adoption-gated warning beacon, Evidence Vault with cabinet and
+  adoption-gated status light, glass Validator Lab with transfer-hatch gap, Builder
+  Bullpen desk pods, reception/dispatch nook with rug and counter, plants, and
+  per-room floor finishes.
+- Mission boards (8) and stage work cells (15, split 8 bullpen / 7 lab) are physical
+  office fixtures adopted by the entity reconciler, so each projected status has
+  exactly one visual owner and no freestanding pylons or route lines remain.
+- Robots use the friendly humanoid revision (rounded head, side pods, antenna,
+  large emissive eyes, egg torso, semantic role band); the seated measurement
+  contract drops the origin so the pelvis lands on the chair anchor and feet reach
+  the floor, and walking robots face their direction of travel along
+  corridor-and-door routes.
+- Browser verification against a schema-valid lifecycle fixture (two builders, one
+  validator, capability attachment, handoff, approval wait): the office rendered
+  with three articulated rigs, the orchestrator at its strategy table, the builder
+  seated at its bullpen desk with docked capability blocks, and the validator seated
+  inside the glass lab; zero page errors; zero `.studio-world-label` elements and no
+  overlay host in the DOM; agent-desk camera focus and the synchronized semantic
+  inspector both functioned.
+- Desktop WebGL diagnostics on that fixture: high quality tier, 57 draw calls,
+  23,262 triangles — below the 90-call and 200,000-triangle release ceilings.
