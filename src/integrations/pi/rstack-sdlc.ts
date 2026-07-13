@@ -1170,11 +1170,10 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
     await emitLifecycle("agent_session_stopped", { status: "stopped", reason_class: "spawn_error" });
     return { agent: agent.name, agent_id: agent.id, path: agent.path, tools, validator_sandbox: validatorRole, task: task.task, exit_code: 1, output: "", stderr, messages };
   }
-  await emitLifecycle("agent_session_started", { status: "starting" });
-  await emitLifecycle("agent_session_ready", { status: "active" });
-  await emitLifecycle("agent_capabilities_attached", { status: "attached" });
-
-  const code = await new Promise<number>((resolveCode) => {
+  // Attach process listeners before lifecycle writes. A very fast worker can
+  // exit while those asynchronous writes are pending; close events are not
+  // replayed to listeners attached afterwards.
+  const processCompletion = new Promise<number>((resolveCode) => {
     let buffer = "";
     const processLine = (line: string) => {
       if (!line.trim()) return;
@@ -1199,6 +1198,11 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
       else signal.addEventListener("abort", abort, { once: true });
     }
   });
+  await emitLifecycle("agent_session_started", { status: "starting" });
+  await emitLifecycle("agent_session_ready", { status: "active" });
+  await emitLifecycle("agent_capabilities_attached", { status: "attached" });
+
+  const code = await processCompletion;
   if (code === 0 && !signal?.aborted) {
     await emitLifecycle("agent_session_completed", { status: "completed" });
   } else {

@@ -38,6 +38,17 @@ const AGENT_LIFECYCLE = new Set([
   'agent_session_stopped',
 ]);
 
+test('delegate observes fast worker exit before awaiting lifecycle writes', () => {
+  const source = readFileSync(join(process.cwd(), 'src', 'integrations', 'pi', 'rstack-sdlc.ts'), 'utf8');
+  const spawnAt = source.indexOf('proc = spawn(invocation.command');
+  const closeListenerAt = source.indexOf('proc.on("close"', spawnAt);
+  const firstLifecycleWriteAt = source.indexOf('await emitLifecycle("agent_session_started"', spawnAt);
+
+  assert.ok(spawnAt >= 0, 'delegate worker spawn exists');
+  assert.ok(closeListenerAt > spawnAt, 'delegate close listener exists after spawn');
+  assert.ok(closeListenerAt < firstLifecycleWriteAt, 'close listener attaches before asynchronous lifecycle writes');
+});
+
 test('Validator sandbox enforcement in the Pi tool_call hook', async (t) => {
   const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-validator-sandbox-'));
   process.env.RSTACK_PROJECT_ROOT = projectRoot;
