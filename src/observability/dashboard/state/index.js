@@ -20,6 +20,8 @@ import { buildOverviewProjection } from './overview.js';
 import { buildOperationsProjection } from './operations.js';
 import { buildRunWorkspaces } from './run-workspace.js';
 import { buildActions } from './actions.js';
+import { buildCockpitProjection } from './cockpit.js';
+import { cockpitControlsEnabled, cockpitControlsEnabledFromEnv } from '../../../core/harness/cockpit-actions.js';
 import { readConfiguredPolicies } from './configured-policy.js';
 import { decorateRunIdentity, resolveProjectDescriptors } from './identity.js';
 import {
@@ -154,6 +156,15 @@ export async function buildFullState(projectRoot, options = {}) {
   const configuredPolicy = await readConfiguredPolicies(roots, scopedDescriptors, {
     now: options.now,
   });
+  // #285: resolve cockpit-controls enablement. OFF by default; the env flag is
+  // a global enable, and a project's policy can opt in per root. The route
+  // re-checks the target run's root authoritatively before doing any work.
+  const cockpitEnvEnabled = cockpitControlsEnabledFromEnv();
+  const cockpitEnabledRoots = new Set(
+    (await Promise.all(roots.map(async (root) => (
+      cockpitControlsEnabled(await readJson(join(root, '.rstack', 'policy.json'), {}), {}) ? root : null
+    )))).filter(Boolean),
+  );
 
   const baseState = {
     kind: 'snapshot',
@@ -213,11 +224,22 @@ export async function buildFullState(projectRoot, options = {}) {
     actions: buildActions(stateWithReadiness),
   };
 
+  // #285: server-owned cockpit controls projection — the only declaration of
+  // which state-changing actions the client may render per run. Empty when the
+  // feature is disabled, so the client has nothing to invoke.
+  const stateWithCockpit = {
+    ...stateWithActions,
+    cockpit: buildCockpitProjection(stateWithActions, {
+      enabled: cockpitEnvEnabled,
+      enabledRoots: cockpitEnabledRoots,
+    }),
+  };
+
   // #284: Operations projection — consumes the inbox/environment/rollup
   // projections above; sections are 'unknown' when a producer is silent.
   const stateWithOperations = {
-    ...stateWithActions,
-    operations: buildOperationsProjection(stateWithActions),
+    ...stateWithCockpit,
+    operations: buildOperationsProjection(stateWithCockpit),
   };
 
   const stateWithOverview = {
