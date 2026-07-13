@@ -2,7 +2,8 @@
 
 RStack developed by Richardson Gunde
 
-Status: Approved for implementation on 2026-07-13
+Status: Approved for implementation on 2026-07-13. Architectural cutaway-office
+revision approved on 2026-07-13.
 
 ## Decision
 
@@ -16,6 +17,13 @@ The office is a projection of the runtime, not an activity simulation. Robots,
 movement, work, alerts, handoffs, and completion must be supported by the server-owned
 Studio projection or persisted lifecycle events. A quiet backend produces a quiet
 office.
+
+The architectural revision replaces the diagram-like open slab with a furnished,
+cutaway company floor plan. Orchestrator, Builder, Validator, and Skills functions
+occupy unmistakably separate rooms connected by authored corridors and doors. The 3D
+canvas contains no floating labels, cards, speech bubbles, tooltips, or text panels.
+Operational text remains in the run selector, semantic view, lifecycle timeline, and
+the synchronized inspector outside the canvas.
 
 This specification supersedes the visual model and animation semantics in
 `2026-07-13-agent-force-studio-3d-design.md`. It preserves that specification's
@@ -49,7 +57,8 @@ photorealistic metaverse.
 - Validation: cobalt blue.
 - Completed and source-verified work: mint.
 - Human action, failure, or policy block: red.
-- Capabilities and task objects: violet and amber, with short HTML labels.
+- Capabilities and task objects: violet and amber, identified through form, placement,
+  and the external inspector rather than in-canvas text.
 
 The supplied stock images are visual references for humanoid proportion, expressive
 faces, articulated limbs, seated posture, and robot-to-workstation interaction. Their
@@ -61,36 +70,69 @@ from high polygon counts, large textures, or downloaded character models.
 
 ## Company floor
 
-The scene uses one continuous company floor and one bounded camera system. Overview,
-mission focus, and agent-desk focus are camera states within the same world, avoiding
-multiple heavy scene loads.
+The scene uses one continuous cutaway building and one bounded camera system.
+Overview, room focus, mission focus, and agent-desk focus are camera states within the
+same world, avoiding multiple heavy scene loads. The default view is a three-quarter
+isometric dollhouse view: the near exterior walls are omitted or lowered, the far and
+side walls retain height, and every operational room remains visible without hiding
+robots behind architecture.
+
+The building reads as an office before it reads as a data visualization. It has a
+thick perimeter wall, internal partitions, door openings, glass panels, corridor
+lanes, different floor finishes, windows, desks, office chairs, screens, shelves,
+storage, plants, rugs, ceiling-light proxies, and a restrained reception/dispatch
+area. Repeated furniture and architectural pieces use shared or instanced geometry.
+
+Room identity comes from architecture, furnishings, robot behavior, and a restrained
+material accent—not from words floating over the scene:
+
+- Orchestrator HQ uses warm wood, amber light, one strategy table, and a single
+  permanent robot.
+- The Builder room uses grouped desk pods, graphite equipment, and teal work lights.
+- The Validator room uses glass separation, cobalt light, review consoles, and an
+  evidence transfer hatch at the boundary.
+- The Skills Library uses shelving, capability forms, a collection counter, and
+  violet/green accents.
+- Governance and Evidence are smaller support rooms opening from the central corridor,
+  never additional decorative teams.
+
+The main corridor is the movement spine. Authored routes follow it and branch through
+door openings; robots do not walk through walls, desks, shelves, or glass. The room
+layout leaves enough negative space for articulated walking and camera focus while
+remaining compact enough to read at overview scale.
 
 ### Orchestrator HQ
 
-The top-center office contains the goal table and the permanent Orchestrator robot.
-The table shows the selected goal, run state, and current next action. The Orchestrator
-does not type as a Builder. It receives a goal, delegates a bounded task, monitors
-handoffs, raises governance items, and receives final evidence.
+The private glass-and-solid-wall office contains a strategy table and the permanent
+Orchestrator robot. The table uses a non-text goal object and status light; selected
+goal, run state, and next action remain in the external semantic surface. The
+Orchestrator does not type as a Builder. It receives a goal, delegates a bounded task,
+monitors handoffs, raises governance items, and receives final evidence.
 
 ### Dispatch entrance
 
-Observed sessions enter through a dispatch lift or doorway. A robot is allocated from
-the scene pool when `agent_session_started` becomes visible. The entrance never emits
-decorative workers.
+Observed sessions enter through a reception/dispatch doorway connected to the central
+corridor. A robot is allocated from the scene pool when `agent_session_started`
+becomes visible. The entrance never emits decorative workers.
 
 ### Skills and Plugin Library
 
-The left-side library contains instanced shelves and labeled capability blocks. An
-agent visits it only when `agent_capabilities_attached` reports skills, plugins, or
-specialists. Capability blocks dock to the robot or its task carrier. Attachments are
-visually distinct from worker sessions and do not become people.
+The library is a dedicated room containing instanced shelves, a pickup counter, and
+shape-coded capability objects. An agent visits it only when
+`agent_capabilities_attached` reports skills, plugins, or specialists. Capability
+objects dock to the robot or its task carrier. Exact names remain in the external
+inspector. Attachments are visually distinct from worker sessions and do not become
+people.
 
 ### Fifteen-stage delivery rail
 
-The center of the company contains fifteen reusable department stations matching
-`CANONICAL_SDLC_STAGES`. A station can be empty, available, active, waiting, blocked,
-failed, or complete. Shared departments remain single places even when used by
-multiple missions.
+The delivery side of the company contains fifteen reusable work cells matching
+`CANONICAL_SDLC_STAGES`. They are arranged as a readable progression within the
+Builder and Validator rooms, not as freestanding pylons or a circular rail. Each cell
+has a desk/dock, monitor or review surface, and one small non-text status light. A cell
+can be empty, available, active, waiting, blocked, failed, or complete. Shared
+departments remain single places even when used by multiple missions. Exact stage
+names and statuses stay in the semantic surface and inspector.
 
 The eight delivery missions remain the product-level grouping supplied by the Studio
 projection. The selected mission illuminates only its mapped stage stations; the
@@ -101,25 +143,28 @@ An empty station means no observed occupant. It must not be labeled idle or pass
 
 ### Builder Bullpen
 
-The lower-left workspace contains reusable desks, ergonomic office chairs, monitors,
-keyboards, mice, and task docks. A Builder walks to its assigned desk, turns toward
-the chair, sits, and begins a safe activity animation only when supported by an
-active session and activity event.
+The largest room contains grouped reusable desk pods, ergonomic office chairs,
+monitors, keyboards, mice, shared review tables, plants, storage, and task docks. A
+Builder walks through the correct door to its assigned desk, turns toward the chair,
+sits, and begins a safe activity animation only when supported by an active session
+and activity event.
 
 ### Glass Validator Lab
 
-The lower-right lab is physically separated with a glass boundary. Validator robots
-receive one-way task and evidence handoffs, sit at lab workstations, and return
+The lab is a fully bounded room with glass partitions, a controlled doorway, review
+consoles, evidence screens, and a transfer hatch on the Builder boundary. Validator
+robots receive one-way task and evidence handoffs, sit at lab workstations, and return
 validation results. They never walk into or edit the Builder workspace. This visual
 boundary mirrors the read-only validator sandbox contract.
 
 ### Governance Room
 
-The upper-right room contains approvals, guardrails, decisions, retry exhaustion,
-human-context requests, and audited recovery links. A waiting robot faces or walks to
-the Governance Room only when the projection contains a matching governance item.
-The Studio remains read-only; state-changing controls stay in the authenticated and
-audited cockpit.
+This smaller waiting room contains a review table, restrained warning light, and
+seating for approvals, guardrails, decisions, retry exhaustion, and human-context
+requests. A waiting robot faces or walks to Governance only when the projection
+contains a matching governance item. The Studio remains read-only; explanatory text
+and state-changing controls stay outside the canvas in the authenticated and audited
+cockpit.
 
 ### Evidence and Delivery Vault
 
@@ -169,7 +214,7 @@ restrained and semantic:
 - complete: evidence-backed terminal success.
 
 The face never shows prompts, chain-of-thought, secrets, or unbounded output. Detailed
-facts remain in HTML overlays and the inspector.
+facts remain in the semantic view and external inspector.
 
 ### Office interaction
 
@@ -267,8 +312,10 @@ No collision or path outcome is treated as runtime truth.
 
 ## Notifications and human attention
 
-Alerts are placed above the exact affected robot, stage, or Governance item. They are
-also present in the synchronized HTML Action/Inspector surface.
+The 3D canvas does not render alert cards or text above robots, stages, or rooms.
+Attention is expressed in-world only through pose, face state, workstation/status
+light, and evidence/task-object state. The complete alert is placed in the
+synchronized HTML Action/Inspector surface outside the canvas.
 
 Notification classes are:
 
@@ -327,7 +374,8 @@ The Studio must remain useful on an integrated-GPU or CPU-constrained machine.
   dynamic contact shadow at higher quality.
 - Static office shadows use baked-looking receiver planes or inexpensive blobs.
 - Face and status lights use emissive materials, not additional scene lights.
-- Labels are HTML overlays only for selected, blocked, and transitioning objects.
+- The canvas has no world-space HTML labels or text overlays. Selection and
+  operational detail are external DOM concerns.
 - The render loop pauses when hidden, semantic-only, stale/disconnected, or idle with
   no camera/transition work.
 - No physics engine, crowd simulation, navigation mesh, post-processing chain, public
@@ -347,7 +395,8 @@ On the deterministic full-load fixture:
 - input and selection remain responsive while a snapshot reconciles.
 
 Diagnostics expose draw calls, triangles, active rigs, active transitions, frame cost,
-and quality tier only in a developer overlay.
+and quality tier only in an external developer-only DOM surface, never over the
+company environment.
 
 ## Server and client responsibility
 
@@ -425,7 +474,7 @@ this semantic operational view, with the lightweight canvas offered only when sa
   authored tolerances;
 - route endpoints match Dispatch, Library, HQ, workstations, Validator boundary,
   Governance, and Vault anchors;
-- object pooling does not leak labels, status, capabilities, or selection.
+- object pooling does not leak status, capabilities, selection, or prior-room state.
 
 ### Projection and UI contract tests
 
@@ -433,7 +482,8 @@ this semantic operational view, with the lightweight canvas offered only when sa
 - exactly fifteen canonical department stations are rendered from canonical IDs;
 - mission filtering preserves shared departments;
 - empty desks do not claim idle or passing;
-- notifications include scope, source, and timestamp;
+- notifications outside the canvas include scope, source, and timestamp;
+- no world-label overlay host is mounted and `.studio-world-label` elements are absent;
 - selected robot and semantic DOM expose equivalent facts;
 - canvas is hidden from assistive technology;
 - no public CDN, hard-coded localhost WebSocket, raw prompt, or unsafe path;
@@ -445,7 +495,7 @@ this semantic operational view, with the lightweight canvas offered only when sa
 - agent collects attached skills and sits at the correct desk;
 - active work animates only after the fixture emits activity;
 - task handoff reaches the glass Validator Lab;
-- approval makes the correct robot wait and raises Governance attention;
+- approval makes the correct robot wait and raises external Governance attention;
 - retry resumes the same session without erasing history;
 - evidence returns before completion is displayed;
 - stale and disconnected fixtures freeze motion honestly;
@@ -478,9 +528,12 @@ this semantic operational view, with the lightweight canvas offered only when sa
   seated posture, workstation interaction, and readable handoffs.
 - Orchestrator delegation, capability collection, work, validation, waiting, retries,
   alerts, evidence, completion, and departure are driven only by source-backed state.
-- The scene contains one Orchestrator HQ, one Skills Library, fifteen canonical
-  departments, pooled Builder workstations, a separate Validator Lab, Governance, and
-  an Evidence Vault.
+- The scene contains one architecturally separate Orchestrator HQ, one Skills Library,
+  fifteen canonical work cells, a furnished Builder room, a separate glass Validator
+  Lab, Governance, an Evidence Vault, reception/dispatch, doors, and navigable
+  corridors.
+- No floating text, labels, cards, speech bubbles, or tooltips obscure the company
+  floor; operational text remains available outside the canvas.
 - Empty desks and stages remain honestly empty.
 - Clicking a robot exposes complete safe runtime scope and provenance.
 - The Studio remains responsive within the CPU-first performance ceilings and pauses
@@ -512,9 +565,12 @@ this semantic operational view, with the lightweight canvas offered only when sa
 - Delegated runtime: `src/integrations/pi/rstack-sdlc.ts`
 - Product program: GitHub issues #33, #96, and #273
 
-## Verification record
+## Baseline verification record
 
-Verified on 2026-07-13 against implementation commit `5ff4255`.
+The following record verifies the pre-revision living-workforce baseline on
+2026-07-13 against implementation commit `5ff4255`. It does not verify the approved
+cutaway-office revision, which must receive a fresh visual, browser, performance, and
+full-suite verification record before merge.
 
 - Studio-focused suite: 50 tests passed, 0 failed.
 - Full repository suite: 1,314 tests passed, 0 failed.
