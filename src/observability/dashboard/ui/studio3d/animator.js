@@ -7,7 +7,8 @@
  * owner: RStack developed by Richardson Gunde
  */
 import * as THREE from 'three';
-import { routePoints, STUDIO_TOPOLOGY } from './topology.js';
+import { ROBOT_PELVIS_HEIGHT } from './robot.js';
+import { corridorRoute, routePoints, STUDIO_TOPOLOGY } from './topology.js';
 
 const ACTION_DURATION = Object.freeze({
   enter: 1200,
@@ -88,7 +89,8 @@ export function createAgentAnimator({
     const workstation = workstationFor(intent);
     const seat = worldPosition(workstation?.seat);
     if (['work', 'walk_to_assignment', 'retry'].includes(intent.action) && seat) {
-      handle.object.position.copy(seat);
+      // Drop the origin so the seated pelvis lands on the chair anchor.
+      handle.object.position.set(seat.x, seat.y - ROBOT_PELVIS_HEIGHT, seat.z);
       const validating = handle.object.userData.role === 'validator';
       handle.setPose(validating ? 'validating' : 'seated_work');
       handle.setFace?.('focused');
@@ -104,7 +106,7 @@ export function createAgentAnimator({
       handle.setPose('waiting');
       handle.setFace?.('waiting');
     } else if (intent.action === 'handoff') {
-      handle.object.position.fromArray(STUDIO_TOPOLOGY.validator.position);
+      handle.object.position.fromArray(STUDIO_TOPOLOGY.handoffDock);
       handle.setPose('handoff');
       handle.setFace?.('attentive');
     } else if (intent.action === 'return_evidence') {
@@ -126,9 +128,10 @@ export function createAgentAnimator({
 
   function targetFor(intent, handle) {
     const seat = worldPosition(workstationFor(intent)?.seat);
-    if (['work', 'walk_to_assignment', 'retry'].includes(intent.action) && seat) return seat.toArray();
+    // Walk at floor height; the final seated state applies the pelvis drop.
+    if (['work', 'walk_to_assignment', 'retry'].includes(intent.action) && seat) return [seat.x, 0, seat.z];
     if (intent.action === 'collect_capabilities') return [...STUDIO_TOPOLOGY.library.entry];
-    if (intent.action === 'handoff') return [...STUDIO_TOPOLOGY.validator.position];
+    if (intent.action === 'handoff') return [...STUDIO_TOPOLOGY.handoffDock];
     if (intent.action === 'wait') return [...STUDIO_TOPOLOGY.governance.entry];
     if (intent.action === 'return_evidence') return [...STUDIO_TOPOLOGY.evidence.entry];
     if (intent.action === 'exit' || intent.action === 'enter') return [...STUDIO_TOPOLOGY.dispatch.position];
@@ -136,7 +139,8 @@ export function createAgentAnimator({
   }
 
   function movementRoute(intent, handle) {
-    if (intent.action === 'enter') return [[-18, 0, 8], [...STUDIO_TOPOLOGY.dispatch.position]];
+    // Entering robots walk in through the west reception opening.
+    if (intent.action === 'enter') return [[-21, 0, 10], [...STUDIO_TOPOLOGY.dispatch.position]];
     const routeName = intent.action === 'collect_capabilities' ? 'dispatch_to_library'
       : intent.action === 'handoff' ? 'builder_to_validator'
         : intent.action === 'wait' ? 'assignment_to_governance'
@@ -145,7 +149,8 @@ export function createAgentAnimator({
     if (!handle) return [[...STUDIO_TOPOLOGY.orchestrator.position], [...STUDIO_TOPOLOGY.dispatch.position]];
     const from = handle.object.position.toArray();
     const to = targetFor(intent, handle);
-    return [from, [from[0], 0, 5.3], [to[0], 0, 5.3], to];
+    // Everything else threads its room door and the corridor.
+    return corridorRoute(from, to).map((waypoint) => [...waypoint]);
   }
 
   function removePacket(item) {
@@ -184,6 +189,10 @@ export function createAgentAnimator({
       const progress = clampedProgress((now - item.startedAt) / item.duration);
       const routePosition = sampleWaypointRoute(item.route, progress);
       if (item.handle && WALKING_ACTIONS.has(item.intent.action)) {
+        const heading = item.handle.object.position;
+        const dx = routePosition[0] - heading.x;
+        const dz = routePosition[2] - heading.z;
+        if (Math.hypot(dx, dz) > 0.002) item.handle.object.rotation.y = Math.atan2(dx, dz);
         item.handle.object.position.fromArray(routePosition);
         item.handle.setPose(progress % 0.5 < 0.25 ? 'walkA' : 'walkB', 0.45);
       } else if (item.handle) {

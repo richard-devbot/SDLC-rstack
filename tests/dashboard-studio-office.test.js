@@ -25,6 +25,7 @@ test('office builds every company facility with exactly fifteen stage signals', 
 
   assert.ok(office.object instanceof THREE.Group);
   assert.equal(office.stageSignals.size, 15);
+  assert.equal(office.missionBoards.size, 8);
   assert.equal(office.desks.builder.length, 8);
   assert.equal(office.desks.validator.length, 4);
   for (const name of [
@@ -37,12 +38,32 @@ test('office builds every company facility with exactly fifteen stage signals', 
     'Builder workstations',
     'Validator workstations',
     'Mission boards',
+    'Goal token',
+    'Governance beacon',
+    'Vault status light',
   ]) {
     assert.ok(office.object.getObjectByName(name), name);
+  }
+  // The cutaway architecture is real: walls, glass, room finishes, plants,
+  // casework, and the stage work-cell rail — all instanced.
+  for (const name of [
+    'Office walls',
+    'Glass partitions',
+    'Room floor finishes',
+    'Plant pots',
+    'Plant foliage',
+    'Office casework',
+    'Library capability stock',
+    'Stage work-cell docks',
+  ]) {
+    assert.ok(office.object.getObjectByName(name) instanceof THREE.InstancedMesh, name);
   }
   assert.ok(office.object.getObjectByName('Builder desk tops') instanceof THREE.InstancedMesh);
   assert.ok(office.object.getObjectByName('Office chairs') instanceof THREE.InstancedMesh);
   assert.ok(office.object.getObjectByName('Office monitors') instanceof THREE.InstancedMesh);
+  // Attention fixtures stay dark until the projection adopts them.
+  assert.equal(office.governanceBeacon.visible, false);
+  assert.equal(office.vaultLight.visible, false);
 
   office.dispose();
   assert.equal(office.object.parent, null);
@@ -142,30 +163,61 @@ test('work packets distinguish task and evidence without external assets', () =>
   pool.dispose();
 });
 
-test('projection assignment never double-books a desk and binds real stage state', () => {
+test('projection assignment never double-books a desk and lights the goal token', () => {
   const pool = createResourcePool();
   const office = createOfficeEnvironment(pool);
   const sessions = [
     ...Array.from({ length: 10 }, (_, index) => ({ id: `builder-${index + 1}`, role: 'builder' })),
     ...Array.from({ length: 6 }, (_, index) => ({ id: `validator-${index + 1}`, role: 'validator' })),
   ];
-  const departments = STUDIO_TOPOLOGY.departments.map((slot, index) => ({
-    id: `stage-${index + 1}`,
-    status: index === 7 ? 'blocked' : 'active',
-    slot_id: slot.id,
-  }));
 
-  const assigned = assignOfficeProjection(office, { sessions, departments }, pool);
+  const assigned = assignOfficeProjection(office, {
+    sessions,
+    orchestrator: { id: 'orchestrator-hq', status: 'active' },
+  }, pool);
   const occupied = [...office.desks.builder, ...office.desks.validator]
     .map((desk) => desk.occupant)
     .filter(Boolean);
   assert.equal(assigned.size, 12);
   assert.equal(new Set(occupied).size, occupied.length);
   assert.equal(occupied.length, 12);
-  const eighthSignal = [...office.stageSignals.values()][7];
-  assert.equal(eighthSignal.userData.data, departments[7]);
-  assert.deepEqual(eighthSignal.userData.entityRef, { kind: 'department', id: 'stage-8' });
-  assert.equal(eighthSignal.material, pool.statusMaterial('blocked'));
+  assert.equal(office.goalToken.material, pool.statusMaterial('active'));
+
+  office.dispose();
+  pool.dispose();
+});
+
+test('entity factories adopt office fixtures as the single visual status owner', () => {
+  const pool = createResourcePool();
+  const office = createOfficeEnvironment(pool);
+  const factories = createEntityFactories(pool, office);
+  const departmentSlot = STUDIO_TOPOLOGY.departments[7];
+  const missionSlot = STUDIO_TOPOLOGY.missions[2];
+
+  const department = factories.department({ id: 'stage-8', status: 'blocked' }, departmentSlot);
+  department.update({ id: 'stage-8', status: 'blocked' }, departmentSlot);
+  assert.equal(department.object, office.stageSignals.get(departmentSlot.id));
+  assert.equal(department.object.material, pool.statusMaterial('blocked'));
+  assert.equal(department.object.userData.data.id, 'stage-8');
+
+  const mission = factories.mission({ id: 'mission-3', status: 'active' }, missionSlot);
+  mission.update({ id: 'mission-3', status: 'active' }, missionSlot);
+  assert.equal(mission.object, office.missionBoards.get(missionSlot.id));
+  assert.equal(mission.object.material, pool.statusMaterial('active'));
+
+  // Governance and evidence fixtures illuminate only while adopted.
+  const governance = factories.governance({ id: 'governance-deck', status: 'blocked' }, STUDIO_TOPOLOGY.governance);
+  governance.update({ id: 'governance-deck', status: 'blocked' }, STUDIO_TOPOLOGY.governance);
+  assert.equal(governance.object, office.governanceBeacon);
+  assert.equal(governance.object.visible, true);
+  governance.dispose();
+  assert.equal(governance.object.visible, false);
+
+  // Without an office the factories still produce honest status markers.
+  const bare = createEntityFactories(pool);
+  const marker = bare.department({ id: 'stage-1', status: 'active' }, departmentSlot);
+  assert.notEqual(marker.object, office.stageSignals.get(departmentSlot.id));
+  assert.equal(marker.object.material, pool.statusMaterial('active'));
 
   office.dispose();
   pool.dispose();

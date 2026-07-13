@@ -42,7 +42,6 @@ export function studio3dHtml() {
     <section class="studio-workspace" aria-label="Agent Force operational workspace">
       <div class="studio-scene-shell">
         <canvas id="studio-canvas" aria-hidden="true"></canvas>
-        <div id="studio-overlays" class="studio-overlays" aria-hidden="true"></div>
         <div id="studio-renderer-banner" class="studio-renderer-banner" role="status" hidden></div>
         <div class="studio-camera-controls" aria-label="3D view controls">
           <button id="studio-overview" type="button">Overview</button>

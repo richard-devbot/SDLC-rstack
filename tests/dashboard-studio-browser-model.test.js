@@ -5,7 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { studio3dHtml } from '../src/observability/dashboard/ui/studio3d.js';
@@ -27,7 +27,9 @@ test('Studio shell is semantic-first, local, and independent of a fixed port', (
 
   assert.match(html, /<main id="studio-app"/);
   assert.match(html, /<canvas id="studio-canvas" aria-hidden="true"/);
-  assert.match(html, /<div id="studio-overlays" class="studio-overlays" aria-hidden="true"><\/div>/);
+  // The approved cutaway revision forbids any world-space text surface: no
+  // overlay host is mounted and no world-label class exists anywhere.
+  assert.doesNotMatch(html, /studio-overlays|studio-world-label/);
   assert.match(html, /<section id="semantic-studio"/);
   assert.match(html, /<div id="studio-announcer"[^>]+aria-live="polite"/);
   assert.match(html, /studio-status-cluster[\s\S]+id="studio-semantic-toggle"[^>]+aria-pressed="false"[\s\S]+<\/header>/);
@@ -102,7 +104,6 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   const overlaysPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'overlays.js');
   const sceneSource = readFileSync(scenePath, 'utf8');
   const geometrySource = readFileSync(geometryPath, 'utf8');
-  const overlaysSource = readFileSync(overlaysPath, 'utf8');
   for (const name of ['reconcile', 'select', 'focus', 'setMotion', 'diagnostics', 'pause', 'resume', 'destroy']) {
     assert.match(sceneSource, new RegExp(`${name}\\b`));
   }
@@ -111,7 +112,9 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   }
   assert.match(sceneSource, /createOfficeEnvironment/);
   assert.match(sceneSource, /createAgentAnimator/);
-  assert.match(sceneSource, /createStudioOverlays/);
+  // World-space labels were removed with the cutaway office revision.
+  assert.equal(existsSync(overlaysPath), false);
+  assert.doesNotMatch(sceneSource, /createStudioOverlays|overlayRoot|studio-world-label/);
   assert.match(sceneSource, /MAX_DETAILED_RIGS\s*=\s*16/);
   assert.match(sceneSource, /DRAW_CALL_CEILING\s*=\s*90/);
   assert.match(sceneSource, /TRIANGLE_CEILING\s*=\s*200_000/);
@@ -124,9 +127,6 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /webglcontextrestored/);
   assert.match(sceneSource, /setAnimationLoop/);
   assert.match(geometrySource, /InstancedMesh/);
-  assert.match(overlaysSource, /textContent/);
-  assert.match(overlaysSource, /HIGH_VALUE/);
-  assert.doesNotMatch(overlaysSource, /innerHTML\s*=/);
 });
 
 test('transition scheduler animates unseen source events once and respects reduced motion', () => {

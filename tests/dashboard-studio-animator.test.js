@@ -11,6 +11,7 @@ import {
   createAgentAnimator,
   sampleWaypointRoute,
 } from '../src/observability/dashboard/ui/studio3d/animator.js';
+import { ROBOT_PELVIS_HEIGHT } from '../src/observability/dashboard/ui/studio3d/robot.js';
 
 function agentHarness({ role = 'builder' } = {}) {
   const object = new THREE.Group();
@@ -58,7 +59,8 @@ test('reduced motion applies final workstation state without active updates', ()
     duration_ms: 0,
   }), true);
   assert.equal(animator.activeCount(), 0);
-  assert.deepEqual(handle.object.position.toArray(), [4, 0, 7]);
+  // Seated origin drops so the pelvis lands on the seat anchor.
+  assert.deepEqual(handle.object.position.toArray(), [4, 0 - ROBOT_PELVIS_HEIGHT, 7]);
   assert.equal(poses.at(-1), 'seated_work');
 });
 
@@ -79,7 +81,7 @@ test('full motion walks only while a source transition is active and then seats'
   assert.equal(animator.update(650), true);
   assert.match(poses.at(-1), /^walk[AB]$/);
   assert.equal(animator.update(1300), false);
-  assert.deepEqual(handle.object.position.toArray(), [6, 0, 8]);
+  assert.deepEqual(handle.object.position.toArray(), [6, 0 - ROBOT_PELVIS_HEIGHT, 8]);
   assert.equal(poses.at(-1), 'validating');
   assert.equal(animator.activeCount(), 0);
 });
@@ -105,7 +107,7 @@ test('freeze preserves the exact frame and resume completes pending work', () =>
   assert.deepEqual(handle.object.position.toArray(), frozenPosition.toArray());
   animator.resume();
   assert.equal(animator.update(1200), false);
-  assert.deepEqual(handle.object.position.toArray(), [3, 0, 9]);
+  assert.deepEqual(handle.object.position.toArray(), [3, 0 - ROBOT_PELVIS_HEIGHT, 9]);
 });
 
 test('delegation and evidence packets are transient and cleared from the scene', () => {

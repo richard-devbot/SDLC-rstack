@@ -27,12 +27,19 @@ const STATUS_FACES = Object.freeze({
   unknown: 'neutral',
 });
 
+/**
+ * Measurement contract with the office: the pelvis pivot sits this far above
+ * the robot's origin. Lowering the origin by (pelvis height − seat height)
+ * lands the seated pelvis on the chair anchor with the feet on the floor.
+ */
+export const ROBOT_PELVIS_HEIGHT = 1.34;
+
 const FLEET_BUCKETS = Object.freeze([
-  Object.freeze({ id: 'shellSlab', geometry: 'slab', material: 'robotShell', partsPerRobot: 6 }),
-  Object.freeze({ id: 'shellCylinder', geometry: 'cylinder', material: 'robotShell', partsPerRobot: 8 }),
-  Object.freeze({ id: 'jointSphere', geometry: 'sphere', material: 'robotJoint', partsPerRobot: 12 }),
+  Object.freeze({ id: 'shellSlab', geometry: 'slab', material: 'robotShell', partsPerRobot: 4 }),
+  Object.freeze({ id: 'shellCylinder', geometry: 'cylinder', material: 'robotShell', partsPerRobot: 10 }),
+  Object.freeze({ id: 'jointSphere', geometry: 'sphere', material: 'robotJoint', partsPerRobot: 15 }),
   Object.freeze({ id: 'jointSlab', geometry: 'slab', material: 'robotJoint', partsPerRobot: 1 }),
-  Object.freeze({ id: 'jointCylinder', geometry: 'cylinder', material: 'robotJoint', partsPerRobot: 1 }),
+  Object.freeze({ id: 'jointCylinder', geometry: 'cylinder', material: 'robotJoint', partsPerRobot: 2 }),
   Object.freeze({ id: 'screen', geometry: 'slab', material: 'robotScreen', partsPerRobot: 1 }),
   Object.freeze({ id: 'face', geometry: 'sphere', material: 'face', partsPerRobot: 3 }),
   Object.freeze({ id: 'roleBand', geometry: 'slab', material: 'roleBand', partsPerRobot: 1 }),
@@ -113,36 +120,43 @@ export function createHumanoidRobot(pool, data = {}) {
   object.name = `${roleLabel} robot · ${data.agent_id ?? data.id ?? 'unassigned'}`;
   const joints = {};
 
-  const pelvis = joints.pelvis = pivot('pelvis', object, [0, 1.34, 0]);
+  const pelvis = joints.pelvis = pivot('pelvis', object, [0, ROBOT_PELVIS_HEIGHT, 0]);
   pelvis.add(mesh(pool.geometries.slab, pool.materials.robotJoint, [0.35, 0.22, 0.24], [0, 0.03, 0], 'pelvisShell'));
   const torso = joints.torso = pivot('torso', pelvis, [0, 0.48, 0]);
-  torso.add(mesh(pool.geometries.slab, pool.materials.robotShell, [0.47, 0.5, 0.27], [0, 0.2, 0], 'torsoShell'));
+  // Friendly rounded body: a pale egg-shaped shell with a semantic role band.
+  torso.add(mesh(pool.geometries.sphere, pool.materials.robotShell, [0.3, 0.35, 0.26], [0, 0.18, 0], 'torsoShell'));
   const roleBand = mesh(
     pool.geometries.slab,
     data.role === 'validator' ? pool.materials.validator : pool.materials.amber,
-    [0.35, 0.055, 0.285],
-    [0, 0.22, 0],
+    [0.4, 0.055, 0.33],
+    [0, 0.02, 0],
     'roleBand',
   );
   torso.add(roleBand);
 
-  const neck = joints.neck = pivot('neck', torso, [0, 0.76, 0]);
-  neck.add(mesh(pool.geometries.cylinder, pool.materials.robotJoint, [0.12, 0.16, 0.12], [0, 0.06, 0], 'neckShell'));
-  const head = joints.head = pivot('head', neck, [0, 0.28, 0]);
-  head.add(mesh(pool.geometries.slab, pool.materials.robotShell, [0.39, 0.31, 0.31], [0, 0.04, 0], 'headShell'));
+  const neck = joints.neck = pivot('neck', torso, [0, 0.52, 0]);
+  neck.add(mesh(pool.geometries.cylinder, pool.materials.robotJoint, [0.1, 0.14, 0.1], [0, 0.05, 0], 'neckShell'));
+  const head = joints.head = pivot('head', neck, [0, 0.2, 0]);
+  // Oversized rounded head with side pods and an antenna — expressive and
+  // recognizably humanoid without any downloaded character asset.
+  head.add(mesh(pool.geometries.sphere, pool.materials.robotShell, [0.27, 0.23, 0.25], [0, 0.08, 0], 'headShell'));
+  head.add(mesh(pool.geometries.sphere, pool.materials.robotJoint, [0.075, 0.095, 0.095], [-0.27, 0.07, 0], 'earPodLeft'));
+  head.add(mesh(pool.geometries.sphere, pool.materials.robotJoint, [0.075, 0.095, 0.095], [0.27, 0.07, 0], 'earPodRight'));
+  head.add(mesh(pool.geometries.cylinder, pool.materials.robotJoint, [0.018, 0.2, 0.018], [0, 0.38, 0], 'antenna'));
+  head.add(mesh(pool.geometries.sphere, pool.materials.robotJoint, [0.038, 0.038, 0.038], [0, 0.5, 0], 'antennaTip'));
   const faceDisplay = new THREE.Group();
   faceDisplay.name = 'faceDisplay';
-  faceDisplay.position.set(0, 0.04, 0.32);
-  const screen = mesh(pool.geometries.slab, pool.materials.robotScreen, [0.29, 0.17, 0.025], [0, 0, 0], 'faceScreen');
+  faceDisplay.position.set(0, 0.06, 0.2);
+  const screen = mesh(pool.geometries.slab, pool.materials.robotScreen, [0.32, 0.18, 0.055], [0, 0, 0], 'faceScreen');
   faceDisplay.add(screen);
 
   const faceMaterial = pool.materials.robotFace.clone();
-  const eyeLeft = mesh(pool.geometries.sphere, faceMaterial, [0.055, 0.042, 0.018], [-0.1, 0.015, 0.035], 'eyeLeft');
-  const eyeRight = mesh(pool.geometries.sphere, faceMaterial, [0.055, 0.042, 0.018], [0.1, 0.015, 0.035], 'eyeRight');
+  const eyeLeft = mesh(pool.geometries.sphere, faceMaterial, [0.07, 0.078, 0.03], [-0.09, 0.01, 0.035], 'eyeLeft');
+  const eyeRight = mesh(pool.geometries.sphere, faceMaterial, [0.07, 0.078, 0.03], [0.09, 0.01, 0.035], 'eyeRight');
   faceDisplay.add(eyeLeft, eyeRight);
   head.add(faceDisplay);
 
-  const chestLight = mesh(pool.geometries.sphere, faceMaterial, [0.075, 0.075, 0.035], [0, 0.26, 0.29], 'chestLight');
+  const chestLight = mesh(pool.geometries.sphere, faceMaterial, [0.06, 0.06, 0.03], [0, 0.26, 0.24], 'chestLight');
   torso.add(chestLight);
   createArm('Left', -1, torso, joints, pool);
   createArm('Right', 1, torso, joints, pool);
@@ -225,12 +239,13 @@ export function createRobotFleetRenderer(pool, { maxRobots = 17 } = {}) {
   for (const definition of FLEET_BUCKETS) {
     let selectedMaterial = pool.materials[definition.material];
     if (definition.material === 'face' || definition.material === 'roleBand') {
+      // Instance colors via setColorAt; vertexColors stays off because the
+      // shared geometry has no color attribute (missing attribute = black).
       selectedMaterial = new THREE.MeshStandardMaterial({
         color: 0xffffff,
-        vertexColors: true,
         metalness: 0.28,
         roughness: 0.4,
-        emissive: definition.material === 'face' ? 0x273039 : 0x000000,
+        emissive: definition.material === 'face' ? 0xffffff : 0x000000,
         emissiveIntensity: definition.material === 'face' ? 0.34 : 0,
       });
       dynamicMaterials.push(selectedMaterial);
@@ -247,7 +262,11 @@ export function createRobotFleetRenderer(pool, { maxRobots = 17 } = {}) {
     meshObject.userData.interactive = true;
     meshObject.userData.entityRefs = [];
     object.add(meshObject);
-    buckets.set(definition.id, { meshObject, items: [] });
+    buckets.set(definition.id, {
+      meshObject,
+      items: [],
+      usesInstanceColor: definition.material === 'face' || definition.material === 'roleBand',
+    });
   }
 
   function update() {
@@ -259,7 +278,7 @@ export function createRobotFleetRenderer(pool, { maxRobots = 17 } = {}) {
     for (const bucket of buckets.values()) {
       bucket.items.forEach((item, index) => {
         bucket.meshObject.setMatrixAt(index, item.source.matrixWorld);
-        if (bucket.meshObject.material.vertexColors) {
+        if (bucket.usesInstanceColor) {
           bucket.meshObject.setColorAt(index, item.source.material.color);
         }
       });

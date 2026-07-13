@@ -210,41 +210,8 @@ button { min-height: 44px; }
   height: 100%;
 }
 
-.studio-overlays {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.studio-world-label {
-  position: absolute;
-  top: 0;
-  left: 0;
-  min-width: 9rem;
-  max-width: 15rem;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid #d7d4cc;
-  border-left: 3px solid var(--studio-amber);
-  border-radius: 0.55rem;
-  background: rgba(255, 253, 248, 0.94);
-  color: var(--studio-text);
-  box-shadow: 0 0.5rem 1.2rem rgba(32, 36, 42, 0.12);
-  pointer-events: auto;
-  text-align: left;
-  transform-origin: left bottom;
-  cursor: pointer;
-}
-
-.studio-world-label strong,
-.studio-world-label span { display: block; }
-.studio-world-label strong { font-size: 0.76rem; line-height: 1.2; }
-.studio-world-label span { margin-top: 0.2rem; color: var(--studio-muted); font-size: 0.68rem; }
-.studio-world-label[data-state="waiting"],
-.studio-world-label[data-state="blocked"],
-.studio-world-label[data-state="failed"] { border-left-color: var(--studio-red); }
-.studio-world-label[data-selected="true"] { outline: 3px solid rgba(217, 135, 25, 0.3); }
+/* The 3D canvas carries no text overlays: operational detail lives in the
+   semantic view, timeline, and inspector outside the canvas. */
 
 .studio-camera-controls {
   position: absolute;
@@ -554,8 +521,6 @@ button { min-height: 44px; }
     border-bottom: 1px solid var(--studio-line);
   }
 
-  .studio-overlays { display: none; }
-
   #studio-app[data-renderer="semantic"] .studio-scene-shell,
   #studio-app[data-renderer="semantic-only"] .studio-scene-shell { display: none; }
 
@@ -623,6 +588,4 @@ button { min-height: 44px; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
-
-  .studio-world-label { transition: none; }
 }

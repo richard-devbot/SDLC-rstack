@@ -24,9 +24,8 @@ test('responsive stylesheet keeps the semantic Studio primary at 390px', () => {
   assert.match(css, /\.studio-fallback\s*{[^}]*position:\s*static/s);
   assert.match(css, /:focus-visible/);
   assert.match(css, /\[data-renderer="semantic-only"\]/);
-  assert.match(css, /\.studio-overlays\s*{[^}]*pointer-events:\s*none/s);
-  assert.match(css, /\.studio-world-label\s*{[^}]*pointer-events:\s*auto/s);
-  assert.match(css, /@media\s*\(max-width:\s*600px\)[\s\S]+\.studio-overlays\s*{[^}]*display:\s*none/s);
+  // The cutaway office revision removed every world-space text surface.
+  assert.doesNotMatch(css, /studio-overlays|studio-world-label/);
   assert.doesNotMatch(css, /width:\s*380px/);
 });
 
@@ -60,9 +59,9 @@ test('live announcements are limited to high-value operational changes', () => {
   assert.doesNotMatch(source, /ANNOUNCED_TYPES[^;]+agent_activity/s);
 });
 
-test('overlay selection returns through the existing semantic inspector path', () => {
+test('canvas selection returns through the existing semantic inspector path', () => {
   const source = readFileSync(APP_PATH, 'utf8');
-  assert.match(source, /studio-overlays/);
+  assert.doesNotMatch(source, /studio-overlays|overlayRoot/);
   assert.match(source, /dom\.select\(ref/);
   assert.match(source, /studioDrawCalls/);
   assert.doesNotMatch(source, /innerHTML\s*=/);

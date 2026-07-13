@@ -11,14 +11,12 @@ import { restingBehavior } from './behavior.js';
 import {
   createCapabilityInstances,
   createEntityFactories,
-  createMissionRoutes,
   createResourcePool,
   createWorkPacket,
 } from './geometry.js';
 import { assignOfficeProjection, createOfficeEnvironment } from './office.js';
-import { createStudioOverlays } from './overlays.js';
 import { createEntityReconciler } from './reconciler.js';
-import { createRobotFleetRenderer } from './robot.js';
+import { createRobotFleetRenderer, ROBOT_PELVIS_HEIGHT } from './robot.js';
 import { STUDIO_TOPOLOGY } from './topology.js';
 import { createTransitionScheduler } from './transitions.js';
 
@@ -38,7 +36,6 @@ function easeInOut(value) {
 
 export function createStudioScene(canvas, {
   motion = 'full',
-  overlayRoot = null,
   onSelect = () => {},
   onDiagnostics = () => {},
   onRendererState = () => {},
@@ -90,10 +87,9 @@ export function createStudioScene(canvas, {
   scene.add(robotFleet.object);
   const reconciler = createEntityReconciler({
     scene,
-    factories: createEntityFactories(pool),
+    factories: createEntityFactories(pool, office),
   });
   const workstationBySession = new Map();
-  let overlays = null;
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -101,7 +97,6 @@ export function createStudioScene(canvas, {
   let projection = null;
   let selectedRef = null;
   let capabilityInstances = null;
-  let missionRoutes = null;
   let motionMode = motion === 'reduced' ? 'reduced' : 'full';
   let qualityTier = 'high';
   let frameCount = 0;
@@ -131,14 +126,6 @@ export function createStudioScene(canvas, {
   transitions.setMotion(motionMode);
   animator.setMotion(motionMode);
 
-  if (overlayRoot) {
-    overlays = createStudioOverlays(overlayRoot, {
-      onSelect: (ref) => {
-        if (select(ref)) onSelect(ref);
-      },
-    });
-  }
-
   function disposeDynamic(object) {
     if (!object) return;
     scene.remove(object);
@@ -147,10 +134,8 @@ export function createStudioScene(canvas, {
 
   function refreshProjectionGeometry() {
     disposeDynamic(capabilityInstances);
-    disposeDynamic(missionRoutes);
     capabilityInstances = createCapabilityInstances(projection, pool);
-    missionRoutes = createMissionRoutes(projection);
-    scene.add(capabilityInstances, missionRoutes);
+    scene.add(capabilityInstances);
   }
 
   function resize() {
@@ -168,7 +153,6 @@ export function createStudioScene(canvas, {
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, quality.pixelRatio));
     renderer.shadowMap.enabled = quality.shadows;
     key.castShadow = quality.shadows;
-    overlays?.setQuality?.(tier);
     resize();
   }
 
@@ -223,7 +207,6 @@ export function createStudioScene(canvas, {
     robotFleet.update();
     updateCameraTween(now);
     controls.update();
-    overlays?.update(camera, reconciler.entries(), canvas.getBoundingClientRect());
     renderer.render(scene, camera);
     samplePerformance(now);
     enforceQualityCeilings(now);
@@ -281,7 +264,6 @@ export function createStudioScene(canvas, {
     }
     if (!reconciler.get(ref)) return false;
     selectedRef = ref;
-    overlays?.select(ref);
     const level = options.level ?? (ref.kind === 'session' ? 'agent' : 'mission');
     return focus(ref, level);
   }
@@ -306,8 +288,13 @@ export function createStudioScene(canvas, {
       if (!handle) return;
       const workstation = workstationBySession.get(session.id);
       if (workstation) {
-        handle.object.position.copy(workstation.seat.getWorldPosition(new THREE.Vector3()));
-        handle.setPose(restingBehavior(session));
+        const seat = workstation.seat.getWorldPosition(new THREE.Vector3());
+        const pose = restingBehavior(session);
+        const seated = pose === 'seated_work' || pose === 'validating';
+        // Seated origins drop so the pelvis lands on the chair anchor;
+        // standing poses (waiting, failed, complete) stay on the floor.
+        handle.object.position.set(seat.x, seated ? seat.y - ROBOT_PELVIS_HEIGHT : 0, seat.z);
+        handle.setPose(pose);
       } else {
         const observedPose = restingBehavior(session);
         handle.setPose(observedPose === 'seated_work' || observedPose === 'validating' ? 'standing' : observedPose);
@@ -324,7 +311,6 @@ export function createStudioScene(canvas, {
     robotFleet.reconcile(reconciler.entries());
     applyRestingStates();
     robotFleet.update();
-    overlays?.reconcile(projection, reconciler.entries());
     refreshProjectionGeometry();
     transitions.ingest(projection.timeline, { prime: firstTimeline });
     firstTimeline = false;
@@ -415,11 +401,9 @@ export function createStudioScene(canvas, {
     reconciler.clear();
     transitions.clear();
     animator.clear();
-    overlays?.clear();
     workstationBySession.clear();
     [...office.desks.builder, ...office.desks.validator].forEach((desk) => { desk.occupant = null; });
     disposeDynamic(capabilityInstances);
-    disposeDynamic(missionRoutes);
     office.dispose();
     controls.dispose();
     pool.dispose();

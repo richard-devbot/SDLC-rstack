@@ -1,10 +1,16 @@
 /**
  * Low-draw-call geometry and material factories for Agent Force Studio.
  *
+ * Mission boards, stage work cells, the Governance beacon, and the Vault
+ * status light are physical fixtures of the cutaway office. The entity
+ * factories adopt those fixtures instead of spawning freestanding pylons,
+ * so the scene reads as one furnished company floor rather than a topology
+ * diagram, and each projected status has exactly one visual owner.
+ *
  * owner: RStack developed by Richardson Gunde
  */
 import * as THREE from 'three';
-import { STUDIO_TOPOLOGY, topologySlot, workstationSlot } from './topology.js';
+import { STUDIO_TOPOLOGY, workstationSlot } from './topology.js';
 import { createHumanoidRobot } from './robot.js';
 
 const STATUS_COLORS = Object.freeze({
@@ -35,7 +41,15 @@ export function createResourcePool() {
   const materials = {
     graphite: material(0x151c26, { metalness: 0.48, roughness: 0.48 }),
     graphiteLight: material(0x283341, { metalness: 0.42, roughness: 0.5 }),
-    floor: material(0x0d1219, { metalness: 0.25, roughness: 0.8 }),
+    wall: material(0xe9e4d8, { metalness: 0.05, roughness: 0.9 }),
+    // Per-instance colors arrive via InstancedMesh.setColorAt; vertexColors
+    // must stay OFF because the shared geometry has no color attribute (a
+    // missing attribute samples black).
+    floorFinish: material(0xffffff, { metalness: 0.06, roughness: 0.86 }),
+    casework: material(0xffffff, { metalness: 0.18, roughness: 0.62 }),
+    capability: material(0xffffff, { metalness: 0.35, roughness: 0.4 }),
+    plantPot: material(0x8a5a44, { metalness: 0.1, roughness: 0.8 }),
+    plantFoliage: material(0x5d8f62, { metalness: 0.05, roughness: 0.85 }),
     amber: material(0xe5b860, { metalness: 0.55, roughness: 0.34, emissive: 0x704c12, emissiveIntensity: 0.42 }),
     glass: new THREE.MeshPhysicalMaterial({ color: 0x8cb8e8, transparent: true, opacity: 0.2, roughness: 0.08, metalness: 0.1, depthWrite: false }),
     validator: material(0x71a7ff, { metalness: 0.4, roughness: 0.36, emissive: 0x173c78, emissiveIntensity: 0.36 }),
@@ -80,15 +94,40 @@ function place(object, slot) {
   object.rotation.fromArray(slot.rotation ?? [0, 0, 0]);
 }
 
-function entityHandle(object, signalMesh, pool) {
+function bindStatus(mesh, data, pool) {
+  mesh.material = pool.statusMaterial(data.status);
+  mesh.userData.status = data.status ?? 'unknown';
+  mesh.userData.count = data.count ?? data.counts?.sessions ?? 0;
+  mesh.userData.data = data;
+}
+
+/**
+ * Adopt an authored office fixture as the entity's one visual owner. The
+ * fixture keeps its architectural position; only status and visibility follow
+ * the projection.
+ */
+function adoptedFixture(mesh, pool) {
   return {
-    object,
-    update(data, slot) {
-      place(object, slot);
-      signalMesh.material = pool.statusMaterial(data.status);
-      object.userData.status = data.status ?? 'unknown';
-      object.userData.count = data.count ?? data.counts?.sessions ?? 0;
-      object.userData.data = data;
+    object: mesh,
+    update(data) {
+      mesh.visible = true;
+      bindStatus(mesh, data, pool);
+    },
+    dispose() { mesh.visible = false; },
+  };
+}
+
+/** Fallback status marker for callers composing factories without an office. */
+function statusMarker(data, slot, pool, name) {
+  const mesh = new THREE.Mesh(pool.geometries.beacon, pool.statusMaterial(data.status));
+  mesh.name = name;
+  mesh.scale.setScalar(0.2);
+  place(mesh, slot);
+  return {
+    object: mesh,
+    update(next, nextSlot) {
+      place(mesh, nextSlot);
+      bindStatus(mesh, next, pool);
     },
     dispose() {},
   };
@@ -112,146 +151,49 @@ function createRobotEntity(data, slot, pool, kind) {
   };
 }
 
-function createOrchestrator(data, slot, pool) {
-  return createRobotEntity(data, slot, pool, 'orchestrator');
-}
-
-function createMission(data, slot, pool) {
-  const group = new THREE.Group();
-  group.name = `Mission · ${data.title ?? data.id}`;
-  const bay = new THREE.Mesh(pool.geometries.cylinder, pool.materials.graphiteLight);
-  bay.scale.set(1.7, 0.18, 1.7);
-  bay.position.y = 0.16;
-  const signal = new THREE.Mesh(pool.geometries.beacon, pool.statusMaterial(data.status));
-  signal.scale.setScalar(0.52);
-  signal.position.y = 1.15;
-  group.add(bay, signal);
-  place(group, slot);
-  return entityHandle(group, signal, pool);
-}
-
-function createDepartment(data, slot, pool) {
-  const group = new THREE.Group();
-  group.name = `Department · ${data.title ?? data.id}`;
-  const pylon = new THREE.Mesh(pool.geometries.slab, pool.statusMaterial(data.status));
-  pylon.scale.set(0.72, 1.35, 0.72);
-  pylon.position.y = 0.72;
-  group.add(pylon);
-  place(group, slot);
-  return entityHandle(group, pylon, pool);
-}
-
-function createSession(data, slot, pool) {
-  return createRobotEntity(data, slot, pool, 'session');
-}
-
 function createAggregate(data, slot, pool) {
+  // Overflow queue board at Dispatch — an honest aggregate, never an
+  // invented worker. The exact count lives in the semantic view.
   const group = new THREE.Group();
   group.name = 'Additional active agents';
-  const base = new THREE.Mesh(pool.geometries.cylinder, pool.materials.graphiteLight);
-  base.scale.set(0.82, 0.14, 0.82);
-  base.position.y = 0.14;
+  const stand = new THREE.Mesh(pool.geometries.slab, pool.materials.graphiteLight);
+  stand.scale.set(0.14, 1.1, 0.14);
+  stand.position.y = 0.55;
+  const board = new THREE.Mesh(pool.geometries.slab, pool.materials.monitor);
+  board.scale.set(1.05, 0.7, 0.07);
+  board.position.y = 1.35;
   const signal = new THREE.Mesh(pool.geometries.beacon, pool.statusMaterial(data.status));
-  signal.scale.setScalar(0.42);
-  signal.position.y = 0.72;
-  group.add(base, signal);
+  signal.scale.setScalar(0.12);
+  signal.position.set(0.42, 1.62, 0.06);
+  group.add(stand, board, signal);
   place(group, slot);
-  return entityHandle(group, signal, pool);
-}
-
-function createGovernance(data, slot, pool) {
-  const group = new THREE.Group();
-  group.name = 'Human Governance Deck';
-  const deck = new THREE.Mesh(pool.geometries.slab, pool.materials.graphiteLight);
-  deck.scale.set(3.4, 0.18, 1.7);
-  const signal = new THREE.Mesh(pool.geometries.beacon, pool.materials.governance);
-  signal.scale.setScalar(0.72);
-  signal.position.y = 0.9;
-  group.add(deck, signal);
-  place(group, slot);
-  return entityHandle(group, signal, pool);
-}
-
-function createEvidence(data, slot, pool) {
-  const group = new THREE.Group();
-  group.name = 'Evidence and Delivery Vault';
-  const vault = new THREE.Mesh(pool.geometries.slab, pool.materials.evidence);
-  vault.scale.set(2.4, 1.6, 2.1);
-  vault.position.y = 0.85;
-  const door = new THREE.Mesh(pool.geometries.slab, pool.statusMaterial(data.status));
-  door.scale.set(0.72, 0.9, 0.1);
-  door.position.set(0, 0.72, 1.08);
-  group.add(vault, door);
-  place(group, slot);
-  return entityHandle(group, door, pool);
-}
-
-export function createEntityFactories(pool) {
+  group.position.x += 2.2;
   return {
-    orchestrator: (data, slot) => createOrchestrator(data, slot, pool),
-    mission: (data, slot) => createMission(data, slot, pool),
-    department: (data, slot) => createDepartment(data, slot, pool),
-    session: (data, slot) => createSession(data, slot, pool),
+    object: group,
+    update(next) { bindStatus(signal, next, pool); group.userData.data = next; group.userData.count = next.count ?? 0; },
+    dispose() {},
+  };
+}
+
+export function createEntityFactories(pool, office = null) {
+  const adoptOr = (mesh, data, slot, name) => (
+    mesh ? adoptedFixture(mesh, pool) : statusMarker(data, slot, pool, name)
+  );
+  return {
+    orchestrator: (data, slot) => createRobotEntity(data, slot, pool, 'orchestrator'),
+    mission: (data, slot) => adoptOr(office?.missionBoards?.get(slot.id), data, slot, `Mission · ${data.title ?? data.id}`),
+    department: (data, slot) => adoptOr(office?.stageSignals?.get(slot.id), data, slot, `Department · ${data.title ?? data.id}`),
+    session: (data, slot) => createRobotEntity(data, slot, pool, 'session'),
     aggregate: (data, slot) => createAggregate(data, slot, pool),
-    governance: (data, slot) => createGovernance(data, slot, pool),
-    evidence: (data, slot) => createEvidence(data, slot, pool),
+    governance: (data, slot) => adoptOr(office?.governanceBeacon, data, slot, 'Human governance beacon'),
+    evidence: (data, slot) => adoptOr(office?.vaultLight, data, slot, 'Evidence vault light'),
   };
-}
-
-export function createFloorFoundation(pool) {
-  const group = new THREE.Group();
-  group.name = 'Agent Force company floor';
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(19.5, 64), pool.materials.floor);
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  group.add(floor);
-
-  const markerGeometry = new THREE.BoxGeometry(0.09, 0.03, 0.72);
-  const markerMaterial = new THREE.MeshBasicMaterial({ color: 0x384454, transparent: true, opacity: 0.42 });
-  const markers = new THREE.InstancedMesh(markerGeometry, markerMaterial, 64);
-  const transform = new THREE.Object3D();
-  for (let index = 0; index < 64; index += 1) {
-    const angle = (index / 64) * Math.PI * 2;
-    transform.position.set(Math.cos(angle) * 18.2, 0.025, Math.sin(angle) * 18.2);
-    transform.rotation.set(0, -angle, 0);
-    transform.updateMatrix();
-    markers.setMatrixAt(index, transform.matrix);
-  }
-  markers.instanceMatrix.needsUpdate = true;
-  group.add(markers);
-  group.userData.dispose = () => {
-    floor.geometry.dispose();
-    markerGeometry.dispose();
-    markerMaterial.dispose();
-  };
-  return group;
-}
-
-export function createSupportFacilities(pool) {
-  const group = new THREE.Group();
-  group.name = 'Builder pool and Validator Lab';
-
-  const builder = new THREE.Mesh(pool.geometries.slab, pool.materials.graphiteLight);
-  builder.name = 'Builder Pod Pool';
-  builder.scale.set(2.5, 0.35, 1.7);
-  builder.position.fromArray(STUDIO_TOPOLOGY.builderPool.position);
-
-  const validatorBase = new THREE.Mesh(pool.geometries.slab, pool.materials.graphiteLight);
-  validatorBase.name = 'Validator Lab';
-  validatorBase.scale.set(2.7, 0.35, 1.8);
-  validatorBase.position.fromArray(STUDIO_TOPOLOGY.validator.position);
-  const validatorGlass = new THREE.Mesh(pool.geometries.slab, pool.materials.glass);
-  validatorGlass.scale.set(2.45, 1.7, 1.55);
-  validatorGlass.position.fromArray(STUDIO_TOPOLOGY.validator.position);
-  validatorGlass.position.y += 1.05;
-  group.add(builder, validatorBase, validatorGlass);
-  return group;
 }
 
 export function createCapabilityInstances(projection, _pool) {
   const attachments = (projection.capability_attachments ?? []).slice(0, 64);
   const geometry = new THREE.BoxGeometry(0.18, 0.18, 0.18);
-  const instanceMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, metalness: 0.35, roughness: 0.4 });
+  const instanceMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.35, roughness: 0.4 });
   const mesh = new THREE.InstancedMesh(geometry, instanceMaterial, Math.max(attachments.length, 1));
   mesh.name = 'Attached specialist, skill, and plugin modules';
   mesh.count = attachments.length;
@@ -270,12 +212,22 @@ export function createCapabilityInstances(projection, _pool) {
   });
   const transform = new THREE.Object3D();
   const color = new THREE.Color();
+  const offset = new THREE.Vector3();
+  const stackHeights = new Map();
   attachments.forEach((attachment, index) => {
     const session = sessionById.get(attachment.session_id);
-    const position = sessionSlots.get(session?.id)?.position ?? STUDIO_TOPOLOGY.dispatch.position;
-    const angle = (index % 6) / 6 * Math.PI * 2;
-    transform.position.set(position[0] + Math.cos(angle) * 0.65, position[1] + 1.5 + Math.floor(index / 6) * 0.22, position[2] + Math.sin(angle) * 0.65);
-    transform.rotation.set(angle, angle, 0);
+    const slot = sessionSlots.get(session?.id) ?? STUDIO_TOPOLOGY.dispatch;
+    // Dock collected capability blocks in a tidy stack at the desk's handoff
+    // corner instead of orbiting them over the robot.
+    const level = stackHeights.get(slot.id) ?? 0;
+    stackHeights.set(slot.id, level + 1);
+    offset.set(0.82, 0, -0.08).applyEuler(new THREE.Euler(...(slot.rotation ?? [0, 0, 0])));
+    transform.position.set(
+      slot.position[0] + offset.x,
+      1.1 + level * 0.2,
+      slot.position[2] + offset.z,
+    );
+    transform.rotation.set(0, slot.rotation?.[1] ?? 0, 0);
     transform.updateMatrix();
     mesh.setMatrixAt(index, transform.matrix);
     mesh.setColorAt(index, color.set(attachment.kind === 'specialist' ? 0xe5b860 : attachment.kind === 'skill' ? 0x71a7ff : 0xac8cff));
@@ -283,34 +235,6 @@ export function createCapabilityInstances(projection, _pool) {
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   mesh.userData.dispose = () => { geometry.dispose(); instanceMaterial.dispose(); };
-  return mesh;
-}
-
-export function createMissionRoutes(projection) {
-  const points = [];
-  const colors = [];
-  const source = new THREE.Vector3(...STUDIO_TOPOLOGY.orchestrator.position);
-  projection.missions.forEach((mission, index) => {
-    if (mission.status === 'unknown') return;
-    const target = new THREE.Vector3(...topologySlot('mission', index).position);
-    points.push(source.x, source.y, source.z, target.x, target.y, target.z);
-    const color = new THREE.Color(STATUS_COLORS[mission.status] ?? STATUS_COLORS.unknown);
-    colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
-  });
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  const routeMaterial = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.58 });
-  const routes = new THREE.LineSegments(geometry, routeMaterial);
-  routes.name = 'Source-backed mission routes';
-  routes.userData.dispose = () => { geometry.dispose(); routeMaterial.dispose(); };
-  return routes;
-}
-
-export function createWorkCapsule(pool, kind = 'delegation') {
-  const mesh = createWorkPacket(pool, kind === 'artifact' ? 'artifact' : 'task');
-  mesh.name = `${kind} work capsule`;
-  mesh.visible = false;
   return mesh;
 }
 

@@ -1,14 +1,25 @@
 /**
- * CPU-first living office environment for Agent Force Studio.
+ * CPU-first cutaway office environment for Agent Force Studio.
  *
- * Furniture is instanced while semantic desk anchors stay as lightweight
- * Object3D groups. Runtime occupancy is therefore truthful without paying a
- * draw-call cost for every empty workstation.
+ * One continuous dollhouse building: full-height far walls, lowered near
+ * walls, authored partitions with door openings, a central corridor, and
+ * architecturally separate rooms for Orchestrator HQ, the Skills Library,
+ * the Builder Bullpen, the glass Validator Lab, Governance, the Evidence
+ * Vault, and reception/dispatch. Repeated architecture and furniture are
+ * instanced; semantic desk anchors stay as lightweight Object3D groups so
+ * runtime occupancy is truthful without paying a draw-call cost for every
+ * empty workstation. The canvas carries no text — room identity comes from
+ * architecture, furnishings, and restrained material accents.
  *
  * owner: RStack developed by Richardson Gunde
  */
 import * as THREE from 'three';
 import { STUDIO_TOPOLOGY } from './topology.js';
+
+const WALL_HEIGHT = 2.7;
+const PARTITION_HEIGHT = 2.2;
+const LOW_WALL_HEIGHT = 0.55;
+const GLASS_HEIGHT = 2.2;
 
 function place(object, slot) {
   object.position.fromArray(slot.position);
@@ -20,15 +31,6 @@ function facility(name, slot) {
   group.name = name;
   place(group, slot);
   return group;
-}
-
-function addSlab(parent, pool, material, scale, position = [0, 0, 0], name = '') {
-  const object = new THREE.Mesh(pool.geometries.slab, material);
-  object.name = name;
-  object.scale.set(...scale);
-  object.position.set(...position);
-  parent.add(object);
-  return object;
 }
 
 function authoredDesk(slot, kind) {
@@ -56,6 +58,166 @@ function authoredDesk(slot, kind) {
   };
 }
 
+/** Wall segment along the x axis. */
+function wallX(x1, x2, z, height, thickness) {
+  return { center: [(x1 + x2) / 2, height / 2, z], scale: [Math.abs(x2 - x1), height, thickness] };
+}
+
+/** Wall segment along the z axis. */
+function wallZ(z1, z2, x, height, thickness) {
+  return { center: [x, height / 2, (z1 + z2) / 2], scale: [thickness, height, Math.abs(z2 - z1)] };
+}
+
+function writeSegments(mesh, segments) {
+  const transform = new THREE.Object3D();
+  const color = new THREE.Color();
+  segments.forEach((segment, index) => {
+    transform.position.set(...segment.center);
+    transform.rotation.set(0, segment.yaw ?? 0, 0);
+    transform.scale.set(...segment.scale);
+    transform.updateMatrix();
+    mesh.setMatrixAt(index, transform.matrix);
+    if (segment.color !== undefined) mesh.setColorAt(index, color.set(segment.color));
+  });
+  mesh.count = segments.length;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  return mesh;
+}
+
+function createWalls(pool) {
+  const { bounds, corridor, doors } = STUDIO_TOPOLOGY;
+  const P = 0.4; // perimeter thickness
+  const I = 0.26; // interior partition thickness
+  const solid = [
+    // Perimeter: far walls full height, near walls lowered for the cutaway.
+    wallX(bounds.west - P / 2, bounds.east + P / 2, bounds.north, WALL_HEIGHT, P),
+    wallZ(bounds.north, 9.4, bounds.west, WALL_HEIGHT, P), // dispatch entrance gap 9.4..11
+    wallZ(11, bounds.south, bounds.west, WALL_HEIGHT, P),
+    wallX(bounds.west - P / 2, bounds.east + P / 2, bounds.south, LOW_WALL_HEIGHT, P),
+    wallZ(bounds.north, bounds.south, bounds.east, LOW_WALL_HEIGHT, P),
+    // North-wing dividers (Library | HQ · Governance | Vault).
+    wallZ(bounds.north, corridor.north, -7, PARTITION_HEIGHT, I),
+    wallZ(bounds.north, corridor.north, 12, PARTITION_HEIGHT, I),
+    // Corridor north wall with four door openings.
+    wallX(bounds.west, doors.library - 0.8, corridor.north, PARTITION_HEIGHT, I),
+    wallX(doors.library + 0.8, doors.hq - 0.8, corridor.north, PARTITION_HEIGHT, I),
+    wallX(doors.hq + 0.8, doors.governance - 0.8, corridor.north, PARTITION_HEIGHT, I),
+    wallX(doors.governance + 0.8, doors.vault - 0.8, corridor.north, PARTITION_HEIGHT, I),
+    wallX(doors.vault + 0.8, bounds.east, corridor.north, PARTITION_HEIGHT, I),
+    // Corridor south wall with the bullpen door; the lab section is glass.
+    wallX(bounds.west, doors.bullpen - 0.8, corridor.south, PARTITION_HEIGHT, I),
+    wallX(doors.bullpen + 0.8, 6, corridor.south, PARTITION_HEIGHT, I),
+    wallX(14, bounds.east, corridor.south, PARTITION_HEIGHT, I),
+  ];
+  const glass = [
+    // Glass Validator Lab: corridor door, evidence hatch gap on the west side.
+    wallX(6, doors.lab - 0.8, corridor.south, GLASS_HEIGHT, 0.08),
+    wallX(doors.lab + 0.8, 14, corridor.south, GLASS_HEIGHT, 0.08),
+    wallZ(corridor.south, 1.4, 6, GLASS_HEIGHT, 0.08),
+    wallZ(2.6, 9, 6, GLASS_HEIGHT, 0.08),
+    wallX(6, 14, 9, GLASS_HEIGHT, 0.08),
+    wallZ(corridor.south, 9, 14, GLASS_HEIGHT, 0.08),
+    // Orchestrator HQ glass side toward Governance.
+    wallZ(bounds.north, corridor.north, 3, PARTITION_HEIGHT, 0.08),
+  ];
+  const walls = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.wall, solid.length);
+  walls.name = 'Office walls';
+  walls.receiveShadow = true;
+  const glassMesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.governanceGlass, glass.length);
+  glassMesh.name = 'Glass partitions';
+  return [writeSegments(walls, solid), writeSegments(glassMesh, glass)];
+}
+
+function createFloorFinishes(pool) {
+  const { bounds, corridor } = STUDIO_TOPOLOGY;
+  const finish = (x1, x2, z1, z2, color) => ({
+    center: [(x1 + x2) / 2, 0.03, (z1 + z2) / 2],
+    scale: [x2 - x1, 0.05, z2 - z1],
+    color,
+  });
+  const finishes = [
+    finish(bounds.west, -7, bounds.north, corridor.north, 0xb9c4ae), // Library sage
+    finish(-7, 3, bounds.north, corridor.north, 0xc9a276), // HQ warm wood
+    finish(3, 12, bounds.north, corridor.north, 0xd8c9c2), // Governance blush
+    finish(12, bounds.east, bounds.north, corridor.north, 0xb7cec2), // Vault mint
+    finish(bounds.west, bounds.east, corridor.north, corridor.south, 0x8f959c), // corridor
+    finish(bounds.west, 6, corridor.south, bounds.south, 0xd9d2c0), // Builder Bullpen
+    finish(6, 14, corridor.south, 9, 0xb4c4d8), // Validator Lab cool
+    finish(14, bounds.east, corridor.south, bounds.south, 0xdad3c4), // east lounge
+    finish(6, 14, 9, bounds.south, 0xdad3c4), // south of the lab
+    finish(-17.8, -13, 8, 12.8, 0xd9a860), // Dispatch rug
+    finish(-4.4, 0.4, -12.6, -7.6, 0xb5824e), // HQ area rug
+  ];
+  const mesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.floorFinish, finishes.length);
+  mesh.name = 'Room floor finishes';
+  mesh.receiveShadow = true;
+  return writeSegments(mesh, finishes);
+}
+
+function createPlants(pool) {
+  const spots = [
+    [-17.2, -3.3], [-17.2, -12.1], [2.2, -12.3], [11.1, -12.3], [17.1, -12.2],
+    [5, 12.2], [-4.5, 12.4], [16.6, -0.5], [16.6, 5.5], [16.6, 11.5],
+  ];
+  const pots = new THREE.InstancedMesh(pool.geometries.cylinder, pool.materials.plantPot, spots.length);
+  pots.name = 'Plant pots';
+  const foliage = new THREE.InstancedMesh(pool.geometries.sphere, pool.materials.plantFoliage, spots.length);
+  foliage.name = 'Plant foliage';
+  writeSegments(pots, spots.map(([x, z]) => ({ center: [x, 0.26, z], scale: [0.3, 0.52, 0.3] })));
+  writeSegments(foliage, spots.map(([x, z]) => ({ center: [x, 0.92, z], scale: [0.48, 0.5, 0.48] })));
+  return [pots, foliage];
+}
+
+function createCasework(pool) {
+  const pieces = [
+    // Library shelving units and pickup counter.
+    { center: [-15.6, 0.88, -11.7], scale: [2.4, 1.72, 0.45], color: 0x9aa89f },
+    { center: [-12.6, 0.88, -11.7], scale: [2.4, 1.72, 0.45], color: 0x9aa89f },
+    { center: [-16.4, 0.88, -8.4], scale: [0.45, 1.72, 2.4], color: 0x9aa89f },
+    { center: [-13.2, 0.7, -8.6], scale: [2.1, 1.36, 0.45], color: 0x9aa89f },
+    { center: [-9.2, 0.53, -8.6], scale: [1.6, 1.02, 0.55], color: 0xb9c2c5 },
+    // Orchestrator HQ strategy table.
+    { center: [-2, 0.92, -10.1], scale: [2.6, 0.1, 1.3], color: 0x9a6b42 },
+    { center: [-2, 0.45, -10.1], scale: [0.5, 0.86, 0.5], color: 0x7a5433 },
+    // Governance review table and waiting benches.
+    { center: [7.5, 0.86, -10.2], scale: [1.9, 0.09, 0.95], color: 0xb9c2c5 },
+    { center: [7.5, 0.42, -10.2], scale: [0.45, 0.8, 0.45], color: 0x8f959c },
+    { center: [5.1, 0.32, -11.9], scale: [1.7, 0.55, 0.5], color: 0xc4a494 },
+    { center: [9.9, 0.32, -11.9], scale: [1.7, 0.55, 0.5], color: 0xc4a494 },
+    // Evidence Vault cabinet.
+    { center: [15.5, 0.9, -11.6], scale: [2.3, 1.76, 1.15], color: 0x77a98d },
+    // Reception counter at Dispatch.
+    { center: [-15.4, 0.55, 9.6], scale: [2.3, 1.06, 0.6], color: 0xb9c2c5 },
+    // Evidence transfer hatch on the Validator Lab boundary.
+    { center: [6, 0.58, 2], scale: [0.6, 1.1, 1.1], color: 0x8f959c },
+  ];
+  const mesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.casework, pieces.length);
+  mesh.name = 'Office casework';
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return writeSegments(mesh, pieces);
+}
+
+function createLibraryStock(pool) {
+  // Shape-coded capability forms on the library shelves — room identity, not
+  // runtime state. Runtime attachments dock at the owning session's desk.
+  const colors = [0xac8cff, 0xe5b860, 0x71a7ff, 0x58bd86];
+  const stock = [];
+  [[-15.6, -11.55], [-12.6, -11.55], [-13.2, -8.45]].forEach(([x, z], shelfIndex) => {
+    for (let i = 0; i < 5; i += 1) {
+      stock.push({
+        center: [x - 0.8 + i * 0.4, shelfIndex === 2 ? 1.5 : 1.86, z],
+        scale: [0.24, 0.24, 0.24],
+        color: colors[(i + shelfIndex) % colors.length],
+      });
+    }
+  });
+  const mesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.capability, stock.length);
+  mesh.name = 'Library capability stock';
+  return writeSegments(mesh, stock);
+}
+
 function createFurnitureInstances(pool, desks) {
   const builderCount = desks.builder.length;
   const allDesks = [...desks.builder, ...desks.validator];
@@ -65,10 +227,14 @@ function createFurnitureInstances(pool, desks) {
   validatorTops.name = 'Validator desk tops';
   const chairs = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.chair, allDesks.length);
   chairs.name = 'Office chairs';
+  const chairBacks = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.chair, allDesks.length);
+  chairBacks.name = 'Office chair backs';
   const monitors = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.monitor, allDesks.length);
   monitors.name = 'Office monitors';
   const keyboards = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.graphiteLight, allDesks.length);
   keyboards.name = 'Office keyboards';
+  const legs = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.graphiteLight, allDesks.length * 2);
+  legs.name = 'Desk legs';
   const transform = new THREE.Object3D();
 
   const writeInstance = (mesh, index, desk, position, scale) => {
@@ -83,62 +249,114 @@ function createFurnitureInstances(pool, desks) {
   desks.builder.forEach((desk, index) => writeInstance(builderTops, index, desk, [0, 1.02, 0], [1.12, 0.08, 0.64]));
   desks.validator.forEach((desk, index) => writeInstance(validatorTops, index, desk, [0, 1.02, 0], [1.12, 0.08, 0.64]));
   allDesks.forEach((desk, index) => {
-    writeInstance(chairs, index, desk, [0, 0.52, -0.72], [0.54, 0.52, 0.5]);
+    writeInstance(chairs, index, desk, [0, 0.52, -0.72], [0.54, 0.1, 0.5]);
+    writeInstance(chairBacks, index, desk, [0, 0.86, -0.95], [0.54, 0.62, 0.09]);
     writeInstance(monitors, index, desk, [0, 1.55, 0.18], [0.56, 0.38, 0.06]);
     writeInstance(keyboards, index, desk, [0, 1.11, -0.18], [0.5, 0.025, 0.2]);
+    writeInstance(legs, index * 2, desk, [-0.5, 0.51, 0], [0.07, 0.94, 0.55]);
+    writeInstance(legs, index * 2 + 1, desk, [0.5, 0.51, 0], [0.07, 0.94, 0.55]);
   });
 
-  for (const mesh of [builderTops, validatorTops, chairs, monitors, keyboards]) {
+  for (const mesh of [builderTops, validatorTops, chairs, chairBacks, monitors, keyboards, legs]) {
     mesh.instanceMatrix.needsUpdate = true;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
   }
-  return [builderTops, validatorTops, chairs, monitors, keyboards];
+  return [builderTops, validatorTops, chairs, chairBacks, monitors, keyboards, legs];
+}
+
+function createStageCells(pool) {
+  const docks = new THREE.InstancedMesh(
+    pool.geometries.slab,
+    pool.materials.graphiteLight,
+    STUDIO_TOPOLOGY.departments.length,
+  );
+  docks.name = 'Stage work-cell docks';
+  writeSegments(docks, STUDIO_TOPOLOGY.departments.map((slot) => ({
+    center: [slot.position[0], 0.3, slot.position[2]],
+    scale: [0.68, 0.6, 0.5],
+  })));
+
+  const stageSignals = new Map();
+  const signalGroup = new THREE.Group();
+  signalGroup.name = 'Fifteen stage signals';
+  STUDIO_TOPOLOGY.departments.forEach((slot) => {
+    const signal = new THREE.Mesh(pool.geometries.beacon, pool.statusMaterial('unknown'));
+    signal.name = `Stage signal · ${slot.id}`;
+    signal.scale.setScalar(0.17);
+    place(signal, slot);
+    signal.position.y = 0.72;
+    signalGroup.add(signal);
+    stageSignals.set(slot.id, signal);
+  });
+  return { docks, signalGroup, stageSignals };
+}
+
+function createMissionBoards(pool) {
+  const missionBoards = new Map();
+  const group = new THREE.Group();
+  group.name = 'Mission boards';
+  for (const slot of STUDIO_TOPOLOGY.missions) {
+    const board = new THREE.Mesh(pool.geometries.slab, pool.statusMaterial('unknown'));
+    board.name = `Mission board · ${slot.id}`;
+    board.scale.set(1.55, 0.92, 0.07);
+    place(board, slot);
+    board.position.y = 1.5;
+    group.add(board);
+    missionBoards.set(slot.id, board);
+  }
+  return { group, missionBoards };
 }
 
 function createNamedFacilities(pool) {
   const facilities = [];
 
   const hq = facility('Orchestrator HQ', STUDIO_TOPOLOGY.orchestrator);
-  addSlab(hq, pool, pool.materials.workSurface, [2.6, 0.14, 1.35], [0, 0.14, 0]);
-  addSlab(hq, pool, pool.materials.amber, [1.7, 0.035, 0.58], [0, 1.42, 0.58]);
+  const goalToken = new THREE.Mesh(pool.geometries.beacon, pool.statusMaterial('unknown'));
+  goalToken.name = 'Goal token';
+  goalToken.scale.setScalar(0.28);
+  goalToken.position.set(0, 1.22, -0.1);
+  hq.add(goalToken);
   facilities.push(hq);
 
-  const library = facility('Skills and Plugin Library', STUDIO_TOPOLOGY.library);
-  addSlab(library, pool, pool.materials.library, [1.8, 1.75, 0.42], [0, 1.78, -1]);
-  addSlab(library, pool, pool.materials.library, [1.8, 1.75, 0.42], [0, 1.78, 1]);
-  facilities.push(library);
-
-  const validatorLab = facility('Glass Validator Lab', STUDIO_TOPOLOGY.validator);
-  addSlab(validatorLab, pool, pool.materials.governanceGlass, [6.9, 1.65, 0.08], [0, 1.65, -1.35]);
-  facilities.push(validatorLab);
+  facilities.push(facility('Skills and Plugin Library', STUDIO_TOPOLOGY.library));
+  facilities.push(facility('Glass Validator Lab', STUDIO_TOPOLOGY.validator));
 
   const governance = facility('Governance Room', STUDIO_TOPOLOGY.governance);
-  addSlab(governance, pool, pool.materials.governanceGlass, [2.2, 1.7, 1.7], [0, 1.72, 0]);
-  addSlab(governance, pool, pool.materials.governance, [1.2, 0.08, 0.74], [0, 0.82, 0]);
+  const governanceBeacon = new THREE.Mesh(pool.geometries.beacon, pool.materials.governance);
+  governanceBeacon.name = 'Governance beacon';
+  governanceBeacon.scale.setScalar(0.2);
+  governanceBeacon.position.set(0, 2.05, -2.5);
+  governanceBeacon.visible = false;
+  governance.add(governanceBeacon);
   facilities.push(governance);
 
-  const dispatch = facility('Dispatch', STUDIO_TOPOLOGY.dispatch);
-  addSlab(dispatch, pool, pool.materials.amber, [1.55, 0.12, 1.55], [0, 0.14, 0]);
-  facilities.push(dispatch);
+  facilities.push(facility('Dispatch', STUDIO_TOPOLOGY.dispatch));
 
   const evidence = facility('Evidence Vault', STUDIO_TOPOLOGY.evidence);
-  addSlab(evidence, pool, pool.materials.evidence, [1.75, 1.55, 1.45], [0, 1.55, 0]);
-  addSlab(evidence, pool, pool.materials.monitor, [0.48, 0.72, 0.06], [0, 1.32, 1.47]);
+  const vaultLight = new THREE.Mesh(pool.geometries.beacon, pool.materials.evidence);
+  vaultLight.name = 'Vault status light';
+  vaultLight.scale.setScalar(0.16);
+  vaultLight.position.set(0, 1.35, -1);
+  vaultLight.visible = false;
+  evidence.add(vaultLight);
   facilities.push(evidence);
 
-  return facilities;
+  return { facilities, goalToken, governanceBeacon, vaultLight };
 }
 
 export function createOfficeEnvironment(pool) {
   const object = new THREE.Group();
-  object.name = 'Agent Force living office';
+  object.name = 'Agent Force cutaway office';
 
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(38, 30), pool.materials.floorLight);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 30), pool.materials.floorLight);
   floor.name = 'Precision workshop floor';
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   object.add(floor);
+
+  object.add(createFloorFinishes(pool), ...createWalls(pool), ...createPlants(pool));
+  object.add(createCasework(pool), createLibraryStock(pool));
 
   const desks = {
     builder: STUDIO_TOPOLOGY.builderDesks.map((slot) => authoredDesk(slot, 'builder')),
@@ -152,33 +370,19 @@ export function createOfficeEnvironment(pool) {
   desks.validator.forEach((desk) => validatorWorkstations.add(desk.object));
   object.add(builderWorkstations, validatorWorkstations, ...createFurnitureInstances(pool, desks));
 
-  const missionBoards = new THREE.Group();
-  missionBoards.name = 'Mission boards';
-  for (const slot of STUDIO_TOPOLOGY.missions) {
-    const board = addSlab(missionBoards, pool, pool.materials.monitor, [1.15, 0.68, 0.08], [0, 1.25, 0], `Mission board · ${slot.id}`);
-    place(board, slot);
-    board.position.y = 1.25;
-  }
-  object.add(missionBoards, ...createNamedFacilities(pool));
-
-  const stageSignals = new Map();
-  const signalGroup = new THREE.Group();
-  signalGroup.name = 'Fifteen stage signals';
-  STUDIO_TOPOLOGY.departments.forEach((slot) => {
-    const signal = new THREE.Mesh(pool.geometries.beacon, pool.statusMaterial('unknown'));
-    signal.name = `Stage signal · ${slot.id}`;
-    signal.scale.setScalar(0.24);
-    place(signal, slot);
-    signal.position.y = 0.35;
-    signalGroup.add(signal);
-    stageSignals.set(slot.id, signal);
-  });
-  object.add(signalGroup);
+  const boards = createMissionBoards(pool);
+  const cells = createStageCells(pool);
+  const named = createNamedFacilities(pool);
+  object.add(boards.group, cells.docks, cells.signalGroup, ...named.facilities);
 
   return {
     object,
     desks,
-    stageSignals,
+    stageSignals: cells.stageSignals,
+    missionBoards: boards.missionBoards,
+    goalToken: named.goalToken,
+    governanceBeacon: named.governanceBeacon,
+    vaultLight: named.vaultLight,
     dispose() {
       object.removeFromParent();
       floor.geometry.dispose();
@@ -201,15 +405,7 @@ export function assignOfficeProjection(office, projection, pool) {
     workstationBySession.set(session.id, desk);
   });
 
-  const signals = [...office.stageSignals.values()];
-  signals.forEach((signal, index) => {
-    const department = projection.departments?.[index] ?? null;
-    signal.material = pool.statusMaterial(department?.status);
-    signal.userData.data = department;
-    signal.userData.entityRef = department
-      ? { kind: 'department', id: department.id }
-      : null;
-    signal.userData.interactive = Boolean(department);
-  });
+  // The goal token illuminates only from the projected orchestrator state.
+  office.goalToken.material = pool.statusMaterial(projection.orchestrator?.status);
   return workstationBySession;
 }

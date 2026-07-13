@@ -12,7 +12,6 @@ const app = document.getElementById('studio-app');
 const canvas = document.getElementById('studio-canvas');
 const fallback = document.getElementById('studio-fallback');
 const banner = document.getElementById('studio-renderer-banner');
-const overlayRoot = document.getElementById('studio-overlays');
 const motionButton = document.getElementById('studio-motion');
 const overviewButton = document.getElementById('studio-overview');
 const semanticButton = document.getElementById('studio-semantic-toggle');
@@ -59,7 +58,6 @@ async function ensureScene(studio) {
     const { createStudioScene } = await import('./scene.js');
     scene = createStudioScene(canvas, {
       motion: currentMotion,
-      overlayRoot,
       onSelect: (ref) => dom.select(ref, { focus: false }),
       onDiagnostics: (stats) => {
         app.dataset.studioQualityTier = stats.qualityTier;

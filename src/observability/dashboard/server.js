@@ -88,7 +88,6 @@ const STUDIO_STATIC = new Map([
   ['/studio3d/assets/robot.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/robot.js'), type: 'text/javascript; charset=utf-8' }],
   ['/studio3d/assets/office.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/office.js'), type: 'text/javascript; charset=utf-8' }],
   ['/studio3d/assets/animator.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/animator.js'), type: 'text/javascript; charset=utf-8' }],
-  ['/studio3d/assets/overlays.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/overlays.js'), type: 'text/javascript; charset=utf-8' }],
   ['/studio3d/assets/styles.css', { path: join(DASHBOARD_DIR, 'ui/studio3d/styles.css'), type: 'text/css; charset=utf-8' }],
   ['/studio3d/vendor/three.module.js', { path: join(PACKAGE_ROOT, 'node_modules/three/build/three.module.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
   ['/studio3d/vendor/three.core.js', { path: join(PACKAGE_ROOT, 'node_modules/three/build/three.core.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
