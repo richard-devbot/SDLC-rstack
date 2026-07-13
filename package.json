@@ -22,7 +22,8 @@
     "observer:dev": "node --watch bin/rstack-business.js",
     "business": "node bin/rstack-business.js",
     "business:dev": "node --watch bin/rstack-business.js",
-    "build:all": "npm run validate"
+    "build:all": "npm run validate",
+    "test:browser": "npx tsx --test tests/browser/*.test.js"
   },
   "keywords": [
     "pi-package",
@@ -82,10 +83,12 @@
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.9",
     "@earendil-works/pi-coding-agent": "^0.79.9",
+    "axe-core": "^4.12.1",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
     "fs-extra": "^11.2.0",
     "ora": "^8.0.1",
+    "playwright-core": "^1.61.1",
     "tsx": "^4.19.0",
     "typebox": "^1.1.38"
   },
