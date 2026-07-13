@@ -511,3 +511,27 @@ this semantic operational view, with the lightweight canvas offered only when sa
 - Canonical stages: `src/core/harness/stages.js`
 - Delegated runtime: `src/integrations/pi/rstack-sdlc.ts`
 - Product program: GitHub issues #33, #96, and #273
+
+## Verification record
+
+Verified on 2026-07-13 against implementation commit `5ff4255`.
+
+- Studio-focused suite: 50 tests passed, 0 failed.
+- Full repository suite: 1,314 tests passed, 0 failed.
+- TypeScript typecheck passed.
+- All 196 packaged agents passed repository validation.
+- ESLint completed with 0 errors; the three reported warnings pre-date this work and
+  remain in unrelated checkpoint and papercut tests.
+- A real empty repository scope rendered an honest no-runs semantic state without
+  fabricated robot activity.
+- A schema-valid lifecycle fixture projected through the dashboard backend rendered
+  two observed sessions, waiting/active status, provenance, evidence, and the source
+  timeline. Selecting the Validator opened the matching semantic inspector.
+- Desktop WebGL diagnostics reported the high quality tier, 87 draw calls, 14,134
+  triangles, two active articulated rigs, zero idle transitions, and no horizontal
+  overflow. These remain below the 90-call and 200,000-triangle release ceilings.
+- At 390 x 844, the semantic view remained primary, world overlays were removed,
+  the selected-agent inspector became a bottom sheet, and horizontal overflow stayed
+  false.
+- Reduced motion stopped transition animation, and the semantic-only control preserved
+  an explicit, tested `Show 3D view` path back to the rendered office.
