@@ -19,6 +19,7 @@ import { buildReadinessProjection } from './readiness.js';
 import { buildOverviewProjection } from './overview.js';
 import { buildOperationsProjection } from './operations.js';
 import { buildRunWorkspaces } from './run-workspace.js';
+import { buildStudioProjection } from './studio.js';
 import { buildActions } from './actions.js';
 import { buildCockpitProjection } from './cockpit.js';
 import { cockpitControlsEnabled, cockpitControlsEnabledFromEnv } from '../../../core/harness/cockpit-actions.js';
@@ -252,9 +253,14 @@ export async function buildFullState(projectRoot, options = {}) {
     runWorkspaces: buildRunWorkspaces(stateWithOverview.runs, stateWithOverview.readiness, stateWithOverview),
   };
 
-  return {
+  const stateWithStudio = {
     ...stateWithRunWorkspaces,
-    layers: buildLayerSummaries(stateWithRunWorkspaces),
+    studio: buildStudioProjection(stateWithRunWorkspaces, { evaluatedAt: baseState.ts }),
+  };
+
+  return {
+    ...stateWithStudio,
+    layers: buildLayerSummaries(stateWithStudio),
   };
 }
 

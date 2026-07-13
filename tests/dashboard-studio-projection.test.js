@@ -5,7 +5,11 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
+import { buildFullState, toClientState } from '../src/observability/dashboard/state/index.js';
 import { buildStudioProjection } from '../src/observability/dashboard/state/studio.js';
 
 const NOW = '2026-07-13T10:00:00.000Z';
@@ -207,4 +211,23 @@ test('projection excludes raw prompts, command input, stderr, tokens, and unrest
   assert.doesNotMatch(serialized, /stderr/);
   assert.doesNotMatch(serialized, /\/repo\/\.env/);
   assert.match(serialized, /Checked architecture/);
+});
+
+test('full and client states share the exact Studio projection without exposing raw events', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rstack-studio-state-'));
+  mkdirSync(join(root, '.rstack', 'runs'), { recursive: true });
+  try {
+    const full = await buildFullState(root, {
+      sourceRoots: [root],
+      now: new Date(NOW),
+    });
+    const client = toClientState(full);
+
+    assert.deepEqual(client.studio, full.studio);
+    assert.equal(client.studio.missions.length, 8);
+    assert.equal(client.studio.departments.length, 15);
+    assert.ok(client.runs.every((run) => !Object.hasOwn(run, 'events')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
