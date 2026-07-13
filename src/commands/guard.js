@@ -60,6 +60,44 @@ export const GUARD_CONTEXT_ENV = 'RSTACK_AGENT_CONTEXT';
 export const GUARD_TASK_ENV = 'RSTACK_TASK_ID';
 
 /**
+ * Env var to opt back into legacy fail-OPEN behavior when the guard cannot RUN
+ * — a load/exec failure, NOT a classification decision (#371). The default is
+ * fail-CLOSED: a governance guard that silently vanishes on an install hiccup,
+ * a cold-`npx` registry miss, or a crash is worse than one that blocks and says
+ * why. Host adapters (Tau/Operator/custom) read the SAME env so the policy is
+ * uniform across harnesses.
+ */
+export const GUARD_FAIL_OPEN_ENV = 'RSTACK_GUARD_FAIL_OPEN';
+
+export function guardFailOpen(env = process.env) {
+  return env[GUARD_FAIL_OPEN_ENV] === '1';
+}
+
+/**
+ * Verdict for a guard that COULD NOT RUN (an unexpected throw, unreadable
+ * state, or — reported by a host adapter — the guard process crashed/timed out
+ * or produced no verdict). This is categorically different from an allow/block
+ * DECISION: here the classifier never ran, so "exit != 2" must NOT be read as
+ * "allow". Fails closed by default (block, exit 2) so enforcement is never
+ * silently skipped; `RSTACK_GUARD_FAIL_OPEN=1` restores the legacy allow.
+ * Returns the same { verdict, exitCode } shape as runGuard.
+ */
+export function guardUnavailableVerdict(reason, env = process.env) {
+  const failOpen = guardFailOpen(env);
+  return {
+    verdict: verdictOf(failOpen ? 'allow' : 'block', {
+      category: 'guard-unavailable',
+      reason: failOpen
+        ? `guard could not run (${reason}); ${GUARD_FAIL_OPEN_ENV}=1 is set — allowing WITHOUT enforcement`
+        : `guard could not run (${reason}) — failing closed so enforcement is not silently skipped. Fix the guard (\`rstack-agents doctor\`) or set ${GUARD_FAIL_OPEN_ENV}=1 to allow tool calls without enforcement.`,
+      context: null,
+      tool: null,
+    }),
+    exitCode: failOpen ? EXIT_ALLOW : EXIT_BLOCK,
+  };
+}
+
+/**
  * Resolve the effective agent context. Precedence:
  *   1. RSTACK_VALIDATOR_CONTEXT=1 (the delegate-stamped sandbox env) always
  *      wins — a sandboxed subprocess must not escape by passing

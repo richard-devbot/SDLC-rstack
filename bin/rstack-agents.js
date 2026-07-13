@@ -21,7 +21,7 @@ import { envScan, formatEnvScan } from '../src/commands/env-scan.js';
 import { buildBackendInventory, formatBackendInventory, writeBackendInventory } from '../src/core/inventory/backend-inventory.js';
 import { validateCommand } from '../src/commands/validate.js';
 import { runValidateSchemas, formatValidateSchemas } from '../src/commands/validate-schemas.js';
-import { runGuardCommand, readStdinText } from '../src/commands/guard.js';
+import { runGuardCommand, readStdinText, guardUnavailableVerdict } from '../src/commands/guard.js';
 import { runGateCommand, readStdinText as readGateStdin, GATE_NAMES } from '../src/commands/gate.js';
 import { runObserveCommand, readStdinText as readObserveStdin } from '../src/commands/observe.js';
 import { runContextCommand, readStdinText as readContextStdin } from '../src/commands/context.js';
@@ -310,12 +310,17 @@ program
       const stdinText = usesFlags ? '' : await readStdinText();
       process.exit(await runGuardCommand(opts, { stdinText }));
     } catch (err) {
-      // The guard must never hard-fail a hook: an unexpected error here means
-      // nothing was classified — allow loudly (destructive-time failures are
-      // already blocked inside runGuard, which never throws).
-      process.stderr.write(`[rstack guard] internal error before classification (allowing): ${err.message}\n`);
-      process.stdout.write(`${JSON.stringify({ decision: 'allow', category: null, reason: 'unclassifiable input (guard internal error)', context: null, tool: null })}\n`);
-      process.exit(0);
+      // The guard could not run — nothing was classified. This is a FAILURE,
+      // not an allow decision, so it fails CLOSED by default (#371): a
+      // governance guard that silently vanishes on a crash is worse than one
+      // that blocks and says why. RSTACK_GUARD_FAIL_OPEN=1 restores the legacy
+      // allow. (runGuard itself never throws for a real tool call — it already
+      // fails closed on destructive-with-unresolvable-state — so this path is
+      // the exceptional "guard binary/host wiring broke" case.)
+      const { verdict, exitCode } = guardUnavailableVerdict(err.message);
+      process.stderr.write(`[rstack guard] ${exitCode === 2 ? 'BLOCKED (guard unavailable)' : 'allowing (fail-open)'}: ${verdict.reason}\n`);
+      process.stdout.write(`${JSON.stringify(verdict)}\n`);
+      process.exit(exitCode);
     }
   });
 
