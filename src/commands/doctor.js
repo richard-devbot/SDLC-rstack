@@ -96,6 +96,34 @@ function commandExists(cmd) {
   });
 }
 
+async function checkGuardResolution(cwd) {
+  // #371: the guard now fails CLOSED when it cannot RUN, so HOW it resolves is a
+  // real posture question. A locally-installed binary runs with no network; if
+  // the guard resolves only via `npx --yes`, a cold cache or an offline host
+  // cannot start it — and every gated tool call then fails closed (blocks) until
+  // the install is fixed or RSTACK_GUARD_FAIL_OPEN=1 is set. This surfaces that
+  // before it bites, complementing the guard self-test (which proves the guard
+  // WORKS, not that it resolves without network).
+  let localResolvable = false;
+  try {
+    createRequire(join(resolve(cwd), 'package.json')).resolve('rstack-agents/package.json');
+    localResolvable = true;
+  } catch { /* not installed locally — fall through to the npx check */ }
+  if (localResolvable) {
+    return check('guard resolution', PASS,
+      'guard resolves from a local install (no network needed); it fails closed if it ever cannot run — set RSTACK_GUARD_FAIL_OPEN=1 to allow instead');
+  }
+  const hasNpx = await commandExists('npx');
+  if (hasNpx) {
+    return check('guard resolution', WARN,
+      'guard resolves ONLY via `npx --yes` (downloads on a cold cache; offline → the guard cannot start → gated tool calls fail closed by default)',
+      'npm install rstack-agents in this project so the guard runs locally without network');
+  }
+  return check('guard resolution', FAIL,
+    'guard cannot be resolved — no local rstack-agents install and no npx on PATH; every gated tool call fails closed',
+    'Install Node.js (ships npx) and run `npm install rstack-agents` in this project');
+}
+
 // --- .rstack + config -------------------------------------------------------
 
 function checkRstackDir(projectRoot) {
@@ -585,6 +613,7 @@ export async function runDoctor({ framework, project, cwd = process.cwd() } = {}
   checks.push(checkNodeVersion(pkg));
   checks.push(await checkNpx());
   checks.push(checkPackageResolvable(cwd));
+  checks.push(await checkGuardResolution(cwd));
 
   // State + config
   checks.push(checkRstackDir(projectRoot));
