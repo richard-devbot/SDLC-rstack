@@ -659,3 +659,35 @@ lifecycle journey (delegation → session start → capability pickup → activi
 handoff → artifact → approval wait → completion) animated a fourth robot
 through the office with zero page errors, with freshness flipping to
 Fresh · Observed seconds ago.
+
+## Holographic production-floor revision (Richardson-directed, 2026-07-13)
+
+Second live-review direction: the immersive office should read as a dense,
+always-on production floor, in the spirit of the supplied concept render.
+This supersedes the icon-only badge amendment. In-canvas text is now
+permitted for two purposes only — authored room identity labels and
+holographic per-agent status panels — and every rendered fact must remain
+source-backed:
+
+- Room name labels (BUILDER TEAM, VALIDATOR TEAM, SKILL LIBRARY,
+  ORCHESTRATION CENTER, GOVERNANCE, EVIDENCE VAULT, DATA BACKBONE, DISPATCH)
+  are authored floor-plan identity, not runtime state.
+- Each observed agent carries a holographic panel: agent id, goal (task
+  scope), current skill (first attached capability), status word with
+  semantic color, and canonical stage progress (n/15) with a progress bar.
+  The orchestrator's panel shows the run goal, observed mission count, and
+  completed-stage progress. Panels exist only for observed sessions and the
+  orchestrator; content comes from the studio projection verbatim.
+- Delegation data streams (light trails with moving pulses) connect the
+  Orchestration Center to each ACTIVE session's workstation. A stream exists
+  only while its session is observed live; pulses freeze under reduced
+  motion, stale snapshots, disconnects, and hidden pages.
+- The Orchestration Center wall screen paints the live fifteen-stage rollup
+  from the projection as a global project timeline.
+- Density comes from honest infrastructure: a Data Backbone rack room with
+  activity LEDs, an expanded Skills Library stock, and screen glow on
+  occupied desks. Decorative workers remain forbidden.
+
+Verified live on the lifecycle fixture: 85 draw calls / 49,688 triangles at
+the high tier (ceilings 90 / 200k), zero page errors, streams and panels
+present for exactly the observed sessions.
