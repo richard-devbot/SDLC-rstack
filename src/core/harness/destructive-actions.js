@@ -106,7 +106,16 @@ const COMMAND_RULES = Object.freeze([
 // caught regardless of leading directories.
 const SECRET_PATH_PATTERN = /(^|[/\\])(\.env(\.\S+)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|id_ecdsa|credentials?(\.\w+)?|secrets?(\.\w+)?)$|\.(pem|key|p12|pfx|keystore)$/i;
 
-const PROTECTED_CONFIG_PATTERN = /(^|[/\\])(\.git[/\\]|\.github[/\\]workflows[/\\]|Dockerfile$|docker-compose\.ya?ml$|\.rstack[/\\]|package-lock\.json$|yarn\.lock$|pnpm-lock\.ya?ml$)|\.(tf|tfvars)$/i;
+// `.rstack[/\\]` protects the ENTIRE governance-state surface (approvals.json,
+// policy.json, budget.json, rstack.config.json, session.json, validators/…) —
+// forging any of these subverts a gate. `.claude/settings*.json` and
+// `*rstack-hooks.json` are the HOST's enforcement wiring (#369): an agent that
+// rewrites the file holding its own PreToolUse guard hook disables enforcement
+// as surely as forging an approval, so those are protected on every write path
+// too. We do NOT blanket-protect `.claude/` — agents legitimately author
+// `.claude/agents/*.md`, commands, and skills; only the enforcement-bearing
+// settings + hooks files are gated.
+const PROTECTED_CONFIG_PATTERN = /(^|[/\\])(\.git[/\\]|\.github[/\\]workflows[/\\]|Dockerfile$|docker-compose\.ya?ml$|\.rstack([/\\]|$)|\.claude[/\\]settings(\.local)?\.json$|rstack-hooks\.json$|package-lock\.json$|yarn\.lock$|pnpm-lock\.ya?ml$)|\.(tf|tfvars)$/i;
 
 function notDestructive() {
   return Object.freeze({ destructive: false, category: null, reason: null, matched: null });
@@ -114,6 +123,68 @@ function notDestructive() {
 
 function verdict(category, reason, matched) {
   return Object.freeze({ destructive: true, category, reason, matched });
+}
+
+// Write-capable command verbs whose arguments name paths they create, replace,
+// move, remove, or re-permission (#369). A shell redirect (`>` / `>>`) into any
+// path is a write regardless of the verb. This is what makes classifyCommand
+// catch writes to protected/secret paths SYMMETRICALLY with the write-TOOL path
+// (classifyWritePath already gates Write/Edit): the bash path historically
+// flagged only secret redirects, so `echo forged > .rstack/runs/<id>/approvals.json`
+// — and every other .rstack/ governance file, plus the host's own guard-hook
+// config — was wide open. See the self-approval bypass (#369).
+const WRITE_COMMAND_VERBS = new Set([
+  'tee', 'cp', 'mv', 'install', 'dd', 'ln', 'rm', 'unlink', 'shred',
+  'chmod', 'chown', 'chgrp', 'truncate', 'touch',
+  // PowerShell / cmd content + item cmdlets (compared lowercased)
+  'set-content', 'add-content', 'out-file', 'tee-object', 'clear-content',
+  'remove-item', 'move-item', 'copy-item', 'new-item',
+]);
+
+function stripQuotes(token) {
+  return token.replace(/^['"]+|['"]+$/g, '');
+}
+
+// Candidate write-target tokens for one command segment (already split on shell
+// separators). Over-inclusive by design: only targets that classifyWritePath
+// flags as protected/secret change the verdict, so extracting an extra
+// non-protected token is harmless. This keeps the parser simple and avoids
+// false negatives (missing a real write matters; a spurious safe target does not).
+function writeTargetsInSegment(segment) {
+  const targets = [];
+  // Redirections: `> p`, `>> p`, `N> p`, `>| p`, glued `>p`.
+  const redirectRe = /\d*>>?\|?\s*("[^"]*"|'[^']*'|[^\s|;&<>()]+)/g;
+  let m;
+  while ((m = redirectRe.exec(segment)) !== null) targets.push(stripQuotes(m[1]));
+  const tokens = segment.trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return targets;
+  const verb = stripQuotes(tokens[0]).toLowerCase().replace(/.*[/\\]/, ''); // basename of /bin/rm etc.
+  // sed/perl only WRITE with an in-place flag (`-i`, `-pi`, `--in-place`);
+  // without it they read to stdout, so a bare `sed 's/x/y/' file` is not a write.
+  const inPlaceEditor = (verb === 'sed' || verb === 'perl') && /(^|\s)-\w*i\b|--in-place\b/.test(segment);
+  if (WRITE_COMMAND_VERBS.has(verb) || inPlaceEditor) {
+    for (const raw of tokens.slice(1)) {
+      const tok = stripQuotes(raw);
+      if (!tok || tok.startsWith('-')) continue; // skip flags
+      const kv = /^of=(.+)$/i.exec(tok) || /^--?path[:=](.+)$/i.exec(tok); // dd of=… / -Path:…
+      targets.push(kv ? kv[1] : tok);
+    }
+  }
+  return targets;
+}
+
+// A write/move/remove/chmod/redirect whose target lands on a protected
+// governance path or a secret — the command-side mirror of classifyWritePath.
+function classifyProtectedWrite(command) {
+  for (const segment of command.split(/\|\||&&|[|;&\n]/)) {
+    for (const target of writeTargetsInSegment(segment)) {
+      const v = classifyWritePath(target);
+      if (v.destructive) {
+        return verdict(v.category, `command writes to a protected or secret path (${target}): ${v.reason}`, v.category);
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -127,6 +198,12 @@ export function classifyCommand(command) {
   for (const rule of COMMAND_RULES) {
     if (rule.pattern.test(command)) return verdict(rule.category, rule.reason, rule.category);
   }
+  // Symmetry with the write-TOOL path (#369): a write/move/remove/chmod or a
+  // redirect targeting a protected governance path (all of .rstack/, the host
+  // guard-hook config) or a secret is destructive even when no COMMAND_RULE
+  // named it. Runs after the explicit rules so their precise reasons win.
+  const protectedWrite = classifyProtectedWrite(command);
+  if (protectedWrite) return protectedWrite;
   return notDestructive();
 }
 
