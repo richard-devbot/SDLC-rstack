@@ -78,6 +78,14 @@ WHAT TO WIRE
      human emergency override for the builder gate.
 4. On block (exit 2): cancel the tool call, surface the stderr reason to the
    model/user verbatim. Do NOT auto-retry the same command.
+5. Fail CLOSED on guard-UNAVAILABLE (#371): treat ONLY exit 0 as allow and exit
+   2 as block. Any other exit (crash / module-load error / a cold `npx --yes`
+   that can't reach the registry), a timeout, or a spawn failure means the guard
+   could not decide — block it (or warn loudly and record), never silently
+   allow. `RSTACK_GUARD_FAIL_OPEN=1` opts back into allow-on-unavailable. Bound
+   each call with a timeout (`RSTACK_GUARD_TIMEOUT_MS`, default 15s), and prefer
+   a resolved `rstack-agents` binary over `npx --yes` so enforcement doesn't
+   depend on the network. `rstack-agents doctor` reports which path resolves.
 
 VERIFY YOUR WIRING (run these through the wired hook path, not manually)
 
