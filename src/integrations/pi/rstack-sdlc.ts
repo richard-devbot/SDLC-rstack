@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { createConnection } from "node:net";
 import { existsSync, openSync, readFileSync } from "node:fs";
@@ -11,6 +12,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { CANONICAL_SDLC_STAGES, getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
 import { MISSION_STAGE_IDS } from "../../core/harness/missions.js";
+import { agentLifecycleEvent } from "../../core/harness/agent-lifecycle.js";
 import { validateBuilderContract, validateBuilderCompleteness } from "../../core/harness/contracts.js";
 import { validateStageGoalEvaluation } from "../../core/harness/goal-check.js";
 // #237: environment_report.json shape check — best-effort WARN at stage-00
@@ -1096,12 +1098,14 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
   const runId = sessionRun(projectRoot);
   let attempts = 1;
   let model = process.env.RSTACK_DEFAULT_MODEL || "gemini-2.5-flash";
+  let activeTask: any = null;
   if (runId) {
     const runDir = join(runsDir(projectRoot), runId);
     let activeTaskId: string | null = null;
     try {
       const taskState = JSON.parse(await readFile(join(runDir, "tasks.json"), "utf8"));
-      activeTaskId = (taskState.tasks || []).find((t: any) => t.status === "IN_PROGRESS")?.id ?? null;
+      activeTask = (taskState.tasks || []).find((t: any) => t.status === "IN_PROGRESS") ?? null;
+      activeTaskId = activeTask?.id ?? null;
     } catch { /* no/unreadable tasks.json → no active task → no escalation */ }
     if (activeTaskId) {
       const events = await readJsonl(join(runDir, "events.jsonl"));
@@ -1133,10 +1137,44 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
     childEnv[VALIDATOR_CONTEXT_ENV] = "1";
     if (runId) childEnv[VALIDATOR_RUN_ID_ENV] = runId;
   }
+  const lifecycleBase = {
+    run_id: runId,
+    task_id: activeTask?.id ?? null,
+    stage_ids: taskStageIds(activeTask ?? {}),
+    delegation_id: `delegation-${randomUUID()}`,
+    agent_session_id: `session-${randomUUID()}`,
+    agent_id: agent.id,
+    role: validatorRole ? "validator" : "builder",
+    harness: "pi",
+    model,
+    sandbox_id: task.cwd || projectRoot,
+    specialist_ids: activeTask?.specialists ?? [],
+    skill_ids: [],
+    plugin_ids: [],
+    source: "sdlc_delegate",
+  };
+  const emitLifecycle = async (type: string, fields: Record<string, unknown> = {}) => {
+    if (!runId) return;
+    await appendEvent(projectRoot, runId, agentLifecycleEvent(type, { ...lifecycleBase, ...fields }));
+  };
+
+  await emitLifecycle("delegation_requested", { status: "requested" });
   const messages: any[] = [];
   let stderr = "";
+  let proc;
+  try {
+    proc = spawn(invocation.command, invocation.args, { cwd: task.cwd || projectRoot, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
+  } catch (error) {
+    stderr = String((error as any)?.message ?? error);
+    await emitLifecycle("agent_session_failed", { status: "spawn_failed", reason_class: "spawn_error" });
+    await emitLifecycle("agent_session_stopped", { status: "stopped", reason_class: "spawn_error" });
+    return { agent: agent.name, agent_id: agent.id, path: agent.path, tools, validator_sandbox: validatorRole, task: task.task, exit_code: 1, output: "", stderr, messages };
+  }
+  await emitLifecycle("agent_session_started", { status: "starting" });
+  await emitLifecycle("agent_session_ready", { status: "active" });
+  await emitLifecycle("agent_capabilities_attached", { status: "attached" });
+
   const code = await new Promise<number>((resolveCode) => {
-    const proc = spawn(invocation.command, invocation.args, { cwd: task.cwd || projectRoot, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
     let buffer = "";
     const processLine = (line: string) => {
       if (!line.trim()) return;
@@ -1160,6 +1198,18 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
       if (signal.aborted) abort();
       else signal.addEventListener("abort", abort, { once: true });
     }
+  });
+  if (code === 0 && !signal?.aborted) {
+    await emitLifecycle("agent_session_completed", { status: "completed" });
+  } else {
+    await emitLifecycle("agent_session_failed", {
+      status: signal?.aborted ? "aborted" : "failed",
+      reason_class: signal?.aborted ? "aborted" : "nonzero_exit",
+    });
+  }
+  await emitLifecycle("agent_session_stopped", {
+    status: "stopped",
+    reason_class: signal?.aborted ? "aborted" : "cleanup",
   });
   return { agent: agent.name, agent_id: agent.id, path: agent.path, tools, validator_sandbox: validatorRole, task: task.task, exit_code: code, output: finalAssistantText(messages), stderr, messages };
 }
