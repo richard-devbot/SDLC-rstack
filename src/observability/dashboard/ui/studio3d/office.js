@@ -204,18 +204,51 @@ function createLibraryStock(pool) {
   // runtime state. Runtime attachments dock at the owning session's desk.
   const colors = [0xac8cff, 0xe5b860, 0x71a7ff, 0x58bd86];
   const stock = [];
-  [[-15.6, -11.55], [-12.6, -11.55], [-13.2, -8.45]].forEach(([x, z], shelfIndex) => {
-    for (let i = 0; i < 5; i += 1) {
-      stock.push({
-        center: [x - 0.8 + i * 0.4, shelfIndex === 2 ? 1.5 : 1.86, z],
-        scale: [0.24, 0.24, 0.24],
-        color: colors[(i + shelfIndex) % colors.length],
-      });
+  [[-15.6, -11.55], [-12.6, -11.55], [-13.2, -8.45], [-16.25, -8.4]].forEach(([x, z], shelfIndex) => {
+    const vertical = shelfIndex === 3;
+    for (let level = 0; level < 2; level += 1) {
+      for (let i = 0; i < 5; i += 1) {
+        stock.push({
+          center: vertical
+            ? [x, 0.6 + level * 0.62, z - 0.9 + i * 0.45]
+            : [x - 0.8 + i * 0.4, (shelfIndex === 2 ? 0.9 : 1.24) + level * 0.62, z],
+          scale: [0.24, 0.24, 0.24],
+          color: colors[(i + shelfIndex + level) % colors.length],
+        });
+      }
     }
   });
   const mesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.capability, stock.length);
   mesh.name = 'Library capability stock';
   return writeSegments(mesh, stock);
+}
+
+function createDataBackbone(pool) {
+  // Server racks along the east wing — the massive data backbone behind the
+  // workforce. Dense infrastructure is honest scenery; workers never are.
+  const racks = [];
+  const leds = [];
+  const ledColors = [0x58bd86, 0x7fdcff, 0xe5b860];
+  for (let row = 0; row < 7; row += 1) {
+    for (let column = 0; column < 2; column += 1) {
+      const x = 15.2 + column * 1.9;
+      const z = -1.8 + row * 2;
+      racks.push({ center: [x, 1.05, z], scale: [1.15, 2.1, 0.85] });
+      for (let light = 0; light < 3; light += 1) {
+        leds.push({
+          center: [x - 0.32 + light * 0.32, 0.5 + ((row + column + light) % 4) * 0.42, z + 0.46],
+          scale: [0.12, 0.05, 0.02],
+          color: ledColors[(row + column + light) % ledColors.length],
+        });
+      }
+    }
+  }
+  const rackMesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.graphite, racks.length);
+  rackMesh.name = 'Data backbone racks';
+  rackMesh.castShadow = true;
+  const ledMesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.rackLed, leds.length);
+  ledMesh.name = 'Data backbone activity lights';
+  return [writeSegments(rackMesh, racks), writeSegments(ledMesh, leds)];
 }
 
 function createFurnitureInstances(pool, desks) {
@@ -337,6 +370,13 @@ function createNamedFacilities(pool) {
   goalToken.scale.setScalar(0.28);
   goalToken.position.set(0, 1.22, -0.1);
   hq.add(goalToken);
+  // Global project timeline: a wall screen the scene paints with the REAL
+  // fifteen-stage rollup from the server projection.
+  const timelineScreen = new THREE.Mesh(pool.geometries.slab, pool.materials.monitor);
+  timelineScreen.name = 'Global project timeline screen';
+  timelineScreen.scale.set(3.4, 1.6, 0.08);
+  timelineScreen.position.set(0, 1.85, -2.6);
+  hq.add(timelineScreen);
   facilities.push(hq);
 
   facilities.push(facility('Skills and Plugin Library', STUDIO_TOPOLOGY.library));
@@ -362,7 +402,7 @@ function createNamedFacilities(pool) {
   evidence.add(vaultLight);
   facilities.push(evidence);
 
-  return { facilities, goalToken, governanceBeacon, vaultLight };
+  return { facilities, goalToken, governanceBeacon, vaultLight, timelineScreen };
 }
 
 export function createOfficeEnvironment(pool) {
@@ -376,7 +416,7 @@ export function createOfficeEnvironment(pool) {
   object.add(floor);
 
   object.add(createFloorFinishes(pool), ...createWalls(pool), ...createPlants(pool));
-  object.add(createCasework(pool), createLibraryStock(pool));
+  object.add(createCasework(pool), createLibraryStock(pool), ...createDataBackbone(pool));
 
   const desks = {
     builder: STUDIO_TOPOLOGY.builderDesks.map((slot) => authoredDesk(slot, 'builder')),
@@ -404,6 +444,7 @@ export function createOfficeEnvironment(pool) {
     goalToken: named.goalToken,
     governanceBeacon: named.governanceBeacon,
     vaultLight: named.vaultLight,
+    timelineScreen: named.timelineScreen,
     refreshScreenGlow: furniture.refreshScreenGlow,
     dispose() {
       object.removeFromParent();

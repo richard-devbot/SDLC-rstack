@@ -126,64 +126,284 @@ export function createStudioScene(canvas, {
   transitions.setMotion(motionMode);
   animator.setMotion(motionMode);
 
-  // Icon-only status badges floating above robots — one glyph and color per
-  // source-backed status, never prose. Detailed facts stay in the inspector.
-  const BADGE_STYLES = Object.freeze({
-    active: ['#d98719', '⚙'],
-    starting: ['#2867d6', '…'],
-    queued: ['#2867d6', '…'],
-    waiting: ['#7254c7', '⏳'],
-    blocked: ['#c9473b', '!'],
-    failed: ['#c9473b', '!'],
-    completed: ['#2f8f74', '✓'],
-    stopped: ['#8a9097', '·'],
-    unknown: ['#8a9097', '·'],
-  });
-  const badgeMaterials = new Map();
+  // ── Holographic layer ────────────────────────────────────────────────
+  // Every panel, label, stream, and timeline bar below renders only
+  // source-backed facts from the server projection. Robots are never
+  // decorative; infrastructure and architecture carry the density.
 
-  function badgeMaterial(status) {
-    const key = Object.hasOwn(BADGE_STYLES, status) ? status : 'unknown';
-    if (badgeMaterials.has(key)) return badgeMaterials.get(key);
-    const [color, glyph] = BADGE_STYLES[key];
+  const STATUS_UI = Object.freeze({
+    active: ['#e5b860', 'ACTIVE'],
+    starting: ['#5790e6', 'STARTING'],
+    queued: ['#5790e6', 'QUEUED'],
+    waiting: ['#9e82ed', 'WAITING'],
+    blocked: ['#e56e66', 'BLOCKED'],
+    failed: ['#ff5f57', 'FAILED'],
+    completed: ['#58bd86', 'COMPLETE'],
+    stopped: ['#8a9097', 'STOPPED'],
+    unknown: ['#8a9097', 'OBSERVED'],
+  });
+
+  function makeCanvas(width, height) {
     const canvasEl = document.createElement('canvas');
-    canvasEl.width = 96;
-    canvasEl.height = 96;
-    const context = canvasEl.getContext('2d');
-    context.beginPath();
-    context.arc(48, 48, 40, 0, Math.PI * 2);
-    context.fillStyle = color;
-    context.fill();
-    context.lineWidth = 6;
-    context.strokeStyle = 'rgba(255,255,255,0.92)';
-    context.stroke();
-    context.font = '600 46px ui-sans-serif, system-ui, sans-serif';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillStyle = '#ffffff';
-    context.fillText(glyph, 48, 52);
+    canvasEl.width = width;
+    canvasEl.height = height;
+    return canvasEl;
+  }
+
+  function canvasSprite(canvasEl, { depthTest = false } = {}) {
     const texture = new THREE.CanvasTexture(canvasEl);
     texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest });
+    return new THREE.Sprite(material);
+  }
+
+  // Authored room identity labels — the floor plan itself, not runtime state.
+  const ROOM_LABELS = [
+    ['BUILDER TEAM', -11, 3.4, 4.5],
+    ['VALIDATOR TEAM', 10, 3.4, 4],
+    ['SKILL LIBRARY', -13, 3.6, -10],
+    ['ORCHESTRATION CENTER', -2, 3.8, -10],
+    ['GOVERNANCE', 7.5, 3.6, -10],
+    ['EVIDENCE VAULT', 15.5, 3.6, -10],
+    ['DATA BACKBONE', 16.1, 3.6, 4],
+    ['DISPATCH', -16, 2.6, 10],
+  ];
+  const roomLabelGroup = new THREE.Group();
+  roomLabelGroup.name = 'Room labels';
+  for (const [text, x, y, z] of ROOM_LABELS) {
+    const canvasEl = makeCanvas(512, 84);
+    const context = canvasEl.getContext('2d');
+    context.fillStyle = 'rgba(18, 24, 30, 0.66)';
+    const width = Math.min(500, 44 + text.length * 21);
+    context.beginPath();
+    context.roundRect((512 - width) / 2, 10, width, 64, 14);
+    context.fill();
+    context.font = '700 34px Inter, ui-sans-serif, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = '#f4f6f8';
+    context.fillText(text, 256, 44);
+    const sprite = canvasSprite(canvasEl, { depthTest: true });
+    sprite.scale.set(4.6, 0.75, 1);
+    sprite.position.set(x, y, z);
+    sprite.renderOrder = 20;
+    roomLabelGroup.add(sprite);
+  }
+  scene.add(roomLabelGroup);
+
+  // Holographic status panels above each observed agent: goal, current
+  // skill, status, and canonical stage progress (n of 15).
+  const panelCache = new Map();
+
+  function panelMaterial(key, lines) {
+    if (panelCache.has(key)) {
+      const entry = panelCache.get(key);
+      entry.used = true;
+      return entry.material;
+    }
+    const canvasEl = makeCanvas(512, 236);
+    const context = canvasEl.getContext('2d');
+    const [statusColor, statusWord] = STATUS_UI[lines.status] ?? STATUS_UI.unknown;
+    context.fillStyle = 'rgba(9, 18, 26, 0.82)';
+    context.beginPath();
+    context.roundRect(6, 6, 500, 224, 20);
+    context.fill();
+    context.lineWidth = 3;
+    context.strokeStyle = 'rgba(127, 220, 255, 0.65)';
+    context.stroke();
+    context.textBaseline = 'middle';
+    context.textAlign = 'left';
+    context.font = '700 36px ui-monospace, SFMono-Regular, monospace';
+    context.fillStyle = '#f4f8fb';
+    context.fillText(lines.title, 28, 44);
+    context.font = '400 26px ui-monospace, monospace';
+    context.fillStyle = '#9fb3c8';
+    context.fillText(lines.goal, 28, 88);
+    context.fillStyle = '#7fdcff';
+    context.fillText(lines.skill, 28, 126);
+    context.beginPath();
+    context.arc(38, 168, 9, 0, Math.PI * 2);
+    context.fillStyle = statusColor;
+    context.fill();
+    context.font = '700 26px ui-monospace, monospace';
+    context.fillText(statusWord, 58, 168);
+    context.textAlign = 'right';
+    context.fillStyle = '#f4f8fb';
+    context.fillText(lines.progressText, 484, 168);
+    context.fillStyle = 'rgba(127, 220, 255, 0.18)';
+    context.fillRect(28, 196, 456, 14);
+    context.fillStyle = statusColor;
+    context.fillRect(28, 196, Math.round(456 * lines.progress), 14);
+    const texture = new THREE.CanvasTexture(canvasEl);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
     const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
-    badgeMaterials.set(key, material);
+    panelCache.set(key, { material, used: true });
     return material;
   }
 
-  function syncStatusBadges() {
+  function truncate(value, length) {
+    const text = String(value ?? '');
+    return text.length > length ? `${text.slice(0, length - 1)}…` : text;
+  }
+
+  function syncAgentPanels() {
+    const sessionById = new Map((projection.sessions ?? []).map((session) => [session.id, session]));
+    const skillBySession = new Map();
+    for (const attachment of projection.capability_attachments ?? []) {
+      if (!skillBySession.has(attachment.session_id)) skillBySession.set(attachment.session_id, attachment.capability_id);
+    }
+    const departments = projection.departments ?? [];
+    const total = departments.length || 15;
+    for (const entry of panelCache.values()) entry.used = false;
     for (const [key, handle] of reconciler.entries()) {
       if (!handle.robot) continue;
-      let badge = handle.object.getObjectByName('statusBadge');
-      if (!badge) {
-        badge = new THREE.Sprite(badgeMaterial('unknown'));
-        badge.name = 'statusBadge';
-        badge.scale.setScalar(0.62);
-        badge.renderOrder = 30;
-        handle.object.add(badge);
-      }
+      let panel = handle.object.getObjectByName('agentPanel');
+      const isOrchestrator = key.startsWith('orchestrator:');
+      const session = sessionById.get(handle.object.userData.entityRef?.id) ?? null;
       const status = handle.object.userData.status ?? 'unknown';
-      badge.material = badgeMaterial(status);
-      badge.position.set(0, key.startsWith('orchestrator:') ? 3.45 : 3.3, 0);
-      badge.visible = status !== 'unknown';
+      const stageId = session?.stage_ids?.[0] ?? null;
+      const stageIndex = stageId ? departments.findIndex((department) => department.id === stageId) : -1;
+      const lines = isOrchestrator ? {
+        title: 'ORCHESTRATOR',
+        goal: truncate(projection.orchestrator?.goal ?? 'No goal observed', 30),
+        skill: `missions ${(projection.missions ?? []).filter((mission) => mission.status !== 'unknown').length}/8`,
+        status,
+        progress: total ? departments.filter((department) => department.status === 'completed').length / total : 0,
+        progressText: `${departments.filter((department) => department.status === 'completed').length}/${total}`,
+      } : {
+        title: truncate(session?.agent_id ?? handle.object.userData.entityRef?.id ?? 'agent', 22),
+        goal: truncate(`goal · ${session?.task_id ?? 'unscoped'}`, 30),
+        skill: truncate(`skill · ${skillBySession.get(session?.id) ?? 'none attached'}`, 30),
+        status,
+        progress: stageIndex >= 0 ? (stageIndex + 1) / total : 0,
+        progressText: stageIndex >= 0 ? `${stageIndex + 1}/${total}` : '–/15',
+      };
+      const cacheKey = JSON.stringify(lines);
+      if (!panel) {
+        panel = canvasSprite(makeCanvas(2, 2));
+        panel.name = 'agentPanel';
+        panel.scale.set(2.9, 1.34, 1);
+        panel.renderOrder = 30;
+        handle.object.add(panel);
+      }
+      panel.material = panelMaterial(cacheKey, lines);
+      panel.position.set(0, isOrchestrator ? 4 : 3.85, 0);
+      panel.visible = isOrchestrator ? Boolean(projection.orchestrator) : Boolean(session);
     }
+    for (const [key, entry] of panelCache) {
+      if (entry.used) continue;
+      entry.material.map?.dispose();
+      entry.material.dispose();
+      panelCache.delete(key);
+    }
+  }
+
+  // Light-trail data streams: Orchestration Center → each ACTIVE session's
+  // workstation. A stream exists only while its session is observed live;
+  // pulses freeze on stale, disconnect, and reduced motion.
+  const streamState = { object: null, pulses: null, curves: [] };
+
+  function clearStreams() {
+    if (streamState.object) {
+      scene.remove(streamState.object);
+      streamState.object.geometry.dispose();
+      streamState.object = null;
+    }
+    if (streamState.pulses) {
+      scene.remove(streamState.pulses);
+      streamState.pulses.dispose();
+      streamState.pulses = null;
+    }
+    streamState.curves = [];
+  }
+
+  function rebuildStreams() {
+    clearStreams();
+    const source = new THREE.Vector3(-2, 1.9, -10);
+    const curves = [];
+    (projection.sessions ?? []).slice(-MAX_DETAILED_RIGS).forEach((session) => {
+      if (!['active', 'starting'].includes(session.status)) return;
+      const workstation = workstationBySession.get(session.id);
+      if (!workstation) return;
+      const target = workstation.seat.getWorldPosition(new THREE.Vector3());
+      target.y = 1.7;
+      const middle = source.clone().add(target).multiplyScalar(0.5);
+      middle.y = 5.4;
+      curves.push(new THREE.QuadraticBezierCurve3(source.clone(), middle, target));
+    });
+    if (!curves.length) return;
+    const positions = [];
+    for (const curve of curves) {
+      const points = curve.getPoints(28);
+      for (let index = 0; index < points.length - 1; index += 1) {
+        positions.push(
+          points[index].x, points[index].y, points[index].z,
+          points[index + 1].x, points[index + 1].y, points[index + 1].z,
+        );
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    streamState.object = new THREE.LineSegments(geometry, pool.materials.stream);
+    streamState.object.name = 'Delegation data streams';
+    const pulses = new THREE.InstancedMesh(pool.geometries.sphere, pool.materials.streamPulse, curves.length * 2);
+    pulses.name = 'Data stream pulses';
+    pulses.frustumCulled = false;
+    streamState.pulses = pulses;
+    streamState.curves = curves;
+    scene.add(streamState.object, pulses);
+    updateStreamPulses(performance.now());
+  }
+
+  function updateStreamPulses(now) {
+    if (!streamState.curves.length || !streamState.pulses) return false;
+    const transform = new THREE.Object3D();
+    streamState.curves.forEach((curve, index) => {
+      for (let pulse = 0; pulse < 2; pulse += 1) {
+        const t = motionMode === 'reduced'
+          ? (index * 0.37 + pulse * 0.5) % 1
+          : ((now / 2600) + index * 0.37 + pulse * 0.5) % 1;
+        transform.position.copy(curve.getPoint(t));
+        transform.scale.setScalar(0.13);
+        transform.updateMatrix();
+        streamState.pulses.setMatrixAt(index * 2 + pulse, transform.matrix);
+      }
+    });
+    streamState.pulses.instanceMatrix.needsUpdate = true;
+    return motionMode !== 'reduced';
+  }
+
+  // The Orchestration Center wall screen paints the REAL fifteen-stage
+  // rollup from the projection — a live global project timeline.
+  let timelineMaterial = null;
+
+  function paintGlobalTimeline() {
+    const departments = projection.departments ?? [];
+    const canvasEl = makeCanvas(512, 236);
+    const context = canvasEl.getContext('2d');
+    context.fillStyle = '#0b141c';
+    context.fillRect(0, 0, 512, 236);
+    departments.slice(0, 15).forEach((department, index) => {
+      const [statusColor] = STATUS_UI[department.status] ?? STATUS_UI.unknown;
+      const y = 12 + index * 14.6;
+      context.fillStyle = 'rgba(127, 220, 255, 0.12)';
+      context.fillRect(16, y, 480, 9);
+      const width = department.status === 'completed' ? 480
+        : ['active', 'starting', 'waiting', 'blocked', 'failed'].includes(department.status) ? 250 : 56;
+      context.fillStyle = department.status === 'unknown' ? 'rgba(138, 144, 151, 0.35)' : statusColor;
+      context.fillRect(16 + index * 6, y, Math.min(width, 480 - index * 6), 9);
+    });
+    const texture = new THREE.CanvasTexture(canvasEl);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.MeshBasicMaterial({ map: texture });
+    if (timelineMaterial) {
+      timelineMaterial.map?.dispose();
+      timelineMaterial.dispose();
+    }
+    timelineMaterial = material;
+    office.timelineScreen.material = material;
   }
 
   function disposeDynamic(object) {
@@ -264,6 +484,7 @@ export function createStudioScene(canvas, {
     const transitionStarted = performance.now();
     const workforceActive = animator.update(now);
     transitionCostMs = performance.now() - transitionStarted;
+    const streamsFlowing = updateStreamPulses(now);
     robotFleet.update();
     updateCameraTween(now);
     controls.update();
@@ -271,7 +492,7 @@ export function createStudioScene(canvas, {
     samplePerformance(now);
     enforceQualityCeilings(now);
     onDiagnostics(diagnostics());
-    if (!workforceActive && transitions.pending() === 0 && !cameraTween && !controlsActive) {
+    if (!workforceActive && transitions.pending() === 0 && !cameraTween && !controlsActive && !streamsFlowing) {
       renderer.setAnimationLoop(null);
     }
   }
@@ -370,7 +591,9 @@ export function createStudioScene(canvas, {
     reconciler.apply(projection);
     robotFleet.reconcile(reconciler.entries());
     applyRestingStates();
-    syncStatusBadges();
+    syncAgentPanels();
+    rebuildStreams();
+    paintGlobalTimeline();
     robotFleet.update();
     refreshProjectionGeometry();
     transitions.ingest(projection.timeline, { prime: firstTimeline });
@@ -465,11 +688,23 @@ export function createStudioScene(canvas, {
     workstationBySession.clear();
     [...office.desks.builder, ...office.desks.validator].forEach((desk) => { desk.occupant = null; });
     disposeDynamic(capabilityInstances);
-    for (const material of badgeMaterials.values()) {
-      material.map?.dispose();
-      material.dispose();
+    for (const entry of panelCache.values()) {
+      entry.material.map?.dispose();
+      entry.material.dispose();
     }
-    badgeMaterials.clear();
+    panelCache.clear();
+    clearStreams();
+    roomLabelGroup.traverse((child) => {
+      if (child.isSprite) {
+        child.material.map?.dispose();
+        child.material.dispose();
+      }
+    });
+    scene.remove(roomLabelGroup);
+    if (timelineMaterial) {
+      timelineMaterial.map?.dispose();
+      timelineMaterial.dispose();
+    }
     office.dispose();
     controls.dispose();
     pool.dispose();
