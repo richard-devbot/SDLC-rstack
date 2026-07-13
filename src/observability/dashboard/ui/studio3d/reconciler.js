@@ -3,7 +3,7 @@
  *
  * owner: RStack developed by Richardson Gunde
  */
-import { sessionPosition, topologySlot } from './topology.js';
+import { topologySlot, workstationSlot } from './topology.js';
 
 function key(kind, id) {
   return `${kind}:${id}`;
@@ -18,12 +18,24 @@ function desiredEntities(projection) {
   }];
   projection.missions.forEach((data, index) => desired.push({ kind: 'mission', id: data.id, data, slot: topologySlot('mission', index) }));
   projection.departments.forEach((data, index) => desired.push({ kind: 'department', id: data.id, data, slot: topologySlot('department', index) }));
-  projection.sessions.slice(-16).forEach((data, index) => desired.push({
-    kind: 'session',
-    id: data.id,
-    data,
-    slot: { position: sessionPosition(data, projection, index), rotation: [0, 0, 0] },
-  }));
+  const detailedSessions = projection.sessions.slice(-16);
+  const workstationIndexes = { builder: 0, validator: 0 };
+  detailedSessions.forEach((data) => {
+    const role = data.role === 'validator' ? 'validator' : 'builder';
+    const slot = workstationSlot(data, projection, workstationIndexes[role]);
+    workstationIndexes[role] += 1;
+    desired.push({ kind: 'session', id: data.id, data, slot });
+  });
+  if (projection.sessions.length > detailedSessions.length) desired.push({
+    kind: 'aggregate',
+    id: 'overflow-sessions',
+    data: {
+      id: 'overflow-sessions',
+      status: 'active',
+      count: projection.sessions.length - detailedSessions.length,
+    },
+    slot: topologySlot('dispatch'),
+  });
   if (projection.governance_items.length) desired.push({
     kind: 'governance',
     id: 'governance-deck',

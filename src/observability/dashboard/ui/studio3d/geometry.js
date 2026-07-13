@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three';
 import { STUDIO_TOPOLOGY, sessionPosition, topologySlot } from './topology.js';
+import { createHumanoidRobot } from './robot.js';
 
 const STATUS_COLORS = Object.freeze({
   unknown: 0x5d6878,
@@ -44,6 +45,12 @@ export function createResourcePool() {
     robotJoint: material(0x3d434b, { metalness: 0.55, roughness: 0.42 }),
     robotScreen: material(0x20262d, { metalness: 0.42, roughness: 0.28 }),
     robotFace: material(0x8b96a6, { metalness: 0.2, roughness: 0.34, emissive: 0x8b96a6, emissiveIntensity: 0.72 }),
+    workSurface: material(0xb9c2c5, { metalness: 0.28, roughness: 0.5 }),
+    chair: material(0x5e7880, { metalness: 0.18, roughness: 0.72 }),
+    monitor: material(0x27363b, { metalness: 0.34, roughness: 0.3, emissive: 0x12242a, emissiveIntensity: 0.22 }),
+    library: material(0x9aa8a4, { metalness: 0.2, roughness: 0.64 }),
+    governanceGlass: new THREE.MeshPhysicalMaterial({ color: 0xc7e7e7, transparent: true, opacity: 0.26, roughness: 0.12, metalness: 0.05, depthWrite: false }),
+    floorLight: material(0xd7d2c5, { metalness: 0.08, roughness: 0.84 }),
     statuses: Object.fromEntries(Object.entries(STATUS_COLORS).map(([status, color]) => [
       status,
       material(color, {
@@ -86,22 +93,26 @@ function entityHandle(object, signalMesh, pool) {
   };
 }
 
+function createRobotEntity(data, slot, pool, kind) {
+  const role = kind === 'orchestrator' ? 'orchestrator' : data.role;
+  const robot = createHumanoidRobot(pool, { ...data, kind, role });
+  place(robot.object, slot);
+  return {
+    object: robot.object,
+    robot,
+    update(next, nextSlot) {
+      place(robot.object, nextSlot);
+      robot.update({ ...next, kind, role: kind === 'orchestrator' ? 'orchestrator' : next.role });
+    },
+    setPose(name, weight) { robot.setPose(name, weight); },
+    setFace(state) { robot.setFace(state); },
+    reset() { robot.reset(); },
+    dispose() { robot.dispose(); },
+  };
+}
+
 function createOrchestrator(data, slot, pool) {
-  const group = new THREE.Group();
-  group.name = 'Orchestrator HQ';
-  const base = new THREE.Mesh(pool.geometries.cylinder, pool.materials.graphiteLight);
-  base.scale.set(2.25, 0.42, 2.25);
-  base.position.y = 0.2;
-  const core = new THREE.Mesh(pool.geometries.cylinder, pool.statusMaterial(data.status));
-  core.scale.set(0.9, 2.7, 0.9);
-  core.position.y = 1.72;
-  const ring = new THREE.Mesh(pool.geometries.ring, pool.materials.amber);
-  ring.rotation.x = Math.PI / 2;
-  ring.scale.setScalar(1.8);
-  ring.position.y = 2.45;
-  group.add(base, core, ring);
-  place(group, slot);
-  return entityHandle(group, core, pool);
+  return createRobotEntity(data, slot, pool, 'orchestrator');
 }
 
 function createMission(data, slot, pool) {
@@ -130,17 +141,21 @@ function createDepartment(data, slot, pool) {
 }
 
 function createSession(data, slot, pool) {
+  return createRobotEntity(data, slot, pool, 'session');
+}
+
+function createAggregate(data, slot, pool) {
   const group = new THREE.Group();
-  group.name = `${data.role === 'validator' ? 'Validator' : 'Builder'} · ${data.agent_id ?? data.id}`;
-  const pod = new THREE.Mesh(pool.geometries.slab, data.role === 'validator' ? pool.materials.validator : pool.materials.graphiteLight);
-  pod.scale.set(0.82, 0.18, 0.82);
-  pod.position.y = 0.12;
-  const worker = new THREE.Mesh(pool.geometries.cylinder, pool.statusMaterial(data.status));
-  worker.scale.set(0.34, 1.25, 0.34);
-  worker.position.y = 0.82;
-  group.add(pod, worker);
+  group.name = 'Additional active agents';
+  const base = new THREE.Mesh(pool.geometries.cylinder, pool.materials.graphiteLight);
+  base.scale.set(0.82, 0.14, 0.82);
+  base.position.y = 0.14;
+  const signal = new THREE.Mesh(pool.geometries.beacon, pool.statusMaterial(data.status));
+  signal.scale.setScalar(0.42);
+  signal.position.y = 0.72;
+  group.add(base, signal);
   place(group, slot);
-  return entityHandle(group, worker, pool);
+  return entityHandle(group, signal, pool);
 }
 
 function createGovernance(data, slot, pool) {
@@ -176,6 +191,7 @@ export function createEntityFactories(pool) {
     mission: (data, slot) => createMission(data, slot, pool),
     department: (data, slot) => createDepartment(data, slot, pool),
     session: (data, slot) => createSession(data, slot, pool),
+    aggregate: (data, slot) => createAggregate(data, slot, pool),
     governance: (data, slot) => createGovernance(data, slot, pool),
     evidence: (data, slot) => createEvidence(data, slot, pool),
   };
@@ -280,8 +296,20 @@ export function createMissionRoutes(projection) {
 }
 
 export function createWorkCapsule(pool, kind = 'delegation') {
-  const mesh = new THREE.Mesh(pool.geometries.capsule, kind === 'artifact' ? pool.materials.evidence : pool.materials.amber);
+  const mesh = createWorkPacket(pool, kind === 'artifact' ? 'artifact' : 'task');
   mesh.name = `${kind} work capsule`;
   mesh.visible = false;
+  return mesh;
+}
+
+export function createWorkPacket(pool, kind = 'task') {
+  const selectedKind = kind === 'artifact' ? 'artifact' : 'task';
+  const mesh = new THREE.Mesh(
+    pool.geometries.slab,
+    selectedKind === 'artifact' ? pool.materials.evidence : pool.materials.amber,
+  );
+  mesh.name = `${selectedKind} work packet`;
+  mesh.scale.set(0.22, 0.08, 0.32);
+  mesh.userData.kind = selectedKind;
   return mesh;
 }

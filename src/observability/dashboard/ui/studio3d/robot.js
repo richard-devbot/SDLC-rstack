@@ -98,7 +98,8 @@ function createLeg(side, sign, pelvis, joints, pool) {
 
 export function createHumanoidRobot(pool, data = {}) {
   const object = new THREE.Group();
-  object.name = `${data.role === 'validator' ? 'Validator' : 'Builder'} robot · ${data.agent_id ?? data.id ?? 'unassigned'}`;
+  const roleLabel = data.role === 'orchestrator' ? 'Orchestrator' : data.role === 'validator' ? 'Validator' : 'Builder';
+  object.name = `${roleLabel} robot · ${data.agent_id ?? data.id ?? 'unassigned'}`;
   const joints = {};
 
   const pelvis = joints.pelvis = pivot('pelvis', object, [0, 1.34, 0]);
