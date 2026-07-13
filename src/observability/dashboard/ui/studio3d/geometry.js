@@ -26,6 +26,7 @@ export function createResourcePool() {
   const geometries = {
     slab: new THREE.BoxGeometry(1, 1, 1),
     cylinder: new THREE.CylinderGeometry(1, 1, 1, 20),
+    sphere: new THREE.SphereGeometry(1, 12, 8),
     beacon: new THREE.IcosahedronGeometry(0.5, 1),
     ring: new THREE.TorusGeometry(1, 0.08, 8, 32),
     capsule: new THREE.SphereGeometry(0.18, 12, 8),
@@ -39,6 +40,10 @@ export function createResourcePool() {
     validator: material(0x71a7ff, { metalness: 0.4, roughness: 0.36, emissive: 0x173c78, emissiveIntensity: 0.36 }),
     evidence: material(0x58bd86, { metalness: 0.45, roughness: 0.4, emissive: 0x123f29, emissiveIntensity: 0.32 }),
     governance: material(0xff7d74, { metalness: 0.35, roughness: 0.42, emissive: 0x611b18, emissiveIntensity: 0.38 }),
+    robotShell: material(0xe8e6df, { metalness: 0.35, roughness: 0.48 }),
+    robotJoint: material(0x3d434b, { metalness: 0.55, roughness: 0.42 }),
+    robotScreen: material(0x20262d, { metalness: 0.42, roughness: 0.28 }),
+    robotFace: material(0x8b96a6, { metalness: 0.2, roughness: 0.34, emissive: 0x8b96a6, emissiveIntensity: 0.72 }),
     statuses: Object.fromEntries(Object.entries(STATUS_COLORS).map(([status, color]) => [
       status,
       material(color, {
