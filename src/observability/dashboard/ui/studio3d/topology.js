@@ -30,6 +30,7 @@ const EMPTY_ROUTE = Object.freeze([]);
 export const STUDIO_TOPOLOGY = Object.freeze({
   orchestrator: slot('orchestrator-hq', 0, 0, -10),
   dispatch: slot('dispatch', -15, 0, 8, Math.PI / 2),
+  dispatchQueue: row('dispatch-queue', 12, -11, 2, 5.3),
   library: Object.freeze({
     ...slot('skills-library', -13, 0, -6, Math.PI / 2),
     entry: point(-10.5, 0, -6),
@@ -97,11 +98,13 @@ export function workstationSlot(session, _projection, sessionIndex = 0) {
   const slots = session?.role === 'validator'
     ? STUDIO_TOPOLOGY.validatorDesks
     : STUDIO_TOPOLOGY.builderDesks;
-  return slots[sessionIndex % slots.length];
+  return slots[sessionIndex] ?? null;
 }
 
 export function sessionPosition(session, projection, sessionIndex = 0) {
-  return workstationSlot(session, projection, sessionIndex).position;
+  const workstation = workstationSlot(session, projection, sessionIndex);
+  return workstation?.position
+    ?? STUDIO_TOPOLOGY.dispatchQueue[sessionIndex % STUDIO_TOPOLOGY.dispatchQueue.length].position;
 }
 
 export function routePoints(name) {

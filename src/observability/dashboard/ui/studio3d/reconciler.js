@@ -3,7 +3,7 @@
  *
  * owner: RStack developed by Richardson Gunde
  */
-import { topologySlot, workstationSlot } from './topology.js';
+import { STUDIO_TOPOLOGY, topologySlot, workstationSlot } from './topology.js';
 
 function key(kind, id) {
   return `${kind}:${id}`;
@@ -20,10 +20,13 @@ function desiredEntities(projection) {
   projection.departments.forEach((data, index) => desired.push({ kind: 'department', id: data.id, data, slot: topologySlot('department', index) }));
   const detailedSessions = projection.sessions.slice(-16);
   const workstationIndexes = { builder: 0, validator: 0 };
+  let dispatchIndex = 0;
   detailedSessions.forEach((data) => {
     const role = data.role === 'validator' ? 'validator' : 'builder';
-    const slot = workstationSlot(data, projection, workstationIndexes[role]);
+    const workstation = workstationSlot(data, projection, workstationIndexes[role]);
     workstationIndexes[role] += 1;
+    const slot = workstation
+      ?? STUDIO_TOPOLOGY.dispatchQueue[dispatchIndex++ % STUDIO_TOPOLOGY.dispatchQueue.length];
     desired.push({ kind: 'session', id: data.id, data, slot });
   });
   if (projection.sessions.length > detailedSessions.length) desired.push({

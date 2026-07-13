@@ -12,7 +12,10 @@ import {
   createResourcePool,
   createWorkPacket,
 } from '../src/observability/dashboard/ui/studio3d/geometry.js';
-import { createOfficeEnvironment } from '../src/observability/dashboard/ui/studio3d/office.js';
+import {
+  assignOfficeProjection,
+  createOfficeEnvironment,
+} from '../src/observability/dashboard/ui/studio3d/office.js';
 import { createEntityReconciler } from '../src/observability/dashboard/ui/studio3d/reconciler.js';
 import { STUDIO_TOPOLOGY } from '../src/observability/dashboard/ui/studio3d/topology.js';
 
@@ -136,5 +139,34 @@ test('work packets distinguish task and evidence without external assets', () =>
   assert.equal(task.userData.kind, 'task');
   assert.equal(artifact.userData.kind, 'artifact');
   assert.notEqual(task.material, artifact.material);
+  pool.dispose();
+});
+
+test('projection assignment never double-books a desk and binds real stage state', () => {
+  const pool = createResourcePool();
+  const office = createOfficeEnvironment(pool);
+  const sessions = [
+    ...Array.from({ length: 10 }, (_, index) => ({ id: `builder-${index + 1}`, role: 'builder' })),
+    ...Array.from({ length: 6 }, (_, index) => ({ id: `validator-${index + 1}`, role: 'validator' })),
+  ];
+  const departments = STUDIO_TOPOLOGY.departments.map((slot, index) => ({
+    id: `stage-${index + 1}`,
+    status: index === 7 ? 'blocked' : 'active',
+    slot_id: slot.id,
+  }));
+
+  const assigned = assignOfficeProjection(office, { sessions, departments }, pool);
+  const occupied = [...office.desks.builder, ...office.desks.validator]
+    .map((desk) => desk.occupant)
+    .filter(Boolean);
+  assert.equal(assigned.size, 12);
+  assert.equal(new Set(occupied).size, occupied.length);
+  assert.equal(occupied.length, 12);
+  const eighthSignal = [...office.stageSignals.values()][7];
+  assert.equal(eighthSignal.userData.data, departments[7]);
+  assert.deepEqual(eighthSignal.userData.entityRef, { kind: 'department', id: 'stage-8' });
+  assert.equal(eighthSignal.material, pool.statusMaterial('blocked'));
+
+  office.dispose();
   pool.dispose();
 });

@@ -1,20 +1,21 @@
 /**
- * Three.js runtime for the Agent Force company floor.
+ * Three.js runtime for the Agent Force living company floor.
  *
  * owner: RStack developed by Richardson Gunde
  */
 /* global ResizeObserver, performance, devicePixelRatio */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createAgentAnimator } from './animator.js';
+import { restingBehavior } from './behavior.js';
 import {
   createCapabilityInstances,
   createEntityFactories,
-  createFloorFoundation,
   createMissionRoutes,
   createResourcePool,
-  createSupportFacilities,
-  createWorkCapsule,
+  createWorkPacket,
 } from './geometry.js';
+import { assignOfficeProjection, createOfficeEnvironment } from './office.js';
 import { createEntityReconciler } from './reconciler.js';
 import { STUDIO_TOPOLOGY } from './topology.js';
 import { createTransitionScheduler } from './transitions.js';
@@ -43,27 +44,27 @@ export function createStudioScene(canvas, {
   });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.08;
-  renderer.setClearColor(0x080b10, 1);
+  renderer.toneMappingExposure = 0.98;
+  renderer.setClearColor(0xcbd2cf, 1);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x080b10, 0.022);
+  scene.fog = new THREE.FogExp2(0xcbd2cf, 0.012);
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 120);
   camera.position.fromArray(STUDIO_TOPOLOGY.overviewCamera);
   const controls = new OrbitControls(camera, canvas);
   controls.target.fromArray(STUDIO_TOPOLOGY.overviewTarget);
   controls.enableDamping = true;
   controls.dampingFactor = 0.075;
-  controls.minDistance = 11;
-  controls.maxDistance = 48;
-  controls.maxPolarAngle = Math.PI * 0.47;
-  controls.minPolarAngle = Math.PI * 0.16;
+  controls.minDistance = 5;
+  controls.maxDistance = 52;
+  controls.maxPolarAngle = Math.PI * 0.48;
+  controls.minPolarAngle = Math.PI * 0.12;
   controls.enablePan = false;
 
-  const ambient = new THREE.HemisphereLight(0xc8ddff, 0x16100a, 1.45);
-  const key = new THREE.DirectionalLight(0xffe0a3, 2.2);
+  const ambient = new THREE.HemisphereLight(0xf6fbff, 0x73736a, 2.05);
+  const key = new THREE.DirectionalLight(0xfff1d1, 2.4);
   key.position.set(8, 19, 11);
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
@@ -71,18 +72,18 @@ export function createStudioScene(canvas, {
   key.shadow.camera.right = 20;
   key.shadow.camera.top = 20;
   key.shadow.camera.bottom = -20;
-  const rim = new THREE.DirectionalLight(0x5a89cf, 1.25);
+  const rim = new THREE.DirectionalLight(0x9ed9e5, 1.1);
   rim.position.set(-16, 9, -11);
   scene.add(ambient, key, rim);
 
   const pool = createResourcePool();
-  const foundation = createFloorFoundation(pool);
-  const facilities = createSupportFacilities(pool);
-  scene.add(foundation, facilities);
+  const office = createOfficeEnvironment(pool);
+  scene.add(office.object);
   const reconciler = createEntityReconciler({
     scene,
     factories: createEntityFactories(pool),
   });
+  const workstationBySession = new Map();
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -91,7 +92,7 @@ export function createStudioScene(canvas, {
   let selectedRef = null;
   let capabilityInstances = null;
   let missionRoutes = null;
-  let motionMode = motion;
+  let motionMode = motion === 'reduced' ? 'reduced' : 'full';
   let qualityTier = 'high';
   let frameCount = 0;
   let frameCost = 0;
@@ -100,80 +101,24 @@ export function createStudioScene(canvas, {
   let cameraTween = null;
   let destroyed = false;
   let firstTimeline = true;
-  const activeTransitions = [];
+  let controlsActive = false;
+  let transitionCostMs = 0;
 
-  function missionPosition(taskId) {
-    const index = Math.max(0, (projection?.missions ?? []).findIndex((mission) => mission.id === taskId));
-    return new THREE.Vector3(...STUDIO_TOPOLOGY.missions[index].position);
-  }
-
-  function sessionObject(event) {
-    const sessionId = event?.session_id ?? event?.entity_id;
-    return sessionId ? reconciler.get({ kind: 'session', id: sessionId })?.object : null;
-  }
-
-  function objectPosition(object, fallback) {
-    return object?.getWorldPosition(new THREE.Vector3()) ?? fallback.clone();
-  }
-
-  function pulseEntity(transition, object) {
-    if (!object) return;
-    if (transition.duration_ms === 0) return;
-    activeTransitions.push({
-      kind: 'scale',
-      object,
-      fromScale: object.scale.clone(),
-      startedAt: transition.started_at_ms,
-      duration: transition.duration_ms,
-    });
-  }
-
-  function moveCapsule(transition, from, to) {
-    if (transition.duration_ms === 0) return;
-    const capsule = createWorkCapsule(pool, transition.kind === 'artifact' ? 'artifact' : 'delegation');
-    capsule.position.copy(from);
-    capsule.position.y += 1.15;
-    capsule.visible = true;
-    scene.add(capsule);
-    activeTransitions.push({
-      kind: 'capsule',
-      object: capsule,
-      from: capsule.position.clone(),
-      to: to.clone().add(new THREE.Vector3(0, 1.15, 0)),
-      startedAt: transition.started_at_ms,
-      duration: transition.duration_ms,
-    });
-  }
-
-  function playTransition(transition) {
-    const event = transition.event;
-    const hq = new THREE.Vector3(...STUDIO_TOPOLOGY.orchestrator.position);
-    const mission = missionPosition(event?.task_id);
-    const session = sessionObject(event);
-    const sessionPosition = objectPosition(session, mission);
-
-    if (transition.kind === 'dispatch' || transition.kind === 'retry') {
-      moveCapsule(transition, hq, mission);
-    } else if (transition.kind === 'materialize') {
-      const origin = new THREE.Vector3(...(event?.role === 'validator'
-        ? STUDIO_TOPOLOGY.validator.position
-        : STUDIO_TOPOLOGY.builderPool.position));
-      moveCapsule(transition, origin, sessionPosition);
-      pulseEntity(transition, session);
-    } else if (transition.kind === 'governance') {
-      moveCapsule(transition, sessionPosition, new THREE.Vector3(...STUDIO_TOPOLOGY.governance.position));
-    } else if (transition.kind === 'handoff') {
-      moveCapsule(transition, sessionPosition, new THREE.Vector3(...STUDIO_TOPOLOGY.validator.position));
-    } else if (transition.kind === 'artifact') {
-      moveCapsule(transition, sessionPosition, new THREE.Vector3(...STUDIO_TOPOLOGY.evidence.position));
-    } else {
-      pulseEntity(transition, session);
-    }
-  }
+  const animator = createAgentAnimator({
+    scene,
+    getHandle: (sessionId) => reconciler.get({ kind: 'session', id: sessionId }),
+    getWorkstation: (sessionId) => workstationBySession.get(sessionId) ?? null,
+    createPacket: (kind) => createWorkPacket(pool, kind),
+  });
 
   let transitionStorage = null;
   try { transitionStorage = globalThis.sessionStorage ?? null; } catch { /* storage is optional */ }
-  const transitions = createTransitionScheduler({ apply: playTransition, storage: transitionStorage });
+  const transitions = createTransitionScheduler({
+    apply: (transition) => animator.play(transition),
+    storage: transitionStorage,
+  });
+  transitions.setMotion(motionMode);
+  animator.setMotion(motionMode);
 
   function disposeDynamic(object) {
     if (!object) return;
@@ -187,6 +132,15 @@ export function createStudioScene(canvas, {
     capabilityInstances = createCapabilityInstances(projection, pool);
     missionRoutes = createMissionRoutes(projection);
     scene.add(capabilityInstances, missionRoutes);
+  }
+
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(1, Math.floor(rect.width || canvas.clientWidth || 1));
+    const height = Math.max(1, Math.floor(rect.height || canvas.clientHeight || 1));
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    renderer.setSize(width, height, false);
   }
 
   function applyQuality(tier) {
@@ -216,92 +170,80 @@ export function createStudioScene(canvas, {
   }
 
   function updateCameraTween(now) {
-    if (!cameraTween) return;
-    const progress = Math.min(1, (now - cameraTween.startedAt) / cameraTween.duration);
+    if (!cameraTween) return false;
+    const progress = Math.min(1, Math.max(0, (now - cameraTween.startedAt) / cameraTween.duration));
     const eased = easeInOut(progress);
     camera.position.lerpVectors(cameraTween.fromPosition, cameraTween.toPosition, eased);
     controls.target.lerpVectors(cameraTween.fromTarget, cameraTween.toTarget, eased);
     if (progress >= 1) cameraTween = null;
-  }
-
-  function updateActiveTransitions(now) {
-    for (let index = activeTransitions.length - 1; index >= 0; index -= 1) {
-      const transition = activeTransitions[index];
-      const progress = Math.min(1, Math.max(0, (now - transition.startedAt) / transition.duration));
-      const eased = easeInOut(progress);
-      if (transition.kind === 'capsule') {
-        transition.object.position.lerpVectors(transition.from, transition.to, eased);
-      } else {
-        const pulse = 1 + Math.sin(progress * Math.PI) * 0.22;
-        transition.object.scale.copy(transition.fromScale).multiplyScalar(pulse);
-      }
-      if (progress < 1) continue;
-      if (transition.kind === 'capsule') scene.remove(transition.object);
-      else transition.object.scale.copy(transition.fromScale);
-      activeTransitions.splice(index, 1);
-    }
+    return Boolean(cameraTween);
   }
 
   function renderFrame(now) {
     if (destroyed || pauseReasons.size) return;
     transitions.tick(now);
-    updateActiveTransitions(now);
+    const transitionStarted = performance.now();
+    const workforceActive = animator.update(now);
+    transitionCostMs = performance.now() - transitionStarted;
     updateCameraTween(now);
     controls.update();
     renderer.render(scene, camera);
     samplePerformance(now);
-  }
-
-  function startLoop() {
-    if (!destroyed && pauseReasons.size === 0) {
-      previousFrame = performance.now();
-      renderer.setAnimationLoop(renderFrame);
+    if (!workforceActive && transitions.pending() === 0 && !cameraTween && !controlsActive) {
+      renderer.setAnimationLoop(null);
     }
   }
 
-  function resize() {
-    const rect = canvas.getBoundingClientRect();
-    const width = Math.max(1, Math.floor(rect.width || canvas.clientWidth || 1));
-    const height = Math.max(1, Math.floor(rect.height || canvas.clientHeight || 1));
-    camera.aspect = width / height;
-    camera.updateProjectionMatrix();
-    renderer.setSize(width, height, false);
+  function startLoop() {
+    if (destroyed || pauseReasons.size) return;
+    previousFrame = performance.now();
+    renderer.setAnimationLoop(renderFrame);
   }
 
-  function focusObject(object, { overview = false } = {}) {
-    const target = overview
-      ? new THREE.Vector3(...STUDIO_TOPOLOGY.overviewTarget)
-      : new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3());
-    const position = overview
-      ? new THREE.Vector3(...STUDIO_TOPOLOGY.overviewCamera)
-      : target.clone().add(new THREE.Vector3(6.5, 6, 8.5));
+  function moveCameraTo(position, target) {
     if (motionMode === 'reduced') {
       camera.position.copy(position);
       controls.target.copy(target);
       controls.update();
-      return;
+    } else {
+      cameraTween = {
+        fromPosition: camera.position.clone(),
+        toPosition: position,
+        fromTarget: controls.target.clone(),
+        toTarget: target,
+        startedAt: performance.now(),
+        duration: 560,
+      };
     }
-    cameraTween = {
-      fromPosition: camera.position.clone(),
-      toPosition: position,
-      fromTarget: controls.target.clone(),
-      toTarget: target,
-      startedAt: performance.now(),
-      duration: 560,
-    };
+    startLoop();
+    return true;
+  }
+
+  function focus(ref, level = 'agent') {
+    if (level === 'company' || !ref) {
+      return moveCameraTo(
+        new THREE.Vector3(...STUDIO_TOPOLOGY.overviewCamera),
+        new THREE.Vector3(...STUDIO_TOPOLOGY.overviewTarget),
+      );
+    }
+    const handle = reconciler.get(ref);
+    if (!handle) return false;
+    const target = new THREE.Box3().setFromObject(handle.object).getCenter(new THREE.Vector3());
+    const offset = level === 'mission'
+      ? new THREE.Vector3(8.5, 8, 10.5)
+      : new THREE.Vector3(3.8, 3.1, 5.2);
+    return moveCameraTo(target.clone().add(offset), target);
   }
 
   function select(ref, options = {}) {
     if (options.overview) {
       selectedRef = null;
-      focusObject(foundation, { overview: true });
-      return true;
+      return focus(null, 'company');
     }
-    const handle = reconciler.get(ref);
-    if (!handle) return false;
+    if (!reconciler.get(ref)) return false;
     selectedRef = ref;
-    focusObject(handle.object, options);
-    return true;
+    const level = options.level ?? (ref.kind === 'session' ? 'agent' : 'mission');
+    return focus(ref, level);
   }
 
   function onPointerUp(event) {
@@ -316,30 +258,55 @@ export function createStudioScene(canvas, {
     if (select(ref)) onSelect(ref);
   }
 
+  function applyRestingStates() {
+    (projection.sessions ?? []).slice(-16).forEach((session) => {
+      const handle = reconciler.get({ kind: 'session', id: session.id });
+      if (!handle) return;
+      const workstation = workstationBySession.get(session.id);
+      if (workstation) {
+        handle.object.position.copy(workstation.seat.getWorldPosition(new THREE.Vector3()));
+        handle.setPose(restingBehavior(session));
+      } else {
+        const observedPose = restingBehavior(session);
+        handle.setPose(observedPose === 'seated_work' || observedPose === 'validating' ? 'standing' : observedPose);
+      }
+    });
+  }
+
   function reconcile(nextProjection) {
     projection = nextProjection;
+    const assigned = assignOfficeProjection(office, projection, pool);
+    workstationBySession.clear();
+    assigned.forEach((desk, sessionId) => workstationBySession.set(sessionId, desk));
     reconciler.apply(projection);
+    applyRestingStates();
     refreshProjectionGeometry();
     transitions.ingest(projection.timeline, { prime: firstTimeline });
     firstTimeline = false;
     if (selectedRef && !reconciler.get(selectedRef)) selectedRef = null;
+    startLoop();
   }
 
   function setMotion(nextMotion) {
     motionMode = nextMotion === 'reduced' ? 'reduced' : 'full';
     transitions.setMotion(motionMode);
+    animator.setMotion(motionMode);
     if (motionMode === 'reduced') cameraTween = null;
+    startLoop();
   }
 
   function pause(reason = 'manual') {
     pauseReasons.add(reason);
     transitions.pause(reason);
+    animator.freeze();
     renderer.setAnimationLoop(null);
   }
 
   function resume(reason = 'manual') {
     pauseReasons.delete(reason);
     transitions.resume(reason);
+    if (pauseReasons.size) return;
+    animator.resume();
     startLoop();
   }
 
@@ -350,6 +317,9 @@ export function createStudioScene(canvas, {
       triangles: renderer.info.render.triangles,
       geometries: renderer.info.memory.geometries,
       textures: renderer.info.memory.textures,
+      activeRigs: reconciler.entries().filter(([entry]) => entry.startsWith('session:')).length,
+      activeTransitions: animator.activeCount(),
+      transitionCostMs,
     };
   }
 
@@ -371,6 +341,21 @@ export function createStudioScene(canvas, {
     }
   }
 
+  function onControlsStart() {
+    controlsActive = true;
+    startLoop();
+  }
+
+  function onControlsEnd() {
+    controlsActive = false;
+    startLoop();
+  }
+
+  function onResize() {
+    resize();
+    startLoop();
+  }
+
   function destroy() {
     if (destroyed) return;
     destroyed = true;
@@ -379,26 +364,28 @@ export function createStudioScene(canvas, {
     canvas.removeEventListener('pointerup', onPointerUp);
     canvas.removeEventListener('webglcontextlost', onContextLost);
     canvas.removeEventListener('webglcontextrestored', onContextRestored);
+    controls.removeEventListener('start', onControlsStart);
+    controls.removeEventListener('end', onControlsEnd);
     reconciler.clear();
     transitions.clear();
-    activeTransitions.splice(0).forEach((transition) => {
-      if (transition.kind === 'capsule') scene.remove(transition.object);
-      else transition.object.scale.copy(transition.fromScale);
-    });
+    animator.clear();
+    workstationBySession.clear();
+    [...office.desks.builder, ...office.desks.validator].forEach((desk) => { desk.occupant = null; });
     disposeDynamic(capabilityInstances);
     disposeDynamic(missionRoutes);
-    foundation.userData.dispose?.();
-    scene.remove(foundation, facilities);
+    office.dispose();
     controls.dispose();
     pool.dispose();
     renderer.dispose();
   }
 
-  const resizeObserver = new ResizeObserver(resize);
+  const resizeObserver = new ResizeObserver(onResize);
   resizeObserver.observe(canvas);
   canvas.addEventListener('pointerup', onPointerUp);
   canvas.addEventListener('webglcontextlost', onContextLost, false);
   canvas.addEventListener('webglcontextrestored', onContextRestored, false);
+  controls.addEventListener('start', onControlsStart);
+  controls.addEventListener('end', onControlsEnd);
   applyQuality('high');
   resize();
   controls.update();
@@ -408,6 +395,7 @@ export function createStudioScene(canvas, {
   return {
     reconcile,
     select,
+    focus,
     setMotion,
     diagnostics,
     pause,

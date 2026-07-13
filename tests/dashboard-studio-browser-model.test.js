@@ -99,9 +99,15 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   const geometryPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'geometry.js');
   const sceneSource = readFileSync(scenePath, 'utf8');
   const geometrySource = readFileSync(geometryPath, 'utf8');
-  for (const name of ['reconcile', 'select', 'setMotion', 'diagnostics', 'pause', 'resume', 'destroy']) {
+  for (const name of ['reconcile', 'select', 'focus', 'setMotion', 'diagnostics', 'pause', 'resume', 'destroy']) {
     assert.match(sceneSource, new RegExp(`${name}\\b`));
   }
+  for (const field of ['activeRigs', 'activeTransitions', 'transitionCostMs']) {
+    assert.match(sceneSource, new RegExp(`${field}\\b`));
+  }
+  assert.match(sceneSource, /createOfficeEnvironment/);
+  assert.match(sceneSource, /createAgentAnimator/);
+  assert.doesNotMatch(sceneSource, /pulseEntity|moveCapsule/);
   assert.match(sceneSource, /webglcontextlost/);
   assert.match(sceneSource, /webglcontextrestored/);
   assert.match(sceneSource, /setAnimationLoop/);

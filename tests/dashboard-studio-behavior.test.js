@@ -93,12 +93,15 @@ test('company topology has fixed facilities, fifteen departments, and authored r
   assert.equal(new Set(STUDIO_TOPOLOGY.departments.map((slot) => slot.id)).size, 15);
   assert.equal(STUDIO_TOPOLOGY.builderDesks.length, 8);
   assert.equal(STUDIO_TOPOLOGY.validatorDesks.length, 4);
+  assert.equal(STUDIO_TOPOLOGY.dispatchQueue.length, 12);
+  assert.equal(new Set(STUDIO_TOPOLOGY.dispatchQueue.map((slot) => slot.id)).size, 12);
   assert.notDeepEqual(STUDIO_TOPOLOGY.dispatch.position, STUDIO_TOPOLOGY.library.position);
 
   const builder = workstationSlot({ role: 'builder' }, { sessions: [] }, 0);
   const validator = workstationSlot({ role: 'validator' }, { sessions: [] }, 0);
   assert.equal(builder.id, 'builder-desk-1');
   assert.equal(validator.id, 'validator-desk-1');
+  assert.equal(workstationSlot({ role: 'builder' }, { sessions: [] }, 8), null);
 
   assert.deepEqual(routePoints('dispatch_to_library').at(0), STUDIO_TOPOLOGY.dispatch.position);
   assert.deepEqual(routePoints('dispatch_to_library').at(-1), STUDIO_TOPOLOGY.library.entry);

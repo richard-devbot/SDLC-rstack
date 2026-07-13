@@ -185,3 +185,31 @@ export function createOfficeEnvironment(pool) {
     },
   };
 }
+
+export function assignOfficeProjection(office, projection, pool) {
+  const workstationBySession = new Map();
+  const allDesks = [...office.desks.builder, ...office.desks.validator];
+  allDesks.forEach((desk) => { desk.occupant = null; });
+
+  const indexes = { builder: 0, validator: 0 };
+  (projection.sessions ?? []).slice(-16).forEach((session) => {
+    const role = session.role === 'validator' ? 'validator' : 'builder';
+    const desk = office.desks[role][indexes[role]] ?? null;
+    indexes[role] += 1;
+    if (!desk) return;
+    desk.occupant = session.id;
+    workstationBySession.set(session.id, desk);
+  });
+
+  const signals = [...office.stageSignals.values()];
+  signals.forEach((signal, index) => {
+    const department = projection.departments?.[index] ?? null;
+    signal.material = pool.statusMaterial(department?.status);
+    signal.userData.data = department;
+    signal.userData.entityRef = department
+      ? { kind: 'department', id: department.id }
+      : null;
+    signal.userData.interactive = Boolean(department);
+  });
+  return workstationBySession;
+}

@@ -4,7 +4,7 @@
  * owner: RStack developed by Richardson Gunde
  */
 import * as THREE from 'three';
-import { STUDIO_TOPOLOGY, sessionPosition, topologySlot } from './topology.js';
+import { STUDIO_TOPOLOGY, topologySlot, workstationSlot } from './topology.js';
 import { createHumanoidRobot } from './robot.js';
 
 const STATUS_COLORS = Object.freeze({
@@ -255,12 +255,23 @@ export function createCapabilityInstances(projection, _pool) {
   mesh.name = 'Attached specialist, skill, and plugin modules';
   mesh.count = attachments.length;
   const sessionById = new Map((projection.sessions ?? []).map((session) => [session.id, session]));
+  const sessionSlots = new Map();
+  const workstationIndexes = { builder: 0, validator: 0 };
+  let dispatchIndex = 0;
+  (projection.sessions ?? []).slice(-16).forEach((session) => {
+    const role = session.role === 'validator' ? 'validator' : 'builder';
+    const workstation = workstationSlot(session, projection, workstationIndexes[role]);
+    workstationIndexes[role] += 1;
+    sessionSlots.set(
+      session.id,
+      workstation ?? STUDIO_TOPOLOGY.dispatchQueue[dispatchIndex++ % STUDIO_TOPOLOGY.dispatchQueue.length],
+    );
+  });
   const transform = new THREE.Object3D();
   const color = new THREE.Color();
   attachments.forEach((attachment, index) => {
     const session = sessionById.get(attachment.session_id);
-    const sessionIndex = Math.max(0, projection.sessions.indexOf(session));
-    const position = sessionPosition(session, projection, sessionIndex);
+    const position = sessionSlots.get(session?.id)?.position ?? STUDIO_TOPOLOGY.dispatch.position;
     const angle = (index % 6) / 6 * Math.PI * 2;
     transform.position.set(position[0] + Math.cos(angle) * 0.65, position[1] + 1.5 + Math.floor(index / 6) * 0.22, position[2] + Math.sin(angle) * 0.65);
     transform.rotation.set(angle, angle, 0);
