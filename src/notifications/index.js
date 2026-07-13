@@ -21,6 +21,9 @@ export { sendTeams } from './channels/teams.js';
 export { sendDiscord } from './channels/discord.js';
 export { sendTelegram } from './channels/telegram.js';
 export { sendWhatsApp } from './channels/whatsapp.js';
+export { sendEmail } from './channels/email.js';
+export { signAcsRequest, sendAcsEmail, parseAcsConnectionString } from './email.js';
+export { loadRecipients, loadManagers, resolveApprovalRecipients } from './recipients.js';
 export { notifyAll, resolveChannels, hasConfiguredChannels, CHANNEL_SENDERS } from './router.js';
 
 /**

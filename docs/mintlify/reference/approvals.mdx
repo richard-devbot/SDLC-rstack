@@ -88,3 +88,74 @@ A blocked gate fires a notification to every configured channel
 ([webhooks](/reference/webhooks)) and pops a browser notification in the hub —
 so the manager doesn't have to be watching the dashboard to know work is
 waiting.
+
+## Email approval notifications
+
+Register your team once and the **right person** gets an email the moment a
+gate blocks — the manager for guardrail overrides, the team lead for code-stage
+sign-offs, the release pair for `release-readiness.json`. Email is a
+**notification layer only**: the claim gate stays the enforcement, and the
+approval itself is always recorded through RStack's audited, token-verified
+path — never from the email.
+
+Sending uses **Azure Communication Services Email** (REST + HMAC access-key
+signing, implemented with Node built-ins — no new dependencies).
+
+**1. The secret stays in the environment** — never in any `.rstack/*.json`
+file (credential-shaped keys there are a hard validation error):
+
+```bash
+export RSTACK_ACS_CONNECTION_STRING="endpoint=https://<resource>.communication.azure.com/;accesskey=<key>"
+```
+
+**2. The committable half lives in `.rstack/notifications.json`** — sender
+address, people, and routing:
+
+```json
+{
+  "channels": {
+    "email": { "sender": "DoNotReply@<your-domain>.azurecomm.net" }
+  },
+  "recipients": {
+    "manager":   { "name": "Priya", "email": "priya@acme.com" },
+    "team_lead": { "name": "Sam",   "email": "sam@acme.com" },
+    "developer": { "name": "Dee",   "email": "dee@acme.com" },
+    "tester":    { "name": "Quinn", "email": "quinn@acme.com" },
+    "cicd":      { "name": "Ops",   "email": "ops@acme.com" }
+  },
+  "routing": {
+    "guardrail-override:*":     ["manager"],
+    "destructive-action:*":     ["manager"],
+    "stage-approval:07-code":   ["team_lead"],
+    "08-testing":               ["tester"],
+    "release-readiness.json":   ["manager", "cicd"]
+  }
+}
+```
+
+Role names are free-form. Routing patterns resolve in precedence order:
+**exact artifact name** → **kind wildcard** (`guardrail-override:*`,
+`stage-approval:*`, `destructive-action:*`) → **canonical stage id** of the
+blocked task. An artifact with no route falls back to the people named in
+`policy.json` `managers[]` (matched by role, name, or email); if nobody
+matches, the block is logged as "no email recipients resolved". A route whose
+roles don't exist in `recipients` is flagged at config-validation time —
+*"this route resolves to nobody"* — so a typo can't silently mute approvals.
+
+The channel activates only when **both** the environment connection string and
+`channels.email.sender` are present (`rstack-agents doctor` reports exactly
+which half is missing). Each resolved person gets their **own** email (To
+only — recipient lists never leak) naming the run, task, blocked artifact, and
+why, plus a deep link to the Business Hub approvals page
+(`http://localhost:3008/?page=approvals`; port follows `RSTACK_BUSINESS_PORT`).
+
+<Note>
+  **Why a deep link instead of Approve/Reject buttons in the email:** Outlook
+  HTML approval buttons do not reliably return the *approver's identity* —
+  only the selected option — so an email-button approval could not carry the
+  actor evidence RStack's audit trail requires. Microsoft's supported
+  identity-capturing path (Logic Apps / Power Automate Approvals) lives inside
+  M365, outside RStack's audited approval records. v1 therefore links you to
+  the Business Hub approval card, where the existing token-verified path
+  records who approved. Signed one-time approval links are a v2 candidate.
+</Note>
