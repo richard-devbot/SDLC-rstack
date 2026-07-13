@@ -77,6 +77,11 @@ test('Studio serves pinned Three.js locally and rejects unlisted paths', async (
     assert.match(three.headers.get('content-type'), /javascript/);
     assert.match(await three.text(), /WebGLRenderer/);
 
+    const threeCore = await fetch(`${server.baseUrl}/studio3d/vendor/three.core.js`);
+    assert.equal(threeCore.status, 200);
+    assert.match(threeCore.headers.get('content-type'), /javascript/);
+    assert.match(await threeCore.text(), /class Object3D/);
+
     const controls = await fetch(`${server.baseUrl}/studio3d/vendor/controls/OrbitControls.js`);
     assert.equal(controls.status, 200);
     assert.match(await controls.text(), /class OrbitControls/);

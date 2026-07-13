@@ -175,6 +175,24 @@ test('governance, evidence, and work objects carry scope, source, and timestamps
   assert.ok(studio.work_objects.every((item) => item.timestamp));
 });
 
+test('real stage-report index strings remain distinct Evidence Vault records', () => {
+  const state = stateWith(task(), [], {
+    runs: [{
+      ...stateWith().runs[0],
+      stageReports: ['06-architecture', '12-security-threat-model', '14-cost-estimation'],
+    }],
+  });
+  const studio = buildStudioProjection(state, { evaluatedAt: NOW });
+
+  assert.deepEqual(studio.evidence_items.map((item) => item.stage_id), [
+    '06-architecture',
+    '12-security-threat-model',
+    '14-cost-estimation',
+  ]);
+  assert.equal(new Set(studio.evidence_items.map((item) => item.id)).size, 3);
+  assert.ok(studio.evidence_items.every((item) => item.source === 'stage-reports'));
+});
+
 test('no-run and stale states fail honestly', () => {
   const unavailable = buildStudioProjection({ ts: NOW, runs: [], scope: { type: 'global' } }, { evaluatedAt: NOW });
   assert.equal(unavailable.availability, 'unavailable');

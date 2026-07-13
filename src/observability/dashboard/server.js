@@ -85,6 +85,7 @@ const STUDIO_STATIC = new Map([
   ['/studio3d/assets/transitions.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/transitions.js'), type: 'text/javascript; charset=utf-8' }],
   ['/studio3d/assets/styles.css', { path: join(DASHBOARD_DIR, 'ui/studio3d/styles.css'), type: 'text/css; charset=utf-8' }],
   ['/studio3d/vendor/three.module.js', { path: join(PACKAGE_ROOT, 'node_modules/three/build/three.module.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
+  ['/studio3d/vendor/three.core.js', { path: join(PACKAGE_ROOT, 'node_modules/three/build/three.core.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
   ['/studio3d/vendor/controls/OrbitControls.js', { path: join(PACKAGE_ROOT, 'node_modules/three/examples/jsm/controls/OrbitControls.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
 ]);
 

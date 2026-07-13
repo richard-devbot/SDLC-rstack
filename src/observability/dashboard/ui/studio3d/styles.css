@@ -117,6 +117,7 @@ button { min-height: 44px; }
 .studio-brand small { margin-top: 2px; color: var(--studio-muted); font-size: 11px; }
 
 .studio-scope {
+  min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(140px, 1fr);
   gap: 4px 10px;
@@ -132,6 +133,8 @@ button { min-height: 44px; }
 }
 
 .studio-scope select {
+  width: 100%;
+  min-width: 0;
   min-height: 42px;
   max-width: 100%;
   padding: 0 36px 0 12px;
@@ -145,6 +148,7 @@ button { min-height: 44px; }
 .studio-muted { color: var(--studio-muted); font-size: 11px; }
 
 .studio-status-cluster {
+  min-width: 0;
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -491,10 +495,15 @@ button { min-height: 44px; }
   .studio-topbar {
     position: relative;
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
     padding: 12px;
   }
+
+  .studio-topbar > *,
+  .studio-brand > span { min-width: 0; }
+
+  .studio-brand small { overflow-wrap: anywhere; }
 
   .studio-scope { grid-template-columns: 1fr; }
   .studio-scope .studio-muted { grid-column: 1; }
@@ -559,10 +568,10 @@ button { min-height: 44px; }
   .timeline-item { min-height: 72px; }
 
   .studio-fallback {
-    right: 10px;
-    bottom: 10px;
-    left: 10px;
+    position: static;
+    inset: auto;
     max-width: none;
+    margin: 0 12px 12px;
   }
 }
 

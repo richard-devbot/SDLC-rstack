@@ -18,6 +18,9 @@ test('responsive stylesheet keeps the semantic Studio primary at 390px', () => {
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   assert.match(css, /overflow-x:\s*clip/);
   assert.match(css, /min-height:\s*44px/);
+  assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(css, /\.studio-scope select[^}]+width:\s*100%/s);
+  assert.match(css, /\.studio-fallback\s*{[^}]*position:\s*static/s);
   assert.match(css, /:focus-visible/);
   assert.match(css, /\[data-renderer="semantic-only"\]/);
   assert.doesNotMatch(css, /width:\s*380px/);

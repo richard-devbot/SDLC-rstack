@@ -392,17 +392,22 @@ function evidenceItems(state, run) {
       source: safeSource(item.source ?? item.path ?? item.artifact) ?? 'evidence-center',
       timestamp: item.ts ?? item.timestamp ?? null,
     }));
-  const reports = (run.stageReports ?? []).map((report) => ({
-    id: `stage-report:${run.runId}:${safeId(report.stage_id ?? report.stageId, 'unknown')}`,
-    kind: 'stage_report',
-    run_id: run.runId,
-    task_id: safeId(report.task_id ?? report.taskId),
-    stage_id: safeId(report.stage_id ?? report.stageId),
-    title: safeText(report.title ?? report.label ?? 'Stage report'),
-    status: safeId(report.status, 'observed'),
-    source: safeSource(report.source ?? report.path ?? report.artifact) ?? 'stage-reports',
-    timestamp: report.ts ?? report.timestamp ?? null,
-  }));
+  const reports = (run.stageReports ?? []).map((report) => {
+    const record = typeof report === 'string' ? { stage_id: report } : report;
+    const stageId = safeId(record?.stage_id ?? record?.stageId);
+    const stage = CANONICAL_SDLC_STAGES.find((entry) => entry.id === stageId);
+    return {
+      id: `stage-report:${run.runId}:${stageId ?? 'unknown'}`,
+      kind: 'stage_report',
+      run_id: run.runId,
+      task_id: safeId(record?.task_id ?? record?.taskId),
+      stage_id: stageId,
+      title: safeText(record?.title ?? record?.label ?? stage?.title ?? 'Stage report'),
+      status: safeId(record?.status, 'observed'),
+      source: safeSource(record?.source ?? record?.path ?? record?.artifact) ?? 'stage-reports',
+      timestamp: record?.ts ?? record?.timestamp ?? null,
+    };
+  });
   const seen = new Set();
   return [...projected, ...reports].filter((item) => {
     if (seen.has(item.id)) return false;
