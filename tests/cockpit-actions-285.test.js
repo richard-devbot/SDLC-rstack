@@ -32,6 +32,7 @@ import {
 } from '../src/core/harness/cockpit-actions.js';
 import { isSafeArtifactName } from '../src/core/harness/approval-audit.js';
 import { buildCockpitProjection } from '../src/observability/dashboard/state/cockpit.js';
+import { runWorkspaceScript } from '../src/observability/dashboard/ui/pages/run-workspace.js';
 
 // ── Feature flag: OFF by default, fails closed ──────────────────────────────
 
@@ -211,6 +212,28 @@ test('a FAILED key can be retried (fresh again); a completed key cannot', async 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ── UI wiring: the Run Workspace renders the controls + confirmation flow ───
+
+test('run-workspace UI wires the cockpit controls panel, confirmation modal, and /api/action POST', () => {
+  const script = runWorkspaceScript;
+  // The controls render is called from the workspace render.
+  assert.match(script, /renderRunWorkspaceControls\(s, workspace\)/);
+  // Only server-declared allowedActions are rendered; disabled ones show a reason.
+  assert.match(script, /cockpitRun\.allowedActions/);
+  assert.match(script, /disabledReason/);
+  // The confirmation dialog is an accessible modal that repeats target + consequence.
+  assert.match(script, /role="dialog" aria-modal="true"/);
+  assert.match(script, /data-cockpit-consequence/);
+  // Invocation POSTs to /api/action with an idempotency key + the approval token.
+  assert.match(script, /fetch\('\/api\/action'/);
+  assert.match(script, /idempotencyKey: cockpitIdempotencyKey/);
+  assert.match(script, /x-rstack-approval-token/);
+  // Idempotency keys built client-side satisfy the server key contract.
+  assert.match(script, /replace\(\/\[\^A-Za-z0-9\._:-\]\/g, '-'\)/);
+  // Reconciles from real state (no optimistic success): fetchState after accept.
+  assert.match(script, /fetchState\(\)/);
 });
 
 test('summarizeLedgerForKey isolates entries by key', () => {
