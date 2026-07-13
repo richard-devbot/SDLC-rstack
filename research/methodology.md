@@ -87,10 +87,10 @@ Use external references to locate RStack in the broader AI-SDLC landscape:
 - `ai-sdlc-framework/ai-sdlc`,
 - NIST AI RMF,
 - NIST SSDF,
-- OWASP LLM Top 10,
-- SLSA, DSSE, Sigstore,
-- DORA research (2025 report as the delivery baseline; 2024 only to document the AI↔throughput reversal),
-- METR experienced-developer RCT (early-2025) and its Feb-2026 follow-up,
+- OWASP LLM Top 10 (2025) and OWASP Top 10 for Agentic Applications (2026),
+- SLSA v1.2, DSSE, in-toto attestation framework, Sigstore,
+- DORA research (2024 and 2025),
+- METR productivity studies (early-2025 RCT and Feb 2026 follow-up),
 - Stack Overflow Developer Survey.
 
 ## Measurement model
@@ -205,8 +205,9 @@ No paper or documentation claim should be written as fact unless it has one of t
 - "RStack is designed to reduce ambiguity before agent execution."
 - "The current implementation records builder and validator contracts."
 - "Future work will test whether Decision Queue and DoR gates reduce rework."
-- "METR's early-2025 RCT measured a slowdown on mature repositories, and its 2026 follow-up found an effect indistinguishable from zero — AI coding tools do not automatically improve productivity; developers also misjudged their own speed-up (the perception gap)." (Never cite the 19% figure unqualified; do not report the null as "AI does not help.")
-- "DORA's 2025 report associates AI adoption with higher delivery throughput but lower delivery stability — a correlation, not causation — which is the failure mode RStack's governed loop targets."
+- "METR's early-2025 RCT measured a 19% slowdown for experienced developers on mature repositories; its Feb 2026 follow-up with newer agentic tools shows effects statistically indistinguishable from zero."
+- "The durable METR finding is the perception gap: developers believed AI sped them up even when measured slower."
+- "DORA 2025 finds AI adoption positively related to throughput but still negatively related to delivery stability."
 
 ### Avoid unless measured
 
