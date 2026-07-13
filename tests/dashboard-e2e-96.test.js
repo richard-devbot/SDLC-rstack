@@ -152,21 +152,23 @@ test('dashboard regression (#96): API, WS, truth states, scope isolation, artifa
     });
 
     // Early polls fully parse runs and progressively warm the rollup index;
-    // the full→lite transition legitimately reshapes capped collections.
-    // Settle to a stable snapshot first (bounded — a fixture that never
-    // settles is itself a bug), then assert cache semantics on it.
+    // the full→lite transition legitimately reshapes capped collections, and
+    // the index entry write is asynchronous — on a slow CI disk it can land
+    // BETWEEN back-to-back polls, so pause between attempts and require the
+    // stable pair inside the loop (a separate post-loop poll raced the
+    // write and flaked on Node 22 CI). A fixture that never settles in 15
+    // paced polls is a real bug, not slowness.
     let globalState;
     let etag = null;
-    for (let attempt = 0; attempt < 8; attempt++) {
+    let settled = false;
+    for (let attempt = 0; attempt < 15 && !settled; attempt++) {
       const next = await getState(server.baseUrl);
-      if (etag !== null && next.etag === etag) { globalState = next.state; break; }
+      if (etag !== null && next.etag === etag) { globalState = next.state; settled = true; break; }
       etag = next.etag;
       globalState = next.state;
+      await new Promise((resolvePause) => setTimeout(resolvePause, 150));
     }
-    {
-      const settled = await getState(server.baseUrl);
-      assert.equal(settled.etag, etag, 'snapshot settles to a stable ETag within 8 polls');
-    }
+    assert.ok(settled, 'snapshot settles to a stable ETag within 15 paced polls');
 
     const scopeProjects = globalState.scopeCatalog?.projects ?? [];
     const scopeIdFor = (marker) => scopeProjects.find((project) => (
