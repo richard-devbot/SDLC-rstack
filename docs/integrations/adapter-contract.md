@@ -5,8 +5,9 @@
 Any new harness adapter (a file that teaches an agent framework to speak
 RStack) must satisfy this checklist. The Pi adapter
 (`src/integrations/pi/rstack-sdlc.ts`) is the reference implementation; the
-Operator (`src/integrations/operator/rstack_sdlc.py`) and Tau
-(`src/integrations/tau/rstack_sdlc.py`) adapters are conforming examples.
+Operator (`src/integrations/operator/rstack_sdlc.py`), Tau
+(`src/integrations/tau/rstack_sdlc.py`), and Hermes
+(`src/integrations/hermes/rstack_sdlc.py`) adapters are conforming examples.
 `tests/bridge-conformance.test.js` enforces the tool-surface half of this
 contract in CI so adapters cannot silently diverge.
 
