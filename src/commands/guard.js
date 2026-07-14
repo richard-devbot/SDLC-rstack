@@ -42,7 +42,7 @@ import { join, resolve } from 'node:path';
 
 import { classifyDestructiveAction } from '../core/harness/destructive-actions.js';
 import { evaluateDestructiveAction } from '../core/harness/guardrails.js';
-import { evaluateValidatorAction, isValidatorContext } from '../core/harness/validator-sandbox.js';
+import { evaluateValidatorAction, isValidatorContext, isValidatorRole } from '../core/harness/validator-sandbox.js';
 import { resolveRunId, runDirectory } from '../core/harness/runs.js';
 
 export const GUARD_CONTEXTS = Object.freeze(['builder', 'validator', 'reviewer', 'security']);
@@ -103,13 +103,24 @@ export function guardUnavailableVerdict(reason, env = process.env) {
  *      wins — a sandboxed subprocess must not escape by passing
  *      `--context builder` (the flag travels with the hook command, the env
  *      travels with the subprocess).
- *   2. --context flag.
- *   3. RSTACK_AGENT_CONTEXT env.
- *   4. builder.
+ *   2. Subagent identity (#372): the calling subagent's name is a validator
+ *      role. Claude Code delivers it as `agent_type` in the PreToolUse payload,
+ *      and plugin subagents IGNORE agent-def hooks (a documented CC security
+ *      rule), so the SESSION guard is the only place that can sandbox a plugin
+ *      validator's tool calls. This escalates to the validator sandbox and
+ *      beats the static `--context builder` the hook wiring passes. It is
+ *      ONE-WAY (escalate to the stricter sandbox only) — it never downgrades an
+ *      explicit validator context to builder — so a spoofed `agent_type` can
+ *      only make a call MORE restricted, never less. Same role pattern the Pi
+ *      delegate uses to stamp read-only workers, applied uniformly.
+ *   3. --context flag.
+ *   4. RSTACK_AGENT_CONTEXT env.
+ *   5. builder.
  * An unrecognized explicit value falls through to builder (the caller warns).
  */
-export function resolveGuardContext(flag, env = process.env) {
+export function resolveGuardContext(flag, env = process.env, agentType = null) {
   if (isValidatorContext(env)) return 'validator';
+  if (agentType && isValidatorRole(agentType)) return 'validator';
   const explicit = String(flag ?? env[GUARD_CONTEXT_ENV] ?? '').trim().toLowerCase();
   if (GUARD_CONTEXTS.includes(explicit)) return explicit;
   return 'builder';
@@ -122,8 +133,10 @@ export function resolveGuardContext(flag, env = process.env) {
  *   - shorthand: { command: "..." }
  *   - raw non-JSON text → sniffed as a bash command (so destructive-looking
  *     raw input still classifies instead of failing open)
- * Returns { ok, toolName, input, sniffed?, empty? }. ok:false means there is
- * nothing classifiable at all.
+ * Returns { ok, toolName, input, agentType?, sniffed?, empty? }. `agentType` is
+ * the calling subagent's name when the host supplies it (Claude Code PreToolUse
+ * `agent_type`) — used to escalate to the validator sandbox (#372). ok:false
+ * means there is nothing classifiable at all.
  */
 export function parseHookInput(raw) {
   const text = typeof raw === 'string' ? raw.trim() : '';
@@ -138,8 +151,13 @@ export function parseHookInput(raw) {
         : parsed.input && typeof parsed.input === 'object' ? parsed.input
           : typeof parsed.command === 'string' ? { command: parsed.command }
             : {};
+      // Subagent identity for validator-sandbox escalation (#372). Claude Code
+      // PreToolUse delivers `agent_type`; accept a couple of aliases too.
+      const agentType = typeof parsed.agent_type === 'string' ? parsed.agent_type
+        : typeof parsed.agentType === 'string' ? parsed.agentType
+          : typeof parsed.agent === 'string' ? parsed.agent : null;
       const inferred = toolName ?? (typeof input.command === 'string' ? 'bash' : null);
-      return { ok: true, toolName: inferred, input };
+      return { ok: true, toolName: inferred, input, agentType };
     }
     // Valid JSON but not an object (a number, a string, an array) — nothing
     // classifiable in it.
@@ -165,15 +183,14 @@ export async function runGuard({
   explain = false, stdinText = '', env = process.env, cwd = process.cwd(),
 } = {}) {
   const warnings = [];
-  const context = resolveGuardContext(contextFlag, env);
-  const explicit = String(contextFlag ?? env[GUARD_CONTEXT_ENV] ?? '').trim().toLowerCase();
-  if (explicit && !GUARD_CONTEXTS.includes(explicit)) {
-    warnings.push(`unknown context '${explicit}' — defaulting to '${context}'`);
-  }
 
-  // Resolve the action under test: explicit flags win over stdin.
+  // Resolve the action under test: explicit flags win over stdin. Parse stdin
+  // FIRST so the calling subagent's identity (`agent_type`) is known before we
+  // resolve the context — a validator subagent must land in the sandbox even
+  // though the hook wiring passes a static `--context builder` (#372).
   let toolName = null;
   let input = null;
+  let agentType = null;
   if (tool !== undefined || command !== undefined || path !== undefined) {
     toolName = tool ?? (command !== undefined ? 'bash' : 'write');
     input = {};
@@ -188,7 +205,7 @@ export async function runGuard({
         ? 'no input to classify (empty stdin, no --tool/--command/--path flags) — allowing'
         : 'input parsed as JSON but contains no recognizable tool call — allowing');
       return {
-        verdict: verdictOf('allow', { reason: 'unclassifiable input', context }),
+        verdict: verdictOf('allow', { reason: 'unclassifiable input', context: resolveGuardContext(contextFlag, env) }),
         exitCode: EXIT_ALLOW,
         warnings,
       };
@@ -196,6 +213,16 @@ export async function runGuard({
     if (parsed.sniffed) warnings.push('input was not valid JSON — classified the raw text as a shell command');
     toolName = parsed.toolName;
     input = parsed.input;
+    agentType = parsed.agentType ?? null;
+  }
+
+  const context = resolveGuardContext(contextFlag, env, agentType);
+  const explicit = String(contextFlag ?? env[GUARD_CONTEXT_ENV] ?? '').trim().toLowerCase();
+  if (explicit && !GUARD_CONTEXTS.includes(explicit)) {
+    warnings.push(`unknown context '${explicit}' — defaulting to '${context}'`);
+  }
+  if (context === 'validator' && agentType && isValidatorRole(agentType) && !isValidatorContext(env)) {
+    warnings.push(`subagent '${agentType}' is a validator role — enforcing the read-only validator sandbox (#372)`);
   }
 
   // Validator sandbox contexts: deny-outright policy, no approval path, and
