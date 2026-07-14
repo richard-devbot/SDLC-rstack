@@ -23,7 +23,13 @@ a tool call before it executes — and the adapter registers that hook itself.
 Loading the extension IS the wiring: Tau's built-in `terminal` / `write` /
 `edit` tools are routed through `rstack-agents guard` (destructive-action
 gate + validator sandbox), and a guard exit 2 blocks the call with the
-guard's reason. It fails open only when `npx` itself is missing on the host.
+guard's reason. If the guard cannot run at all — a crash, a timeout, or a
+cold `npx --yes` that can't reach the registry — it **fails closed** (blocks)
+by default so an install hiccup never silently disables enforcement (#371);
+set `RSTACK_GUARD_FAIL_OPEN=1` to allow-on-unavailable instead. The adapter
+prefers a locally-resolved `rstack-agents` binary over `npx --yes`, so
+enforcement doesn't depend on the network; `rstack-agents doctor` reports
+which path resolves.
 
 **Opt-in quality gates.** Set the `quality_gates` extension setting (a comma
 string or list of `plan-gate`/`tdd-gate`/`scope-guard`) — or the
