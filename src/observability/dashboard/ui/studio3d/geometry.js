@@ -11,7 +11,7 @@
  */
 import * as THREE from 'three';
 import { STUDIO_TOPOLOGY, workstationSlot } from './topology.js';
-import { createCastAgent } from './assets.js';
+import { createCastAgent, createCastProp } from './assets.js';
 import { createHumanoidRobot } from './robot.js';
 
 const STATUS_COLORS = Object.freeze({
@@ -35,6 +35,7 @@ export function createResourcePool() {
     slab: new THREE.BoxGeometry(1, 1, 1),
     cylinder: new THREE.CylinderGeometry(1, 1, 1, 20),
     sphere: new THREE.SphereGeometry(1, 12, 8),
+    cone: new THREE.CylinderGeometry(0.02, 0.5, 1, 7),
     beacon: new THREE.IcosahedronGeometry(0.5, 1),
     ring: new THREE.TorusGeometry(1, 0.08, 8, 32),
     capsule: new THREE.SphereGeometry(0.18, 12, 8),
@@ -50,7 +51,9 @@ export function createResourcePool() {
     casework: material(0xffffff, { metalness: 0.18, roughness: 0.62 }),
     capability: material(0xffffff, { metalness: 0.35, roughness: 0.4 }),
     plantPot: material(0x8a5a44, { metalness: 0.1, roughness: 0.8 }),
-    plantFoliage: material(0x5d8f62, { metalness: 0.05, roughness: 0.85 }),
+    // White base so per-instance foliage greens read true (instance colors
+    // multiply with the material color).
+    plantFoliage: material(0xffffff, { metalness: 0.05, roughness: 0.85 }),
     amber: material(0xe5b860, { metalness: 0.55, roughness: 0.34, emissive: 0x704c12, emissiveIntensity: 0.42 }),
     glass: new THREE.MeshPhysicalMaterial({ color: 0x8cb8e8, transparent: true, opacity: 0.2, roughness: 0.08, metalness: 0.1, depthWrite: false }),
     validator: material(0x71a7ff, { metalness: 0.4, roughness: 0.36, emissive: 0x173c78, emissiveIntensity: 0.36 }),
@@ -158,12 +161,14 @@ function createRobotEntity(data, slot, pool, kind) {
 
 /**
  * GLB-bodied agent from the Richardson-supplied cast. Same handle contract
- * as the procedural robot, but the body is `stationary`: the person works at
- * their station while packets and streams carry the movement, so a desk pod
- * never glides through the office. Status lives in the orb above the body;
- * the floor ring is the role band.
+ * as the procedural robot. The body WALKS: the animator moves the handle
+ * along corridor routes while the locomotion driver swings the skeleton;
+ * seated states snap to the desk origin and hand the skeleton back to the
+ * typing/idle clip. Session bodies park a cast desk at their workstation
+ * slot; the man travels, the desk stays. Status lives in the orb above the
+ * body; the floor ring is the role band.
  */
-function createCastRobotEntity(data, slot, pool, kind, castEntry) {
+function createCastRobotEntity(data, slot, pool, kind, castEntry, deskEntry = null, parkingLot = null) {
   const role = kind === 'orchestrator' ? 'orchestrator' : data.role === 'validator' ? 'validator' : 'builder';
   const roleLabel = role === 'orchestrator' ? 'Orchestrator' : role === 'validator' ? 'Validator' : 'Builder';
   const body = createCastAgent(castEntry);
@@ -189,28 +194,53 @@ function createCastRobotEntity(data, slot, pool, kind, castEntry) {
     object.add(ring);
   }
 
+  // The session's own desk stays parked at the workstation slot while the
+  // man walks; only real workstation slots earn a desk.
+  let desk = null;
+  const parkDesk = (deskSlot) => {
+    const isWorkstation = String(deskSlot?.id ?? '').includes('-desk-');
+    if (!deskEntry || !parkingLot || !isWorkstation) {
+      desk?.removeFromParent();
+      desk = null;
+      return;
+    }
+    if (!desk) {
+      desk = createCastProp(deskEntry);
+      desk.name = `${roleLabel} desk · ${data.id ?? 'unassigned'}`;
+      parkingLot.add(desk);
+    }
+    place(desk, deskSlot);
+  };
+  parkDesk(slot);
+
   place(object, slot);
   const handle = {
     object,
     robot: body,
-    stationary: true,
+    seatedAtOrigin: true,
     joints: {},
     anchors: Object.freeze({}),
     faceMaterial: null,
     pose: 'standing',
     setPose(name) {
       handle.pose = name;
-      body.setWorking(name === 'seated_work' || name === 'validating');
+      body.setMode(name === 'seated_work' || name === 'validating' ? 'seated' : 'standing');
+    },
+    setWalking(phase) {
+      handle.pose = 'walking';
+      body.setMode('walking', phase);
     },
     setFace() {},
     update(next, nextSlot) {
-      if (nextSlot) place(object, nextSlot);
+      if (nextSlot) {
+        place(object, nextSlot);
+        parkDesk(nextSlot);
+      }
       object.userData.data = next;
       object.userData.status = next.status ?? 'unknown';
       object.userData.role = role;
       object.userData.entityRef = { kind: next.kind ?? kind, id: next.id ?? null };
       orb.material = pool.statusMaterial(next.status);
-      body.setWorking(['active', 'starting'].includes(next.status));
     },
     reset() {
       object.position.set(0, 0, 0);
@@ -218,6 +248,7 @@ function createCastRobotEntity(data, slot, pool, kind, castEntry) {
       handle.setPose('standing');
     },
     dispose() {
+      desk?.removeFromParent();
       body.dispose();
       object.removeFromParent();
     },
@@ -266,6 +297,11 @@ export function createEntityFactories(pool, office = null, getCast = () => null)
     department: (data, slot) => adoptOr(office?.stageSignals?.get(slot.id), data, slot, `Department · ${data.title ?? data.id}`),
     session: (data, slot) => {
       const cast = getCast();
+      // Prefer the split walkable man with his parked desk; fall back to the
+      // whole pod, then to the procedural robot.
+      if (cast?.workerMan) {
+        return createCastRobotEntity(data, slot, pool, 'session', cast.workerMan, cast.workerDesk, office?.object ?? null);
+      }
       return cast?.worker
         ? createCastRobotEntity(data, slot, pool, 'session', cast.worker)
         : createRobotEntity(data, slot, pool, 'session');

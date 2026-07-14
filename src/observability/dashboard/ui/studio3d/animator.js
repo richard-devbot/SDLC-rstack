@@ -33,7 +33,12 @@ const WALKING_ACTIONS = new Set([
   'wait',
   'retry',
   'exit',
+  // The orchestrator walks the delegation to Dispatch and back.
+  'delegate',
 ]);
+
+/** Milliseconds per locomotion stride while a cast body walks a route. */
+const STRIDE_MS = 420;
 
 function clampedProgress(value) {
   const numeric = Number(value);
@@ -72,6 +77,7 @@ function worldPosition(anchor) {
 
 export function createAgentAnimator({
   getHandle = () => null,
+  getOrchestrator = () => null,
   getWorkstation = () => null,
   createPacket = () => null,
   scene,
@@ -86,20 +92,25 @@ export function createAgentAnimator({
 
   function finalState(intent, handle) {
     if (!handle) return;
-    if (handle.stationary) {
-      // GLB desk pods stay at their station; only the pose/clip reacts.
-      const seated = ['work', 'walk_to_assignment', 'retry'].includes(intent.action);
-      handle.setPose(seated
-        ? (handle.object.userData.role === 'validator' ? 'validating' : 'seated_work')
-        : intent.action === 'wait' ? 'waiting' : 'standing');
+    if (intent.action === 'delegate') {
+      // The orchestrator ends every delegation back at HQ.
+      handle.object.position.fromArray(STUDIO_TOPOLOGY.orchestrator.position);
+      handle.object.rotation.set(0, 0, 0);
+      handle.setPose('standing');
       return;
     }
     const workstation = workstationFor(intent);
     const seat = worldPosition(workstation?.seat);
     if (['work', 'walk_to_assignment', 'retry'].includes(intent.action) && seat) {
-      // Drop the origin so the seated pelvis lands on the chair anchor.
-      handle.object.position.set(seat.x, seat.y - ROBOT_PELVIS_HEIGHT, seat.z);
       const validating = handle.object.userData.role === 'validator';
+      if (handle.seatedAtOrigin) {
+        // Cast bodies sit via their own clip, authored at the desk origin.
+        handle.object.position.copy(workstation.object.position);
+        handle.object.rotation.copy(workstation.object.rotation);
+      } else {
+        // Drop the origin so the seated pelvis lands on the chair anchor.
+        handle.object.position.set(seat.x, seat.y - ROBOT_PELVIS_HEIGHT, seat.z);
+      }
       handle.setPose(validating ? 'validating' : 'seated_work');
       handle.setFace?.('focused');
     } else if (intent.action === 'enter') {
@@ -149,6 +160,12 @@ export function createAgentAnimator({
   function movementRoute(intent, handle) {
     // Entering robots walk in through the west reception opening.
     if (intent.action === 'enter') return [[-21, 0, 10], [...STUDIO_TOPOLOGY.dispatch.position]];
+    if (intent.action === 'delegate' && handle) {
+      // Orchestrator round trip: HQ → Dispatch → HQ.
+      const out = corridorRoute(STUDIO_TOPOLOGY.orchestrator.position, STUDIO_TOPOLOGY.dispatch.position);
+      const back = corridorRoute(STUDIO_TOPOLOGY.dispatch.position, STUDIO_TOPOLOGY.orchestrator.position);
+      return [...out, ...back.slice(1)].map((waypoint) => [...waypoint]);
+    }
     const routeName = intent.action === 'collect_capabilities' ? 'dispatch_to_library'
       : intent.action === 'handoff' ? 'builder_to_validator'
         : intent.action === 'wait' ? 'assignment_to_governance'
@@ -168,7 +185,9 @@ export function createAgentAnimator({
   function play(transition) {
     const intent = transition?.intent;
     if (!intent) return false;
-    const handle = getHandle(intent.sessionId);
+    const handle = intent.action === 'delegate'
+      ? getOrchestrator()
+      : getHandle(intent.sessionId);
     if (!handle && intent.action !== 'delegate') return false;
     if (reduced || transition.duration_ms === 0) {
       finalState(intent, handle);
@@ -185,7 +204,10 @@ export function createAgentAnimator({
       packet,
       route,
       startedAt: Number(transition.started_at_ms) || 0,
-      duration: ACTION_DURATION[intent.action] ?? Math.max(1, transition.duration_ms),
+      // The orchestrator's delegation round trip earns a longer walk.
+      duration: intent.action === 'delegate' && handle
+        ? 2600
+        : ACTION_DURATION[intent.action] ?? Math.max(1, transition.duration_ms),
     });
     return true;
   }
@@ -196,13 +218,14 @@ export function createAgentAnimator({
       const item = active[index];
       const progress = clampedProgress((now - item.startedAt) / item.duration);
       const routePosition = sampleWaypointRoute(item.route, progress);
-      if (item.handle && !item.handle.stationary && WALKING_ACTIONS.has(item.intent.action)) {
+      if (item.handle && WALKING_ACTIONS.has(item.intent.action)) {
         const heading = item.handle.object.position;
         const dx = routePosition[0] - heading.x;
         const dz = routePosition[2] - heading.z;
         if (Math.hypot(dx, dz) > 0.002) item.handle.object.rotation.y = Math.atan2(dx, dz);
         item.handle.object.position.fromArray(routePosition);
-        item.handle.setPose(progress % 0.5 < 0.25 ? 'walkA' : 'walkB', 0.45);
+        if (item.handle.setWalking) item.handle.setWalking((now - item.startedAt) / STRIDE_MS);
+        else item.handle.setPose(progress % 0.5 < 0.25 ? 'walkA' : 'walkB', 0.45);
       } else if (item.handle) {
         const pose = item.intent.gesture === 'validation_monitor' ? 'validating'
           : item.intent.gesture === 'keyboard' ? 'seated_work'

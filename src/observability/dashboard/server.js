@@ -90,6 +90,7 @@ const STUDIO_STATIC = new Map([
   ['/studio3d/assets/animator.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/animator.js'), type: 'text/javascript; charset=utf-8' }],
   ['/studio3d/assets/styles.css', { path: join(DASHBOARD_DIR, 'ui/studio3d/styles.css'), type: 'text/css; charset=utf-8' }],
   ['/studio3d/assets/assets.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/assets.js'), type: 'text/javascript; charset=utf-8' }],
+  ['/studio3d/assets/locomotion.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/locomotion.js'), type: 'text/javascript; charset=utf-8' }],
   ['/studio3d/assets/models/manager.glb', { path: join(DASHBOARD_DIR, 'ui/studio3d/models/manager.glb'), type: 'model/gltf-binary', immutable: true }],
   ['/studio3d/assets/models/worker.glb', { path: join(DASHBOARD_DIR, 'ui/studio3d/models/worker.glb'), type: 'model/gltf-binary', immutable: true }],
   ['/studio3d/assets/models/librarian.glb', { path: join(DASHBOARD_DIR, 'ui/studio3d/models/librarian.glb'), type: 'model/gltf-binary', immutable: true }],

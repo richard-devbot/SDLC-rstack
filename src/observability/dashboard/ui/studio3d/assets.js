@@ -14,10 +14,14 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clone as cloneWithSkeleton } from 'three/addons/utils/SkeletonUtils.js';
+import { createLocomotion } from './locomotion.js';
 
+// clipPose names the body state the model's single clip portrays: the clip
+// plays only in that state; every other state pauses it and hands the
+// skeleton to the procedural locomotion driver.
 const MANIFEST = Object.freeze({
-  manager: { url: '/studio3d/assets/models/manager.glb', height: 1.78 },
-  worker: { url: '/studio3d/assets/models/worker.glb', height: 1.42, maxWidth: 1.72 },
+  manager: { url: '/studio3d/assets/models/manager.glb', height: 1.78, clipPose: 'standing' },
+  worker: { url: '/studio3d/assets/models/worker.glb', height: 1.42, maxWidth: 1.72, clipPose: 'seated' },
   librarian: { url: '/studio3d/assets/models/librarian.glb', height: 1.52, stripFloorPlanes: true },
   station: { url: '/studio3d/assets/models/manager-desk.glb', height: 1.25 },
   chair: { url: '/studio3d/assets/models/manager-chair.glb', height: 1.02 },
@@ -93,7 +97,33 @@ function prepTemplate(gltf, spec) {
   const template = new THREE.Group();
   template.name = `Cast template · ${spec.url}`;
   template.add(root);
-  return { template, clips: gltf.animations ?? [], height: spec.height };
+  return { template, clips: gltf.animations ?? [], height: spec.height, clipPose: spec.clipPose };
+}
+
+/**
+ * Split the worker pod template into a walkable man (skinned meshes) and a
+ * parked desk (static meshes). Returns nulls when either half is missing so
+ * the caller keeps the whole-pod fallback.
+ */
+function splitWorker(entry) {
+  const keepOnly = (wanted) => {
+    const clone = cloneWithSkeleton(entry.template);
+    const doomed = [];
+    clone.traverse((child) => {
+      if (child.isMesh && (child.isSkinnedMesh ? wanted !== 'skinned' : wanted !== 'static')) doomed.push(child);
+    });
+    doomed.forEach((child) => child.removeFromParent());
+    let kept = 0;
+    clone.traverse((child) => { if (child.isMesh) kept += 1; });
+    return kept ? clone : null;
+  };
+  const man = keepOnly('skinned');
+  const desk = keepOnly('static');
+  if (!man || !desk) return { man: null, desk: null };
+  return {
+    man: { template: man, clips: entry.clips, height: entry.height, clipPose: entry.clipPose },
+    desk: { template: desk, clips: [], height: entry.height },
+  };
 }
 
 /**
@@ -111,17 +141,26 @@ export async function loadStudioCast() {
     }
   }));
   const cast = Object.fromEntries(entries);
+  if (cast.worker) {
+    const { man, desk } = splitWorker(cast.worker);
+    cast.workerMan = man;
+    cast.workerDesk = desk;
+  }
   templates = cast;
   return entries.some(([, value]) => value) ? cast : null;
 }
 
 /**
- * Clone a template as an animated agent body. The first animation clip
- * (idle / typing) loops; `setWorking(false)` pauses it so an idle desk never
+ * Clone a template as an animated agent body. The model's single clip plays
+ * only while the body is in the state the clip portrays (`clipPose`); every
+ * other state pauses it and hands the skeleton to the procedural locomotion
+ * driver, so a walking body swings its own bones and an idle one never
  * pretends to type.
  */
 export function createCastAgent(entry) {
   const object = cloneWithSkeleton(entry.template);
+  const locomotion = createLocomotion(object);
+  const clipPose = entry.clipPose ?? 'seated';
   let mixer = null;
   let action = null;
   if (entry.clips.length) {
@@ -133,8 +172,14 @@ export function createCastAgent(entry) {
   return {
     object,
     height: entry.height,
-    setWorking(working) {
-      if (action) action.paused = !working;
+    walkable: Boolean(locomotion),
+    /** mode: 'seated' | 'standing' | 'walking'; phase paces the stride. */
+    setMode(mode, phase = 0) {
+      const useClip = Boolean(action) && mode === clipPose;
+      if (action) action.paused = !useClip;
+      if (useClip || !locomotion) return;
+      if (mode === 'walking') locomotion.walk(phase);
+      else locomotion.stand();
     },
     dispose() {
       if (mixer) {
@@ -149,6 +194,22 @@ export function createCastAgent(entry) {
 /** Clone a template as a static office prop (no animation registered). */
 export function createCastProp(entry) {
   return cloneWithSkeleton(entry.template);
+}
+
+/**
+ * Clone a template frozen mid-clip — a posed fixture (e.g. the resident
+ * team leads seated at their desks) that never animates or invents work.
+ */
+export function createPosedProp(entry, atTime = 0.4) {
+  const object = cloneWithSkeleton(entry.template);
+  if (entry.clips.length) {
+    const mixer = new THREE.AnimationMixer(object);
+    mixer.clipAction(entry.clips[0]).play();
+    // One sample poses the skeleton; the mixer is discarded so the fixture
+    // stays frozen and costs nothing per frame.
+    mixer.update(atTime);
+  }
+  return object;
 }
 
 export function setCastMotion(mode) {

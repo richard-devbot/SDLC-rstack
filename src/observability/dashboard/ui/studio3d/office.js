@@ -158,14 +158,25 @@ function createFloorFinishes(pool) {
 function createPlants(pool) {
   const spots = [
     [-17.2, -3.3], [-17.2, -12.1], [2.2, -12.3], [11.1, -12.3], [17.1, -12.2],
-    [5, 12.2], [-4.5, 12.4], [16.6, -0.5], [16.6, 5.5], [16.6, 11.5],
+    [5, 12.2], [-4.5, 12.4], [15.6, -0.5], [15.6, 5.5], [15.6, 11.5],
   ];
-  const pots = new THREE.InstancedMesh(pool.geometries.cylinder, pool.materials.plantPot, spots.length);
+  // Potted office trees: trunk + three tapering foliage cones per spot, with
+  // per-instance green variation — reads as a plant, not a lollipop.
+  const greens = [0x557f52, 0x628f60, 0x4d7550];
+  const pots = new THREE.InstancedMesh(pool.geometries.cylinder, pool.materials.plantPot, spots.length * 2);
   pots.name = 'Plant pots';
-  const foliage = new THREE.InstancedMesh(pool.geometries.sphere, pool.materials.plantFoliage, spots.length);
+  const foliage = new THREE.InstancedMesh(pool.geometries.cone, pool.materials.plantFoliage, spots.length * 3);
   foliage.name = 'Plant foliage';
-  writeSegments(pots, spots.map(([x, z]) => ({ center: [x, 0.26, z], scale: [0.3, 0.52, 0.3] })));
-  writeSegments(foliage, spots.map(([x, z]) => ({ center: [x, 0.92, z], scale: [0.48, 0.5, 0.48] })));
+  writeSegments(pots, spots.flatMap(([x, z]) => [
+    { center: [x, 0.2, z], scale: [0.34, 0.4, 0.34] },
+    // Trunk shares the pot material — bark-brown, one instanced mesh.
+    { center: [x, 0.62, z], scale: [0.07, 0.5, 0.07] },
+  ]));
+  writeSegments(foliage, spots.flatMap(([x, z], index) => [
+    { center: [x, 1.02, z], scale: [0.62, 0.55, 0.62], color: greens[index % 3] },
+    { center: [x, 1.38, z], scale: [0.48, 0.5, 0.48], color: greens[(index + 1) % 3] },
+    { center: [x, 1.7, z], scale: [0.3, 0.44, 0.3], color: greens[(index + 2) % 3] },
+  ]));
   return [pots, foliage];
 }
 
@@ -224,32 +235,32 @@ function createLibraryStock(pool) {
   return writeSegments(mesh, stock);
 }
 
-function createDataBackbone(pool) {
-  // Server racks along the east wing — the massive data backbone behind the
-  // workforce. Dense infrastructure is honest scenery; workers never are.
-  const racks = [];
-  const leds = [];
-  const ledColors = [0x58bd86, 0x7fdcff, 0xe5b860];
-  for (let row = 0; row < 7; row += 1) {
-    for (let column = 0; column < 2; column += 1) {
-      const x = 15.2 + column * 1.9;
-      const z = -1.8 + row * 2;
-      racks.push({ center: [x, 1.05, z], scale: [1.15, 2.1, 0.85] });
-      for (let light = 0; light < 3; light += 1) {
-        leds.push({
-          center: [x - 0.32 + light * 0.32, 0.5 + ((row + column + light) % 4) * 0.42, z + 0.46],
-          scale: [0.12, 0.05, 0.02],
-          color: ledColors[(row + column + light) % ledColors.length],
-        });
-      }
-    }
-  }
-  const rackMesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.graphite, racks.length);
-  rackMesh.name = 'Data backbone racks';
-  rackMesh.castShadow = true;
-  const ledMesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.rackLed, leds.length);
-  ledMesh.name = 'Data backbone activity lights';
-  return [writeSegments(rackMesh, racks), writeSegments(ledMesh, leds)];
+function createPipelineWall(pool) {
+  // The east wing shows the REAL fifteen-stage pipeline: one illuminated
+  // panel per canonical stage, in order. These panels ARE the department
+  // fixtures — the reconciler adopts them, so each stage status has exactly
+  // one visual owner and the wall can never disagree with the projection.
+  const group = new THREE.Group();
+  group.name = 'Fifteen-stage pipeline wall';
+  const count = STUDIO_TOPOLOGY.departments.length;
+  const frames = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.graphite, count + 1);
+  frames.name = 'Pipeline wall frames';
+  const segments = [{ center: [17.1, 1.5, 0], scale: [0.18, 2.6, 25.4] }];
+  const stageSignals = new Map();
+  STUDIO_TOPOLOGY.departments.forEach((slot, index) => {
+    const z = -11.7 + index * (23.4 / (count - 1));
+    segments.push({ center: [16.95, 1.5, z], scale: [0.1, 1.9, 1.28] });
+    const panel = new THREE.Mesh(pool.geometries.slab, pool.statusMaterial('unknown'));
+    panel.name = `Stage signal · ${slot.id}`;
+    panel.scale.set(0.08, 1.7, 1.08);
+    panel.position.set(16.78, 1.58, z);
+    // Tilt each display up-west so the overview camera reads the wall face-on.
+    panel.rotation.z = -0.55;
+    group.add(panel);
+    stageSignals.set(slot.id, panel);
+  });
+  group.add(writeSegments(frames, segments));
+  return { group, stageSignals };
 }
 
 function createFurnitureInstances(pool, desks) {
@@ -330,6 +341,8 @@ function createFurnitureInstances(pool, desks) {
 }
 
 function createStageCells(pool) {
+  // Work-cell docks along the bullpen/lab rails stay as furniture; the
+  // fifteen stage STATUS fixtures live on the pipeline wall.
   const docks = new THREE.InstancedMesh(
     pool.geometries.slab,
     pool.materials.graphiteLight,
@@ -340,20 +353,7 @@ function createStageCells(pool) {
     center: [slot.position[0], 0.3, slot.position[2]],
     scale: [0.68, 0.6, 0.5],
   })));
-
-  const stageSignals = new Map();
-  const signalGroup = new THREE.Group();
-  signalGroup.name = 'Fifteen stage signals';
-  STUDIO_TOPOLOGY.departments.forEach((slot) => {
-    const signal = new THREE.Mesh(pool.geometries.beacon, pool.statusMaterial('unknown'));
-    signal.name = `Stage signal · ${slot.id}`;
-    signal.scale.setScalar(0.17);
-    place(signal, slot);
-    signal.position.y = 0.72;
-    signalGroup.add(signal);
-    stageSignals.set(slot.id, signal);
-  });
-  return { docks, signalGroup, stageSignals };
+  return { docks };
 }
 
 function createMissionBoards(pool) {
@@ -427,7 +427,8 @@ export function createOfficeEnvironment(pool) {
   object.add(floor);
 
   object.add(createFloorFinishes(pool), ...createWalls(pool), ...createPlants(pool));
-  object.add(createCasework(pool), createLibraryStock(pool), ...createDataBackbone(pool));
+  const pipeline = createPipelineWall(pool);
+  object.add(createCasework(pool), createLibraryStock(pool), pipeline.group);
 
   const desks = {
     builder: STUDIO_TOPOLOGY.builderDesks.map((slot) => authoredDesk(slot, 'builder')),
@@ -445,12 +446,12 @@ export function createOfficeEnvironment(pool) {
   const boards = createMissionBoards(pool);
   const cells = createStageCells(pool);
   const named = createNamedFacilities(pool);
-  object.add(boards.group, cells.docks, cells.signalGroup, ...named.facilities);
+  object.add(boards.group, cells.docks, ...named.facilities);
 
   return {
     object,
     desks,
-    stageSignals: cells.stageSignals,
+    stageSignals: pipeline.stageSignals,
     missionBoards: boards.missionBoards,
     goalToken: named.goalToken,
     governanceBeacon: named.governanceBeacon,

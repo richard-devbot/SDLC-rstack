@@ -9,6 +9,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createAgentAnimator } from './animator.js';
 import {
   createCastProp,
+  createPosedProp,
   disposeStudioCast,
   loadStudioCast,
   setCastMotion,
@@ -35,10 +36,11 @@ const QUALITY = Object.freeze({
 const QUALITY_ORDER = ['high', 'balanced', 'low'];
 const MAX_DETAILED_RIGS = 16;
 // Raised from 90 for the Richardson-supplied GLB cast: the HQ battlestation
-// alone carries 26 textured materials (26 draws) and each occupied desk pod
-// ~4. Measured full-cast overview: 156 calls / 148k triangles. The quality
-// loop still degrades tiers above these ceilings.
-const DRAW_CALL_CEILING = 170;
+// alone carries 26 textured materials (26 draws), each occupied desk pod ~4,
+// plus the 15-panel pipeline wall and two team-lead fixtures. Measured
+// full-cast overview with 8 live sessions: 177 calls / 169k triangles. The
+// quality loop still degrades tiers above these ceilings.
+const DRAW_CALL_CEILING = 200;
 const TRIANGLE_CEILING = 200_000;
 
 function easeInOut(value) {
@@ -132,6 +134,21 @@ export function createStudioScene(canvas, {
       librarian.position.set(-9.2, 0, -9.6);
       castProps.add(librarian);
     }
+    if (cast?.worker) {
+      // Richardson-directed resident team leads: one posed fixture per wing.
+      // Scenery like the librarian — frozen mid-clip, no status panel, so
+      // they never claim work the run didn't observe.
+      const builderLead = createPosedProp(cast.worker);
+      builderLead.name = 'Builder team lead desk';
+      builderLead.position.set(-11.2, 0, 10.2);
+      builderLead.rotation.y = Math.PI;
+      castProps.add(builderLead);
+      const validatorLead = createPosedProp(cast.worker);
+      validatorLead.name = 'Validator team lead desk';
+      validatorLead.position.set(10, 0, 7.6);
+      validatorLead.rotation.y = Math.PI;
+      castProps.add(validatorLead);
+    }
   }
 
   loadStudioCast().then((loaded) => {
@@ -170,6 +187,9 @@ export function createStudioScene(canvas, {
   const animator = createAgentAnimator({
     scene,
     getHandle: (sessionId) => reconciler.get({ kind: 'session', id: sessionId }),
+    getOrchestrator: () => (projection?.orchestrator?.id
+      ? reconciler.get({ kind: 'orchestrator', id: projection.orchestrator.id })
+      : null),
     getWorkstation: (sessionId) => workstationBySession.get(sessionId) ?? null,
     createPacket: (kind) => createWorkPacket(pool, kind),
   });
@@ -223,7 +243,7 @@ export function createStudioScene(canvas, {
     ['ORCHESTRATION CENTER', -2, 3.8, -10],
     ['GOVERNANCE', 7.5, 3.6, -10],
     ['EVIDENCE VAULT', 15.5, 3.6, -10],
-    ['DATA BACKBONE', 16.1, 3.6, 4],
+    ['15-STAGE PIPELINE', 16.1, 3.6, 4],
     ['DISPATCH', -16, 2.6, 10],
   ];
   const roomLabelGroup = new THREE.Group();
@@ -347,7 +367,7 @@ export function createStudioScene(canvas, {
       }
       panel.material = panelMaterial(cacheKey, lines);
       // GLB bodies are shorter than the procedural rig envelope.
-      const panelHeight = handle.stationary ? (isOrchestrator ? 3 : 2.5) : (isOrchestrator ? 4 : 3.85);
+      const panelHeight = handle.seatedAtOrigin ? (isOrchestrator ? 3 : 2.5) : (isOrchestrator ? 4 : 3.85);
       panel.position.set(0, panelHeight, 0);
       panel.visible = isOrchestrator ? Boolean(projection.orchestrator) : Boolean(session);
     }
@@ -628,10 +648,14 @@ export function createStudioScene(canvas, {
       const handle = reconciler.get({ kind: 'session', id: session.id });
       if (!handle) return;
       const workstation = workstationBySession.get(session.id);
-      if (handle.stationary) {
-        // GLB pods already sit on their reconciler slot (the desk itself);
-        // only the working/idle clip follows the session state.
-        handle.setPose(restingBehavior(session));
+      if (handle.seatedAtOrigin) {
+        // Cast bodies sit via their own clip, authored at the desk origin.
+        const pose = restingBehavior(session);
+        if ((pose === 'seated_work' || pose === 'validating') && workstation) {
+          handle.object.position.copy(workstation.object.position);
+          handle.object.rotation.copy(workstation.object.rotation);
+        }
+        handle.setPose(pose);
       } else if (workstation) {
         const seat = workstation.seat.getWorldPosition(new THREE.Vector3());
         const pose = restingBehavior(session);
