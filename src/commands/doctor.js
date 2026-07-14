@@ -524,6 +524,13 @@ async function checkGuardSelfTest(projectRoot) {
     { label: 'Bash rm -rf', want: 2, payload: { tool_name: 'Bash', tool_input: { command: 'rm -rf /tmp/x' } } },
     { label: 'MultiEdit .env write', want: 2, payload: { tool_name: 'MultiEdit', tool_input: { file_path: '.env', edits: [] } } },
     { label: 'PowerShell Remove-Item -Recurse -Force', want: 2, payload: { tool_name: 'Bash', tool_input: { command: 'Remove-Item -Recurse -Force C:\\tmp\\x' } } },
+    // #372: a validator subagent (identified by `agent_type` in the PreToolUse
+    // payload — the only signal available for a plugin subagent, whose agent-def
+    // hooks Claude Code ignores) must be sandboxed read-only even though the
+    // hook wiring passes `--context builder`. Its bash WRITE blocks; its bash
+    // READ allows. This proves the shared escalation is live, not just wired.
+    { label: 'validator subagent bash write (agent_type)', want: 2, payload: { tool_name: 'Bash', tool_input: { command: 'echo x > src/app.js' }, agent_type: 'validator' } },
+    { label: 'validator subagent bash read (agent_type)', want: 0, payload: { tool_name: 'Bash', tool_input: { command: 'ls -la' }, agent_type: 'validator' } },
     { label: 'safe ls', want: 0, payload: { tool_name: 'Bash', tool_input: { command: 'ls' } } },
     { label: 'safe Edit to source file', want: 0, payload: { tool_name: 'Edit', tool_input: { file_path: 'src/app.js' } } },
   ];
@@ -543,7 +550,7 @@ async function checkGuardSelfTest(projectRoot) {
   const failures = results.filter((probe) => probe.code !== probe.want);
   if (!failures.length) {
     return check('guard self-test (enforcement live)', PASS,
-      'destructive Bash, MultiEdit secret-write, and PowerShell delete all blocked (exit 2); safe calls allowed (exit 0) — RStack enforcement is live on this machine');
+      'destructive Bash, MultiEdit secret-write, and PowerShell delete all blocked (exit 2); a validator subagent\'s bash WRITE blocked but its READ allowed (agent_type sandbox, #372); safe calls allowed (exit 0) — RStack enforcement is live on this machine');
   }
   const detail = failures.map((probe) => `${probe.label} exited ${probe.code} (want ${probe.want})`).join('; ');
   return check('guard self-test (enforcement live)', FAIL, `enforcement is NOT behaving as expected: ${detail}`,
