@@ -264,11 +264,6 @@ export function classifyDestructiveAction(arg) {
     return classifyCommand(input.command);
   }
 
-  const WRITE_TOOLS = new Set([
-    'write', 'edit', 'multiedit', 'notebookedit', 'applypatch',
-    'strreplace', 'strreplaceeditor', 'createfile', 'deletefile',
-    'movefile', 'renamefile',
-  ]);
   if (WRITE_TOOLS.has(tool)) {
     // notebook_path is NotebookEdit's target parameter — without it the tool
     // name matches but the classifier sees an empty path (#286).
@@ -277,6 +272,44 @@ export function classifyDestructiveAction(arg) {
   }
 
   return notDestructive();
+}
+
+// Workspace-writing tool names, canonicalized (lowercase + separators stripped,
+// so Claude Code PascalCase "MultiEdit" and Pi snake_case "multi_edit" both
+// match). Hoisted to module scope so the guard's BLOCKED-task gate (#373) can
+// ask "is this a write/edit tool" without re-declaring the list.
+const WRITE_TOOLS = Object.freeze(new Set([
+  'write', 'edit', 'multiedit', 'notebookedit', 'applypatch',
+  'strreplace', 'strreplaceeditor', 'createfile', 'deletefile',
+  'movefile', 'renamefile',
+]));
+
+/** True when `toolName` is a workspace-writing tool (any spelling). */
+export function isWriteTool(toolName) {
+  return WRITE_TOOLS.has(String(toolName || '').toLowerCase().replace(/[_-]/g, ''));
+}
+
+/**
+ * True when a shell command writes a file (redirect/tee/cp/mv/dd/ln/…), even to
+ * a non-protected path — reuses the same write-target extraction as the
+ * protected-path classifier (#369). Scratch/discard targets (`/dev/null`, fd
+ * dups like `2>&1`) do not count. Used by the guard's BLOCKED-task gate (#373)
+ * so a hard-blocked task cannot keep mutating the workspace via bash.
+ */
+export function commandWritesFile(command) {
+  if (typeof command !== 'string' || !command.trim()) return false;
+  for (const segment of command.split(/\|\||&&|[|;&\n]/)) {
+    for (const target of writeTargetsInSegment(segment)) {
+      const t = String(target).trim();
+      // Skip scratch/discard targets that aren't a persistent workspace change
+      // (matches the validator sandbox's temp allowance): /dev/null, fd dups,
+      // and the temp dirs.
+      if (!t || t === '/dev/null' || /^&?\d+$/.test(t)) continue;
+      if (/^(\/var\/tmp|\/private\/tmp|\/tmp)\//.test(t)) continue;
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Convenience predicate. */

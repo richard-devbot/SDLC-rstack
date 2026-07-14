@@ -40,7 +40,7 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-import { classifyDestructiveAction } from '../core/harness/destructive-actions.js';
+import { classifyDestructiveAction, isWriteTool, commandWritesFile } from '../core/harness/destructive-actions.js';
 import { evaluateDestructiveAction } from '../core/harness/guardrails.js';
 import { evaluateValidatorAction, isValidatorContext, isValidatorRole } from '../core/harness/validator-sandbox.js';
 import { resolveRunId, runDirectory } from '../core/harness/runs.js';
@@ -174,6 +174,25 @@ function verdictOf(decision, { category = null, reason, context, tool = null, ex
 }
 
 /**
+ * True when the run's tasks.json marks `taskId` as BLOCKED (attempt budget
+ * exhausted). Reads the canonical task file — tolerates both the array and
+ * `{ tasks: [...] }` shapes. Any read/parse failure returns false: this is a
+ * hardening layer (#373), not the primary gate, so an unresolvable task must
+ * not manufacture a block.
+ */
+async function taskIsBlocked(projectRoot, runId, taskId) {
+  try {
+    const raw = await readFile(join(runDirectory(projectRoot, runId), 'tasks.json'), 'utf8');
+    const parsed = JSON.parse(raw);
+    const tasks = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.tasks) ? parsed.tasks : [];
+    const found = tasks.find((entry) => entry && entry.id === taskId);
+    return Boolean(found && String(found.status).toUpperCase() === 'BLOCKED');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Run the guard decision. Options mirror the CLI flags; `stdinText` is the
  * raw hook payload used when no --tool/--command/--path flag is given.
  * Returns { verdict, exitCode, warnings } and never throws.
@@ -250,6 +269,41 @@ export async function runGuard({
 
   // Builder context: classify via the single source of truth (#131).
   const classified = classifyDestructiveAction({ toolName: toolName ?? '', input });
+
+  // #373: a task hard-blocked at its attempt budget must not keep mutating the
+  // workspace tool-call by tool-call. Keyed on task STATUS (BLOCKED), NEVER raw
+  // attempt count — so a legitimate in-progress Nth attempt the claim gate
+  // already permitted is never false-blocked. Fires only for a MUTATING action
+  // (a destructive command or a write/edit tool) with a resolvable task id whose
+  // status is BLOCKED, and it is NOT bypassable by RSTACK_ALLOW_DESTRUCTIVE (the
+  // attempt budget is a separate guardrail — its only release is an audited
+  // guardrail-override, consumed when the task is re-claimed into IN_PROGRESS).
+  const budgetTaskId = task ?? env[GUARD_TASK_ENV];
+  const mutatingAction = classified.destructive
+    || isWriteTool(toolName)
+    || (typeof input?.command === 'string' && commandWritesFile(input.command));
+  if (!explain && budgetTaskId && mutatingAction) {
+    try {
+      const projectRoot = resolve(project ?? cwd);
+      const selectedRun = await resolveRunId(projectRoot, runId);
+      if (await taskIsBlocked(projectRoot, selectedRun, budgetTaskId)) {
+        return {
+          verdict: verdictOf('block', {
+            category: 'attempt-budget-exhausted',
+            reason: `task ${budgetTaskId} is BLOCKED (attempt budget exhausted) — no further changes until a human approves 'guardrail-override:${budgetTaskId}' via sdlc_approve or the Business Hub to grant one more attempt.`,
+            context,
+            tool: toolName,
+            extra: { run_id: selectedRun },
+          }),
+          exitCode: EXIT_BLOCK,
+          warnings,
+        };
+      }
+    } catch {
+      // Run/tasks unresolvable → this hardening layer no-ops; the destructive
+      // gate below still applies. (Not a guard failure — no active task context.)
+    }
+  }
 
   if (explain) {
     return {
