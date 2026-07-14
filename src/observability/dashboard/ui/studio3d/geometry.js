@@ -11,6 +11,7 @@
  */
 import * as THREE from 'three';
 import { STUDIO_TOPOLOGY, workstationSlot } from './topology.js';
+import { createCastAgent } from './assets.js';
 import { createHumanoidRobot } from './robot.js';
 
 const STATUS_COLORS = Object.freeze({
@@ -155,6 +156,77 @@ function createRobotEntity(data, slot, pool, kind) {
   };
 }
 
+/**
+ * GLB-bodied agent from the Richardson-supplied cast. Same handle contract
+ * as the procedural robot, but the body is `stationary`: the person works at
+ * their station while packets and streams carry the movement, so a desk pod
+ * never glides through the office. Status lives in the orb above the body;
+ * the floor ring is the role band.
+ */
+function createCastRobotEntity(data, slot, pool, kind, castEntry) {
+  const role = kind === 'orchestrator' ? 'orchestrator' : data.role === 'validator' ? 'validator' : 'builder';
+  const roleLabel = role === 'orchestrator' ? 'Orchestrator' : role === 'validator' ? 'Validator' : 'Builder';
+  const body = createCastAgent(castEntry);
+  const object = new THREE.Group();
+  object.name = `${roleLabel} agent · ${data.agent_id ?? data.id ?? 'unassigned'}`;
+  object.add(body.object);
+
+  const orb = new THREE.Mesh(pool.geometries.beacon, pool.statusMaterial(data.status));
+  orb.name = 'statusOrb';
+  orb.scale.setScalar(0.12);
+  orb.position.set(0, body.height + 0.34, 0);
+  object.add(orb);
+
+  if (kind !== 'orchestrator') {
+    const ring = new THREE.Mesh(
+      pool.geometries.ring,
+      role === 'validator' ? pool.materials.validator : pool.materials.amber,
+    );
+    ring.name = 'roleRing';
+    ring.rotation.x = -Math.PI / 2;
+    ring.scale.setScalar(0.8);
+    ring.position.y = 0.04;
+    object.add(ring);
+  }
+
+  place(object, slot);
+  const handle = {
+    object,
+    robot: body,
+    stationary: true,
+    joints: {},
+    anchors: Object.freeze({}),
+    faceMaterial: null,
+    pose: 'standing',
+    setPose(name) {
+      handle.pose = name;
+      body.setWorking(name === 'seated_work' || name === 'validating');
+    },
+    setFace() {},
+    update(next, nextSlot) {
+      if (nextSlot) place(object, nextSlot);
+      object.userData.data = next;
+      object.userData.status = next.status ?? 'unknown';
+      object.userData.role = role;
+      object.userData.entityRef = { kind: next.kind ?? kind, id: next.id ?? null };
+      orb.material = pool.statusMaterial(next.status);
+      body.setWorking(['active', 'starting'].includes(next.status));
+    },
+    reset() {
+      object.position.set(0, 0, 0);
+      object.rotation.set(0, 0, 0);
+      handle.setPose('standing');
+    },
+    dispose() {
+      body.dispose();
+      object.removeFromParent();
+    },
+  };
+  object.userData.robotHandle = handle;
+  handle.update({ ...data, kind }, null);
+  return handle;
+}
+
 function createAggregate(data, slot, pool) {
   // Overflow queue board at Dispatch — an honest aggregate, never an
   // invented worker. The exact count lives in the semantic view.
@@ -179,15 +251,25 @@ function createAggregate(data, slot, pool) {
   };
 }
 
-export function createEntityFactories(pool, office = null) {
+export function createEntityFactories(pool, office = null, getCast = () => null) {
   const adoptOr = (mesh, data, slot, name) => (
     mesh ? adoptedFixture(mesh, pool) : statusMarker(data, slot, pool, name)
   );
   return {
-    orchestrator: (data, slot) => createRobotEntity(data, slot, pool, 'orchestrator'),
+    orchestrator: (data, slot) => {
+      const cast = getCast();
+      return cast?.manager
+        ? createCastRobotEntity(data, slot, pool, 'orchestrator', cast.manager)
+        : createRobotEntity(data, slot, pool, 'orchestrator');
+    },
     mission: (data, slot) => adoptOr(office?.missionBoards?.get(slot.id), data, slot, `Mission · ${data.title ?? data.id}`),
     department: (data, slot) => adoptOr(office?.stageSignals?.get(slot.id), data, slot, `Department · ${data.title ?? data.id}`),
-    session: (data, slot) => createRobotEntity(data, slot, pool, 'session'),
+    session: (data, slot) => {
+      const cast = getCast();
+      return cast?.worker
+        ? createCastRobotEntity(data, slot, pool, 'session', cast.worker)
+        : createRobotEntity(data, slot, pool, 'session');
+    },
     aggregate: (data, slot) => createAggregate(data, slot, pool),
     governance: (data, slot) => adoptOr(office?.governanceBeacon, data, slot, 'Human governance beacon'),
     evidence: (data, slot) => adoptOr(office?.vaultLight, data, slot, 'Evidence vault light'),

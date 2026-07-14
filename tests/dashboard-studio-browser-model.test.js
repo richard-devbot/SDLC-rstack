@@ -123,7 +123,9 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /rebuildStreams/);
   assert.match(sceneSource, /paintGlobalTimeline/);
   assert.match(sceneSource, /MAX_DETAILED_RIGS\s*=\s*16/);
-  assert.match(sceneSource, /DRAW_CALL_CEILING\s*=\s*90/);
+  // 170 accommodates the GLB cast (battlestation = 26 textured materials);
+  // measured full-cast overview is 156 calls — see scene.js rationale.
+  assert.match(sceneSource, /DRAW_CALL_CEILING\s*=\s*170/);
   assert.match(sceneSource, /TRIANGLE_CEILING\s*=\s*200_000/);
   assert.match(sceneSource, /enforceQualityCeilings/);
   assert.match(sceneSource, /onDiagnostics/);

@@ -177,9 +177,10 @@ function createCasework(pool) {
     { center: [-16.4, 0.88, -8.4], scale: [0.45, 1.72, 2.4], color: 0x9aa89f },
     { center: [-13.2, 0.7, -8.6], scale: [2.1, 1.36, 0.45], color: 0x9aa89f },
     { center: [-9.2, 0.53, -8.6], scale: [1.6, 1.02, 0.55], color: 0xb9c2c5 },
-    // Orchestrator HQ strategy table.
-    { center: [-2, 0.92, -10.1], scale: [2.6, 0.1, 1.3], color: 0x9a6b42 },
-    { center: [-2, 0.45, -10.1], scale: [0.5, 0.86, 0.5], color: 0x7a5433 },
+    // Orchestrator HQ strategy table — against the north wall so the
+    // orchestrator's standing slot at (-2, -10) stays clear.
+    { center: [-2, 0.92, -11.5], scale: [2.6, 0.1, 1.1], color: 0x9a6b42 },
+    { center: [-2, 0.45, -11.5], scale: [0.5, 0.86, 0.5], color: 0x7a5433 },
     // Governance review table and waiting benches.
     { center: [7.5, 0.86, -10.2], scale: [1.9, 0.09, 0.95], color: 0xb9c2c5 },
     { center: [7.5, 0.42, -10.2], scale: [0.45, 0.8, 0.45], color: 0x8f959c },
@@ -254,6 +255,11 @@ function createDataBackbone(pool) {
 function createFurnitureInstances(pool, desks) {
   const builderCount = desks.builder.length;
   const allDesks = [...desks.builder, ...desks.validator];
+  // Pod mode: an occupied desk's procedural furniture collapses because the
+  // occupying GLB workstation pod brings its own desk, chair, and laptop.
+  let podMode = false;
+  const HIDDEN = [0.0001, 0.0001, 0.0001];
+  const unlessPod = (desk, scale) => (podMode && desk.occupant ? HIDDEN : scale);
   const builderTops = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.workSurface, builderCount);
   builderTops.name = 'Builder desk tops';
   const validatorTops = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.validator, desks.validator.length);
@@ -281,40 +287,45 @@ function createFurnitureInstances(pool, desks) {
     mesh.setMatrixAt(index, transform.matrix);
   };
 
-  desks.builder.forEach((desk, index) => writeInstance(builderTops, index, desk, [0, 1.02, 0], [1.12, 0.08, 0.64]));
-  desks.validator.forEach((desk, index) => writeInstance(validatorTops, index, desk, [0, 1.02, 0], [1.12, 0.08, 0.64]));
-  allDesks.forEach((desk, index) => {
-    writeInstance(chairs, index, desk, [0, 0.52, -0.72], [0.54, 0.1, 0.5]);
-    writeInstance(chairBacks, index, desk, [0, 0.86, -0.95], [0.54, 0.62, 0.09]);
-    writeInstance(monitors, index, desk, [0, 1.55, 0.18], [0.56, 0.38, 0.06]);
-    writeInstance(keyboards, index, desk, [0, 1.11, -0.18], [0.5, 0.025, 0.2]);
-    writeInstance(legs, index * 2, desk, [-0.5, 0.51, 0], [0.07, 0.94, 0.55]);
-    writeInstance(legs, index * 2 + 1, desk, [0.5, 0.51, 0], [0.07, 0.94, 0.55]);
-  });
-
-  // A desk screen lights only while a real observed session occupies it.
-  const refreshScreenGlow = () => {
+  // One layout pass writes every desk's furniture and the occupancy glow, so
+  // pod-mode changes and occupancy changes share the same source of truth.
+  const layoutFurniture = () => {
+    desks.builder.forEach((desk, index) => writeInstance(builderTops, index, desk, [0, 1.02, 0], unlessPod(desk, [1.12, 0.08, 0.64])));
+    desks.validator.forEach((desk, index) => writeInstance(validatorTops, index, desk, [0, 1.02, 0], unlessPod(desk, [1.12, 0.08, 0.64])));
     allDesks.forEach((desk, index) => {
+      writeInstance(chairs, index, desk, [0, 0.52, -0.72], unlessPod(desk, [0.54, 0.1, 0.5]));
+      writeInstance(chairBacks, index, desk, [0, 0.86, -0.95], unlessPod(desk, [0.54, 0.62, 0.09]));
+      writeInstance(monitors, index, desk, [0, 1.55, 0.18], unlessPod(desk, [0.56, 0.38, 0.06]));
+      writeInstance(keyboards, index, desk, [0, 1.11, -0.18], unlessPod(desk, [0.5, 0.025, 0.2]));
+      writeInstance(legs, index * 2, desk, [-0.5, 0.51, 0], unlessPod(desk, [0.07, 0.94, 0.55]));
+      writeInstance(legs, index * 2 + 1, desk, [0.5, 0.51, 0], unlessPod(desk, [0.07, 0.94, 0.55]));
+      // A desk screen lights only while a real observed session occupies it —
+      // and never in pod mode, where the pod's own laptop is the screen.
       writeInstance(
         screenGlow,
         index,
         desk,
         [0, 1.55, 0.215],
-        desk.occupant ? [0.5, 0.32, 0.02] : [0.0001, 0.0001, 0.0001],
+        desk.occupant && !podMode ? [0.5, 0.32, 0.02] : HIDDEN,
       );
     });
-    screenGlow.instanceMatrix.needsUpdate = true;
+    for (const mesh of [builderTops, validatorTops, chairs, chairBacks, monitors, keyboards, legs, screenGlow]) {
+      mesh.instanceMatrix.needsUpdate = true;
+    }
   };
-  refreshScreenGlow();
+  layoutFurniture();
 
   for (const mesh of [builderTops, validatorTops, chairs, chairBacks, monitors, keyboards, legs]) {
-    mesh.instanceMatrix.needsUpdate = true;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
   }
   return {
     meshes: [builderTops, validatorTops, chairs, chairBacks, monitors, keyboards, legs, screenGlow],
-    refreshScreenGlow,
+    refreshScreenGlow: layoutFurniture,
+    setPodMode(next) {
+      podMode = Boolean(next);
+      layoutFurniture();
+    },
   };
 }
 
@@ -446,6 +457,7 @@ export function createOfficeEnvironment(pool) {
     vaultLight: named.vaultLight,
     timelineScreen: named.timelineScreen,
     refreshScreenGlow: furniture.refreshScreenGlow,
+    setPodMode: furniture.setPodMode,
     dispose() {
       object.removeFromParent();
       floor.geometry.dispose();

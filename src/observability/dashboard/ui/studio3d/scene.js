@@ -7,6 +7,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createAgentAnimator } from './animator.js';
+import {
+  createCastProp,
+  disposeStudioCast,
+  loadStudioCast,
+  setCastMotion,
+  updateCastMixers,
+} from './assets.js';
 import { restingBehavior } from './behavior.js';
 import {
   createCapabilityInstances,
@@ -27,7 +34,11 @@ const QUALITY = Object.freeze({
 });
 const QUALITY_ORDER = ['high', 'balanced', 'low'];
 const MAX_DETAILED_RIGS = 16;
-const DRAW_CALL_CEILING = 90;
+// Raised from 90 for the Richardson-supplied GLB cast: the HQ battlestation
+// alone carries 26 textured materials (26 draws) and each occupied desk pod
+// ~4. Measured full-cast overview: 156 calls / 148k triangles. The quality
+// loop still degrades tiers above these ceilings.
+const DRAW_CALL_CEILING = 170;
 const TRIANGLE_CEILING = 200_000;
 
 function easeInOut(value) {
@@ -85,11 +96,57 @@ export function createStudioScene(canvas, {
   scene.add(office.object);
   const robotFleet = createRobotFleetRenderer(pool, { maxRobots: MAX_DETAILED_RIGS + 1 });
   scene.add(robotFleet.object);
+  let cast = null;
   const reconciler = createEntityReconciler({
     scene,
-    factories: createEntityFactories(pool, office),
+    factories: createEntityFactories(pool, office, () => cast),
   });
   const workstationBySession = new Map();
+
+  // Richardson-supplied GLB cast: executive HQ set (battlestation + chair),
+  // the Skills Library attendant, and the manager/worker agent bodies. Loads
+  // asynchronously; until then (and on any failure) the procedural bodies
+  // and furniture render, so the Studio never blanks while models stream in.
+  const castProps = new THREE.Group();
+  castProps.name = 'Executive cast props';
+  scene.add(castProps);
+
+  function placeCastProps() {
+    if (cast?.station) {
+      const station = createCastProp(cast.station);
+      station.name = 'Orchestrator HQ battlestation';
+      station.position.set(-5.2, 0, -10.4);
+      station.rotation.y = Math.PI / 2;
+      castProps.add(station);
+    }
+    if (cast?.chair) {
+      const chair = createCastProp(cast.chair);
+      chair.name = 'Orchestrator HQ chair';
+      chair.position.set(-4, 0, -10.4);
+      chair.rotation.y = -Math.PI / 2;
+      castProps.add(chair);
+    }
+    if (cast?.librarian) {
+      const librarian = createCastProp(cast.librarian);
+      librarian.name = 'Skills Library attendant';
+      librarian.position.set(-9.2, 0, -9.6);
+      castProps.add(librarian);
+    }
+  }
+
+  loadStudioCast().then((loaded) => {
+    if (destroyed || !loaded) return;
+    cast = loaded;
+    office.setPodMode?.(Boolean(cast.worker));
+    placeCastProps();
+    // Rebuild live entities so orchestrator/session bodies pick up the cast.
+    if (projection) {
+      reconciler.clear();
+      reconcile(projection);
+    } else {
+      startLoop();
+    }
+  }).catch(() => { /* procedural fallback stays on screen */ });
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -289,7 +346,9 @@ export function createStudioScene(canvas, {
         handle.object.add(panel);
       }
       panel.material = panelMaterial(cacheKey, lines);
-      panel.position.set(0, isOrchestrator ? 4 : 3.85, 0);
+      // GLB bodies are shorter than the procedural rig envelope.
+      const panelHeight = handle.stationary ? (isOrchestrator ? 3 : 2.5) : (isOrchestrator ? 4 : 3.85);
+      panel.position.set(0, panelHeight, 0);
       panel.visible = isOrchestrator ? Boolean(projection.orchestrator) : Boolean(session);
     }
     for (const [key, entry] of panelCache) {
@@ -484,6 +543,7 @@ export function createStudioScene(canvas, {
     const transitionStarted = performance.now();
     const workforceActive = animator.update(now);
     transitionCostMs = performance.now() - transitionStarted;
+    const castAnimating = updateCastMixers(now);
     const streamsFlowing = updateStreamPulses(now);
     robotFleet.update();
     updateCameraTween(now);
@@ -492,7 +552,7 @@ export function createStudioScene(canvas, {
     samplePerformance(now);
     enforceQualityCeilings(now);
     onDiagnostics(diagnostics());
-    if (!workforceActive && transitions.pending() === 0 && !cameraTween && !controlsActive && !streamsFlowing) {
+    if (!workforceActive && !castAnimating && transitions.pending() === 0 && !cameraTween && !controlsActive && !streamsFlowing) {
       renderer.setAnimationLoop(null);
     }
   }
@@ -568,7 +628,11 @@ export function createStudioScene(canvas, {
       const handle = reconciler.get({ kind: 'session', id: session.id });
       if (!handle) return;
       const workstation = workstationBySession.get(session.id);
-      if (workstation) {
+      if (handle.stationary) {
+        // GLB pods already sit on their reconciler slot (the desk itself);
+        // only the working/idle clip follows the session state.
+        handle.setPose(restingBehavior(session));
+      } else if (workstation) {
         const seat = workstation.seat.getWorldPosition(new THREE.Vector3());
         const pose = restingBehavior(session);
         const seated = pose === 'seated_work' || pose === 'validating';
@@ -606,6 +670,7 @@ export function createStudioScene(canvas, {
     motionMode = nextMotion === 'reduced' ? 'reduced' : 'full';
     transitions.setMotion(motionMode);
     animator.setMotion(motionMode);
+    setCastMotion(motionMode);
     if (motionMode === 'reduced') cameraTween = null;
     startLoop();
   }
@@ -705,6 +770,8 @@ export function createStudioScene(canvas, {
       timelineMaterial.map?.dispose();
       timelineMaterial.dispose();
     }
+    scene.remove(castProps);
+    disposeStudioCast();
     office.dispose();
     controls.dispose();
     pool.dispose();

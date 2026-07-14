@@ -86,6 +86,14 @@ export function createAgentAnimator({
 
   function finalState(intent, handle) {
     if (!handle) return;
+    if (handle.stationary) {
+      // GLB desk pods stay at their station; only the pose/clip reacts.
+      const seated = ['work', 'walk_to_assignment', 'retry'].includes(intent.action);
+      handle.setPose(seated
+        ? (handle.object.userData.role === 'validator' ? 'validating' : 'seated_work')
+        : intent.action === 'wait' ? 'waiting' : 'standing');
+      return;
+    }
     const workstation = workstationFor(intent);
     const seat = worldPosition(workstation?.seat);
     if (['work', 'walk_to_assignment', 'retry'].includes(intent.action) && seat) {
@@ -188,7 +196,7 @@ export function createAgentAnimator({
       const item = active[index];
       const progress = clampedProgress((now - item.startedAt) / item.duration);
       const routePosition = sampleWaypointRoute(item.route, progress);
-      if (item.handle && WALKING_ACTIONS.has(item.intent.action)) {
+      if (item.handle && !item.handle.stationary && WALKING_ACTIONS.has(item.intent.action)) {
         const heading = item.handle.object.position;
         const dx = routePosition[0] - heading.x;
         const dz = routePosition[2] - heading.z;
