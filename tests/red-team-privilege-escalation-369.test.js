@@ -45,12 +45,14 @@ function runGuard(args, { input = '', env = {}, cwd } = {}) {
       env: cleanEnv(env),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    // Hard timeout so a hung guard subprocess can never wedge CI (CodeRabbit).
+    const timer = setTimeout(() => { child.kill('SIGKILL'); rejectPromise(new Error(`guard subprocess timed out for args: ${args.join(' ')}`)); }, 10_000);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
-    child.on('error', rejectPromise);
-    child.on('close', (code) => resolvePromise({ code, stdout, stderr, verdict: (() => { try { return JSON.parse(stdout); } catch { return null; } })() }));
+    child.on('error', (error) => { clearTimeout(timer); rejectPromise(error); });
+    child.on('close', (code) => { clearTimeout(timer); resolvePromise({ code, stdout, stderr, verdict: (() => { try { return JSON.parse(stdout); } catch { return null; } })() }); });
     child.stdin.end(input);
   });
 }
