@@ -78,6 +78,14 @@ test('bridge conformance: adapters match the Pi registry', async (t) => {
       'src/integrations/tau/rstack_sdlc.py diverged from the Pi adapter — sync its _TOOLS table (adapter-contract.md §1)',
     );
   });
+
+  await t.test('Hermes adapter tool surface matches the Pi registry exactly', () => {
+    assert.deepEqual(
+      pythonAdapterTools('src/integrations/hermes/rstack_sdlc.py'),
+      [...piTools].sort(),
+      'src/integrations/hermes/rstack_sdlc.py diverged from the Pi adapter — sync its _TOOLS table (adapter-contract.md §1)',
+    );
+  });
 });
 
 test('generic bridge runs a tool and returns JSON with text content', async () => {
