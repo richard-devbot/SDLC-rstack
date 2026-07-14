@@ -89,9 +89,18 @@ const STUDIO_STATIC = new Map([
   ['/studio3d/assets/office.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/office.js'), type: 'text/javascript; charset=utf-8' }],
   ['/studio3d/assets/animator.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/animator.js'), type: 'text/javascript; charset=utf-8' }],
   ['/studio3d/assets/styles.css', { path: join(DASHBOARD_DIR, 'ui/studio3d/styles.css'), type: 'text/css; charset=utf-8' }],
+  ['/studio3d/assets/assets.js', { path: join(DASHBOARD_DIR, 'ui/studio3d/assets.js'), type: 'text/javascript; charset=utf-8' }],
+  ['/studio3d/assets/models/manager.glb', { path: join(DASHBOARD_DIR, 'ui/studio3d/models/manager.glb'), type: 'model/gltf-binary', immutable: true }],
+  ['/studio3d/assets/models/worker.glb', { path: join(DASHBOARD_DIR, 'ui/studio3d/models/worker.glb'), type: 'model/gltf-binary', immutable: true }],
+  ['/studio3d/assets/models/librarian.glb', { path: join(DASHBOARD_DIR, 'ui/studio3d/models/librarian.glb'), type: 'model/gltf-binary', immutable: true }],
+  ['/studio3d/assets/models/manager-desk.glb', { path: join(DASHBOARD_DIR, 'ui/studio3d/models/manager-desk.glb'), type: 'model/gltf-binary', immutable: true }],
+  ['/studio3d/assets/models/manager-chair.glb', { path: join(DASHBOARD_DIR, 'ui/studio3d/models/manager-chair.glb'), type: 'model/gltf-binary', immutable: true }],
   ['/studio3d/vendor/three.module.js', { path: join(PACKAGE_ROOT, 'node_modules/three/build/three.module.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
   ['/studio3d/vendor/three.core.js', { path: join(PACKAGE_ROOT, 'node_modules/three/build/three.core.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
   ['/studio3d/vendor/controls/OrbitControls.js', { path: join(PACKAGE_ROOT, 'node_modules/three/examples/jsm/controls/OrbitControls.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
+  ['/studio3d/vendor/loaders/GLTFLoader.js', { path: join(PACKAGE_ROOT, 'node_modules/three/examples/jsm/loaders/GLTFLoader.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
+  ['/studio3d/vendor/utils/BufferGeometryUtils.js', { path: join(PACKAGE_ROOT, 'node_modules/three/examples/jsm/utils/BufferGeometryUtils.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
+  ['/studio3d/vendor/utils/SkeletonUtils.js', { path: join(PACKAGE_ROOT, 'node_modules/three/examples/jsm/utils/SkeletonUtils.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
 ]);
 
 const clients = new Set();
