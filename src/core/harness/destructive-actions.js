@@ -32,6 +32,8 @@ export const DESTRUCTIVE_CATEGORIES = Object.freeze({
   SECRET_WRITE: 'secret-write',
   PROTECTED_CONFIG_WRITE: 'protected-config-write',
   DB_DESTROY: 'db-destroy',
+  REMOTE_EXEC: 'remote-exec',
+  PERM_DESTROY: 'perm-destroy',
 });
 
 // Command classification rules, evaluated in order; first match wins. Each
@@ -45,6 +47,17 @@ const COMMAND_RULES = Object.freeze([
     // --force / --force-with-lease / -f on push, and history-destroying resets.
     pattern: /\bgit\s+push\b[^|;&]*(--force\b|--force-with-lease\b|\s-f\b)|\bgit\s+reset\s+--hard\b|\bgit\s+push\b[^|;&]*\+/i,
     reason: 'git force-push or hard reset can overwrite remote or local history',
+  }),
+  Object.freeze({
+    category: DESTRUCTIVE_CATEGORIES.GIT_FORCE,
+    // Working-tree destruction siblings of `reset --hard` (#370): `git checkout`
+    // with `--`/a `.` pathspec/`-f` discards uncommitted changes (but a branch
+    // op like `checkout -b`/`checkout main` does not); `git restore` discards
+    // the worktree unless it is `--staged`-only; `git clean -f` deletes
+    // untracked files (incl. local .env/configs). `git clean -n`/`--dry-run` is
+    // safe. Branch switches and no-op inspections stay allowed.
+    pattern: /\bgit\s+checkout\b[^|;&]*(\s--(\s|$)|\s\.(\s|$)|\s-f\b|--force\b)|\bgit\s+restore\b(?![^|;&]*--staged)|\bgit\s+restore\b[^|;&]*(--worktree\b|\s-W\b)|\bgit\s+clean\b[^|;&]*(-[a-zA-Z]*[fF]|--force\b)/i,
+    reason: 'git command discards uncommitted or untracked work (checkout/restore/clean)',
   }),
   Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.BROAD_DELETE,
@@ -65,6 +78,15 @@ const COMMAND_RULES = Object.freeze([
     reason: 'recursive/forced delete (PowerShell/cmd form)',
   }),
   Object.freeze({
+    category: DESTRUCTIVE_CATEGORIES.PERM_DESTROY,
+    // Recursive permission/ownership change (#370): `chmod -R`, `chown -R`,
+    // `chgrp -R` can wreck an entire tree's access. A single-target
+    // `chmod 644 file` / `chmod +x script` is ordinary work and stays allowed;
+    // recursion is the escalation.
+    pattern: /\b(chmod|chown|chgrp)\b[^|;&]*(\s-{1,2}[a-zA-Z]*[Rr][a-zA-Z]*\b|\s--recursive\b)/i,
+    reason: 'recursive permission or ownership change (chmod/chown/chgrp -R)',
+  }),
+  Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.PUBLISH,
     pattern: /\b(npm|yarn|pnpm)\s+publish\b|\bnpm\s+unpublish\b|\bcargo\s+publish\b|\bgem\s+push\b|\btwine\s+upload\b|\bgh\s+release\s+(create|delete)\b/i,
     reason: 'package or release publish',
@@ -81,6 +103,15 @@ const COMMAND_RULES = Object.freeze([
     // much ordinary code (DOM `el.remove()`, list ops) and would false-positive.
     pattern: /\b(DROP\s+(TABLE|DATABASE|SCHEMA)|DELETE\s+FROM|TRUNCATE\s+(TABLE\s+)?)\b|\.dropDatabase\s*\(|\.deleteMany\s*\(|\bdropdb\b|\bmongo(sh)?\s+\S*\s*--eval\b|\bprisma\s+migrate\s+reset\b|\bsequelize\s+db:drop\b/i,
     reason: 'destructive database statement (SQL drop/delete/truncate, or ORM/CLI drop/reset)',
+  }),
+  Object.freeze({
+    category: DESTRUCTIVE_CATEGORIES.REMOTE_EXEC,
+    // Download-and-execute (#370): piping a fetched payload straight into an
+    // interpreter runs untrusted code (supply-chain / RCE). Requires the pipe
+    // into a shell/interpreter — `curl -o file url` (no pipe) is a plain
+    // download and stays allowed.
+    pattern: /\b(curl|wget|fetch)\b[^|;&]*\|\s*(sudo\s+)?(sh|bash|zsh|dash|ksh|fish|python[0-9.]*|perl|ruby|node)\b/i,
+    reason: 'pipes a downloaded payload into an interpreter (download-and-execute / RCE)',
   }),
   Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.SECRET_WRITE,
