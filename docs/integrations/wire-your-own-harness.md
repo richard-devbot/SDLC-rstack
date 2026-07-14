@@ -52,8 +52,11 @@ THE GUARD CONTRACT
   {"decision":"allow"|"block","category":...,"reason":...,"context":...,"tool":...}
 - Exit code 0 = allow the tool call. Exit code 2 = BLOCK the tool call and
   feed the guard's stderr text back to the model as the reason, so it can
-  request an approval instead of retrying blindly. Treat any other exit code
-  as allow (the guard itself never exits non-0/2 by design).
+  request an approval instead of retrying blindly. Any OTHER outcome — a
+  non-0/2 exit, a timeout, a spawn failure, or unparseable stdout — means the
+  guard could not decide; do NOT treat it as allow. Fail closed (block) unless
+  `RSTACK_GUARD_FAIL_OPEN=1` is set — see step 5 for the full guard-unavailable
+  policy (#371).
 
 WHAT TO WIRE
 
