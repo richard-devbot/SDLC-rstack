@@ -196,22 +196,6 @@ export function createCastProp(entry) {
   return cloneWithSkeleton(entry.template);
 }
 
-/**
- * Clone a template frozen mid-clip — a posed fixture (e.g. the resident
- * team leads seated at their desks) that never animates or invents work.
- */
-export function createPosedProp(entry, atTime = 0.4) {
-  const object = cloneWithSkeleton(entry.template);
-  if (entry.clips.length) {
-    const mixer = new THREE.AnimationMixer(object);
-    mixer.clipAction(entry.clips[0]).play();
-    // One sample poses the skeleton; the mixer is discarded so the fixture
-    // stays frozen and costs nothing per frame.
-    mixer.update(atTime);
-  }
-  return object;
-}
-
 export function setCastMotion(mode) {
   castMotion = mode === 'reduced' ? 'reduced' : 'full';
 }

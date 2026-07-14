@@ -8,8 +8,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createAgentAnimator } from './animator.js';
 import {
+  createCastAgent,
   createCastProp,
-  createPosedProp,
   disposeStudioCast,
   loadStudioCast,
   setCastMotion,
@@ -74,11 +74,16 @@ export function createStudioScene(canvas, {
   controls.target.fromArray(STUDIO_TOPOLOGY.overviewTarget);
   controls.enableDamping = true;
   controls.dampingFactor = 0.075;
-  controls.minDistance = 5;
-  controls.maxDistance = 52;
-  controls.maxPolarAngle = Math.PI * 0.48;
-  controls.minPolarAngle = Math.PI * 0.12;
-  controls.enablePan = false;
+  // Free navigation: pan across the floor, zoom close to a desk or out to
+  // the whole campus, and orbit from near-top-down to eye level. The
+  // Overview button always restores the authored framing.
+  controls.minDistance = 2.5;
+  controls.maxDistance = 70;
+  controls.maxPolarAngle = Math.PI * 0.495;
+  controls.minPolarAngle = 0.02;
+  controls.enablePan = true;
+  controls.screenSpacePanning = false;
+  controls.zoomSpeed = 1.1;
 
   const ambient = new THREE.HemisphereLight(0xf6fbff, 0x73736a, 2.05);
   const key = new THREE.DirectionalLight(0xfff1d1, 2.4);
@@ -112,6 +117,7 @@ export function createStudioScene(canvas, {
   const castProps = new THREE.Group();
   castProps.name = 'Executive cast props';
   scene.add(castProps);
+  let librarianProp = null;
 
   function placeCastProps() {
     if (cast?.station) {
@@ -133,21 +139,22 @@ export function createStudioScene(canvas, {
       librarian.name = 'Skills Library attendant';
       librarian.position.set(-9.2, 0, -9.6);
       castProps.add(librarian);
+      librarianProp = librarian;
     }
     if (cast?.worker) {
-      // Richardson-directed resident team leads: one posed fixture per wing.
-      // Scenery like the librarian — frozen mid-clip, no status panel, so
-      // they never claim work the run didn't observe.
-      const builderLead = createPosedProp(cast.worker);
-      builderLead.name = 'Builder team lead desk';
-      builderLead.position.set(-11.2, 0, 10.2);
-      builderLead.rotation.y = Math.PI;
-      castProps.add(builderLead);
-      const validatorLead = createPosedProp(cast.worker);
-      validatorLead.name = 'Validator team lead desk';
-      validatorLead.position.set(10, 0, 7.6);
-      validatorLead.rotation.y = Math.PI;
-      castProps.add(validatorLead);
+      // Richardson-directed resident team leads: one living fixture per
+      // wing. Ambience like the librarian — typing at their own desk, no
+      // status panel, so they never claim work the run didn't observe.
+      const builderLead = createCastAgent(cast.worker);
+      builderLead.object.name = 'Builder team lead desk';
+      builderLead.object.position.set(-11.2, 0, 10.2);
+      builderLead.object.rotation.y = Math.PI;
+      castProps.add(builderLead.object);
+      const validatorLead = createCastAgent(cast.worker);
+      validatorLead.object.name = 'Validator team lead desk';
+      validatorLead.object.position.set(10, 0, 7.6);
+      validatorLead.object.rotation.y = Math.PI;
+      castProps.add(validatorLead.object);
     }
   }
 
@@ -454,6 +461,67 @@ export function createStudioScene(canvas, {
     return motionMode !== 'reduced';
   }
 
+  // Pipeline conveyor: work packets glide along the 15-stage wall, but only
+  // as far as the furthest stage the run has actually reached — the flow is
+  // read from the same departments the wall panels render, so it can never
+  // show progress the projection doesn't. Frozen in reduced motion.
+  const CONVEYOR = { startZ: -11.7, step: 23.4 / 14, x: 16.55, packets: 6 };
+  const conveyorState = { mesh: null, endZ: null };
+
+  function clearConveyor() {
+    if (!conveyorState.mesh) return;
+    scene.remove(conveyorState.mesh);
+    conveyorState.mesh.dispose();
+    conveyorState.mesh = null;
+  }
+
+  function rebuildConveyor() {
+    clearConveyor();
+    let reached = -1;
+    (projection.departments ?? []).slice(0, 15).forEach((department, index) => {
+      if (department.status !== 'unknown') reached = index;
+    });
+    if (reached < 1) return;
+    conveyorState.endZ = CONVEYOR.startZ + reached * CONVEYOR.step;
+    const mesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.amber, CONVEYOR.packets);
+    mesh.name = 'Pipeline conveyor packets';
+    mesh.frustumCulled = false;
+    conveyorState.mesh = mesh;
+    scene.add(mesh);
+    updateConveyor(performance.now());
+  }
+
+  function updateConveyor(now) {
+    if (!conveyorState.mesh) return false;
+    const transform = new THREE.Object3D();
+    const span = conveyorState.endZ - CONVEYOR.startZ;
+    for (let index = 0; index < CONVEYOR.packets; index += 1) {
+      const t = motionMode === 'reduced'
+        ? index / CONVEYOR.packets
+        : ((now / 5200) + index / CONVEYOR.packets) % 1;
+      transform.position.set(CONVEYOR.x, 0.62, CONVEYOR.startZ + t * span);
+      transform.scale.set(0.26, 0.12, 0.4);
+      transform.updateMatrix();
+      conveyorState.mesh.setMatrixAt(index, transform.matrix);
+    }
+    conveyorState.mesh.instanceMatrix.needsUpdate = true;
+    return motionMode !== 'reduced';
+  }
+
+  // Library ambience: the android attendant patrols the pickup counter with
+  // a gentle hover-bob. Pure scenery — it renders no run state and freezes
+  // under reduced motion, stale pauses, and the semantic-only view.
+  function updateAmbience(now) {
+    if (!librarianProp || motionMode === 'reduced') return false;
+    const t = now / 1000;
+    const sway = Math.sin(t * 0.4);
+    librarianProp.position.x = -10.6 + sway * 1.9;
+    librarianProp.position.y = Math.abs(Math.sin(t * 2.1)) * 0.05;
+    const heading = Math.cos(t * 0.4) >= 0 ? Math.PI / 2 : -Math.PI / 2;
+    librarianProp.rotation.y += (heading - librarianProp.rotation.y) * 0.08;
+    return true;
+  }
+
   // The Orchestration Center wall screen paints the REAL fifteen-stage
   // rollup from the projection — a live global project timeline.
   let timelineMaterial = null;
@@ -565,6 +633,8 @@ export function createStudioScene(canvas, {
     transitionCostMs = performance.now() - transitionStarted;
     const castAnimating = updateCastMixers(now);
     const streamsFlowing = updateStreamPulses(now);
+    const conveyorFlowing = updateConveyor(now);
+    const ambienceActive = updateAmbience(now);
     robotFleet.update();
     updateCameraTween(now);
     controls.update();
@@ -572,7 +642,8 @@ export function createStudioScene(canvas, {
     samplePerformance(now);
     enforceQualityCeilings(now);
     onDiagnostics(diagnostics());
-    if (!workforceActive && !castAnimating && transitions.pending() === 0 && !cameraTween && !controlsActive && !streamsFlowing) {
+    if (!workforceActive && !castAnimating && transitions.pending() === 0 && !cameraTween
+      && !controlsActive && !streamsFlowing && !conveyorFlowing && !ambienceActive) {
       renderer.setAnimationLoop(null);
     }
   }
@@ -681,6 +752,7 @@ export function createStudioScene(canvas, {
     applyRestingStates();
     syncAgentPanels();
     rebuildStreams();
+    rebuildConveyor();
     paintGlobalTimeline();
     robotFleet.update();
     refreshProjectionGeometry();
@@ -783,6 +855,7 @@ export function createStudioScene(canvas, {
     }
     panelCache.clear();
     clearStreams();
+    clearConveyor();
     roomLabelGroup.traverse((child) => {
       if (child.isSprite) {
         child.material.map?.dispose();
