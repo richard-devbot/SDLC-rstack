@@ -101,8 +101,11 @@ export const VALIDATOR_DENIED_COMMAND_RULES = Object.freeze([
     // scratch/discard redirects a validator legitimately uses: `> /dev/null`,
     // fd dups (`2>&1`, `>&2`), and temp dirs (`/tmp`, `/var/tmp`, `/private/tmp`)
     // — the existing contract lets a validator tee test output to /tmp.
+    // The temp allowance requires a `..`-free path so `> /tmp/../src/app.js`
+    // cannot traverse back into the workspace (CodeRabbit, #372): the temp
+    // lookahead only fires for a clean temp token that ends at a separator/EOL.
     id: 'file-redirect-write',
-    pattern: /\d*>>?\s*(?!&)(?!\/dev\/null\b)(?!\/tmp\/)(?!\/var\/tmp\/)(?!\/private\/tmp\/)("[^"]*"|'[^']*'|[^\s|;&<>()]+)/,
+    pattern: /\d*>>?\s*(?!&)(?!\/dev\/null\b)(?!\/(?:var\/tmp|private\/tmp|tmp)\/(?:(?!\.\.)[^\s|;&<>()])*(?:[\s|;&<>()]|$))("[^"]*"|'[^']*'|[^\s|;&<>()]+)/,
     reason: 'shell redirect that writes a workspace file (validators never write)',
   }),
 ]);

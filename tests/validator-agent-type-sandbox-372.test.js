@@ -39,11 +39,13 @@ function runGuard(payload, { env = {} } = {}) {
     const child = spawn(process.execPath, [BIN, 'guard', '--context', 'builder'], {
       cwd: tmpdir(), env: cleanEnv(env), stdio: ['pipe', 'pipe', 'pipe'],
     });
+    // Hard timeout so a hung guard can never wedge CI (CodeRabbit).
+    const timer = setTimeout(() => { child.kill('SIGKILL'); rejectP(new Error('guard subprocess timed out')); }, 10_000);
     let stdout = '';
     child.stdout.on('data', (c) => { stdout += c; });
     child.stderr.on('data', () => {});
-    child.on('error', rejectP);
-    child.on('close', (code) => resolveP({ code, verdict: (() => { try { return JSON.parse(stdout); } catch { return null; } })() }));
+    child.on('error', (e) => { clearTimeout(timer); rejectP(e); });
+    child.on('close', (code) => { clearTimeout(timer); resolveP({ code, verdict: (() => { try { return JSON.parse(stdout); } catch { return null; } })() }); });
     child.stdin.end(JSON.stringify(payload));
   });
 }
@@ -89,6 +91,18 @@ test('validator subagent Write tool is blocked', async () => {
   const { code } = await runGuard(write('src/app.js', 'validator'));
   assert.equal(code, EXIT_BLOCK);
 });
+
+// Traversal must not escape the /tmp allowance back into the workspace (#372).
+for (const [label, command] of [
+  ['/tmp/.. traversal to source', 'echo x > /tmp/../src/app.js'],
+  ['deep traversal', 'echo x > /tmp/a/../../etc/cron.d/x'],
+  ['absolute non-temp path', 'echo x > /etc/passwd'],
+]) {
+  test(`validator subagent redirect traversal blocked: ${label}`, async () => {
+    const { code } = await runGuard(bash(command, 'validator'));
+    assert.equal(code, EXIT_BLOCK, `expected block for traversal: ${command}`);
+  });
+}
 
 // --- validator subagent: reads / tests / scratch allowed --------------------
 
