@@ -111,11 +111,21 @@ matching test (overridable via `RSTACK_ALLOW_NO_TESTS=1` or an audited approval)
   Business Hub. `RSTACK_ALLOW_DESTRUCTIVE=1` skips this gate, exactly like
   the Pi hook.
 - **Validator sandbox** (validator/reviewer/security contexts) — any write
-  tool, destructive/mutating shell command, publish/deploy, or secret-path
-  write is **denied outright, with no approval or env override** (#119).
-  The context comes from `--context`, `RSTACK_AGENT_CONTEXT`, or the
-  delegate-stamped `RSTACK_VALIDATOR_CONTEXT=1` (which always wins, so a
-  sandboxed subprocess cannot escape via flags).
+  tool, destructive/mutating shell command (including a plain `echo > src.js`
+  redirect, `cp`/`ln`/`tee` into the workspace), publish/deploy, or secret-path
+  write is **denied outright, with no approval or env override** (#119, #372).
+  Reads, tests, and scratch redirects (`> /dev/null`, `2>&1`, `> /tmp/…`) stay
+  allowed. The context comes from `--context`, `RSTACK_AGENT_CONTEXT`, the
+  delegate-stamped `RSTACK_VALIDATOR_CONTEXT=1` (which always wins), **or — on
+  Claude Code — the `agent_type` in the PreToolUse payload (#372):** when the
+  calling subagent's name is a validator role (`validator`, `code-reviewer`,
+  `security-auditor`, `qa-expert`, …), the session guard escalates to the
+  sandbox automatically, even though the hook wiring passes `--context builder`.
+  This is the **only** signal that works for a **plugin** subagent — Claude Code
+  ignores the `hooks:` frontmatter of plugin-provided agents for security
+  reasons, so an agent-def PreToolUse hook would be inert. Escalation is
+  one-way (it only ever makes a call *more* restricted), so a spoofed
+  `agent_type` cannot downgrade a builder-into-validator or escape the sandbox.
 
 **Failure semantics (honest edges):**
 
@@ -126,9 +136,10 @@ matching test (overridable via `RSTACK_ALLOW_NO_TESTS=1` or an audited approval)
   shell command, so destructive-looking raw input still blocks; a guard that
   hard-errors on every hook call would just get uninstalled.
 
-**What remains Pi-only:** automatic `RSTACK_VALIDATOR_CONTEXT` stamping on
-delegated validator subprocesses (in Claude Code, set the env or `--context`
-yourself when spawning validator work). Orchestrator/context packet injection is
+**Validator stamping is no longer Pi-only (#372):** on Claude Code the session
+guard reads `agent_type` from the PreToolUse payload and sandboxes any
+validator-role subagent automatically — no env, no `--context`, and it works for
+plugin subagents. Orchestrator/context packet injection is
 **no longer Pi-only** — the `context` hook (#255) injects it on SessionStart and
 UserPromptSubmit. Run-event logging of `tool_call`/`tool_result` plus subagent,
 compaction, and failure events into `events.jsonl` is wired via the observe hooks
