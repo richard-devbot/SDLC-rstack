@@ -20,7 +20,7 @@ import { registerProject } from '../core/tracker/registry.js';
 import { budgetPolicyForProfile, profileConfig } from '../core/profiles.js';
 import { packsForProfile } from '../core/packs.js';
 
-export const FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'tau', 'custom']);
+export const FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'tau', 'hermes', 'custom']);
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -30,6 +30,7 @@ export const BOOTSTRAP_BY_FRAMEWORK = Object.freeze({
   pi: ['SOUL.md', 'HEARTBEAT.md'],
   operator: ['SOUL.md', 'HEARTBEAT.md'],
   tau: ['SOUL.md', 'HEARTBEAT.md'],
+  hermes: ['SOUL.md', 'HEARTBEAT.md'],
   custom: ['AGENTS.md', 'SOUL.md', 'HEARTBEAT.md'],
 });
 
@@ -39,6 +40,7 @@ export async function detectFramework(projectRoot) {
   if (existsSync(join(root, '.claude'))) return 'claude-code';
   if (existsSync(join(root, 'operator.json')) || existsSync(join(root, 'operator_settings.json'))) return 'operator';
   if (existsSync(join(root, 'tau.json')) || existsSync(join(root, 'tau_settings.json')) || existsSync(join(root, '.tau'))) return 'tau';
+  if (existsSync(join(root, '.hermes')) || existsSync(join(root, 'cli-config.yaml')) || existsSync(join(root, 'hermes.json'))) return 'hermes';
   const pkgPath = join(root, 'package.json');
   if (existsSync(pkgPath)) {
     try {
@@ -286,6 +288,25 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
       'Requirements on this host: node + npx on PATH, npm install run once in the package directory',
       'Enforcement: loading the extension IS the wiring — the adapter routes Tau\'s terminal/write/edit tools through `rstack-agents guard` on the tool_call hook (destructive gate + validator sandbox, exit 2 = block).',
       'Quality gates (opt-in, #256): set the `quality_gates` setting (e.g. "plan,tdd,scope") or RSTACK_TAU_GATES to run the presets on write/edit after guard. OFF by default. tdd-gate blocks production edits with no test — override with RSTACK_ALLOW_NO_TESTS=1. See docs/integrations/quality-gates.md.',
+      'Open the dashboard: npx rstack-business',
+    );
+  }
+
+  if (fw === 'hermes') {
+    // Hermes loads plugin DIRECTORIES from ~/.hermes/plugins/ (its own
+    // convention for third-party integrations). The shipped adapter is the
+    // plugin's register(ctx) module; symlink (or copy) it in as __init__.py.
+    const adapterPath = packageRoot
+      ? join(packageRoot, 'src', 'integrations', 'hermes', 'rstack_sdlc.py')
+      : 'node_modules/rstack-agents/src/integrations/hermes/rstack_sdlc.py';
+    report.nextSteps.push(
+      'Install the package: npm install rstack-agents (the Python plugin shells out to its Node bridge)',
+      'Install the RStack plugin into Hermes (its own convention for third-party integrations):',
+      '  mkdir -p ~/.hermes/plugins/rstack-sdlc',
+      `  ln -s "$(pwd)/${adapterPath}" ~/.hermes/plugins/rstack-sdlc/__init__.py`,
+      'Requirements on this host: node + npx on PATH, npm install run once in the package directory',
+      'Enforcement: loading the plugin IS the wiring — register() routes Hermes\' terminal/write/edit tools through `rstack-agents guard` on the pre_tool_call hook, returning a {"decision":"block"} that Hermes honors (destructive gate + validator sandbox). Fails closed on a guard-unavailable unless RSTACK_GUARD_FAIL_OPEN=1 (#371).',
+      'Observability: the post_tool_call hook feeds `rstack-agents observe` and on_session_start opens the Business Hub — both best-effort, never blocking.',
       'Open the dashboard: npx rstack-business',
     );
   }
