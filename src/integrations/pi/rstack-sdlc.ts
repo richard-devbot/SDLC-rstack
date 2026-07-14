@@ -19,7 +19,7 @@ import { taskStageIds, writePipelineState } from "../../core/harness/pipeline-st
 import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, guardrailOverrideArtifact, isDestructiveTask } from "../../core/harness/guardrails.js";
-import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedApprovedArtifacts } from "../../core/harness/approval-audit.js";
+import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedApprovedArtifacts, signApprovalRecord } from "../../core/harness/approval-audit.js";
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
 import { classifyDestructiveAction, requireApprovalForDestructiveAction, destructiveApprovalArtifact } from "../../core/harness/destructive-actions.js";
 import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate, builderContractKey } from "../../core/harness/telemetry.js";
@@ -225,6 +225,9 @@ type ApprovalRecord = {
   // activating the #133 cross-run replay check. Optional because legacy
   // records predate the stamp (the audit grandfathers them).
   run_id?: string;
+  // Provenance (#369): HMAC over the load-bearing fields, present only when
+  // RSTACK_APPROVAL_SIGNING_KEY is configured (unsigned mode omits it).
+  sig?: string;
 };
 
 type LifecycleStage = {
@@ -1417,7 +1420,10 @@ export default function (pi: ExtensionAPI) {
             approvals = JSON.parse(await readFile(path, "utf8"));
           } catch {}
         }
-        const next: ApprovalRecord = {
+        // Provenance (#369): sign the record so it satisfies the audit's
+        // signature check when RSTACK_APPROVAL_SIGNING_KEY is set; a no-key
+        // host gets the record unchanged (unsigned mode, legacy behavior).
+        const next: ApprovalRecord = signApprovalRecord({
           id: `app-${timestamp().replace(/[:.]/g, "-")}`,
           artifact: params.artifact,
           status: params.status,
@@ -1426,7 +1432,7 @@ export default function (pi: ExtensionAPI) {
           comments: params.comments,
           // Run binding (#298): the stamp the #133 replay audit compares.
           run_id: manifest.run_id,
-        };
+        });
         approvals.push(next);
         await writeJsonAtomic(path, approvals);
         return next;

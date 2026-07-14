@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
@@ -38,6 +39,60 @@ export const QUEUE_APPROVAL_STATUSES = Object.freeze(['pending', 'approved', 're
 // on the resolution. A record claiming a dashboard source without that
 // evidence was not written by the authenticated dashboard path.
 export const DASHBOARD_APPROVAL_SOURCES = Object.freeze(['dashboard', 'business-hub']);
+
+// ── Optional record provenance (#369, defense in depth) ──────────────────────
+//
+// The HARD boundary against a self-minted approval is the destructive gate
+// refusing to let the agent WRITE approvals.json at all (destructive-actions.js
+// now classifies any write to .rstack/ as protected — the tool AND bash paths).
+// This signature is the second layer: when RSTACK_APPROVAL_SIGNING_KEY is set,
+// every trust-granting (APPROVED) run record must carry a valid HMAC over its
+// load-bearing fields, so a record that reached the file some other way (an
+// unguarded harness, a future tool, a classifier miss) cannot unblock work
+// unless it was signed by a legitimate writer.
+//
+// HONEST SCOPE: on a single-user host where the agent runs shell as the same OS
+// user as the harness, the agent can read the key (`printenv`) and could sign a
+// forgery — there, the write-blocking gate (Layer 1) is the real boundary and
+// this is depth-in-defense only. The signature becomes a TRUE boundary when the
+// key is genuinely out of the agent's reach: CI, a remote approval service, or a
+// multi-user host. Off by default (no key ⇒ unsigned mode, legacy behavior),
+// exactly like the attestation envelope (attestations.js).
+export const APPROVAL_SIGNING_KEY_ENV = 'RSTACK_APPROVAL_SIGNING_KEY';
+
+// Canonical payload over the fields a forger would need to control — binds the
+// artifact, status, run, id, timestamp, and approver together so a signed
+// APPROVED record cannot be moved to another artifact or run.
+function approvalSignaturePayload(record) {
+  return JSON.stringify([
+    'rstack-approval-v1',
+    String(record?.artifact ?? ''),
+    String(record?.status ?? ''),
+    String(record?.run_id ?? ''),
+    String(record?.id ?? ''),
+    String(record?.timestamp ?? ''),
+    String(record?.approver ?? ''),
+  ]);
+}
+
+// Attach an HMAC signature when a key is configured; return the record
+// unchanged in unsigned mode. Every run-level APPROVED writer calls this before
+// persisting (sdlc_approve, appendRunApproval) so signed and verified stay in
+// lockstep.
+export function signApprovalRecord(record, key = process.env[APPROVAL_SIGNING_KEY_ENV]) {
+  if (typeof key !== 'string' || !key.trim()) return record;
+  return { ...record, sig: createHmac('sha256', key.trim()).update(approvalSignaturePayload(record)).digest('hex') };
+}
+
+// Verify a record's HMAC. Timing-safe, matching attestations.js.
+export function verifyApprovalRecordSignature(record, key = process.env[APPROVAL_SIGNING_KEY_ENV]) {
+  if (typeof key !== 'string' || !key.trim()) return { verified: false, reason: `no signing key — set ${APPROVAL_SIGNING_KEY_ENV}` };
+  const expected = createHmac('sha256', key.trim()).update(approvalSignaturePayload(record)).digest('hex');
+  const actual = String(record?.sig ?? '');
+  const matches = expected.length === actual.length
+    && timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(actual, 'utf8'));
+  return matches ? { verified: true, reason: 'approval signature verified' } : { verified: false, reason: 'approval signature missing or does not match' };
+}
 
 // Run ids are timestamp-slug strings — never path separators or traversal.
 // Canonical definition (moved here from tracker/approvals.js so the write
@@ -94,7 +149,7 @@ const ORDERING_SKEW_TOLERANCE_MS = 60_000;
 // approvals.json could strip the stamp, but such an editor can forge whole
 // records; file integrity is the host's trust boundary, not this audit's).
 // Never throws — junk input fails checks.
-export function validateApprovalRecord(record, { casing = 'run', expectedRunId } = {}) {
+export function validateApprovalRecord(record, { casing = 'run', expectedRunId, signingKey = process.env[APPROVAL_SIGNING_KEY_ENV] } = {}) {
   const checks = [];
   const push = (name, pass, evidence) => checks.push({ name, status: pass ? 'PASS' : 'FAIL', evidence });
 
@@ -158,6 +213,18 @@ export function validateApprovalRecord(record, { casing = 'run', expectedRunId }
     const evidenced = hasName(record.actor) && record.actor.tokenVerified === true;
     push('approval_token_evidence_present', evidenced,
       evidenced ? `token-verified actor ${clip(record.actor.name)}` : `source '${clip(record.source)}' claims the dashboard path but carries no token-verified actor evidence`);
+  }
+
+  // Provenance (#369): when a signing key is configured, a trust-granting
+  // (APPROVED) record MUST carry a valid HMAC. Only APPROVED is checked — a
+  // forged REJECTED/CONSUMED/PENDING can only make an artifact MORE gated
+  // (fail-safe), never unblock, so signing the trust-granting status suffices.
+  // No key ⇒ unsigned mode: this check does not run (legacy behavior).
+  if (typeof signingKey === 'string' && signingKey.trim() && record.status === 'APPROVED') {
+    const sig = verifyApprovalRecordSignature(record, signingKey);
+    push('approval_signature_valid', sig.verified,
+      sig.verified ? 'HMAC provenance verified'
+        : `${sig.reason} — with ${APPROVAL_SIGNING_KEY_ENV} set, an APPROVED record must be signed by a legitimate writer (legacy unsigned records are rejected only while a key is configured)`);
   }
 
   return summarize(checks);
@@ -241,14 +308,14 @@ function historiesByArtifact(approvals) {
 //     the same way — a re-appended copy of a spent record never resurrects it.
 // Records without a usable artifact name cannot address any gate and are
 // skipped (they can neither approve nor shadow anything).
-export function trustedApprovedArtifacts(approvals = [], { casing = 'run', expectedRunId } = {}) {
+export function trustedApprovedArtifacts(approvals = [], { casing = 'run', expectedRunId, signingKey = process.env[APPROVAL_SIGNING_KEY_ENV] } = {}) {
   const approvedStatus = casing === 'queue' ? 'approved' : 'APPROVED';
   const approved = new Set();
   for (const [artifact, history] of historiesByArtifact(approvals)) {
     const latest = history[history.length - 1];
     if (latest.status !== approvedStatus) continue;
     if (approvalHistoryIssues(history).length) continue;
-    if (validateApprovalRecord(latest, { casing, expectedRunId }).ok) approved.add(artifact);
+    if (validateApprovalRecord(latest, { casing, expectedRunId, signingKey }).ok) approved.add(artifact);
   }
   return approved;
 }

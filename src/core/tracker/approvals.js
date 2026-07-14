@@ -2,7 +2,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { withFileLock, writeFileAtomic, writeJsonAtomic } from '../harness/safe-write.js';
-import { isSafeRunId, isSafeArtifactName, validateApprovalRecord, trustedApprovedArtifacts } from '../harness/approval-audit.js';
+import { isSafeRunId, isSafeArtifactName, validateApprovalRecord, trustedApprovedArtifacts, signApprovalRecord } from '../harness/approval-audit.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -167,13 +167,17 @@ export async function appendRunApproval(projectRoot, runId, record) {
   // approver/timestamp, run-binding mismatch, dashboard source without token
   // evidence) is refused outright — malformed approvals never land, same null
   // contract as an unsafe runId.
-  if (!validateApprovalRecord(next, { expectedRunId: runId }).ok) return null;
+  // Provenance (#369): sign before the write-boundary audit so this writer's
+  // own APPROVED record satisfies the signature check when a key is configured.
+  // No key ⇒ returns `next` unchanged (unsigned mode).
+  const signed = signApprovalRecord(next);
+  if (!validateApprovalRecord(signed, { expectedRunId: runId }).ok) return null;
   return withFileLock(path, async () => {
     const approvals = await readJson(path, []);
     const all = Array.isArray(approvals) ? approvals : [];
-    all.push(next);
+    all.push(signed);
     await writeJsonAtomic(path, all);
-    return next;
+    return signed;
   });
 }
 
