@@ -10,8 +10,13 @@
 export const MAX_CAPTIONS = 8;
 
 export function truncateCaption(value, max = 48) {
-  const text = String(value ?? '')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+  const withoutControls = [...String(value ?? '')]
+    .map((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 0x1f || code === 0x7f ? ' ' : character;
+    })
+    .join('');
+  const text = withoutControls
     .replace(/\s+/g, ' ')
     .trim();
   const limit = Math.max(0, Number.isSafeInteger(max) ? max : 48);
