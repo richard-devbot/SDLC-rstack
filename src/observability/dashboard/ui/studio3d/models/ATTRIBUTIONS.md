@@ -16,6 +16,7 @@ license metadata in the glTF `asset.extras` block. All files were optimized
 | `librarian.glb` | Skills Library attendant | yanix ([yanix](https://sketchfab.com/yanix)) | ["Steampunk Android Boy"](https://sketchfab.com/3d-models/steampunk-android-boy-f0404136e805401197075be932023ad8) | CC-BY-4.0 |
 | `manager-desk.glb` | Orchestrator HQ battlestation | sugaa ([sugaa](https://sketchfab.com/sugaa)) | ["Computer and laptop"](https://sketchfab.com/3d-models/computer-and-laptop-8757cd8dd5c941248cc1048fd6368290) | CC-BY-4.0 |
 | `manager-chair.glb` | Orchestrator HQ chair | Generated with [FurniMesh](https://furnimesh.com) by Richardson Gunde | — | Project asset |
+| `human-approver.glb` | Human approver at the Governance strategy table | crimsongcat ([crimsongcat](https://sketchfab.com/crimsongcat)) | ["PS1 PSX High School Character"](https://sketchfab.com/3d-models/ps1-psx-high-school-character-d96f74f0dc6f49559083c110fef37e2f) | CC-BY-4.0 |
 
 Modifications (all files): mesh decimation, texture downscaling, material
 pruning via `@gltf-transform/cli`; no creative changes.
