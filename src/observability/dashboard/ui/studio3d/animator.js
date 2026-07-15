@@ -106,7 +106,8 @@ export function createAgentAnimator({
 
   function applyManagerSeat(handle) {
     if (!handle) return;
-    handle.object.position.fromArray(STUDIO_TOPOLOGY.managerSeat.position);
+    const [x, y, z] = STUDIO_TOPOLOGY.managerSeat.position;
+    handle.object.position.set(x, handle.seatedAtOrigin ? 0 : y - ROBOT_PELVIS_HEIGHT, z);
     handle.object.rotation.set(0, STUDIO_TOPOLOGY.managerSeat.rotationY, 0);
     handle.setPose('sitting');
     managerStateValue = 'seated';

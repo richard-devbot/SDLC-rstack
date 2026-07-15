@@ -133,7 +133,7 @@ export function createStudioScene(canvas, {
 
   function placeHumanApprover(handle) {
     const approval = STUDIO_TOPOLOGY.strategyApproval;
-    handle.object.position.fromArray(approval.humanSeat);
+    handle.object.position.set(approval.humanSeat[0], 0, approval.humanSeat[2]);
     handle.object.rotation.y = approval.chairRotationY;
     handle.setMode?.('sitting');
     castProps.add(handle.object);
@@ -996,7 +996,7 @@ export function createStudioScene(canvas, {
       : null;
     if (!handle) return;
     const [x, y, z] = STUDIO_TOPOLOGY.managerSeat.position;
-    handle.object.position.set(x, handle.seatedAtOrigin ? y : y - ROBOT_PELVIS_HEIGHT, z);
+    handle.object.position.set(x, handle.seatedAtOrigin ? 0 : y - ROBOT_PELVIS_HEIGHT, z);
     handle.object.rotation.set(0, STUDIO_TOPOLOGY.managerSeat.rotationY, 0);
     handle.setPose(handle.seatedAtOrigin ? 'sitting' : 'seated_work');
   }

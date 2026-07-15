@@ -90,3 +90,15 @@ test('sit and stand always restore captured rest transforms without drift', () =
   assert.ok(candidate.leftUpLeg.quaternion.equals(rest));
   assert.equal(candidate.hips.position.y, hipY);
 });
+
+test('sit scales its hip drop to centimeter-authored Mixamo leg lengths', () => {
+  const candidate = mixamoManagerRig();
+  candidate.hips.position.y = 42.03;
+  candidate.leftLeg.position.y = 17.89;
+  candidate.rightLeg.position.y = 17.89;
+  const locomotion = createLocomotion(candidate.root);
+
+  locomotion.sit();
+
+  assert.ok(candidate.hips.position.y < 30, 'pelvis reaches chair height after model scaling');
+});

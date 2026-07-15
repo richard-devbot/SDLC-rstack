@@ -39,7 +39,8 @@ function workstationAt(x, y, z) {
 
 function managerHarness() {
   const object = new THREE.Group();
-  object.position.fromArray(STUDIO_TOPOLOGY.managerSeat.position);
+  const [x, , z] = STUDIO_TOPOLOGY.managerSeat.position;
+  object.position.set(x, 0, z);
   const modes = [];
   return {
     handle: {
@@ -50,6 +51,11 @@ function managerHarness() {
     },
     modes,
   };
+}
+
+function managerSeatRoot() {
+  const [x, , z] = STUDIO_TOPOLOGY.managerSeat.position;
+  return [x, 0, z];
 }
 
 test('waypoint sampling follows distance and ends exactly on authored anchors', () => {
@@ -212,7 +218,7 @@ test('manager checks in at the involved desk, dwells, returns, and sits', () => 
   assert.equal(animator.update(4_500), false);
   assert.equal(animator.managerAction(), null);
   assert.equal(modes.at(-1), 'sitting');
-  assert.deepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.managerSeat.position);
+  assert.deepEqual(manager.object.position.toArray(), managerSeatRoot());
   assert.deepEqual(callbacks, ['start:manager_check_in', 'complete:manager_check_in']);
 });
 
@@ -233,7 +239,7 @@ test('delegation returns the manager to the authored seat in sitting mode', () =
   });
   animator.update(2_600);
 
-  assert.deepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.managerSeat.position);
+  assert.deepEqual(manager.object.position.toArray(), managerSeatRoot());
   assert.equal(manager.object.rotation.y, STUDIO_TOPOLOGY.managerSeat.rotationY);
   assert.equal(modes.at(-1), 'sitting');
 });
@@ -259,7 +265,7 @@ test('approval projection walks the manager to the strategy table and back', () 
   assert.equal(animator.managerState(), 'approval-return');
   animator.update(4_500);
   assert.equal(animator.managerState(), 'seated');
-  assert.deepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.managerSeat.position);
+  assert.deepEqual(manager.object.position.toArray(), managerSeatRoot());
   assert.equal(modes.at(-1), 'sitting');
 });
 
@@ -318,6 +324,6 @@ test('reduced motion applies approval final states without active travel', () =>
 
   animator.reconcileManager({ approvalActive: false, approvalSummary: null }, 100);
   assert.equal(animator.managerState(), 'seated');
-  assert.deepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.managerSeat.position);
+  assert.deepEqual(manager.object.position.toArray(), managerSeatRoot());
   assert.equal(modes.at(-1), 'sitting');
 });

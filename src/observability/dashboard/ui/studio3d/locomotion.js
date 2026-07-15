@@ -89,6 +89,18 @@ export function createLocomotion(object) {
 
   const spin = new THREE.Quaternion();
   const AXIS_X = new THREE.Vector3(1, 0, 0);
+  // The imported Mixamo files use different authoring units (manager bones
+  // are roughly centimetres; the human rig is larger again). Scale the hip
+  // translation from the actual upper-leg link instead of treating a raw
+  // bone position as metres. A little over one thigh length places the
+  // pelvis at a conventional chair seat after the template is metre-scaled.
+  const upperLegLengths = [rig.kneeL, rig.kneeR]
+    .filter(Boolean)
+    .map((bone) => rest.get(bone).position.length());
+  const upperLegLength = upperLegLengths.length
+    ? upperLegLengths.reduce((sum, length) => sum + length, 0) / upperLegLengths.length
+    : 0;
+  const seatedHipDrop = Math.max(family.sit.hipsDrop, upperLegLength * 1.1);
   const pose = (key, angle) => {
     const bone = rig[key];
     if (!bone) return;
@@ -124,7 +136,7 @@ export function createLocomotion(object) {
       pose('armR', family.sit.armPitch);
       if (rig.hips) {
         rig.hips.position.copy(rest.get(rig.hips).position);
-        rig.hips.position.y -= family.sit.hipsDrop;
+        rig.hips.position.y -= seatedHipDrop;
       }
     },
     /** Return every driven bone to its rest pose. */
