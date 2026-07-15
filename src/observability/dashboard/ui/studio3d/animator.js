@@ -98,6 +98,7 @@ export function createAgentAnimator({
   let desiredApproval = { active: false, summary: null };
   let reduced = false;
   let frozen = false;
+  let frozenAt = null;
 
   function workstationFor(intent) {
     return getWorkstation(intent.sessionId);
@@ -439,14 +440,33 @@ export function createAgentAnimator({
     managerQueue.length = 0;
     managerStateValue = 'seated';
     desiredApproval = { active: false, summary: null };
+    frozen = false;
+    frozenAt = null;
+  }
+
+  function freeze(now = null) {
+    if (frozen) return;
+    frozen = true;
+    frozenAt = Number.isFinite(now) ? now : null;
+  }
+
+  function resume(now = null) {
+    if (!frozen) return;
+    if (frozenAt !== null && Number.isFinite(now)) {
+      const pausedFor = Math.max(0, now - frozenAt);
+      active.forEach((item) => { item.startedAt += pausedFor; });
+      if (managerItem) managerItem.startedAt += pausedFor;
+    }
+    frozen = false;
+    frozenAt = null;
   }
 
   return {
     play,
     update,
     setMotion,
-    freeze() { frozen = true; },
-    resume() { frozen = false; },
+    freeze,
+    resume,
     clear,
     reconcileManager,
     managerState: () => managerStateValue,

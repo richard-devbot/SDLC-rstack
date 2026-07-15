@@ -221,6 +221,7 @@ export function createStudioScene(canvas, {
   let controlsActive = false;
   let transitionCostMs = 0;
   let lastRenderedAt = 0;
+  let captionPausedAt = null;
   const transientCaptions = new Map();
 
   const animator = createAgentAnimator({
@@ -1080,9 +1081,14 @@ export function createStudioScene(canvas, {
   }
 
   function pause(reason = 'manual') {
+    const wasPaused = pauseReasons.size > 0;
     pauseReasons.add(reason);
     transitions.pause(reason);
-    animator.freeze();
+    if (!wasPaused) {
+      const now = performance.now();
+      animator.freeze(now);
+      captionPausedAt = now;
+    }
     renderer.setAnimationLoop(null);
   }
 
@@ -1090,7 +1096,15 @@ export function createStudioScene(canvas, {
     pauseReasons.delete(reason);
     transitions.resume(reason);
     if (pauseReasons.size) return;
-    animator.resume();
+    const now = performance.now();
+    animator.resume(now);
+    if (captionPausedAt !== null) {
+      const pausedFor = Math.max(0, now - captionPausedAt);
+      for (const record of transientCaptions.values()) {
+        if (record.completedAt !== null) record.completedAt += pausedFor;
+      }
+      captionPausedAt = null;
+    }
     startLoop();
   }
 

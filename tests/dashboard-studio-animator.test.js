@@ -127,6 +127,33 @@ test('freeze preserves the exact frame and resume completes pending work', () =>
   assert.deepEqual(handle.object.position.toArray(), [3, 0 - ROBOT_PELVIS_HEIGHT, 9]);
 });
 
+test('timestamped freeze and resume preserve remaining transition progress', () => {
+  const { handle } = agentHarness();
+  const animator = createAgentAnimator({
+    getHandle: () => handle,
+    getWorkstation: () => workstationAt(3, 0, 9),
+    scene: new THREE.Scene(),
+  });
+  animator.play({
+    intent: { action: 'retry', sessionId: 'session-1' },
+    event: {},
+    duration_ms: 1200,
+    started_at_ms: 1_000,
+  });
+  animator.update(1_500);
+  const pausedPosition = handle.object.position.clone();
+
+  animator.freeze(1_500);
+  animator.update(5_000);
+  assert.ok(handle.object.position.equals(pausedPosition));
+  animator.resume(5_000);
+  animator.update(5_250);
+  assert.ok(!handle.object.position.equals(pausedPosition));
+  assert.equal(animator.activeCount(), 1);
+  animator.update(5_700);
+  assert.equal(animator.activeCount(), 0);
+});
+
 test('delegation and evidence packets are transient and cleared from the scene', () => {
   const scene = new THREE.Scene();
   const packets = [];

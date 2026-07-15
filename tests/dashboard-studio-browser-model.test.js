@@ -132,6 +132,8 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /depthTest:\s*false/);
   assert.match(sceneSource, /transitionCaptionFact/);
   assert.match(sceneSource, /completedAt/);
+  assert.match(sceneSource, /animator\.freeze\(now\)/);
+  assert.match(sceneSource, /animator\.resume\(now\)/);
   assert.doesNotMatch(sceneSource, /caption[^\n]*userData\.interactive\s*=\s*true/i);
   assert.match(sceneSource, /MAX_DETAILED_RIGS\s*=\s*16/);
   assert.match(sceneSource, /FIXED_DETAILED_RIGS\s*=\s*2/);
