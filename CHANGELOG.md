@@ -5,12 +5,69 @@
 All notable changes to RStack are documented here. Entries are user-focused:
 what you can now do that you couldn't before.
 
-## [Unreleased] — v2.1 planning
+## [Unreleased]
 
-> **Target:** v2.1 release. Blanket per-stage approval gates (#228), operator CLI verbs for
-> checkpoints/approvals/config/memory (#229), parallel stage execution (#208), and validator
-> required-checks evaluation (#222).
-> Contributions welcome — see [`docs/github-issues/`](docs/github-issues/) for issue specs.
+> Nothing yet. Next work is tracked on the GitHub issue board.
+
+---
+
+## [2.1.0] - 2026-07-15
+
+The "governed on every harness, and you can trust it" release. RStack now runs the
+same enforced loop on **Pi, Tau, Claude Code, Operator, and Hermes**, the guardrails
+survive an adversarial agent, and the Business Hub can drive the loop, not just watch it.
+
+### Works on every major harness
+- **You can now govern runs on Hermes (Nous Research).** A drop-in Hermes plugin registers
+  the SDLC tools and routes tool calls through the same enforcement guard as everywhere else —
+  no bespoke logic, install it into `~/.hermes/plugins/`. Pi, Tau, Claude Code, and Operator
+  are unchanged.
+- **Validators are truly read-only on Claude Code now — including their shell.** A validator
+  subagent can no longer write files via bash; the guard recognizes the validator from the
+  subagent identity and applies the read-only sandbox, even for plugin-provided agents.
+- **One-page setup for all of it.** New [`docs/SETUP.md`](docs/SETUP.md): install → per-harness
+  wiring → running a governed pipeline → approvals → dashboard → CLI reference, in one place.
+
+### Enforcement you can trust
+- **An agent can no longer approve itself.** Writing to the files that govern the gates
+  (`.rstack/…`, and the host's own guard-hook config) is now blocked on the shell path too,
+  not just the write-tool path — closing a self-approval bypass. Optional HMAC provenance on
+  approval records adds a second layer for CI/remote/multi-user setups.
+- **The guard fails closed.** If the enforcement guard can't run (a partial install, an offline
+  cold `npx`, a crash), tool calls are blocked with a clear reason instead of silently
+  proceeding. Opt back into the old behavior with `RSTACK_GUARD_FAIL_OPEN=1`.
+- **The destructive classifier caught up with real threats.** `git checkout -- .` / `git restore`
+  / `git clean -f` (working-tree destruction), `curl … | bash` (download-and-execute), and
+  `chmod -R` (recursive permission changes) are now gated. Ordinary work (`git checkout -b`,
+  `chmod 644 file`, `curl -o file`) stays untouched.
+- **A budget-exhausted task can't keep changing your code.** Once a task hard-blocks at its
+  attempt budget, the guard refuses its further edits until a human approves one more attempt.
+
+### Drive the loop from the cockpit
+- **The Business Hub can now run the governed loop, not just observe it** — authenticated,
+  audited controls (resume a run, restore a checkpoint) behind the same approval-token
+  discipline, with per-desk approval gates and honest, real-browser-tested readiness.
+
+### More control over the pipeline
+- **Blanket per-stage human gates** (`required_stage_approvals`, `approvals.every_stage`) — require
+  sign-off on any stage without naming individual tasks (#228).
+- **New CLI verbs** for config validation, checkpoint status/rollback, approval audit, and memory
+  inspection (#229).
+- **Parallel execution** of data-independent stage groups when the evidence gate confirms a real
+  speedup (#208).
+- **Validator required-checks are enforced, not advisory** — mechanically-decidable checks produce
+  real PASS/FAIL that feeds the retry policy (#222).
+
+### A published, machine-validatable spec
+- **RStack Spec v1alpha1** with code-derived JSON schemas and `rstack-agents validate --schemas`,
+  so an external team can conformance-test an RStack adoption (#71).
+
+### Breaking / governance
+- **Release sign-off is release-only.** `release-readiness.json` no longer grants a run-wide
+  destructive bypass. A destructive action requires a per-task `destructive-action:<taskId>`
+  approval (or the explicit coarse `destructive-action`) — a release approval can never unblock
+  `rm -rf`. If you relied on a release approval to wave through destructive work, approve the
+  specific task instead (#293).
 
 ---
 

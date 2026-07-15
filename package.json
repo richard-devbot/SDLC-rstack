@@ -1,6 +1,6 @@
 {
   "name": "rstack-agents",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Production-ready agentic SDLC framework for Pi and coding agents — orchestrator, builder/validator teams, lifecycle state, and specialist reuse",
   "type": "module",
   "main": "src/index.js",

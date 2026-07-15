@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0-brightgreen" alt="v2.0.0"/>
+  <img src="https://img.shields.io/badge/version-2.1.0-brightgreen" alt="v2.1.0"/>
   <img src="https://img.shields.io/badge/agents-196%20validated-brightgreen" alt="196 agents"/>
   <img src="https://img.shields.io/badge/tests-756%20pass-brightgreen" alt="756 tests"/>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"/>
@@ -29,7 +29,7 @@ clarify → plan → spec → approve → build → validate → release-readine
 ```
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/richard-devbot/SDLC-rstack/main/assets/sdlc-pipeline-overview.png" alt="RStack — 15-step governed SDLC pipeline: stages 00–14 (requirements → cost estimate) with agents, outputs, tools and a human approval gate per stage; an orchestrator core; builder and validator sandboxes around a human-in-the-loop; guardrails, harness truth/traceability layer, hooks, and observability" width="960"/>
+  <img src="https://raw.githubusercontent.com/richard-devbot/SDLC-rstack/main/assets/pipeline.png" alt="RStack — 15-step governed SDLC pipeline: stages 00–14 (requirements → cost estimate) with agents, outputs, tools and a human approval gate per stage; an orchestrator core; builder and validator sandboxes around a human-in-the-loop; guardrails, harness truth/traceability layer, hooks, and observability" width="960"/>
 </p>
 
 > **New here? Start with the [one-page Setup & Usage guide → `docs/SETUP.md`](docs/SETUP.md)** — install, per-harness wiring (Pi · Claude Code · Tau · Operator · Hermes · custom), running a governed pipeline, approvals, the dashboard, and the full CLI reference, all in one place.
