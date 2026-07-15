@@ -28,6 +28,12 @@ RStack sits on top of Pi, Claude Code, Operator, Codex-style CLIs, Gemini-style 
 clarify → plan → spec → approve → build → validate → release-readiness → learn
 ```
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/richard-devbot/SDLC-rstack/main/assets/sdlc-pipeline-overview.png" alt="RStack — 15-step governed SDLC pipeline: stages 00–14 (requirements → cost estimate) with agents, outputs, tools and a human approval gate per stage; an orchestrator core; builder and validator sandboxes around a human-in-the-loop; guardrails, harness truth/traceability layer, hooks, and observability" width="960"/>
+</p>
+
+> **New here? Start with the [one-page Setup & Usage guide → `docs/SETUP.md`](docs/SETUP.md)** — install, per-harness wiring (Pi · Claude Code · Tau · Operator · Hermes · custom), running a governed pipeline, approvals, the dashboard, and the full CLI reference, all in one place.
+
 ## Meet the studio
 
 Your AI software team in one place — builders, validators, the skills rack, and live delivery status. **[Open the interactive 3D workspace →](https://raw.githack.com/richard-devbot/SDLC-rstack/main/assets/rstack-workspace-v8.html)** — drag to look around, scroll to zoom, click any room to explore, or take the guided tour where each specialist introduces itself.
@@ -445,6 +451,10 @@ The loop-engineering program that earlier READMEs listed as planned has shipped:
 ---
 
 ## Documentation
+
+**Start here:** [`docs/SETUP.md`](docs/SETUP.md) — the single-page setup & usage
+guide covering every harness (install → wiring → running a governed pipeline →
+approvals → dashboard → CLI reference → env vars → troubleshooting).
 
 ### Bootstrap templates
 
