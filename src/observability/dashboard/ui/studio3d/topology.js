@@ -58,6 +58,19 @@ export const STUDIO_TOPOLOGY = Object.freeze({
   doors: DOORS,
 
   orchestrator: slot('orchestrator-hq', -2, 0, -10),
+  managerSeat: Object.freeze({
+    // Derived from manager-desk chair center (0.813, 0.819, 0.732), seat
+    // contact y≈0.54, transformed by station (-5.2, 0, -10.4), yaw PI/2.
+    position: point(-4.56, 0.54, -11.15),
+    rotationY: Math.PI / 2,
+  }),
+  strategyApproval: Object.freeze({
+    chairPosition: point(-2, 0, -10.72),
+    chairRotationY: Math.PI,
+    humanSeat: point(-2, 0.54, -10.72),
+    managerStand: point(-2, 0, -9.55),
+    managerRotationY: 0,
+  }),
   dispatch: slot('dispatch', -16, 0, 10, Math.PI / 2),
   dispatchQueue: row('dispatch-queue', 12, -17.2, 1.15, 12.1),
   library: Object.freeze({

@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
 import {
+  createProceduralHumanApprover,
   createEntityFactories,
   createResourcePool,
   createWorkPacket,
@@ -107,6 +108,30 @@ test('office desks start empty and expose authored work-contact anchors', () => 
   pool.dispose();
 });
 
+test('company topology authors the manager seat and south-facing approval table', () => {
+  assert.deepEqual(STUDIO_TOPOLOGY.managerSeat.position, [-4.56, 0.54, -11.15]);
+  assert.equal(STUDIO_TOPOLOGY.managerSeat.rotationY, Math.PI / 2);
+  assert.deepEqual(STUDIO_TOPOLOGY.strategyApproval.chairPosition, [-2, 0, -10.72]);
+  assert.equal(STUDIO_TOPOLOGY.strategyApproval.chairRotationY, Math.PI);
+  assert.deepEqual(STUDIO_TOPOLOGY.strategyApproval.humanSeat, [-2, 0.54, -10.72]);
+  assert.deepEqual(STUDIO_TOPOLOGY.strategyApproval.managerStand, [-2, 0, -9.55]);
+  assert.equal(STUDIO_TOPOLOGY.strategyApproval.managerRotationY, 0);
+});
+
+test('human approver has a pooled procedural seated fallback', () => {
+  const pool = createResourcePool();
+  const human = createProceduralHumanApprover(pool);
+
+  assert.ok(human.object instanceof THREE.Group);
+  assert.equal(human.object.name, 'Human approver fallback');
+  assert.ok(human.object.children.length >= 6);
+  human.setMode('sitting');
+  assert.equal(human.object.userData.mode, 'sitting');
+
+  human.dispose();
+  pool.dispose();
+});
+
 test('entity factories produce humanoid Orchestrator and session handles', () => {
   const pool = createResourcePool();
   const factories = createEntityFactories(pool);
@@ -131,7 +156,7 @@ test('entity factories produce humanoid Orchestrator and session handles', () =>
   pool.dispose();
 });
 
-test('reconciler caps detailed robots at sixteen and adds one honest aggregate', () => {
+test('reconciler reserves two fixed cast slots and aggregates beyond fourteen sessions', () => {
   const scene = new THREE.Scene();
   const factory = (_data) => ({
     object: new THREE.Group(),
@@ -140,6 +165,7 @@ test('reconciler caps detailed robots at sixteen and adds one honest aggregate',
   });
   const reconciler = createEntityReconciler({
     scene,
+    maxDetailedSessions: 14,
     factories: {
       orchestrator: factory,
       mission: factory,
@@ -163,9 +189,9 @@ test('reconciler caps detailed robots at sixteen and adds one honest aggregate',
     evidence_items: [],
   });
 
-  assert.equal([...registry.keys()].filter((key) => key.startsWith('session:')).length, 16);
+  assert.equal([...registry.keys()].filter((key) => key.startsWith('session:')).length, 14);
   assert.ok(registry.has('aggregate:overflow-sessions'));
-  assert.equal(registry.get('aggregate:overflow-sessions').object.userData.data.count, 2);
+  assert.equal(registry.get('aggregate:overflow-sessions').object.userData.data.count, 4);
   assert.equal(registry.has('session:session-1'), false);
   assert.equal(registry.has('session:session-18'), true);
   reconciler.clear();
@@ -192,13 +218,15 @@ test('projection assignment never double-books a desk and lights the goal token'
   const assigned = assignOfficeProjection(office, {
     sessions,
     orchestrator: { id: 'orchestrator-hq', status: 'active' },
-  }, pool);
+  }, pool, 14);
   const occupied = [...office.desks.builder, ...office.desks.validator]
     .map((desk) => desk.occupant)
     .filter(Boolean);
   assert.equal(assigned.size, 12);
   assert.equal(new Set(occupied).size, occupied.length);
   assert.equal(occupied.length, 12);
+  assert.equal(assigned.has('builder-1'), false);
+  assert.equal(assigned.has('builder-3'), true);
   assert.equal(office.goalToken.material, pool.statusMaterial('active'));
 
   office.dispose();

@@ -126,6 +126,8 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /rebuildStreams/);
   assert.match(sceneSource, /paintGlobalTimeline/);
   assert.match(sceneSource, /MAX_DETAILED_RIGS\s*=\s*16/);
+  assert.match(sceneSource, /FIXED_DETAILED_RIGS\s*=\s*2/);
+  assert.match(sceneSource, /MAX_DETAILED_SESSIONS\s*=\s*MAX_DETAILED_RIGS - FIXED_DETAILED_RIGS/);
   // 200 accommodates the GLB cast (battlestation = 26 textured materials,
   // pipeline wall = 15 panels); measured full-cast overview with 8 live
   // sessions is 177 calls — see scene.js rationale.

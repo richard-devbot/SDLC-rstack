@@ -477,13 +477,13 @@ export function createOfficeEnvironment(pool) {
   };
 }
 
-export function assignOfficeProjection(office, projection, pool) {
+export function assignOfficeProjection(office, projection, pool, maxDetailedSessions = 16) {
   const workstationBySession = new Map();
   const allDesks = [...office.desks.builder, ...office.desks.validator];
   allDesks.forEach((desk) => { desk.occupant = null; });
 
   const indexes = { builder: 0, validator: 0 };
-  (projection.sessions ?? []).slice(-16).forEach((session) => {
+  (projection.sessions ?? []).slice(-maxDetailedSessions).forEach((session) => {
     const role = session.role === 'validator' ? 'validator' : 'builder';
     const desk = office.desks[role][indexes[role]] ?? null;
     indexes[role] += 1;

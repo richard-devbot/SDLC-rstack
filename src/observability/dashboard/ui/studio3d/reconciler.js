@@ -9,7 +9,7 @@ function key(kind, id) {
   return `${kind}:${id}`;
 }
 
-function desiredEntities(projection) {
+function desiredEntities(projection, maxDetailedSessions) {
   const desired = [{
     kind: 'orchestrator',
     id: projection.orchestrator.id,
@@ -18,7 +18,7 @@ function desiredEntities(projection) {
   }];
   projection.missions.forEach((data, index) => desired.push({ kind: 'mission', id: data.id, data, slot: topologySlot('mission', index) }));
   projection.departments.forEach((data, index) => desired.push({ kind: 'department', id: data.id, data, slot: topologySlot('department', index) }));
-  const detailedSessions = projection.sessions.slice(-16);
+  const detailedSessions = projection.sessions.slice(-maxDetailedSessions);
   const workstationIndexes = { builder: 0, validator: 0 };
   let dispatchIndex = 0;
   detailedSessions.forEach((data) => {
@@ -54,7 +54,13 @@ function desiredEntities(projection) {
   return desired;
 }
 
-export function createEntityReconciler({ scene, factories, onAdded = () => {}, onRemoved = () => {} } = {}) {
+export function createEntityReconciler({
+  scene,
+  factories,
+  onAdded = () => {},
+  onRemoved = () => {},
+  maxDetailedSessions = 16,
+} = {}) {
   const registry = new Map();
 
   function add(entity) {
@@ -73,7 +79,7 @@ export function createEntityReconciler({ scene, factories, onAdded = () => {}, o
   }
 
   function apply(projection) {
-    const desired = desiredEntities(projection);
+    const desired = desiredEntities(projection, maxDetailedSessions);
     const desiredKeys = new Set(desired.map((entity) => key(entity.kind, entity.id)));
     for (const entity of desired) {
       const entityKey = key(entity.kind, entity.id);

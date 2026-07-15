@@ -19,6 +19,7 @@ import { restingBehavior } from './behavior.js';
 import {
   createCapabilityInstances,
   createEntityFactories,
+  createProceduralHumanApprover,
   createResourcePool,
   createWorkPacket,
 } from './geometry.js';
@@ -35,6 +36,8 @@ const QUALITY = Object.freeze({
 });
 const QUALITY_ORDER = ['high', 'balanced', 'low'];
 const MAX_DETAILED_RIGS = 16;
+const FIXED_DETAILED_RIGS = 2;
+const MAX_DETAILED_SESSIONS = MAX_DETAILED_RIGS - FIXED_DETAILED_RIGS;
 // Raised from 90 for the Richardson-supplied GLB cast: the HQ battlestation
 // alone carries 26 textured materials (26 draws), each occupied desk pod ~4,
 // plus the 15-panel pipeline wall and two team-lead fixtures. Measured
@@ -101,12 +104,13 @@ export function createStudioScene(canvas, {
   const pool = createResourcePool();
   const office = createOfficeEnvironment(pool);
   scene.add(office.object);
-  const robotFleet = createRobotFleetRenderer(pool, { maxRobots: MAX_DETAILED_RIGS + 1 });
+  const robotFleet = createRobotFleetRenderer(pool, { maxRobots: MAX_DETAILED_SESSIONS + 1 });
   scene.add(robotFleet.object);
   let cast = null;
   const reconciler = createEntityReconciler({
     scene,
     factories: createEntityFactories(pool, office, () => cast),
+    maxDetailedSessions: MAX_DETAILED_SESSIONS,
   });
   const workstationBySession = new Map();
 
@@ -118,6 +122,25 @@ export function createStudioScene(canvas, {
   castProps.name = 'Executive cast props';
   scene.add(castProps);
   let librarianProp = null;
+  let humanApprover = createProceduralHumanApprover(pool);
+
+  function placeHumanApprover(handle) {
+    const approval = STUDIO_TOPOLOGY.strategyApproval;
+    handle.object.position.fromArray(approval.humanSeat);
+    handle.object.rotation.y = approval.chairRotationY;
+    handle.setMode?.('sitting');
+    castProps.add(handle.object);
+  }
+
+  function replaceHumanApprover() {
+    if (!cast?.human) return;
+    humanApprover.dispose?.();
+    humanApprover = createCastAgent(cast.human);
+    humanApprover.object.name = 'Human approver';
+    placeHumanApprover(humanApprover);
+  }
+
+  placeHumanApprover(humanApprover);
 
   function placeCastProps() {
     if (cast?.station) {
@@ -129,9 +152,9 @@ export function createStudioScene(canvas, {
     }
     if (cast?.chair) {
       const chair = createCastProp(cast.chair);
-      chair.name = 'Orchestrator HQ chair';
-      chair.position.set(-4, 0, -10.4);
-      chair.rotation.y = -Math.PI / 2;
+      chair.name = 'Human approver strategy chair';
+      chair.position.fromArray(STUDIO_TOPOLOGY.strategyApproval.chairPosition);
+      chair.rotation.y = STUDIO_TOPOLOGY.strategyApproval.chairRotationY;
       castProps.add(chair);
     }
     if (cast?.librarian) {
@@ -163,6 +186,7 @@ export function createStudioScene(canvas, {
     cast = loaded;
     office.setPodMode?.(Boolean(cast.worker));
     placeCastProps();
+    replaceHumanApprover();
     // Rebuild live entities so orchestrator/session bodies pick up the cast.
     if (projection) {
       reconciler.clear();
@@ -448,7 +472,7 @@ export function createStudioScene(canvas, {
     clearStreams();
     const source = new THREE.Vector3(-2, 1.9, -10);
     const curves = [];
-    (projection.sessions ?? []).slice(-MAX_DETAILED_RIGS).forEach((session) => {
+    (projection.sessions ?? []).slice(-MAX_DETAILED_SESSIONS).forEach((session) => {
       if (!['active', 'starting'].includes(session.status)) return;
       const workstation = workstationBySession.get(session.id);
       if (!workstation) return;
@@ -758,8 +782,20 @@ export function createStudioScene(canvas, {
     if (select(ref)) onSelect(ref);
   }
 
+  function applyManagerSeat() {
+    const managerId = projection.orchestrator?.id;
+    const handle = managerId
+      ? reconciler.get({ kind: 'orchestrator', id: managerId })
+      : null;
+    if (!handle) return;
+    const [x, y, z] = STUDIO_TOPOLOGY.managerSeat.position;
+    handle.object.position.set(x, handle.seatedAtOrigin ? y : y - ROBOT_PELVIS_HEIGHT, z);
+    handle.object.rotation.set(0, STUDIO_TOPOLOGY.managerSeat.rotationY, 0);
+    handle.setPose(handle.seatedAtOrigin ? 'sitting' : 'seated_work');
+  }
+
   function applyRestingStates() {
-    (projection.sessions ?? []).slice(-MAX_DETAILED_RIGS).forEach((session) => {
+    (projection.sessions ?? []).slice(-MAX_DETAILED_SESSIONS).forEach((session) => {
       const handle = reconciler.get({ kind: 'session', id: session.id });
       if (!handle) return;
       const workstation = workstationBySession.get(session.id);
@@ -784,11 +820,17 @@ export function createStudioScene(canvas, {
         handle.setPose(observedPose === 'seated_work' || observedPose === 'validating' ? 'standing' : observedPose);
       }
     });
+    applyManagerSeat();
   }
 
   function reconcile(nextProjection) {
     projection = nextProjection;
-    const assigned = assignOfficeProjection(office, projection, pool);
+    const assigned = assignOfficeProjection(
+      office,
+      projection,
+      pool,
+      MAX_DETAILED_SESSIONS,
+    );
     workstationBySession.clear();
     assigned.forEach((desk, sessionId) => workstationBySession.set(sessionId, desk));
     reconciler.apply(projection);
@@ -838,7 +880,11 @@ export function createStudioScene(canvas, {
       triangles: renderer.info.render.triangles,
       geometries: renderer.info.memory.geometries,
       textures: renderer.info.memory.textures,
-      activeRigs: reconciler.entries().filter(([entry]) => entry.startsWith('session:')).length,
+      activeRigs: Math.min(
+        MAX_DETAILED_RIGS,
+        FIXED_DETAILED_RIGS
+          + reconciler.entries().filter(([entry]) => entry.startsWith('session:')).length,
+      ),
       activeTransitions: animator.activeCount(),
       transitionCostMs,
     };
@@ -917,6 +963,7 @@ export function createStudioScene(canvas, {
       gantryLegendMaterial.dispose();
     }
     scene.remove(gantryLegend);
+    humanApprover.dispose?.();
     scene.remove(castProps);
     disposeStudioCast();
     office.dispose();
