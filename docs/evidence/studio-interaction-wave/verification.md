@@ -1,3 +1,4 @@
+<!-- owner: RStack developed by Richardson Gunde -->
 # Studio interaction wave — browser verification
 
 Verified 2026-07-15 against the scratch run `interaction-wave-proof` with

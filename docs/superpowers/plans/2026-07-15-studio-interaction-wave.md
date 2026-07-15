@@ -1,3 +1,4 @@
+<!-- owner: RStack developed by Richardson Gunde -->
 # RStack Agent Force Studio Interaction Wave Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
