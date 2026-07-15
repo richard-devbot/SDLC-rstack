@@ -25,6 +25,24 @@ test('office builds every company facility with exactly fifteen stage signals', 
 
   assert.ok(office.object instanceof THREE.Group);
   assert.equal(office.stageSignals.size, 15);
+  const gantry = office.object.getObjectByName('Fifteen-stage pipeline gantry');
+  const stageSignals = [...office.stageSignals.values()];
+  assert.ok(gantry instanceof THREE.Group);
+  assert.equal(office.object.getObjectByName('Fifteen-stage pipeline wall'), undefined);
+  assert.deepEqual(
+    [...office.stageSignals.keys()],
+    STUDIO_TOPOLOGY.departments.map((department) => department.id),
+  );
+  assert.ok(stageSignals.every((signal) => signal.position.y >= 2.6));
+  assert.ok(stageSignals.every((signal) => (
+    Math.abs(signal.position.z - STUDIO_TOPOLOGY.corridor.z) < 0.8
+  )));
+  assert.ok(stageSignals.every((signal, index) => (
+    index === 0 || signal.position.x > stageSignals[index - 1].position.x
+  )));
+  assert.ok(Object.values(STUDIO_TOPOLOGY.routes).flat().every((point) => (
+    point[1] < STUDIO_TOPOLOGY.pipelineGantry.minClearanceY
+  )));
   assert.equal(office.missionBoards.size, 8);
   assert.equal(office.desks.builder.length, 8);
   assert.equal(office.desks.validator.length, 4);

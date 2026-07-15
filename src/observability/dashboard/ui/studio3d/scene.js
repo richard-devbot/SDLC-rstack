@@ -25,7 +25,7 @@ import {
 import { assignOfficeProjection, createOfficeEnvironment } from './office.js';
 import { createEntityReconciler } from './reconciler.js';
 import { createRobotFleetRenderer, ROBOT_PELVIS_HEIGHT } from './robot.js';
-import { STUDIO_TOPOLOGY } from './topology.js';
+import { pipelineStageX, STUDIO_TOPOLOGY } from './topology.js';
 import { createTransitionScheduler } from './transitions.js';
 
 const QUALITY = Object.freeze({
@@ -250,7 +250,7 @@ export function createStudioScene(canvas, {
     ['ORCHESTRATION CENTER', -2, 3.8, -10],
     ['GOVERNANCE', 7.5, 3.6, -10],
     ['EVIDENCE VAULT', 15.5, 3.6, -10],
-    ['15-STAGE PIPELINE', 16.1, 3.6, 4],
+    ['15-STAGE PIPELINE', 0, 4.45, -5.55],
     ['DISPATCH', -16, 2.6, 10],
   ];
   const roomLabelGroup = new THREE.Group();
@@ -275,6 +275,45 @@ export function createStudioScene(canvas, {
     roomLabelGroup.add(sprite);
   }
   scene.add(roomLabelGroup);
+
+  // One physical legend rail makes all fifteen canonical stages readable
+  // from Overview without spending fifteen more sprite draw calls.
+  let gantryLegendMaterial = null;
+  const gantryLegend = new THREE.Mesh(pool.geometries.slab, pool.materials.graphite);
+  gantryLegend.name = 'Gantry stage legend';
+  gantryLegend.position.set(
+    0,
+    STUDIO_TOPOLOGY.pipelineGantry.panelY + 0.72,
+    STUDIO_TOPOLOGY.pipelineGantry.z,
+  );
+  gantryLegend.scale.set(15.45, 0.52, 0.035);
+  gantryLegend.rotation.x = STUDIO_TOPOLOGY.pipelineGantry.panelTiltX;
+  scene.add(gantryLegend);
+
+  function paintGantryLegend() {
+    const canvasEl = makeCanvas(2048, 144);
+    const context = canvasEl.getContext('2d');
+    context.fillStyle = '#111a24';
+    context.fillRect(0, 0, canvasEl.width, canvasEl.height);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.font = '700 22px ui-sans-serif, system-ui';
+    (projection.departments ?? []).slice(0, 15).forEach((department, index) => {
+      const width = canvasEl.width / 15;
+      context.fillStyle = '#f4f6f8';
+      const label = `${String(index + 1).padStart(2, '0')} ${String(
+        department.title ?? department.id,
+      ).slice(0, 14)}`;
+      context.fillText(label, width * (index + 0.5), 72, width - 10);
+    });
+    const texture = new THREE.CanvasTexture(canvasEl);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.MeshBasicMaterial({ map: texture });
+    gantryLegendMaterial?.map?.dispose();
+    gantryLegendMaterial?.dispose();
+    gantryLegendMaterial = material;
+    gantryLegend.material = material;
+  }
 
   // Holographic status panels above each observed agent: goal, current
   // skill, status, and canonical stage progress (n of 15).
@@ -461,12 +500,17 @@ export function createStudioScene(canvas, {
     return motionMode !== 'reduced';
   }
 
-  // Pipeline conveyor: work packets glide along the 15-stage wall, but only
+  // Pipeline conveyor: work packets glide along the overhead gantry, but only
   // as far as the furthest stage the run has actually reached — the flow is
-  // read from the same departments the wall panels render, so it can never
+  // read from the same departments the gantry panels render, so it can never
   // show progress the projection doesn't. Frozen in reduced motion.
-  const CONVEYOR = { startZ: -11.7, step: 23.4 / 14, x: 16.55, packets: 6 };
-  const conveyorState = { mesh: null, endZ: null };
+  const CONVEYOR = Object.freeze({
+    startX: STUDIO_TOPOLOGY.pipelineGantry.startX,
+    y: STUDIO_TOPOLOGY.pipelineGantry.panelY - 0.33,
+    z: STUDIO_TOPOLOGY.pipelineGantry.z + 0.18,
+    packets: 6,
+  });
+  const conveyorState = { mesh: null, endX: null };
 
   function clearConveyor() {
     if (!conveyorState.mesh) return;
@@ -482,7 +526,7 @@ export function createStudioScene(canvas, {
       if (department.status !== 'unknown') reached = index;
     });
     if (reached < 1) return;
-    conveyorState.endZ = CONVEYOR.startZ + reached * CONVEYOR.step;
+    conveyorState.endX = pipelineStageX(reached);
     const mesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.amber, CONVEYOR.packets);
     mesh.name = 'Pipeline conveyor packets';
     mesh.frustumCulled = false;
@@ -494,13 +538,13 @@ export function createStudioScene(canvas, {
   function updateConveyor(now) {
     if (!conveyorState.mesh) return false;
     const transform = new THREE.Object3D();
-    const span = conveyorState.endZ - CONVEYOR.startZ;
+    const span = conveyorState.endX - CONVEYOR.startX;
     for (let index = 0; index < CONVEYOR.packets; index += 1) {
       const t = motionMode === 'reduced'
         ? index / CONVEYOR.packets
         : ((now / 5200) + index / CONVEYOR.packets) % 1;
-      transform.position.set(CONVEYOR.x, 0.62, CONVEYOR.startZ + t * span);
-      transform.scale.set(0.26, 0.12, 0.4);
+      transform.position.set(CONVEYOR.startX + t * span, CONVEYOR.y, CONVEYOR.z);
+      transform.scale.set(0.4, 0.12, 0.26);
       transform.updateMatrix();
       conveyorState.mesh.setMatrixAt(index, transform.matrix);
     }
@@ -753,6 +797,7 @@ export function createStudioScene(canvas, {
     syncAgentPanels();
     rebuildStreams();
     rebuildConveyor();
+    paintGantryLegend();
     paintGlobalTimeline();
     robotFleet.update();
     refreshProjectionGeometry();
@@ -867,6 +912,11 @@ export function createStudioScene(canvas, {
       timelineMaterial.map?.dispose();
       timelineMaterial.dispose();
     }
+    if (gantryLegendMaterial) {
+      gantryLegendMaterial.map?.dispose();
+      gantryLegendMaterial.dispose();
+    }
+    scene.remove(gantryLegend);
     scene.remove(castProps);
     disposeStudioCast();
     office.dispose();

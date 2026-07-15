@@ -120,6 +120,9 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /syncAgentPanels/);
   assert.match(sceneSource, /agentPanel/);
   assert.match(sceneSource, /ROOM_LABELS/);
+  assert.match(sceneSource, /Gantry stage legend/);
+  assert.match(sceneSource, /paintGantryLegend\(\)/);
+  assert.match(sceneSource, /pipelineGantry/);
   assert.match(sceneSource, /rebuildStreams/);
   assert.match(sceneSource, /paintGlobalTimeline/);
   assert.match(sceneSource, /MAX_DETAILED_RIGS\s*=\s*16/);

@@ -14,7 +14,7 @@
  * owner: RStack developed by Richardson Gunde
  */
 import * as THREE from 'three';
-import { STUDIO_TOPOLOGY } from './topology.js';
+import { pipelineStageX, STUDIO_TOPOLOGY } from './topology.js';
 
 const WALL_HEIGHT = 2.7;
 const PARTITION_HEIGHT = 2.2;
@@ -236,29 +236,40 @@ function createLibraryStock(pool) {
 }
 
 function createPipelineWall(pool) {
-  // The east wing shows the REAL fifteen-stage pipeline: one illuminated
-  // panel per canonical stage, in order. These panels ARE the department
-  // fixtures — the reconciler adopts them, so each stage status has exactly
-  // one visual owner and the wall can never disagree with the projection.
+  // The REAL fifteen-stage pipeline spans the shared corridor west-to-east.
+  // Panels remain the adopted department fixtures while a single suspended
+  // truss keeps every walking route clear below y=2.6.
   const group = new THREE.Group();
-  group.name = 'Fifteen-stage pipeline wall';
+  group.name = 'Fifteen-stage pipeline gantry';
+  const gantry = STUDIO_TOPOLOGY.pipelineGantry;
   const count = STUDIO_TOPOLOGY.departments.length;
-  const frames = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.graphite, count + 1);
-  frames.name = 'Pipeline wall frames';
-  const segments = [{ center: [17.1, 1.5, 0], scale: [0.18, 2.6, 25.4] }];
+  const span = gantry.endX - gantry.startX;
+  const segments = [
+    { center: [0, gantry.frameY + 0.25, gantry.z - 0.34], scale: [span + 1, 0.14, 0.16] },
+    { center: [0, gantry.frameY + 0.25, gantry.z + 0.34], scale: [span + 1, 0.14, 0.16] },
+    { center: [gantry.startX - 0.35, gantry.frameY + 0.68, gantry.z], scale: [0.14, 1, 0.82] },
+    { center: [gantry.endX + 0.35, gantry.frameY + 0.68, gantry.z], scale: [0.14, 1, 0.82] },
+  ];
   const stageSignals = new Map();
   STUDIO_TOPOLOGY.departments.forEach((slot, index) => {
-    const z = -11.7 + index * (23.4 / (count - 1));
-    segments.push({ center: [16.95, 1.5, z], scale: [0.1, 1.9, 1.28] });
+    const x = pipelineStageX(index, count);
+    segments.push({ center: [x, gantry.frameY, gantry.z], scale: [1.78, 0.12, 0.78] });
+    segments.push({ center: [x, gantry.panelY - 0.37, gantry.z], scale: [0.08, 0.12, 0.92] });
     const panel = new THREE.Mesh(pool.geometries.slab, pool.statusMaterial('unknown'));
     panel.name = `Stage signal · ${slot.id}`;
-    panel.scale.set(0.08, 1.7, 1.08);
-    panel.position.set(16.78, 1.58, z);
-    // Tilt each display up-west so the overview camera reads the wall face-on.
-    panel.rotation.z = -0.55;
+    panel.scale.set(0.86, 0.42, 0.08);
+    panel.position.set(x, gantry.panelY, gantry.z + 0.1);
+    // Face south and pitch toward the authored overview camera.
+    panel.rotation.x = gantry.panelTiltX;
     group.add(panel);
     stageSignals.set(slot.id, panel);
   });
+  const frames = new THREE.InstancedMesh(
+    pool.geometries.slab,
+    pool.materials.graphite,
+    segments.length,
+  );
+  frames.name = 'Pipeline gantry rollers';
   group.add(writeSegments(frames, segments));
   return { group, stageSignals };
 }
@@ -342,7 +353,7 @@ function createFurnitureInstances(pool, desks) {
 
 function createStageCells(pool) {
   // Work-cell docks along the bullpen/lab rails stay as furniture; the
-  // fifteen stage STATUS fixtures live on the pipeline wall.
+  // fifteen stage STATUS fixtures live on the corridor gantry.
   const docks = new THREE.InstancedMesh(
     pool.geometries.slab,
     pool.materials.graphiteLight,

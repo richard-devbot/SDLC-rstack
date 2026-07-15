@@ -46,6 +46,15 @@ export const STUDIO_TOPOLOGY = Object.freeze({
   // Building envelope, shared with the office renderer.
   bounds: Object.freeze({ west: -18, east: 18, north: -13, south: 13 }),
   corridor: Object.freeze({ north: -7, south: -4, z: CORRIDOR_Z }),
+  pipelineGantry: Object.freeze({
+    startX: -15.4,
+    endX: 15.4,
+    z: CORRIDOR_Z,
+    frameY: 3.55,
+    panelY: 3.06,
+    minClearanceY: 2.6,
+    panelTiltX: -0.3,
+  }),
   doors: DOORS,
 
   orchestrator: slot('orchestrator-hq', -2, 0, -10),
@@ -122,6 +131,13 @@ export const STUDIO_TOPOLOGY = Object.freeze({
     ]),
   }),
 });
+
+export function pipelineStageX(index, count = STUDIO_TOPOLOGY.departments.length) {
+  const { startX, endX } = STUDIO_TOPOLOGY.pipelineGantry;
+  return count <= 1
+    ? startX
+    : startX + ((endX - startX) * index) / (count - 1);
+}
 
 export function topologySlot(kind, index = 0) {
   if (kind === 'mission') return STUDIO_TOPOLOGY.missions[index % STUDIO_TOPOLOGY.missions.length];
