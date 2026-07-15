@@ -12,6 +12,7 @@ import {
   sampleWaypointRoute,
 } from '../src/observability/dashboard/ui/studio3d/animator.js';
 import { ROBOT_PELVIS_HEIGHT } from '../src/observability/dashboard/ui/studio3d/robot.js';
+import { STUDIO_TOPOLOGY } from '../src/observability/dashboard/ui/studio3d/topology.js';
 
 function agentHarness({ role = 'builder' } = {}) {
   const object = new THREE.Group();
@@ -32,6 +33,22 @@ function agentHarness({ role = 'builder' } = {}) {
 function workstationAt(x, y, z) {
   return {
     seat: { getWorldPosition: (out) => out.set(x, y, z) },
+    handoff: { getWorldPosition: (out) => out.set(x, 0, z - 1) },
+  };
+}
+
+function managerHarness() {
+  const object = new THREE.Group();
+  object.position.fromArray(STUDIO_TOPOLOGY.managerSeat.position);
+  const modes = [];
+  return {
+    handle: {
+      object,
+      seatedAtOrigin: true,
+      setPose: (name) => modes.push(name),
+      setWalking: () => modes.push('walking'),
+    },
+    modes,
   };
 }
 
@@ -135,4 +152,59 @@ test('delegation and evidence packets are transient and cleared from the scene',
   animator.update(700);
   assert.equal(packets[0].parent, null);
   assert.equal(animator.activeCount(), 0);
+});
+
+test('manager checks in at the involved desk, dwells, returns, and sits', () => {
+  const { handle: manager, modes } = managerHarness();
+  const callbacks = [];
+  const animator = createAgentAnimator({
+    getOrchestrator: () => manager,
+    getWorkstation: () => workstationAt(6, 0, 8),
+    onTransitionStart: (transition) => callbacks.push(`start:${transition.intent.action}`),
+    onTransitionComplete: (transition) => callbacks.push(`complete:${transition.intent.action}`),
+    scene: new THREE.Scene(),
+  });
+
+  assert.equal(animator.play({
+    id: 'handoff-1:manager',
+    intent: { action: 'manager_check_in', sessionId: 'session-a' },
+    event: { type: 'handoff_created', agent_session_id: 'session-a' },
+    duration_ms: 4_500,
+    started_at_ms: 0,
+  }), true);
+  animator.update(750);
+  assert.equal(modes.at(-1), 'walking');
+  assert.notDeepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.managerSeat.position);
+
+  animator.update(2_250);
+  assert.equal(modes.at(-1), 'standing');
+  assert.deepEqual(manager.object.position.toArray(), [6, 0, 7]);
+  assert.ok(Math.abs(manager.object.rotation.y) < 0.01);
+
+  assert.equal(animator.update(4_500), false);
+  assert.equal(modes.at(-1), 'sitting');
+  assert.deepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.managerSeat.position);
+  assert.deepEqual(callbacks, ['start:manager_check_in', 'complete:manager_check_in']);
+});
+
+test('delegation returns the manager to the authored seat in sitting mode', () => {
+  const { handle: manager, modes } = managerHarness();
+  const animator = createAgentAnimator({
+    getOrchestrator: () => manager,
+    createPacket: () => new THREE.Object3D(),
+    scene: new THREE.Scene(),
+  });
+
+  animator.play({
+    id: 'delegate-1',
+    intent: { action: 'delegate', sessionId: null },
+    event: { type: 'delegation_requested' },
+    duration_ms: 700,
+    started_at_ms: 0,
+  });
+  animator.update(2_600);
+
+  assert.deepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.managerSeat.position);
+  assert.equal(manager.object.rotation.y, STUDIO_TOPOLOGY.managerSeat.rotationY);
+  assert.equal(modes.at(-1), 'sitting');
 });

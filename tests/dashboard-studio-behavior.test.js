@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   behaviorIntent,
   freezeReason,
+  managerIntent,
   restingBehavior,
   safeActivityGesture,
 } from '../src/observability/dashboard/ui/studio3d/behavior.js';
@@ -65,6 +66,34 @@ test('every normalized lifecycle event has a conservative robot intent', () => {
   for (const [type, action] of cases) {
     assert.equal(behaviorIntent({ type, agent_session_id: 'session-1' })?.action, action, type);
   }
+});
+
+test('only handoff and retry events request a source-backed manager check-in', () => {
+  assert.deepEqual(managerIntent({
+    type: 'handoff_created',
+    agent_session_id: 'session-a',
+    task_id: 'task-a',
+    to: 'validator',
+  }), {
+    action: 'manager_check_in',
+    sessionId: 'session-a',
+    taskId: 'task-a',
+    trigger: 'handoff_created',
+    attempt: undefined,
+  });
+  assert.deepEqual(managerIntent({
+    type: 'task_retry_scheduled',
+    agent_session_id: 'session-b',
+    task_id: 'task-b',
+    attempt: 2,
+  }), {
+    action: 'manager_check_in',
+    sessionId: 'session-b',
+    taskId: 'task-b',
+    trigger: 'task_retry_scheduled',
+    attempt: 2,
+  });
+  assert.equal(managerIntent({ type: 'agent_session_started' }), null);
 });
 
 test('resting behavior, activity gestures, and freeze remain honest', () => {
