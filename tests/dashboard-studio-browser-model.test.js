@@ -137,12 +137,14 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /managerAction/);
   assert.match(sceneSource, /activeCaptions/);
   assert.match(sceneSource, /actionCaptions/);
+  assert.match(sceneSource, /cameraMoving/);
   assert.match(appSource, /studioManagerState/);
   assert.match(appSource, /studioManagerAction/);
   assert.match(appSource, /studioManagerX/);
   assert.match(appSource, /studioManagerZ/);
   assert.match(appSource, /studioActiveCaptions/);
   assert.match(appSource, /studioActionCaptions/);
+  assert.match(appSource, /studioCameraMoving/);
   assert.match(sceneSource, /animator\.freeze\(now\)/);
   assert.match(sceneSource, /animator\.resume\(now\)/);
   assert.doesNotMatch(sceneSource, /caption[^\n]*userData\.interactive\s*=\s*true/i);

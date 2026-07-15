@@ -1131,6 +1131,7 @@ export function createStudioScene(canvas, {
       managerZ: managerHandle?.object.position.z ?? null,
       activeCaptions: captionSprites.size,
       actionCaptions: [...captionSprites.keys()].filter((id) => id.startsWith('action:')).length,
+      cameraMoving: Boolean(cameraTween),
       transitionCostMs,
     };
   }

@@ -71,6 +71,7 @@ async function ensureScene(studio) {
         app.dataset.studioManagerZ = stats.managerZ === null ? '' : String(stats.managerZ);
         app.dataset.studioActiveCaptions = String(stats.activeCaptions);
         app.dataset.studioActionCaptions = String(stats.actionCaptions);
+        app.dataset.studioCameraMoving = String(stats.cameraMoving);
         app.dataset.studioTransitionCostMs = stats.transitionCostMs.toFixed(3);
       },
       onRendererState: (state) => {
