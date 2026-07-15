@@ -23,6 +23,8 @@ const ACTION_DURATION = Object.freeze({
   fail: 500,
   exit: 1100,
   delegate: 700,
+  approval_walk: 2200,
+  approval_return: 2200,
 });
 
 const WALKING_ACTIONS = new Set([
@@ -35,11 +37,14 @@ const WALKING_ACTIONS = new Set([
   'exit',
   // The orchestrator walks the delegation to Dispatch and back.
   'delegate',
+  'approval_walk',
+  'approval_return',
 ]);
 
 /** Milliseconds per locomotion stride while a cast body walks a route. */
 const STRIDE_MS = 420;
 const MANAGER_CHECK_IN_DURATION_MS = 4_500;
+const APPROVAL_TRAVEL_MS = 2_200;
 const MANAGER_EVENT_ACTIONS = new Set(['delegate', 'manager_check_in']);
 
 function clampedProgress(value) {
@@ -89,6 +94,8 @@ export function createAgentAnimator({
   const active = [];
   const managerQueue = [];
   let managerItem = null;
+  let managerStateValue = 'seated';
+  let desiredApproval = { active: false, summary: null };
   let reduced = false;
   let frozen = false;
 
@@ -101,6 +108,15 @@ export function createAgentAnimator({
     handle.object.position.fromArray(STUDIO_TOPOLOGY.managerSeat.position);
     handle.object.rotation.set(0, STUDIO_TOPOLOGY.managerSeat.rotationY, 0);
     handle.setPose('sitting');
+    managerStateValue = 'seated';
+  }
+
+  function applyManagerApproval(handle) {
+    if (!handle) return;
+    handle.object.position.fromArray(STUDIO_TOPOLOGY.strategyApproval.managerStand);
+    handle.object.rotation.set(0, STUDIO_TOPOLOGY.strategyApproval.managerRotationY, 0);
+    handle.setPose('standing');
+    managerStateValue = 'approval';
   }
 
   function finalState(intent, handle) {
@@ -251,6 +267,42 @@ export function createAgentAnimator({
     item.packet?.removeFromParent();
   }
 
+  function startApprovalTransition(action, now) {
+    if (managerItem || managerQueue.length) return false;
+    const handle = getOrchestrator();
+    if (!handle) return false;
+    const destination = action === 'approval_walk'
+      ? STUDIO_TOPOLOGY.strategyApproval.managerStand
+      : STUDIO_TOPOLOGY.managerSeat.position;
+    const from = [handle.object.position.x, 0, handle.object.position.z];
+    const to = [destination[0], 0, destination[2]];
+    managerStateValue = action === 'approval_walk' ? 'approval-walk' : 'approval-return';
+    managerItem = {
+      id: `manager:${action}`,
+      intent: { action, sessionId: null },
+      event: null,
+      handle,
+      packet: null,
+      route: corridorRoute(from, to).map((point) => [...point]),
+      managerRoutes: null,
+      startedAt: now,
+      duration: APPROVAL_TRAVEL_MS,
+      internal: true,
+    };
+    return true;
+  }
+
+  function settleManagerProjectionState(now) {
+    if (managerItem || managerQueue.length || managerStateValue === 'event') return false;
+    if (desiredApproval.active && managerStateValue === 'seated') {
+      return startApprovalTransition('approval_walk', now);
+    }
+    if (!desiredApproval.active && managerStateValue === 'approval') {
+      return startApprovalTransition('approval_return', now);
+    }
+    return false;
+  }
+
   function startTransition(transition, startedAt = Number(transition?.started_at_ms) || 0) {
     const intent = transition?.intent;
     if (!intent) return false;
@@ -261,6 +313,7 @@ export function createAgentAnimator({
     if (!handle && intent.action !== 'delegate') return false;
     const playback = { ...transition, started_at_ms: startedAt };
     onTransitionStart(playback);
+    if (managerAction) managerStateValue = 'event';
     if (reduced || transition.duration_ms === 0) {
       finalState(intent, handle);
       onTransitionComplete(playback, { reducedMotion: reduced });
@@ -325,9 +378,11 @@ export function createAgentAnimator({
   }
 
   function completeItem(item, reducedMotion = false) {
-    finalState(item.intent, item.handle);
+    if (item.intent.action === 'approval_walk') applyManagerApproval(item.handle);
+    else if (item.intent.action === 'approval_return') applyManagerSeat(item.handle);
+    else finalState(item.intent, item.handle);
     removePacket(item);
-    onTransitionComplete(item, { reducedMotion });
+    if (!item.internal) onTransitionComplete(item, { reducedMotion });
   }
 
   function update(now) {
@@ -344,6 +399,7 @@ export function createAgentAnimator({
       completeItem(completed);
       const next = managerQueue.shift();
       if (next) startTransition(next, now);
+      else settleManagerProjectionState(now);
     }
     return active.length > 0 || Boolean(managerItem);
   }
@@ -359,6 +415,21 @@ export function createAgentAnimator({
       managerItem = null;
     }
     while (managerQueue.length) startTransition(managerQueue.shift());
+    if (desiredApproval.active) applyManagerApproval(getOrchestrator());
+    else applyManagerSeat(getOrchestrator());
+  }
+
+  function reconcileManager({ approvalActive = false, approvalSummary = null } = {}, now = 0) {
+    desiredApproval = {
+      active: Boolean(approvalActive),
+      summary: approvalSummary,
+    };
+    if (reduced) {
+      if (desiredApproval.active) applyManagerApproval(getOrchestrator());
+      else applyManagerSeat(getOrchestrator());
+      return true;
+    }
+    return settleManagerProjectionState(now);
   }
 
   function clear() {
@@ -366,6 +437,8 @@ export function createAgentAnimator({
     removePacket(managerItem ?? {});
     managerItem = null;
     managerQueue.length = 0;
+    managerStateValue = 'seated';
+    desiredApproval = { active: false, summary: null };
   }
 
   return {
@@ -375,6 +448,9 @@ export function createAgentAnimator({
     freeze() { frozen = true; },
     resume() { frozen = false; },
     clear,
+    reconcileManager,
+    managerState: () => managerStateValue,
+    isSessionActive: (sessionId) => active.some((item) => item.intent.sessionId === sessionId),
     activeCount: () => active.length + (managerItem ? 1 : 0),
   };
 }

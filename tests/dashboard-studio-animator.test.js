@@ -208,3 +208,87 @@ test('delegation returns the manager to the authored seat in sitting mode', () =
   assert.equal(manager.object.rotation.y, STUDIO_TOPOLOGY.managerSeat.rotationY);
   assert.equal(modes.at(-1), 'sitting');
 });
+
+test('approval projection walks the manager to the strategy table and back', () => {
+  const { handle: manager, modes } = managerHarness();
+  const animator = createAgentAnimator({
+    getOrchestrator: () => manager,
+    scene: new THREE.Scene(),
+  });
+  const summary = { pending_count: 1, artifact: 'Release plan' };
+
+  assert.equal(animator.managerState(), 'seated');
+  animator.reconcileManager({ approvalActive: true, approvalSummary: summary }, 0);
+  assert.equal(animator.managerState(), 'approval-walk');
+  animator.update(2_200);
+  assert.equal(animator.managerState(), 'approval');
+  assert.deepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.strategyApproval.managerStand);
+  assert.equal(manager.object.rotation.y, STUDIO_TOPOLOGY.strategyApproval.managerRotationY);
+  assert.equal(modes.at(-1), 'standing');
+
+  animator.reconcileManager({ approvalActive: false, approvalSummary: null }, 2_300);
+  assert.equal(animator.managerState(), 'approval-return');
+  animator.update(4_500);
+  assert.equal(animator.managerState(), 'seated');
+  assert.deepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.managerSeat.position);
+  assert.equal(modes.at(-1), 'sitting');
+});
+
+test('latest approval state wins only after real manager work finishes', () => {
+  const { handle: manager } = managerHarness();
+  const animator = createAgentAnimator({
+    getOrchestrator: () => manager,
+    createPacket: () => new THREE.Object3D(),
+    scene: new THREE.Scene(),
+  });
+  const summary = { pending_count: 1, artifact: 'Release plan' };
+
+  animator.play({
+    id: 'delegate-1',
+    intent: { action: 'delegate' },
+    event: { type: 'delegation_requested' },
+    duration_ms: 700,
+    started_at_ms: 0,
+  });
+  animator.reconcileManager({ approvalActive: true, approvalSummary: summary }, 100);
+  assert.equal(animator.managerState(), 'event');
+  animator.reconcileManager({ approvalActive: false, approvalSummary: null }, 1_000);
+  animator.update(2_600);
+  assert.equal(animator.managerState(), 'seated');
+
+  animator.play({
+    id: 'delegate-2',
+    intent: { action: 'delegate' },
+    event: { type: 'delegation_requested' },
+    duration_ms: 700,
+    started_at_ms: 3_000,
+  });
+  animator.reconcileManager({ approvalActive: true, approvalSummary: summary }, 3_100);
+  animator.update(5_600);
+  assert.equal(animator.managerState(), 'approval-walk');
+  animator.update(7_800);
+  assert.equal(animator.managerState(), 'approval');
+});
+
+test('reduced motion applies approval final states without active travel', () => {
+  const { handle: manager, modes } = managerHarness();
+  const animator = createAgentAnimator({
+    getOrchestrator: () => manager,
+    scene: new THREE.Scene(),
+  });
+  animator.setMotion('reduced');
+
+  animator.reconcileManager({
+    approvalActive: true,
+    approvalSummary: { pending_count: 1, artifact: 'Release plan' },
+  }, 0);
+  assert.equal(animator.activeCount(), 0);
+  assert.equal(animator.managerState(), 'approval');
+  assert.deepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.strategyApproval.managerStand);
+  assert.equal(modes.at(-1), 'standing');
+
+  animator.reconcileManager({ approvalActive: false, approvalSummary: null }, 100);
+  assert.equal(animator.managerState(), 'seated');
+  assert.deepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.managerSeat.position);
+  assert.equal(modes.at(-1), 'sitting');
+});

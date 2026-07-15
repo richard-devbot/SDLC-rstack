@@ -112,6 +112,8 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   }
   assert.match(sceneSource, /createOfficeEnvironment/);
   assert.match(sceneSource, /createAgentAnimator/);
+  assert.match(sceneSource, /reconcileManagerProjection/);
+  assert.match(sceneSource, /animator\.managerState\(\) === 'seated'/);
   // DOM world-label overlays stay removed; in-canvas facts render through
   // the holographic layer (agent panels, room labels, data streams, and the
   // global timeline), all driven by the server projection.

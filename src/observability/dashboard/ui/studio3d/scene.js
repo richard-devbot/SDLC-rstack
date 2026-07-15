@@ -696,6 +696,7 @@ export function createStudioScene(canvas, {
     if (frameInterval && now - lastRenderedAt < frameInterval) return;
     lastRenderedAt = now;
     transitions.tick(now);
+    reconcileManagerProjection(now);
     const transitionStarted = performance.now();
     const workforceActive = animator.update(now);
     transitionCostMs = performance.now() - transitionStarted;
@@ -796,6 +797,7 @@ export function createStudioScene(canvas, {
 
   function applyRestingStates() {
     (projection.sessions ?? []).slice(-MAX_DETAILED_SESSIONS).forEach((session) => {
+      if (animator.isSessionActive(session.id)) return;
       const handle = reconciler.get({ kind: 'session', id: session.id });
       if (!handle) return;
       const workstation = workstationBySession.get(session.id);
@@ -820,7 +822,16 @@ export function createStudioScene(canvas, {
         handle.setPose(observedPose === 'seated_work' || observedPose === 'validating' ? 'standing' : observedPose);
       }
     });
-    applyManagerSeat();
+    if (animator.managerState() === 'seated') applyManagerSeat();
+  }
+
+  function reconcileManagerProjection(now = performance.now()) {
+    if (!projection || transitions.pending() > 0) return false;
+    const approvalSummary = projection.approval_summary ?? null;
+    return animator.reconcileManager({
+      approvalActive: Number(approvalSummary?.pending_count) > 0,
+      approvalSummary,
+    }, now);
   }
 
   function reconcile(nextProjection) {
@@ -845,6 +856,7 @@ export function createStudioScene(canvas, {
     refreshProjectionGeometry();
     transitions.ingest(projection.timeline, { prime: firstTimeline });
     firstTimeline = false;
+    reconcileManagerProjection();
     if (selectedRef && !reconciler.get(selectedRef)) selectedRef = null;
     startLoop();
   }
@@ -853,6 +865,7 @@ export function createStudioScene(canvas, {
     motionMode = nextMotion === 'reduced' ? 'reduced' : 'full';
     transitions.setMotion(motionMode);
     animator.setMotion(motionMode);
+    reconcileManagerProjection();
     setCastMotion(motionMode);
     if (motionMode === 'reduced') cameraTween = null;
     startLoop();
