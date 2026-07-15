@@ -111,6 +111,7 @@ test('Studio serves pinned Three.js locally and rejects unlisted paths', async (
       'robot.js',
       'office.js',
       'animator.js',
+      'captions.js',
     ]) {
       const response = await fetch(`${server.baseUrl}/studio3d/assets/${asset}`);
       assert.equal(response.status, 200, asset);

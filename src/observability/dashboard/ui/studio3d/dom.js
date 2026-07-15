@@ -6,6 +6,7 @@
  *
  * owner: RStack developed by Richardson Gunde
  */
+import { approvalSemanticText, waitingSemanticText } from './captions.js';
 import { formatSnapshotAge, statusLabel } from './model.js';
 
 const ANNOUNCED_TYPES = new Set([
@@ -200,6 +201,10 @@ export function createStudioDom(root, {
     body.append(stateMark(doc, orchestrator.status));
     const next = orchestrator.next_action?.title ?? 'No source-backed next action available.';
     body.append(element(doc, 'p', 'orchestrator-next', next));
+    const approvalLine = approvalSemanticText(studio.approval_summary ?? null);
+    if (approvalLine) {
+      body.append(element(doc, 'span', 'studio-orchestrator__approval', approvalLine));
+    }
     const button = entityButton(doc, 'orchestrator', orchestrator, body);
     orchestratorBody.append(button);
   }
@@ -229,6 +234,10 @@ export function createStudioDom(root, {
         stateMark(doc, session.status),
         element(doc, 'span', 'session-meta', `${statusLabel(session.identity_confidence)} identity · ${session.task_id ?? 'No task scope'}`),
       );
+      const waitingLine = waitingSemanticText(session);
+      if (waitingLine) {
+        body.append(element(doc, 'span', 'studio-session__waiting', waitingLine));
+      }
       sessionsRoot.append(entityButton(doc, 'session', session, body));
     }
     const observed = studio.sessions.filter((session) => session.identity_confidence === 'observed').length;

@@ -17,6 +17,13 @@ import {
 } from './assets.js';
 import { restingBehavior } from './behavior.js';
 import {
+  approvalCaptionFacts,
+  MAX_CAPTIONS,
+  selectCaptionFacts,
+  transitionCaptionFact,
+  waitingCaptionFacts,
+} from './captions.js';
+import {
   createCapabilityInstances,
   createEntityFactories,
   createProceduralHumanApprover,
@@ -214,6 +221,7 @@ export function createStudioScene(canvas, {
   let controlsActive = false;
   let transitionCostMs = 0;
   let lastRenderedAt = 0;
+  const transientCaptions = new Map();
 
   const animator = createAgentAnimator({
     scene,
@@ -223,6 +231,8 @@ export function createStudioScene(canvas, {
       : null),
     getWorkstation: (sessionId) => workstationBySession.get(sessionId) ?? null,
     createPacket: (kind) => createWorkPacket(pool, kind),
+    onTransitionStart,
+    onTransitionComplete,
   });
 
   let transitionStorage = null;
@@ -447,6 +457,199 @@ export function createStudioScene(canvas, {
       entry.material.dispose();
       panelCache.delete(key);
     }
+  }
+
+  // Quiet company-comms layer: approval dialogue, waiting thoughts, and
+  // lifecycle-backed action captions share one bounded, non-interactive
+  // sprite system. Materials follow the same mark/sweep discipline as the
+  // agent panels so changing source text never leaks canvas textures.
+  const captionMaterialCache = new Map();
+  const captionSprites = new Map();
+  const captionGroup = new THREE.Group();
+  captionGroup.name = 'Source-backed company captions';
+  scene.add(captionGroup);
+
+  function drawCaptionShape(context, kind, width, height) {
+    context.fillStyle = kind === 'action'
+      ? 'rgba(12, 25, 35, 0.92)'
+      : kind === 'speech' ? 'rgba(248, 245, 237, 0.97)' : 'rgba(239, 244, 247, 0.96)';
+    context.strokeStyle = kind === 'speech'
+      ? '#d6a85c' : kind === 'thought' ? '#8fa2b3' : '#5f7487';
+    context.lineWidth = kind === 'action' ? 2 : 4;
+    context.setLineDash(kind === 'thought' ? [12, 9] : []);
+    context.beginPath();
+    context.roundRect(8, 8, width - 16, height - 30, kind === 'action' ? 18 : 28);
+    context.fill();
+    context.stroke();
+    if (kind !== 'speech') return;
+    context.setLineDash([]);
+    context.beginPath();
+    context.moveTo(62, height - 24);
+    context.lineTo(86, height - 2);
+    context.lineTo(104, height - 24);
+    context.closePath();
+    context.fill();
+    context.stroke();
+  }
+
+  function captionMaterial(fact, opacity = 1) {
+    const opacityBucket = THREE.MathUtils.clamp(Math.round(opacity * 10), 0, 10);
+    const key = JSON.stringify([fact.kind, fact.text, opacityBucket]);
+    if (captionMaterialCache.has(key)) {
+      const entry = captionMaterialCache.get(key);
+      entry.used = true;
+      return entry.material;
+    }
+    const height = fact.kind === 'action' ? 112 : 176;
+    const canvasEl = makeCanvas(512, height);
+    const context = canvasEl.getContext('2d');
+    drawCaptionShape(context, fact.kind, 512, height);
+    context.textBaseline = 'middle';
+    context.textAlign = 'left';
+    context.fillStyle = fact.kind === 'action' ? '#f5f7fb' : '#17202a';
+    context.font = fact.kind === 'action'
+      ? '600 28px ui-monospace, SFMono-Regular, monospace'
+      : '600 30px ui-sans-serif, system-ui, sans-serif';
+    context.fillText(fact.text, 28, fact.kind === 'action' ? 53 : 72, 456);
+    const texture = new THREE.CanvasTexture(canvasEl);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false,
+      opacity: opacityBucket / 10,
+    });
+    captionMaterialCache.set(key, { material, used: true });
+    return material;
+  }
+
+  function onTransitionStart(transition) {
+    const fact = transitionCaptionFact(transition);
+    if (!fact) return;
+    transientCaptions.set(transition.id, {
+      fact,
+      completedAt: null,
+      removeOnReconcile: false,
+    });
+  }
+
+  function onTransitionComplete(transition, { reducedMotion = false } = {}) {
+    const record = transientCaptions.get(transition.id);
+    if (!record) return;
+    if (reducedMotion) record.removeOnReconcile = true;
+    else record.completedAt = performance.now();
+  }
+
+  function captionOwnerPosition(fact) {
+    let handle = null;
+    if (fact.ownerKind === 'orchestrator' && projection?.orchestrator?.id) {
+      handle = reconciler.get({ kind: 'orchestrator', id: projection.orchestrator.id });
+    } else if (fact.ownerKind === 'session') {
+      handle = reconciler.get({ kind: 'session', id: fact.ownerId });
+    }
+    const source = fact.ownerKind === 'human' ? humanApprover?.object : handle?.object;
+    if (!source) return null;
+    const position = source.getWorldPosition(new THREE.Vector3());
+    const isOrchestrator = fact.ownerKind === 'orchestrator';
+    const castBody = fact.ownerKind === 'human' || handle?.seatedAtOrigin;
+    const panelHeight = isOrchestrator
+      ? (castBody ? 3 : 4)
+      : (castBody ? 2.5 : 3.85);
+    let height = fact.ownerKind === 'human'
+      ? 2.55
+      : panelHeight + (fact.kind === 'action' ? 1 : 1.4);
+    if (fact.id === 'approval-manager-thought') height += 1.2;
+    if (fact.ownerKind === 'human') position.x += 0.35;
+    else if (fact.ownerKind === 'orchestrator' && fact.kind === 'speech') position.x -= 0.35;
+    position.y += height;
+    return position;
+  }
+
+  function purgeReducedCaptionCompletions() {
+    for (const [id, record] of transientCaptions) {
+      if (record.removeOnReconcile) transientCaptions.delete(id);
+    }
+  }
+
+  function syncCaptionLayer(now = performance.now()) {
+    const transitionFacts = [];
+    let fading = false;
+    for (const [id, record] of transientCaptions) {
+      let opacity = 1;
+      if (record.completedAt !== null) {
+        const elapsed = Math.max(0, now - record.completedAt);
+        if (elapsed >= 1_000) {
+          transientCaptions.delete(id);
+          continue;
+        }
+        opacity = 1 - elapsed / 1_000;
+        fading = true;
+      }
+      transitionFacts.push({ ...record.fact, opacity });
+    }
+
+    const approvalFacts = animator.managerState() === 'approval'
+      ? approvalCaptionFacts(projection?.approval_summary ?? null)
+      : [];
+    const candidates = [
+      ...approvalFacts,
+      ...waitingCaptionFacts(projection?.sessions ?? []),
+      ...transitionFacts,
+    ].map((fact) => {
+      const ownerPosition = captionOwnerPosition(fact);
+      if (!ownerPosition) return null;
+      return {
+        ...fact,
+        ownerPosition,
+        distance: ownerPosition.distanceTo(camera.position),
+      };
+    }).filter(Boolean);
+    const selected = selectCaptionFacts(candidates, { limit: MAX_CAPTIONS });
+    const usedSprites = new Set();
+    for (const entry of captionMaterialCache.values()) entry.used = false;
+    for (const fact of selected) {
+      const material = captionMaterial(fact, fact.opacity ?? 1);
+      let sprite = captionSprites.get(fact.id);
+      if (!sprite) {
+        sprite = new THREE.Sprite(material);
+        sprite.name = `caption:${fact.id}`;
+        sprite.renderOrder = 50;
+        captionGroup.add(sprite);
+        captionSprites.set(fact.id, sprite);
+      } else {
+        sprite.material = material;
+      }
+      sprite.position.copy(fact.ownerPosition);
+      const width = THREE.MathUtils.clamp(2.4 + fact.text.length * 0.045, 2.8, 4.4);
+      sprite.scale.set(width, fact.kind === 'action' ? 0.62 : 1.2, 1);
+      sprite.visible = true;
+      usedSprites.add(fact.id);
+    }
+    for (const [id, sprite] of captionSprites) {
+      if (usedSprites.has(id)) continue;
+      captionGroup.remove(sprite);
+      captionSprites.delete(id);
+    }
+    for (const [key, entry] of captionMaterialCache) {
+      if (entry.used) continue;
+      entry.material.map?.dispose();
+      entry.material.dispose();
+      captionMaterialCache.delete(key);
+    }
+    return fading;
+  }
+
+  function clearCaptionLayer() {
+    captionGroup.clear();
+    captionSprites.clear();
+    transientCaptions.clear();
+    for (const entry of captionMaterialCache.values()) {
+      entry.material.map?.dispose();
+      entry.material.dispose();
+    }
+    captionMaterialCache.clear();
+    scene.remove(captionGroup);
   }
 
   // Light-trail data streams: Orchestration Center → each ACTIVE session's
@@ -700,6 +903,7 @@ export function createStudioScene(canvas, {
     const transitionStarted = performance.now();
     const workforceActive = animator.update(now);
     transitionCostMs = performance.now() - transitionStarted;
+    const captionsAnimating = syncCaptionLayer(now);
     const castAnimating = updateCastMixers(now);
     const streamsFlowing = updateStreamPulses(now);
     const conveyorFlowing = updateConveyor(now);
@@ -712,7 +916,8 @@ export function createStudioScene(canvas, {
     enforceQualityCeilings(now);
     onDiagnostics(diagnostics());
     if (!workforceActive && !castAnimating && transitions.pending() === 0 && !cameraTween
-      && !controlsActive && !streamsFlowing && !conveyorFlowing && !ambienceActive) {
+      && !controlsActive && !streamsFlowing && !conveyorFlowing && !ambienceActive
+      && !captionsAnimating) {
       renderer.setAnimationLoop(null);
     }
   }
@@ -836,6 +1041,7 @@ export function createStudioScene(canvas, {
 
   function reconcile(nextProjection) {
     projection = nextProjection;
+    purgeReducedCaptionCompletions();
     const assigned = assignOfficeProjection(
       office,
       projection,
@@ -857,6 +1063,7 @@ export function createStudioScene(canvas, {
     transitions.ingest(projection.timeline, { prime: firstTimeline });
     firstTimeline = false;
     reconcileManagerProjection();
+    syncCaptionLayer();
     if (selectedRef && !reconciler.get(selectedRef)) selectedRef = null;
     startLoop();
   }
@@ -866,6 +1073,7 @@ export function createStudioScene(canvas, {
     transitions.setMotion(motionMode);
     animator.setMotion(motionMode);
     reconcileManagerProjection();
+    syncCaptionLayer();
     setCastMotion(motionMode);
     if (motionMode === 'reduced') cameraTween = null;
     startLoop();
@@ -958,6 +1166,7 @@ export function createStudioScene(canvas, {
       entry.material.dispose();
     }
     panelCache.clear();
+    clearCaptionLayer();
     clearStreams();
     clearConveyor();
     roomLabelGroup.traverse((child) => {

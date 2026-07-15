@@ -127,6 +127,12 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /pipelineGantry/);
   assert.match(sceneSource, /rebuildStreams/);
   assert.match(sceneSource, /paintGlobalTimeline/);
+  assert.match(sceneSource, /MAX_CAPTIONS/);
+  assert.match(sceneSource, /captionMaterialCache/);
+  assert.match(sceneSource, /depthTest:\s*false/);
+  assert.match(sceneSource, /transitionCaptionFact/);
+  assert.match(sceneSource, /completedAt/);
+  assert.doesNotMatch(sceneSource, /caption[^\n]*userData\.interactive\s*=\s*true/i);
   assert.match(sceneSource, /MAX_DETAILED_RIGS\s*=\s*16/);
   assert.match(sceneSource, /FIXED_DETAILED_RIGS\s*=\s*2/);
   assert.match(sceneSource, /MAX_DETAILED_SESSIONS\s*=\s*MAX_DETAILED_RIGS - FIXED_DETAILED_RIGS/);

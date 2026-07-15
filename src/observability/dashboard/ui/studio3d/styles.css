@@ -339,6 +339,24 @@ button { min-height: 44px; }
 .session-meta,
 .stack-meta { grid-column: 1 / -1; color: var(--studio-muted); font-size: 10px; line-height: 1.35; }
 
+.studio-session__waiting,
+.studio-orchestrator__approval {
+  grid-column: 1 / -1;
+  display: block;
+  margin-top: 2px;
+  padding: 6px 8px;
+  border-inline-start: 2px solid var(--studio-violet);
+  border-radius: 0 6px 6px 0;
+  background: rgba(132, 95, 191, 0.07);
+  color: var(--studio-text);
+  font: 600 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.studio-orchestrator__approval {
+  border-inline-start-color: var(--studio-amber);
+  background: rgba(217, 135, 25, 0.08);
+}
+
 .studio-state {
   display: inline-flex;
   align-items: center;
