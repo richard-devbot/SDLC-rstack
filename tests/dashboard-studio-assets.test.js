@@ -6,11 +6,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { STUDIO_CAST_MANIFEST } from '../src/observability/dashboard/ui/studio3d/assets.js';
+
 const SERVER_PATH = join(process.cwd(), 'src', 'observability', 'dashboard', 'server.js');
+
+test('human approver is a local seated-capable cast asset', () => {
+  assert.deepEqual(STUDIO_CAST_MANIFEST.human, {
+    url: '/studio3d/assets/models/human-approver.glb',
+    height: 1.66,
+    clipPose: 'standing',
+  });
+  assert.ok(Object.values(STUDIO_CAST_MANIFEST).every((entry) => entry.url.startsWith('/studio3d/')));
+  const assetsSource = readFileSync(join(
+    process.cwd(),
+    'src', 'observability', 'dashboard', 'ui', 'studio3d', 'assets.js',
+  ), 'utf8');
+  assert.match(assetsSource, /mode === 'sitting'/);
+  assert.match(assetsSource, /locomotion\.sit\(\)/);
+});
 
 function startServer(projectRoot) {
   return new Promise((resolvePromise, rejectPromise) => {
@@ -87,7 +104,9 @@ test('Studio serves pinned Three.js locally and rejects unlisted paths', async (
     assert.match(await controls.text(), /class OrbitControls/);
 
     for (const asset of [
+      'assets.js',
       'behavior.js',
+      'locomotion.js',
       'robot-poses.js',
       'robot.js',
       'office.js',
@@ -97,6 +116,10 @@ test('Studio serves pinned Three.js locally and rejects unlisted paths', async (
       assert.equal(response.status, 200, asset);
       assert.match(response.headers.get('content-type'), /javascript/);
     }
+
+    const human = await fetch(`${server.baseUrl}${STUDIO_CAST_MANIFEST.human.url}`);
+    assert.equal(human.status, 200);
+    assert.match(human.headers.get('content-type'), /model\/gltf-binary|application\/octet-stream/);
 
     // The world-label overlay module is gone and stays un-served.
     assert.equal((await fetch(`${server.baseUrl}/studio3d/assets/overlays.js`)).status, 404);

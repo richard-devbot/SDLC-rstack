@@ -33,6 +33,12 @@ const RIG_FAMILIES = [
     thighSwing: 0.5,
     kneeBend: 0.8,
     armSwing: 0.3,
+    sit: Object.freeze({
+      hipsDrop: 0.42,
+      thighPitch: -Math.PI / 2,
+      kneePitch: Math.PI / 2,
+      armPitch: -0.48,
+    }),
   },
   {
     id: 'lowpoly-worker',
@@ -50,6 +56,12 @@ const RIG_FAMILIES = [
     thighSwing: 0.5,
     kneeBend: 0.8,
     armSwing: 0.25,
+    sit: Object.freeze({
+      hipsDrop: 0.34,
+      thighPitch: -Math.PI / 2,
+      kneePitch: Math.PI / 2,
+      armPitch: -0.42,
+    }),
   },
 ];
 
@@ -99,6 +111,20 @@ export function createLocomotion(object) {
       if (rig.hips) {
         rig.hips.position.copy(rest.get(rig.hips).position);
         rig.hips.position.y += Math.abs(Math.cos(phase * Math.PI * 2)) * 0.015;
+      }
+    },
+    /** Seat the rig around captured rest transforms without cumulative drift. */
+    sit() {
+      for (const key of Object.keys(rig)) pose(key, 0);
+      pose('thighL', family.sit.thighPitch);
+      pose('thighR', family.sit.thighPitch);
+      pose('kneeL', family.sit.kneePitch);
+      pose('kneeR', family.sit.kneePitch);
+      pose('armL', family.sit.armPitch);
+      pose('armR', family.sit.armPitch);
+      if (rig.hips) {
+        rig.hips.position.copy(rest.get(rig.hips).position);
+        rig.hips.position.y -= family.sit.hipsDrop;
       }
     },
     /** Return every driven bone to its rest pose. */
