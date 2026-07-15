@@ -22,9 +22,10 @@ contracts, evidence, budgets, enforcement guardrails, and a live dashboard.
 6. [Run a governed pipeline](#6-run-a-governed-pipeline)
 7. [Approvals & the human gate](#7-approvals--the-human-gate)
 8. [Business Hub dashboard](#8-business-hub-dashboard)
-9. [CLI reference](#9-cli-reference)
-10. [Environment variables](#10-environment-variables)
-11. [Troubleshooting](#11-troubleshooting)
+9. [Updating RStack](#9-updating-rstack)
+10. [CLI reference](#10-cli-reference)
+11. [Environment variables](#11-environment-variables)
+12. [Troubleshooting](#12-troubleshooting)
 
 ---
 
@@ -288,34 +289,118 @@ export RSTACK_APPROVAL_TOKEN=…          # gate approve/reject actions
 
 ---
 
-## 9. CLI reference
+## 9. Updating RStack
+
+Already installed and want a newer version? RStack upgrades in place — your
+`.rstack/` run state is schema-versioned and **migrates on read**, so there is no
+manual migration step.
+
+### Update the package
+
+```bash
+npm update rstack-agents            # move within your semver range
+# or jump to the newest release:
+npm install rstack-agents@latest
+npx rstack-agents doctor            # re-verify wiring + run the live enforcement self-test
+```
+
+Two things to know after a version bump:
+
+- **Read the [CHANGELOG](../CHANGELOG.md) for breaking changes first.** Minor
+  releases can tighten governance — e.g. **2.1.0** made release sign-off
+  release-only (a destructive action now needs a per-task
+  `destructive-action:<taskId>` approval, #293).
+- **`init` never overwrites your files**, so newer-version **hook wiring is not
+  auto-merged** into an existing `.claude/settings.json`. Re-run
+  `npx rstack-agents init --framework <name>`; if it reports your settings already
+  exist, merge any new hooks from the `.claude/rstack-hooks.json` snippet it drops
+  next to them.
+
+### Per-harness, after an update
+
+| Harness | What to do |
+|---|---|
+| **Pi** | Nothing — it auto-loads the new version from the package. |
+| **Claude Code** | Update the plugin too: `/plugin update sdlc-automation` (or run `/sdlc-update`). Re-run `init` to pick up new hook wiring. |
+| **Tau / Operator** | The adapter shells to the package, so `npm update` is enough; re-run `doctor --framework <name>`. |
+| **Hermes** | The plugin symlink points into `node_modules/`, so `npm update` refreshes it automatically; re-run `doctor`. |
+
+### Grow your governance (no reinstall)
+
+Profiles scale up in place — `lean-mvp → business-flex → enterprise`:
+
+```bash
+# edit .rstack/rstack.config.json to add enabled_domains / enabled_plugins, then:
+npx rstack-agents add plugin <name>   # copy a plugin pack locally
+npx rstack-agents validate            # refresh the registry after config changes
+# raise thresholds in .rstack/budget.json as scope grows
+```
+
+---
+
+## 10. CLI reference
 
 ```bash
 npx rstack-agents <command>
 ```
+
+**Set up & health**
 
 | Command | Purpose |
 |---|---|
 | `init [--framework] [--profile] [--fresh] [--gates]` | Set up RStack in a project |
 | `doctor [--framework] [--json]` | Verify setup + live enforcement self-test |
 | `adopt [--dry-run]` | Reverse-populate a governed run from an existing codebase |
+| `env scan [--json]` | Detect the environment + propose a run mode |
+| `config validate` | Validate `.rstack/*.json` project configuration |
+| `inventory` | Backend control-plane registry report |
+| `validate [--schemas]` | Validate agents / run state against the spec |
+
+**Run & recover the pipeline**
+
+| Command | Purpose |
+|---|---|
+| `pipeline status [--json] [--regenerate]` | Show run state |
+| `pipeline run --run-id <id> [--max-steps N]` | Advance the run, stopping at every gate |
+| `pipeline loop --run-id <id>` | Bounded, budget-capped goal loop |
+| `dor` | Run the Definition-of-Ready gate for a run |
+| `checkpoint-status` | List stage checkpoints and whether each is restorable |
+| `rollback <stage>` | Restore a stage to its last verified checkpoint (fails closed on corrupt) |
+
+**Governance, evidence & audit**
+
+| Command | Purpose |
+|---|---|
+| `decisions` | List / add / resolve / waive Decision Queue items |
+| `approvals audit [runId]` | Inspect + audit a run's approvals |
+| `review independence [runId]` | Check builder/validator review independence (#72) |
+| `attest [runId]` / `verify-attestations [runId]` | Wrap + verify evidence in attestation envelopes (#73) |
+| `drift [runId]` | Detect traceability drift (#74) |
+| `memory inspect` | Inspect episodic memory |
+
+**Enforcement & host hooks** (wired by `init`; callable directly)
+
+| Command | Purpose |
+|---|---|
 | `guard [--context builder\|validator] [--task] [--command\|--path]` | Framework-neutral enforcement gate (exit 0 allow / 2 block) |
 | `gate <plan\|tdd\|scope>` | Opt-in quality-gate preset (host hook) |
-| `pipeline status [--json] [--regenerate]` | Show run state |
-| `pipeline run --run-id <id> [--max-steps N]` | Advance the run, stopping at gates |
-| `pipeline loop --run-id <id>` | Bounded, budget-capped goal loop |
-| `context` / `observe` / `notify-hook` / `statusline` | Host hooks: context injection, observability, notifications, status bar |
-| `env scan [--json]` | Detect environment + propose run mode |
-| `validate [--schemas]` | Validate agents / state against the spec |
-| `list agents\|skills\|plugins` | Browse the catalog |
-| `hub` / `rstack-business` | Launch the Business Hub |
+| `context` / `observe` / `notify-hook` / `statusline` | Context injection · observability · notification relay · status bar |
 
-Two bins ship for adapters: `rstack-bridge` (framework-neutral tool bridge) and
-`rstack-business` (dashboard).
+**Catalog, extend & notify**
+
+| Command | Purpose |
+|---|---|
+| `list agents\|skills\|plugins\|packs` | Browse the catalog |
+| `add plugin <name>` | Copy a plugin pack into the project locally |
+| `notify [--test]` | Inspect configured notification channels (`--test` sends a test message) |
+| `hub` · `rstack-business` | Launch the Business Hub dashboard |
+
+Two extra bins ship for adapter authors: **`rstack-bridge`** (the framework-neutral
+tool bridge) and **`rstack-business`** (the dashboard).
 
 ---
 
-## 10. Environment variables
+## 11. Environment variables
 
 | Variable | Purpose |
 |---|---|
@@ -338,7 +423,7 @@ credential-shaped keys there).
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
