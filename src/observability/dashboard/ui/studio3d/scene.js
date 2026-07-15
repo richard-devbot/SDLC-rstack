@@ -1109,6 +1109,10 @@ export function createStudioScene(canvas, {
   }
 
   function diagnostics() {
+    const managerId = projection?.orchestrator?.id;
+    const managerHandle = managerId
+      ? reconciler.get({ kind: 'orchestrator', id: managerId })
+      : null;
     return {
       qualityTier,
       drawCalls: renderer.info.render.calls,
@@ -1121,6 +1125,12 @@ export function createStudioScene(canvas, {
           + reconciler.entries().filter(([entry]) => entry.startsWith('session:')).length,
       ),
       activeTransitions: animator.activeCount(),
+      managerState: animator.managerState(),
+      managerAction: animator.managerAction(),
+      managerX: managerHandle?.object.position.x ?? null,
+      managerZ: managerHandle?.object.position.z ?? null,
+      activeCaptions: captionSprites.size,
+      actionCaptions: [...captionSprites.keys()].filter((id) => id.startsWith('action:')).length,
       transitionCostMs,
     };
   }

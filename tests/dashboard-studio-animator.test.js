@@ -199,6 +199,7 @@ test('manager checks in at the involved desk, dwells, returns, and sits', () => 
     duration_ms: 4_500,
     started_at_ms: 0,
   }), true);
+  assert.equal(animator.managerAction(), 'manager_check_in');
   animator.update(750);
   assert.equal(modes.at(-1), 'walking');
   assert.notDeepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.managerSeat.position);
@@ -209,6 +210,7 @@ test('manager checks in at the involved desk, dwells, returns, and sits', () => 
   assert.ok(Math.abs(manager.object.rotation.y) < 0.01);
 
   assert.equal(animator.update(4_500), false);
+  assert.equal(animator.managerAction(), null);
   assert.equal(modes.at(-1), 'sitting');
   assert.deepEqual(manager.object.position.toArray(), STUDIO_TOPOLOGY.managerSeat.position);
   assert.deepEqual(callbacks, ['start:manager_check_in', 'complete:manager_check_in']);

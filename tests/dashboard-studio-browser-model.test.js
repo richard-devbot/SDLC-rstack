@@ -100,9 +100,11 @@ test('topology has one HQ, eight mission bays, and fifteen unique departments', 
 test('scene modules expose stable reconciliation, selection, diagnostics, and cleanup', () => {
   assert.equal(typeof createEntityReconciler, 'function');
   const scenePath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'scene.js');
+  const appPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'app.js');
   const geometryPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'geometry.js');
   const overlaysPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'overlays.js');
   const sceneSource = readFileSync(scenePath, 'utf8');
+  const appSource = readFileSync(appPath, 'utf8');
   const geometrySource = readFileSync(geometryPath, 'utf8');
   for (const name of ['reconcile', 'select', 'focus', 'setMotion', 'diagnostics', 'pause', 'resume', 'destroy']) {
     assert.match(sceneSource, new RegExp(`${name}\\b`));
@@ -132,6 +134,15 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /depthTest:\s*false/);
   assert.match(sceneSource, /transitionCaptionFact/);
   assert.match(sceneSource, /completedAt/);
+  assert.match(sceneSource, /managerAction/);
+  assert.match(sceneSource, /activeCaptions/);
+  assert.match(sceneSource, /actionCaptions/);
+  assert.match(appSource, /studioManagerState/);
+  assert.match(appSource, /studioManagerAction/);
+  assert.match(appSource, /studioManagerX/);
+  assert.match(appSource, /studioManagerZ/);
+  assert.match(appSource, /studioActiveCaptions/);
+  assert.match(appSource, /studioActionCaptions/);
   assert.match(sceneSource, /animator\.freeze\(now\)/);
   assert.match(sceneSource, /animator\.resume\(now\)/);
   assert.doesNotMatch(sceneSource, /caption[^\n]*userData\.interactive\s*=\s*true/i);

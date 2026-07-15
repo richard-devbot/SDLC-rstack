@@ -470,6 +470,7 @@ export function createAgentAnimator({
     clear,
     reconcileManager,
     managerState: () => managerStateValue,
+    managerAction: () => managerItem?.intent?.action ?? null,
     isSessionActive: (sessionId) => active.some((item) => item.intent.sessionId === sessionId),
     activeCount: () => active.length + (managerItem ? 1 : 0),
   };
