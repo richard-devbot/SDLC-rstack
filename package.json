@@ -52,6 +52,7 @@
     "packs/",
     "docs/public/",
     "docs/HARNESS.md",
+    "docs/SETUP.md",
     "docs/quick-start-guide.md",
     "docs/brownfield-adoption.md",
     "docs/loop-recipes.md",
