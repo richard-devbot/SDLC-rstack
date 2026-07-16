@@ -1,0 +1,134 @@
+/**
+ * Persisted-event transition scheduler for Agent Force Studio.
+ *
+ * It never invents activity: only allow-listed timeline events can enqueue a
+ * transition, and an event identity is consumed at most once per browser
+ * session. Historical state can be primed without replaying old work.
+ *
+ * owner: RStack developed by Richardson Gunde
+ */
+import { timelineIdentity } from './model.js';
+import { behaviorIntent, managerIntent } from './behavior.js';
+
+const EVENT_DURATIONS = Object.freeze({
+  delegation_requested: 700,
+  agent_session_started: 1200,
+  agent_session_ready: 1300,
+  agent_capabilities_attached: 1500,
+  agent_activity: 650,
+  agent_waiting: 900,
+  approval_gate_blocked: 900,
+  dor_gate_blocked: 900,
+  guardrail_blocked: 900,
+  task_human_context_required: 900,
+  task_retry_exhausted: 500,
+  task_blocked_by_validator: 900,
+  handoff_created: 1400,
+  artifact_emitted: 1300,
+  task_retry_scheduled: 1200,
+  agent_session_completed: 700,
+  agent_session_failed: 500,
+  agent_session_stopped: 1100,
+});
+
+const MAX_SEEN_EVENTS = 500;
+
+function eventIdentity(item) {
+  return `${item?.run_id ?? 'unscoped'}:${timelineIdentity(item)}`;
+}
+
+function readSeen(storage, storageKey) {
+  if (!storage) return [];
+  try {
+    const value = JSON.parse(storage.getItem(storageKey) ?? '[]');
+    return Array.isArray(value) ? value.filter((item) => typeof item === 'string').slice(-MAX_SEEN_EVENTS) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function createTransitionScheduler({
+  apply = () => {},
+  storage = null,
+  storageKey = 'rstack.studio.seen-transitions.v1',
+} = {}) {
+  const seenOrder = readSeen(storage, storageKey);
+  const seen = new Set(seenOrder);
+  const queue = [];
+  const pauseReasons = new Set();
+  let motion = 'full';
+
+  function persistSeen() {
+    if (!storage) return;
+    try { storage.setItem(storageKey, JSON.stringify(seenOrder.slice(-MAX_SEEN_EVENTS))); } catch { /* optional storage */ }
+  }
+
+  function remember(identity) {
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    seenOrder.push(identity);
+    while (seenOrder.length > MAX_SEEN_EVENTS) seen.delete(seenOrder.shift());
+    return true;
+  }
+
+  function ingest(items, { prime = false } = {}) {
+    let changed = false;
+    const ordered = [...(items ?? [])].sort((left, right) => (
+      (Date.parse(left?.timestamp ?? '') || 0) - (Date.parse(right?.timestamp ?? '') || 0)
+    ));
+    for (const item of ordered) {
+      const intent = behaviorIntent(item);
+      const manager = managerIntent(item);
+      if (!intent && !manager) continue;
+      const identity = eventIdentity(item);
+      if (!remember(identity)) continue;
+      changed = true;
+      if (!prime) {
+        queue.push({
+          id: identity,
+          intent,
+          duration_ms: motion === 'reduced' ? 0 : EVENT_DURATIONS[item.type],
+          event: item,
+        });
+        if (manager) {
+          queue.push({
+            id: `${identity}:manager`,
+            intent: manager,
+            duration_ms: motion === 'reduced' ? 0 : 4_500,
+            event: item,
+          });
+        }
+      }
+    }
+    if (changed) persistSeen();
+    return queue.length;
+  }
+
+  function tick(now) {
+    if (pauseReasons.size || queue.length === 0) return false;
+    const transition = queue.shift();
+    apply({ ...transition, started_at_ms: now });
+    return true;
+  }
+
+  function setMotion(nextMotion) {
+    motion = nextMotion === 'reduced' ? 'reduced' : 'full';
+    if (motion === 'reduced') {
+      queue.forEach((transition) => { transition.duration_ms = 0; });
+    }
+  }
+
+  function pause(reason = 'manual') { pauseReasons.add(reason); }
+  function resume(reason = 'manual') { pauseReasons.delete(reason); }
+  function clear() { queue.length = 0; pauseReasons.clear(); }
+
+  return {
+    ingest,
+    tick,
+    setMotion,
+    pause,
+    resume,
+    clear,
+    pending: () => queue.length,
+  };
+}

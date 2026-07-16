@@ -1,0 +1,218 @@
+/**
+ * Pure browser contracts and semantic shell for Agent Force Studio.
+ *
+ * owner: RStack developed by Richardson Gunde
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { studio3dHtml } from '../src/observability/dashboard/ui/studio3d.js';
+import {
+  motionMode,
+  validateStudioSnapshot,
+} from '../src/observability/dashboard/ui/studio3d/model.js';
+import {
+  stateUrl,
+  webSocketUrl,
+} from '../src/observability/dashboard/ui/studio3d/transport.js';
+import { createStudioDom } from '../src/observability/dashboard/ui/studio3d/dom.js';
+import { STUDIO_TOPOLOGY } from '../src/observability/dashboard/ui/studio3d/topology.js';
+import { createEntityReconciler } from '../src/observability/dashboard/ui/studio3d/reconciler.js';
+import { createTransitionScheduler } from '../src/observability/dashboard/ui/studio3d/transitions.js';
+
+test('Studio shell is semantic-first, local, and independent of a fixed port', () => {
+  const html = studio3dHtml();
+
+  assert.match(html, /<main id="studio-app"/);
+  assert.match(html, /<canvas id="studio-canvas" aria-hidden="true"/);
+  // The approved cutaway revision forbids any world-space text surface: no
+  // overlay host is mounted and no world-label class exists anywhere.
+  assert.doesNotMatch(html, /studio-overlays|studio-world-label/);
+  assert.match(html, /<section id="semantic-studio"/);
+  assert.match(html, /<div id="studio-announcer"[^>]+aria-live="polite"/);
+  assert.match(html, /studio-status-cluster[\s\S]+id="studio-semantic-toggle"[^>]+aria-pressed="false"[\s\S]+<\/header>/);
+  assert.match(html, /<link rel="stylesheet" href="\/studio3d\/assets\/styles\.css">/);
+  assert.match(html, /<script type="module" src="\/studio3d\/assets\/app\.js"><\/script>/);
+  assert.doesNotMatch(html, /localhost|unpkg|jsdelivr|new WebSocket\('ws:/);
+  assert.doesNotMatch(html, /const PERSONAS|const PORT/);
+});
+
+test('snapshot validator fails closed and accepts only schema version one', () => {
+  assert.deepEqual(validateStudioSnapshot({}), {
+    ok: false,
+    studio: null,
+    error: 'Studio projection unavailable',
+  });
+  assert.deepEqual(validateStudioSnapshot({ studio: { schema_version: 2 } }), {
+    ok: false,
+    studio: null,
+    error: 'Unsupported Studio projection version',
+  });
+  const studio = {
+    schema_version: 1,
+    missions: [],
+    departments: [],
+    sessions: [],
+    timeline: [],
+    limitations: [],
+  };
+  assert.deepEqual(validateStudioSnapshot({ studio }), { ok: true, studio, error: null });
+});
+
+test('motion mode honors explicit choice before the operating-system preference', () => {
+  assert.equal(motionMode('reduced', false), 'reduced');
+  assert.equal(motionMode('full', true), 'full');
+  assert.equal(motionMode(null, true), 'reduced');
+  assert.equal(motionMode(null, false), 'full');
+});
+
+test('transport derives secure same-origin URLs and preserves read authentication', () => {
+  assert.equal(webSocketUrl({
+    protocol: 'https:',
+    host: 'hub.example',
+    search: '?token=read%20token&run=ignored',
+  }), 'wss://hub.example/?token=read%20token');
+  assert.equal(webSocketUrl({
+    protocol: 'http:',
+    host: '127.0.0.1:3008',
+    search: '',
+  }), 'ws://127.0.0.1:3008/');
+  assert.equal(stateUrl({ search: '?token=read%20token' }, 'opaque::run/key'), '/api/state?run=opaque%3A%3Arun%2Fkey&token=read+token');
+  assert.equal(stateUrl({ search: '' }, null), '/api/state');
+});
+
+test('semantic renderer is available without constructing WebGL', () => {
+  assert.equal(typeof createStudioDom, 'function');
+});
+
+test('topology has one HQ, eight mission bays, and fifteen unique departments', () => {
+  assert.equal(STUDIO_TOPOLOGY.orchestrator.id, 'orchestrator-hq');
+  assert.equal(STUDIO_TOPOLOGY.missions.length, 8);
+  assert.equal(new Set(STUDIO_TOPOLOGY.missions.map((item) => item.id)).size, 8);
+  assert.equal(STUDIO_TOPOLOGY.departments.length, 15);
+  assert.equal(new Set(STUDIO_TOPOLOGY.departments.map((item) => item.id)).size, 15);
+  assert.notDeepEqual(STUDIO_TOPOLOGY.validator.position, STUDIO_TOPOLOGY.builderPool.position);
+  assert.equal(Object.isFrozen(STUDIO_TOPOLOGY), true);
+});
+
+test('scene modules expose stable reconciliation, selection, diagnostics, and cleanup', () => {
+  assert.equal(typeof createEntityReconciler, 'function');
+  const scenePath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'scene.js');
+  const appPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'app.js');
+  const geometryPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'geometry.js');
+  const overlaysPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'overlays.js');
+  const sceneSource = readFileSync(scenePath, 'utf8');
+  const appSource = readFileSync(appPath, 'utf8');
+  const geometrySource = readFileSync(geometryPath, 'utf8');
+  for (const name of ['reconcile', 'select', 'focus', 'setMotion', 'diagnostics', 'pause', 'resume', 'destroy']) {
+    assert.match(sceneSource, new RegExp(`${name}\\b`));
+  }
+  for (const field of ['activeRigs', 'activeTransitions', 'transitionCostMs']) {
+    assert.match(sceneSource, new RegExp(`${field}\\b`));
+  }
+  assert.match(sceneSource, /createOfficeEnvironment/);
+  assert.match(sceneSource, /createAgentAnimator/);
+  assert.match(sceneSource, /reconcileManagerProjection/);
+  assert.match(sceneSource, /animator\.managerState\(\) === 'seated'/);
+  assert.match(sceneSource, /handle\.object\.position\.set\(approval\.humanSeat\[0\], 0, approval\.humanSeat\[2\]\)/);
+  // DOM world-label overlays stay removed; in-canvas facts render through
+  // the holographic layer (agent panels, room labels, data streams, and the
+  // global timeline), all driven by the server projection.
+  assert.equal(existsSync(overlaysPath), false);
+  assert.doesNotMatch(sceneSource, /createStudioOverlays|overlayRoot|studio-world-label/);
+  assert.match(sceneSource, /syncAgentPanels/);
+  assert.match(sceneSource, /agentPanel/);
+  assert.match(sceneSource, /ROOM_LABELS/);
+  assert.match(sceneSource, /Delivery spine stage legend/);
+  assert.match(sceneSource, /paintPipelineLegend\(\)/);
+  assert.match(sceneSource, /pipelineSpine/);
+  assert.match(
+    sceneSource,
+    /\['15-STAGE DELIVERY PIPELINE', 0, 1\.42, -2\.85, 3\.2, 0\.48\]/,
+  );
+  assert.match(sceneSource, /sprite\.scale\.set\(scaleX, scaleY, 1\)/);
+  assert.doesNotMatch(sceneSource, /pipelineGantry|Gantry stage legend|paintGantryLegend/);
+  assert.match(sceneSource, /rebuildStreams/);
+  assert.match(sceneSource, /paintGlobalTimeline/);
+  assert.match(sceneSource, /MAX_CAPTIONS/);
+  assert.match(sceneSource, /captionMaterialCache/);
+  assert.match(sceneSource, /depthTest:\s*false/);
+  assert.match(sceneSource, /transitionCaptionFact/);
+  assert.match(sceneSource, /completedAt/);
+  assert.match(sceneSource, /managerAction/);
+  assert.match(sceneSource, /activeCaptions/);
+  assert.match(sceneSource, /actionCaptions/);
+  assert.match(sceneSource, /cameraMoving/);
+  assert.match(appSource, /studioManagerState/);
+  assert.match(appSource, /studioManagerAction/);
+  assert.match(appSource, /studioManagerX/);
+  assert.match(appSource, /studioManagerZ/);
+  assert.match(appSource, /studioActiveCaptions/);
+  assert.match(appSource, /studioActionCaptions/);
+  assert.match(appSource, /studioCameraMoving/);
+  assert.match(sceneSource, /animator\.freeze\(now\)/);
+  assert.match(sceneSource, /animator\.resume\(now\)/);
+  assert.doesNotMatch(sceneSource, /caption[^\n]*userData\.interactive\s*=\s*true/i);
+  assert.match(sceneSource, /MAX_DETAILED_RIGS\s*=\s*16/);
+  assert.match(sceneSource, /FIXED_DETAILED_RIGS\s*=\s*2/);
+  assert.match(sceneSource, /MAX_DETAILED_SESSIONS\s*=\s*MAX_DETAILED_RIGS - FIXED_DETAILED_RIGS/);
+  // 200 accommodates the GLB cast (battlestation = 26 textured materials,
+  // delivery spine = 15 adopted panels); measured full-cast overview stays
+  // pinned by browser evidence and scene.js diagnostics.
+  assert.match(sceneSource, /DRAW_CALL_CEILING\s*=\s*200/);
+  assert.match(sceneSource, /TRIANGLE_CEILING\s*=\s*200_000/);
+  assert.match(sceneSource, /enforceQualityCeilings/);
+  assert.match(sceneSource, /onDiagnostics/);
+  assert.match(sceneSource, /THREE\.PCFShadowMap/);
+  assert.doesNotMatch(sceneSource, /PCFSoftShadowMap/);
+  assert.doesNotMatch(sceneSource, /pulseEntity|moveCapsule/);
+  assert.match(sceneSource, /webglcontextlost/);
+  assert.match(sceneSource, /webglcontextrestored/);
+  assert.match(sceneSource, /setAnimationLoop/);
+  assert.match(geometrySource, /InstancedMesh/);
+});
+
+test('transition scheduler animates unseen source events once and respects reduced motion', () => {
+  const applied = [];
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+  const scheduler = createTransitionScheduler({ apply: (transition) => applied.push(transition), storage });
+  const event = {
+    id: 'event-1',
+    type: 'delegation_requested',
+    timestamp: '2026-07-13T10:00:00.000Z',
+    source: 'events.jsonl',
+    entity_id: 'session-1',
+    task_id: '004-implementation',
+  };
+
+  scheduler.ingest([event]);
+  scheduler.tick(0);
+  scheduler.ingest([event]);
+  scheduler.tick(16);
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].intent.action, 'delegate');
+  assert.equal(applied[0].intent.sessionId, 'session-1');
+  assert.equal(applied[0].duration_ms, 700);
+
+  scheduler.setMotion('reduced');
+  scheduler.ingest([{ ...event, id: 'event-2', type: 'artifact_emitted' }]);
+  scheduler.tick(32);
+  assert.equal(applied.length, 2);
+  assert.equal(applied[1].intent.action, 'return_evidence');
+  assert.equal(applied[1].duration_ms, 0);
+});
+
+test('transition scheduler can prime historical events without replaying them', () => {
+  const applied = [];
+  const scheduler = createTransitionScheduler({ apply: (transition) => applied.push(transition), storage: null });
+  scheduler.ingest([{ id: 'historical', type: 'agent_session_started', timestamp: '2026-07-13T09:00:00.000Z', source: 'events.jsonl' }], { prime: true });
+  scheduler.tick(0);
+  assert.deepEqual(applied, []);
+});
