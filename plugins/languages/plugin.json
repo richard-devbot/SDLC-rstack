@@ -1,0 +1,63 @@
+{
+  "name": "languages",
+  "description": "RStack languages plugin pack — combines: ARM Cortex-M firmware development for Teensy, STM32, nRF52, and SAMD with peripheral drivers and memory safety patterns | Comprehensive .NET backend development with C#, ASP.NET Core, Entity Framework Core, and Dapper for production-grade applications | Functional programming with Elixir, OTP patterns, Phoenix framework, and distributed systems | JavaScript and TypeScript development with ES6+, Node.js, React, and modern web frameworks | Modern Julia development with Julia 1.10+, package management, scientific computing, high-performance numerical code, and production best practices | JVM language development including Java, Scala, and C# with enterprise patterns and frameworks | Modern Python development with Python 3.12+, Django, FastAPI, async patterns, and production best practices | Production-grade Bash scripting with defensive programming, POSIX compliance, and comprehensive testing | Systems programming with Rust, Go, C, and C++ for performance-critical and low-level development | Web scripting with PHP and Ruby for web applications, CMS development, and backend services",
+  "owner": "RStack developed by Richardson Gunde",
+  "author": {
+    "name": "Multiple contributors — see THIRD-PARTY-NOTICES.md"
+  },
+  "contributors": [
+    {
+      "name": "Ryan Snodgrass",
+      "url": "https://github.com/rsnodgrass",
+      "plugins": [
+        "arm-cortex-microcontrollers",
+        "shell-scripting"
+      ]
+    },
+    {
+      "name": "Seth Hobson",
+      "email": "seth@major7apps.com",
+      "plugins": [
+        "dotnet-contribution",
+        "functional-programming",
+        "javascript-typescript",
+        "jvm-languages",
+        "python-development",
+        "systems-programming",
+        "web-scripting"
+      ]
+    },
+    {
+      "name": "Community Contribution",
+      "url": "https://github.com/exAClior",
+      "plugins": [
+        "julia-development"
+      ]
+    }
+  ],
+  "license": "MIT",
+  "agents": [
+    "arm-cortex-microcontrollers/agents",
+    "dotnet-contribution/agents",
+    "functional-programming/agents",
+    "javascript-typescript/agents",
+    "julia-development/agents",
+    "jvm-languages/agents",
+    "python-development/agents",
+    "shell-scripting/agents",
+    "systems-programming/agents",
+    "web-scripting/agents"
+  ],
+  "commands": [
+    "javascript-typescript/commands",
+    "python-development/commands",
+    "systems-programming/commands"
+  ],
+  "skills": [
+    "dotnet-contribution/skills",
+    "javascript-typescript/skills",
+    "python-development/skills",
+    "shell-scripting/skills",
+    "systems-programming/skills"
+  ]
+}

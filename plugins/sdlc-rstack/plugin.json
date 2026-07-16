@@ -1,0 +1,10 @@
+{
+  "name": "sdlc-rstack",
+  "version": "1.0.0",
+  "description": "The RStack governed SDLC loop as native Claude Code slash commands — /sdlc-start, /sdlc-plan, /sdlc-build-next, /sdlc-validate, /sdlc-approve, and the rest of the sdlc_* tool surface, driven through the same harness (src/core/harness/) that backs Pi. Ships the orchestrator/builder/validator team alongside the commands.",
+  "author": {
+    "name": "Richardson Gunde"
+  },
+  "license": "MIT",
+  "owner": "RStack developed by Richardson Gunde"
+}

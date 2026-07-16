@@ -177,51 +177,81 @@ async function collectSkillItems(items, { root, dir, runtimeAvailability, fallba
   }
 }
 
+// Recursive by NAME, not by predicate-on-files: a plugin.json entry that is
+// itself malformed (e.g. a directory left behind by a botched write) must
+// still be handed to readJson so the read error surfaces, rather than being
+// silently treated as "just another folder" and walked past. Stops
+// descending once a plugin.json entry is found (a plugin's own
+// agents/skills/commands are never scanned for a nested plugin.json).
+async function findPluginManifestPaths(dir) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  if (entries.some((entry) => entry.name === 'plugin.json')) {
+    return [path.join(dir, 'plugin.json')];
+  }
+  const paths = [];
+  for (const entry of entries) {
+    if (entry.isDirectory()) paths.push(...await findPluginManifestPaths(path.join(dir, entry.name)));
+  }
+  return paths;
+}
+
 async function collectPluginItems(items, { root, dir, runtimeAvailability }) {
   const pluginsDir = dir;
   if (!(await exists(pluginsDir))) return;
 
-  const entries = await readdir(pluginsDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const pluginDir = path.join(pluginsDir, entry.name);
-    const manifestPath = path.join(pluginDir, 'plugin.json');
+  // Recursive (not one-level readdir): plugins may sit directly under
+  // pluginsDir (e.g. sdlc-rstack) or nested under a domain folder
+  // (e.g. backend/backend-development) — finding every plugin.json
+  // regardless of depth means a domain reorg never silently drops plugins.
+  const manifestPaths = await findPluginManifestPaths(pluginsDir);
+  for (const manifestPath of manifestPaths) {
+    const pluginDir = path.dirname(manifestPath);
+    const entryName = path.basename(pluginDir);
     const manifest = await readJson(manifestPath);
     const sourcePath = relativeSource(root, manifestPath);
-    const domain = classifyDomain(sourcePath, entry.name);
+    const domain = classifyDomain(sourcePath, entryName);
 
-    if (await exists(manifestPath)) {
-      items.push(makeItem({
-        kind: 'plugin',
-        name: manifest.name || entry.name,
-        sourcePath,
-        runtimeAvailability,
-        domain,
-        description: manifest.description || '',
-      }));
+    items.push(makeItem({
+      kind: 'plugin',
+      name: manifest.name || entryName,
+      sourcePath,
+      runtimeAvailability,
+      domain,
+      description: manifest.description || '',
+    }));
+
+    // A consolidated domain plugin.json (e.g. plugins/backend/plugin.json)
+    // declares agents/commands as an ARRAY of its sub-plugins' own
+    // subdirectory paths (relative to pluginDir) instead of one co-located
+    // "agents"/"commands" dir — a single plugin.json can bundle several
+    // formerly-separate plugins without moving their files. Fall back to
+    // the plain co-located dir (sdlc-rstack's shape) when the field is absent.
+    const agentDirs = Array.isArray(manifest.agents)
+      ? manifest.agents.map((rel) => path.join(pluginDir, rel))
+      : [path.join(pluginDir, 'agents')];
+    for (const agentDir of agentDirs) {
+      await collectAgentItems(items, { root, dir: agentDir, runtimeAvailability, fallbackDomain: domain });
     }
 
-    await collectAgentItems(items, {
-      root,
-      dir: path.join(pluginDir, 'agents'),
-      runtimeAvailability,
-      fallbackDomain: domain,
-    });
-
-    const commandFiles = await listFilesRecursive(path.join(pluginDir, 'commands'), (file) => file.endsWith('.md'));
-    for (const file of commandFiles) {
-      const meta = await readMarkdownMeta(file);
-      const commandName = `/${path.basename(file, '.md')}`;
-      const commandSource = relativeSource(root, file);
-      items.push(makeItem({
-        kind: 'command',
-        name: meta.name || path.basename(file, '.md'),
-        commandName,
-        sourcePath: commandSource,
-        runtimeAvailability,
-        domain: classifyDomain(commandSource, domain),
-        description: meta.description,
-      }));
+    const commandDirs = Array.isArray(manifest.commands)
+      ? manifest.commands.map((rel) => path.join(pluginDir, rel))
+      : [path.join(pluginDir, 'commands')];
+    for (const commandDir of commandDirs) {
+      const commandFiles = await listFilesRecursive(commandDir, (file) => file.endsWith('.md'));
+      for (const file of commandFiles) {
+        const meta = await readMarkdownMeta(file);
+        const commandName = `/${path.basename(file, '.md')}`;
+        const commandSource = relativeSource(root, file);
+        items.push(makeItem({
+          kind: 'command',
+          name: meta.name || path.basename(file, '.md'),
+          commandName,
+          sourcePath: commandSource,
+          runtimeAvailability,
+          domain: classifyDomain(commandSource, domain),
+          description: meta.description,
+        }));
+      }
     }
   }
 }

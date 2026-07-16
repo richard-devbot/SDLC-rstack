@@ -1,0 +1,34 @@
+{
+  "name": "devops-cloud",
+  "description": "RStack devops-cloud plugin pack — combines: Application profiling, performance optimization, and observability for frontend and backend systems | CI/CD pipeline configuration, GitHub Actions/GitLab CI workflow setup, and automated deployment pipeline orchestration | Cloud architecture design for AWS/Azure/GCP, Kubernetes cluster configuration, Terraform infrastructure-as-code, hybrid cloud networking, and multi-cloud cost optimization | Deployment patterns, rollback automation, and infrastructure templates | Pre-deployment checks, configuration validation, and deployment readiness assessment | Production incident management, triage workflows, and automated incident resolution | Kubernetes manifest generation, networking configuration, security policies, observability setup, GitOps workflows, and auto-scaling | Metrics collection, logging infrastructure, distributed tracing, SLO implementation, and monitoring dashboards",
+  "owner": "RStack developed by Richardson Gunde",
+  "author": {
+    "name": "Seth Hobson",
+    "email": "seth@major7apps.com"
+  },
+  "license": "MIT",
+  "agents": [
+    "application-performance/agents",
+    "cicd-automation/agents",
+    "cloud-infrastructure/agents",
+    "deployment-strategies/agents",
+    "deployment-validation/agents",
+    "incident-response/agents",
+    "kubernetes-operations/agents",
+    "observability-monitoring/agents"
+  ],
+  "commands": [
+    "application-performance/commands",
+    "cicd-automation/commands",
+    "deployment-validation/commands",
+    "incident-response/commands",
+    "observability-monitoring/commands"
+  ],
+  "skills": [
+    "cicd-automation/skills",
+    "cloud-infrastructure/skills",
+    "incident-response/skills",
+    "kubernetes-operations/skills",
+    "observability-monitoring/skills"
+  ]
+}

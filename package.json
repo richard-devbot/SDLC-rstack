@@ -48,8 +48,10 @@
     "agents/",
     "skills/",
     "prompts/",
+    ".claude-plugin/",
     "plugins/",
     "packs/",
+    "packaging/",
     "docs/public/",
     "docs/HARNESS.md",
     "docs/quick-start-guide.md",
@@ -63,7 +65,8 @@
     "research/",
     "rfcs/",
     "operator.json",
-    "README.md"
+    "README.md",
+    "THIRD-PARTY-NOTICES.md"
   ],
   "pi": {
     "extensions": [

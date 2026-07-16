@@ -1,0 +1,42 @@
+{
+  "name": "specialized",
+  "description": "RStack specialized plugin pack — combines: Framework updates, migration planning, and architectural transformation workflows | Git workflow automation, pull request enhancement, and team onboarding processes | Payment gateway integration with Stripe, PayPal, checkout flow implementation, subscription billing, and PCI compliance | Binary reverse engineering, malware analysis, firmware security, and software protection research for authorized security research, CTF competitions, and defensive security",
+  "owner": "RStack developed by Richardson Gunde",
+  "author": {
+    "name": "Multiple contributors — see THIRD-PARTY-NOTICES.md"
+  },
+  "contributors": [
+    {
+      "name": "Seth Hobson",
+      "email": "seth@major7apps.com",
+      "plugins": [
+        "framework-migration",
+        "git-pr-workflows",
+        "payment-processing"
+      ]
+    },
+    {
+      "name": "Dávid Balatoni",
+      "url": "https://github.com/balcsida",
+      "plugins": [
+        "reverse-engineering"
+      ]
+    }
+  ],
+  "license": "MIT",
+  "agents": [
+    "framework-migration/agents",
+    "git-pr-workflows/agents",
+    "payment-processing/agents",
+    "reverse-engineering/agents"
+  ],
+  "commands": [
+    "framework-migration/commands",
+    "git-pr-workflows/commands"
+  ],
+  "skills": [
+    "framework-migration/skills",
+    "payment-processing/skills",
+    "reverse-engineering/skills"
+  ]
+}
