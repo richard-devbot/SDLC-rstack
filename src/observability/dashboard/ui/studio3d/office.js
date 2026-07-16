@@ -14,7 +14,7 @@
  * owner: RStack developed by Richardson Gunde
  */
 import * as THREE from 'three';
-import { STUDIO_TOPOLOGY } from './topology.js';
+import { pipelineStageX, STUDIO_TOPOLOGY } from './topology.js';
 
 const WALL_HEIGHT = 2.7;
 const PARTITION_HEIGHT = 2.2;
@@ -236,30 +236,61 @@ function createLibraryStock(pool) {
 }
 
 function createPipelineWall(pool) {
-  // The east wing shows the REAL fifteen-stage pipeline: one illuminated
-  // panel per canonical stage, in order. These panels ARE the department
-  // fixtures — the reconciler adopts them, so each stage status has exactly
-  // one visual owner and the wall can never disagree with the projection.
+  // The REAL fifteen-stage pipeline is a compact company delivery spine in
+  // the former department-dock strip. Panels remain the adopted fixtures;
+  // their low alternating consoles keep HQ and both team routes readable.
   const group = new THREE.Group();
-  group.name = 'Fifteen-stage pipeline wall';
+  group.name = 'Fifteen-stage delivery spine';
+  const spine = STUDIO_TOPOLOGY.pipelineSpine;
   const count = STUDIO_TOPOLOGY.departments.length;
-  const frames = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.graphite, count + 1);
-  frames.name = 'Pipeline wall frames';
-  const segments = [{ center: [17.1, 1.5, 0], scale: [0.18, 2.6, 25.4] }];
+  const span = spine.endX - spine.startX;
+  const beltSegments = [
+    { center: [0, spine.beltY, spine.z], scale: [span + 0.7, 0.16, spine.beltWidth] },
+    { center: [0, spine.beltY + 0.11, spine.z - 0.31], scale: [span + 0.8, 0.08, 0.08] },
+    { center: [0, spine.beltY + 0.11, spine.z + 0.31], scale: [span + 0.8, 0.08, 0.08] },
+  ];
+  for (let index = 0; index < count; index += 1) {
+    beltSegments.push({
+      center: [pipelineStageX(index, count), spine.beltY + 0.12, spine.z],
+      scale: [0.07, 0.12, spine.beltWidth + 0.04],
+    });
+  }
+  const belt = new THREE.InstancedMesh(
+    pool.geometries.slab,
+    pool.materials.graphite,
+    beltSegments.length,
+  );
+  belt.name = 'Pipeline delivery belt';
+  group.add(writeSegments(belt, beltSegments));
+
+  const consoleSegments = [];
   const stageSignals = new Map();
   STUDIO_TOPOLOGY.departments.forEach((slot, index) => {
-    const z = -11.7 + index * (23.4 / (count - 1));
-    segments.push({ center: [16.95, 1.5, z], scale: [0.1, 1.9, 1.28] });
+    const x = pipelineStageX(index, count);
+    const side = index % 2 === 0 ? -1 : 1;
+    const z = spine.z + side * spine.consoleOffsetZ;
+    consoleSegments.push(
+      { center: [x, 0.43, z], scale: [0.08, 0.7, 0.08] },
+      { center: [x, 0.64, z - side * 0.16], scale: [0.96, 0.08, 0.4] },
+      {
+        center: [x, 0.34, spine.z + side * spine.consoleOffsetZ * 0.5],
+        scale: [0.08, 0.08, spine.consoleOffsetZ],
+      },
+    );
     const panel = new THREE.Mesh(pool.geometries.slab, pool.statusMaterial('unknown'));
     panel.name = `Stage signal · ${slot.id}`;
-    panel.scale.set(0.08, 1.7, 1.08);
-    panel.position.set(16.78, 1.58, z);
-    // Tilt each display up-west so the overview camera reads the wall face-on.
-    panel.rotation.z = -0.55;
+    panel.scale.set(0.72, 0.34, 0.055);
+    panel.position.set(x, spine.panelY, z);
     group.add(panel);
     stageSignals.set(slot.id, panel);
   });
-  group.add(writeSegments(frames, segments));
+  const consoles = new THREE.InstancedMesh(
+    pool.geometries.slab,
+    pool.materials.graphiteLight,
+    consoleSegments.length,
+  );
+  consoles.name = 'Pipeline console frames';
+  group.add(writeSegments(consoles, consoleSegments));
   return { group, stageSignals };
 }
 
@@ -338,22 +369,6 @@ function createFurnitureInstances(pool, desks) {
       layoutFurniture();
     },
   };
-}
-
-function createStageCells(pool) {
-  // Work-cell docks along the bullpen/lab rails stay as furniture; the
-  // fifteen stage STATUS fixtures live on the pipeline wall.
-  const docks = new THREE.InstancedMesh(
-    pool.geometries.slab,
-    pool.materials.graphiteLight,
-    STUDIO_TOPOLOGY.departments.length,
-  );
-  docks.name = 'Stage work-cell docks';
-  writeSegments(docks, STUDIO_TOPOLOGY.departments.map((slot) => ({
-    center: [slot.position[0], 0.3, slot.position[2]],
-    scale: [0.68, 0.6, 0.5],
-  })));
-  return { docks };
 }
 
 function createMissionBoards(pool) {
@@ -444,9 +459,8 @@ export function createOfficeEnvironment(pool) {
   object.add(builderWorkstations, validatorWorkstations, ...furniture.meshes);
 
   const boards = createMissionBoards(pool);
-  const cells = createStageCells(pool);
   const named = createNamedFacilities(pool);
-  object.add(boards.group, cells.docks, ...named.facilities);
+  object.add(boards.group, ...named.facilities);
 
   return {
     object,
@@ -466,13 +480,13 @@ export function createOfficeEnvironment(pool) {
   };
 }
 
-export function assignOfficeProjection(office, projection, pool) {
+export function assignOfficeProjection(office, projection, pool, maxDetailedSessions = 16) {
   const workstationBySession = new Map();
   const allDesks = [...office.desks.builder, ...office.desks.validator];
   allDesks.forEach((desk) => { desk.occupant = null; });
 
   const indexes = { builder: 0, validator: 0 };
-  (projection.sessions ?? []).slice(-16).forEach((session) => {
+  (projection.sessions ?? []).slice(-maxDetailedSessions).forEach((session) => {
     const role = session.role === 'validator' ? 'validator' : 'builder';
     const desk = office.desks[role][indexes[role]] ?? null;
     indexes[role] += 1;

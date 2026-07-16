@@ -417,6 +417,26 @@ function evidenceItems(state, run) {
 }
 
 function timelineItems(events, runId) {
+  const captionFacts = (event) => {
+    const facts = {};
+    const skillIds = safeIds(event?.skill_ids);
+    const evidenceRefs = Array.isArray(event?.evidence_refs)
+      ? [...new Set(event.evidence_refs
+        .map((value) => safeText(value, 180))
+        .filter(Boolean))].slice(0, 32)
+      : [];
+    const from = safeId(event?.from);
+    const to = safeId(event?.to);
+    const attempt = Number.isSafeInteger(event?.attempt) && event.attempt >= 0
+      ? event.attempt
+      : undefined;
+    if (skillIds.length) facts.skill_ids = skillIds;
+    if (evidenceRefs.length) facts.evidence_refs = evidenceRefs;
+    if (from) facts.from = from;
+    if (to) facts.to = to;
+    if (attempt !== undefined) facts.attempt = attempt;
+    return facts;
+  };
   return events
     .filter((event) => TIMELINE_TYPES.has(event?.type))
     .slice(-120)
@@ -436,7 +456,23 @@ function timelineItems(events, runId) {
       source: safeSource(event.source) ?? 'events.jsonl',
       timestamp: eventTimestamp(event),
       entity_id: safeId(event.agent_session_id ?? event.delegation_id ?? event.task_id),
+      ...captionFacts(event),
     }));
+}
+
+function approvalSummary(items, sessions) {
+  const approvalWaiters = sessions.filter((session) => (
+    session.status === 'waiting' && session.waiting_reason === 'approval'
+  ));
+  const pendingCount = items.length || approvalWaiters.length;
+  if (!pendingCount) return null;
+  return {
+    pending_count: pendingCount,
+    artifact: safeText(
+      items[0]?.title ?? approvalWaiters[0]?.task_id ?? `${pendingCount} pending`,
+      80,
+    ),
+  };
 }
 
 function sourceNextAction(state, runId) {
@@ -492,6 +528,7 @@ function emptyStudio(state, evaluatedAt) {
     sessions: [],
     capability_attachments: [],
     work_objects: [],
+    approval_summary: null,
     governance_items: [],
     evidence_items: [],
     timeline: [],
@@ -522,6 +559,11 @@ export function buildStudioProjection(state, { evaluatedAt = state?.ts ?? new Da
       message: 'Tau does not expose delegated-session lifecycle; task and stage state remain available.',
     });
   }
+  const sessionItems = [...sessions.values()].sort((a, b) => (
+    (timestampMs(a.started_at) ?? 0) - (timestampMs(b.started_at) ?? 0)
+    || a.id.localeCompare(b.id)
+  ));
+  const governance = governanceItems(state, run.runId);
 
   return {
     schema_version: STUDIO_SCHEMA_VERSION,
@@ -541,13 +583,11 @@ export function buildStudioProjection(state, { evaluatedAt = state?.ts ?? new Da
     },
     missions,
     departments: departmentViews(missions),
-    sessions: [...sessions.values()].sort((a, b) => (
-      (timestampMs(a.started_at) ?? 0) - (timestampMs(b.started_at) ?? 0)
-      || a.id.localeCompare(b.id)
-    )),
+    sessions: sessionItems,
     capability_attachments: capabilityAttachments(sessions),
     work_objects: workObjects(events, run.runId),
-    governance_items: governanceItems(state, run.runId),
+    approval_summary: approvalSummary(governance, sessionItems),
+    governance_items: governance,
     evidence_items: evidenceItems(state, run),
     timeline: timelineItems(events, run.runId),
     limitations,

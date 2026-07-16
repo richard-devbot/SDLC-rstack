@@ -19,12 +19,13 @@ import { createLocomotion } from './locomotion.js';
 // clipPose names the body state the model's single clip portrays: the clip
 // plays only in that state; every other state pauses it and hands the
 // skeleton to the procedural locomotion driver.
-const MANIFEST = Object.freeze({
+export const STUDIO_CAST_MANIFEST = Object.freeze({
   manager: { url: '/studio3d/assets/models/manager.glb', height: 1.78, clipPose: 'standing' },
   worker: { url: '/studio3d/assets/models/worker.glb', height: 1.42, maxWidth: 1.72, clipPose: 'seated' },
   librarian: { url: '/studio3d/assets/models/librarian.glb', height: 1.52, stripFloorPlanes: true },
   station: { url: '/studio3d/assets/models/manager-desk.glb', height: 1.25 },
   chair: { url: '/studio3d/assets/models/manager-chair.glb', height: 1.02 },
+  human: { url: '/studio3d/assets/models/human-approver.glb', height: 1.66, clipPose: 'standing' },
 });
 
 const activeMixers = new Set();
@@ -132,7 +133,7 @@ function splitWorker(entry) {
  */
 export async function loadStudioCast() {
   const loader = new GLTFLoader();
-  const entries = await Promise.all(Object.entries(MANIFEST).map(async ([key, spec]) => {
+  const entries = await Promise.all(Object.entries(STUDIO_CAST_MANIFEST).map(async ([key, spec]) => {
     try {
       const gltf = await loader.loadAsync(spec.url);
       return [key, prepTemplate(gltf, spec)];
@@ -173,12 +174,13 @@ export function createCastAgent(entry) {
     object,
     height: entry.height,
     walkable: Boolean(locomotion),
-    /** mode: 'seated' | 'standing' | 'walking'; phase paces the stride. */
+    /** mode: 'seated' | 'sitting' | 'standing' | 'walking'; phase paces the stride. */
     setMode(mode, phase = 0) {
       const useClip = Boolean(action) && mode === clipPose;
       if (action) action.paused = !useClip;
       if (useClip || !locomotion) return;
-      if (mode === 'walking') locomotion.walk(phase);
+      if (mode === 'sitting') locomotion.sit();
+      else if (mode === 'walking') locomotion.walk(phase);
       else locomotion.stand();
     },
     dispose() {

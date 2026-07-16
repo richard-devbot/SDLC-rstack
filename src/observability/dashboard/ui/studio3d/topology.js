@@ -46,9 +46,32 @@ export const STUDIO_TOPOLOGY = Object.freeze({
   // Building envelope, shared with the office renderer.
   bounds: Object.freeze({ west: -18, east: 18, north: -13, south: 13 }),
   corridor: Object.freeze({ north: -7, south: -4, z: CORRIDOR_Z }),
+  pipelineSpine: Object.freeze({
+    startX: -14.4,
+    endX: 14.4,
+    z: -1.5,
+    beltY: 0.16,
+    beltWidth: 0.5,
+    consoleOffsetZ: 0.72,
+    panelY: 0.98,
+    maxHeight: 1.35,
+  }),
   doors: DOORS,
 
   orchestrator: slot('orchestrator-hq', -2, 0, -10),
+  managerSeat: Object.freeze({
+    // Derived from manager-desk chair center (0.813, 0.819, 0.732), seat
+    // contact y≈0.54, transformed by station (-5.2, 0, -10.4), yaw PI/2.
+    position: point(-4.56, 0.54, -11.15),
+    rotationY: Math.PI / 2,
+  }),
+  strategyApproval: Object.freeze({
+    chairPosition: point(-2, 0, -10.72),
+    chairRotationY: Math.PI,
+    humanSeat: point(-2, 0.54, -10.72),
+    managerStand: point(-2, 0, -9.55),
+    managerRotationY: 0,
+  }),
   dispatch: slot('dispatch', -16, 0, 10, Math.PI / 2),
   dispatchQueue: row('dispatch-queue', 12, -17.2, 1.15, 12.1),
   library: Object.freeze({
@@ -65,8 +88,9 @@ export const STUDIO_TOPOLOGY = Object.freeze({
   }),
   // Eight mission boards on the Builder Bullpen's corridor wall.
   missions: row('mission-board', 8, -16, 2.5, -3.62),
-  // Fifteen canonical stage work cells: eight along the Builder Bullpen rail,
-  // seven inside the glass Validator Lab.
+  // Fifteen canonical department identities. Their adopted visual fixtures
+  // live on the compact delivery spine while these stable IDs preserve the
+  // projection-to-office contract.
   departments: Object.freeze([
     ...row('department', 8, -16.5, 2, -1.5),
     ...row('department', 7, 6.9, 1, -1.5, 0, 8),
@@ -122,6 +146,13 @@ export const STUDIO_TOPOLOGY = Object.freeze({
     ]),
   }),
 });
+
+export function pipelineStageX(index, count = STUDIO_TOPOLOGY.departments.length) {
+  const { startX, endX } = STUDIO_TOPOLOGY.pipelineSpine;
+  return count <= 1
+    ? startX
+    : startX + ((endX - startX) * index) / (count - 1);
+}
 
 export function topologySlot(kind, index = 0) {
   if (kind === 'mission') return STUDIO_TOPOLOGY.missions[index % STUDIO_TOPOLOGY.missions.length];

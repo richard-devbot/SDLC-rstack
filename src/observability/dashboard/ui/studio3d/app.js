@@ -65,6 +65,13 @@ async function ensureScene(studio) {
         app.dataset.studioTriangles = String(stats.triangles);
         app.dataset.studioActiveRigs = String(stats.activeRigs);
         app.dataset.studioActiveTransitions = String(stats.activeTransitions);
+        app.dataset.studioManagerState = stats.managerState;
+        app.dataset.studioManagerAction = stats.managerAction ?? '';
+        app.dataset.studioManagerX = stats.managerX === null ? '' : String(stats.managerX);
+        app.dataset.studioManagerZ = stats.managerZ === null ? '' : String(stats.managerZ);
+        app.dataset.studioActiveCaptions = String(stats.activeCaptions);
+        app.dataset.studioActionCaptions = String(stats.actionCaptions);
+        app.dataset.studioCameraMoving = String(stats.cameraMoving);
         app.dataset.studioTransitionCostMs = stats.transitionCostMs.toFixed(3);
       },
       onRendererState: (state) => {

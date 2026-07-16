@@ -97,6 +97,36 @@ export function createResourcePool() {
   };
 }
 
+export function createProceduralHumanApprover(pool) {
+  const object = new THREE.Group();
+  object.name = 'Human approver fallback';
+  const part = (geometry, materialEntry, position, scale, rotation = [0, 0, 0]) => {
+    const child = new THREE.Mesh(geometry, materialEntry);
+    child.position.set(...position);
+    child.scale.set(...scale);
+    child.rotation.set(...rotation);
+    child.castShadow = true;
+    object.add(child);
+    return child;
+  };
+  part(pool.geometries.sphere, pool.materials.robotShell, [0, 1.08, 0], [0.42, 0.7, 0.28]);
+  part(pool.geometries.sphere, pool.materials.wall, [0, 1.62, 0], [0.28, 0.3, 0.28]);
+  part(pool.geometries.cylinder, pool.materials.graphite, [-0.2, 0.67, 0.22], [0.12, 0.38, 0.12], [Math.PI / 2, 0, 0]);
+  part(pool.geometries.cylinder, pool.materials.graphite, [0.2, 0.67, 0.22], [0.12, 0.38, 0.12], [Math.PI / 2, 0, 0]);
+  part(pool.geometries.cylinder, pool.materials.graphite, [-0.2, 0.35, 0.5], [0.12, 0.32, 0.12]);
+  part(pool.geometries.cylinder, pool.materials.graphite, [0.2, 0.35, 0.5], [0.12, 0.32, 0.12]);
+  part(pool.geometries.cylinder, pool.materials.robotShell, [-0.38, 1.05, 0.22], [0.09, 0.34, 0.09], [Math.PI / 2, 0, 0]);
+  part(pool.geometries.cylinder, pool.materials.robotShell, [0.38, 1.05, 0.22], [0.09, 0.34, 0.09], [Math.PI / 2, 0, 0]);
+  return {
+    object,
+    height: 1.66,
+    walkable: false,
+    setMode(mode) { object.userData.mode = mode; },
+    setPose(mode) { object.userData.mode = mode; },
+    dispose() { object.removeFromParent(); },
+  };
+}
+
 function place(object, slot) {
   object.position.fromArray(slot.position);
   object.rotation.fromArray(slot.rotation ?? [0, 0, 0]);
@@ -224,7 +254,8 @@ function createCastRobotEntity(data, slot, pool, kind, castEntry, deskEntry = nu
     pose: 'standing',
     setPose(name) {
       handle.pose = name;
-      body.setMode(name === 'seated_work' || name === 'validating' ? 'seated' : 'standing');
+      if (name === 'sitting') body.setMode('sitting');
+      else body.setMode(name === 'seated_work' || name === 'validating' ? 'seated' : 'standing');
     },
     setWalking(phase) {
       handle.pose = 'walking';

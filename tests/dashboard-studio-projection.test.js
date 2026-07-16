@@ -175,6 +175,89 @@ test('governance, evidence, and work objects carry scope, source, and timestamps
   assert.ok(studio.work_objects.every((item) => item.timestamp));
 });
 
+test('timeline keeps only sanitized facts needed for live action captions', () => {
+  const events = [
+    {
+      type: 'agent_capabilities_attached',
+      agent_session_id: 'session-1',
+      task_id: '003-architecture',
+      skill_ids: ['risk-review', '<script>'],
+      timestamp: '2026-07-13T09:57:00.000Z',
+    },
+    {
+      type: 'handoff_created',
+      agent_session_id: 'session-1',
+      task_id: '003-architecture',
+      from: 'builder',
+      to: 'validator',
+      timestamp: '2026-07-13T09:57:10.000Z',
+    },
+    {
+      type: 'task_retry_scheduled',
+      agent_session_id: 'session-1',
+      task_id: '003-architecture',
+      attempt: 3,
+      timestamp: '2026-07-13T09:57:20.000Z',
+    },
+    {
+      type: 'artifact_emitted',
+      agent_session_id: 'session-1',
+      task_id: '003-architecture',
+      evidence_refs: ['evidence/result.json', '<unsafe>'],
+      timestamp: '2026-07-13T09:57:30.000Z',
+    },
+  ];
+
+  const studio = buildStudioProjection(stateWith(task(), events), { evaluatedAt: NOW });
+  const byType = new Map(studio.timeline.map((item) => [item.type, item]));
+
+  assert.deepEqual(byType.get('agent_capabilities_attached').skill_ids, ['risk-review']);
+  assert.equal(byType.get('handoff_created').from, 'builder');
+  assert.equal(byType.get('handoff_created').to, 'validator');
+  assert.equal(byType.get('task_retry_scheduled').attempt, 3);
+  assert.deepEqual(byType.get('artifact_emitted').evidence_refs, ['evidence/result.json', '<unsafe>']);
+});
+
+test('approval summary is projected server-side from governance or approval waiters', () => {
+  const governed = buildStudioProjection(stateWith(task(), [], {
+    blockedGates: [{
+      id: 'gate-1',
+      runId: 'run-1',
+      taskId: '003-architecture',
+      type: 'approval',
+      title: 'Release candidate',
+      status: 'blocked',
+    }],
+  }), { evaluatedAt: NOW });
+  assert.deepEqual(governed.approval_summary, {
+    pending_count: 1,
+    artifact: 'Release candidate',
+  });
+
+  const waiting = buildStudioProjection(stateWith(task(), [
+    {
+      type: 'agent_session_started',
+      agent_session_id: 'session-1',
+      task_id: '003-architecture',
+      role: 'validator',
+      timestamp: '2026-07-13T09:57:00.000Z',
+    },
+    {
+      type: 'agent_waiting',
+      agent_session_id: 'session-1',
+      task_id: '003-architecture',
+      reason_class: 'approval',
+      timestamp: '2026-07-13T09:57:10.000Z',
+    },
+  ]), { evaluatedAt: NOW });
+  assert.deepEqual(waiting.approval_summary, {
+    pending_count: 1,
+    artifact: '003-architecture',
+  });
+
+  assert.equal(buildStudioProjection(stateWith(), { evaluatedAt: NOW }).approval_summary, null);
+});
+
 test('real stage-report index strings remain distinct Evidence Vault records', () => {
   const state = stateWith(task(), [], {
     runs: [{

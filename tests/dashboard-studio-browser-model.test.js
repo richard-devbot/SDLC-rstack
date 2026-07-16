@@ -100,9 +100,11 @@ test('topology has one HQ, eight mission bays, and fifteen unique departments', 
 test('scene modules expose stable reconciliation, selection, diagnostics, and cleanup', () => {
   assert.equal(typeof createEntityReconciler, 'function');
   const scenePath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'scene.js');
+  const appPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'app.js');
   const geometryPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'geometry.js');
   const overlaysPath = join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'overlays.js');
   const sceneSource = readFileSync(scenePath, 'utf8');
+  const appSource = readFileSync(appPath, 'utf8');
   const geometrySource = readFileSync(geometryPath, 'utf8');
   for (const name of ['reconcile', 'select', 'focus', 'setMotion', 'diagnostics', 'pause', 'resume', 'destroy']) {
     assert.match(sceneSource, new RegExp(`${name}\\b`));
@@ -112,6 +114,9 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   }
   assert.match(sceneSource, /createOfficeEnvironment/);
   assert.match(sceneSource, /createAgentAnimator/);
+  assert.match(sceneSource, /reconcileManagerProjection/);
+  assert.match(sceneSource, /animator\.managerState\(\) === 'seated'/);
+  assert.match(sceneSource, /handle\.object\.position\.set\(approval\.humanSeat\[0\], 0, approval\.humanSeat\[2\]\)/);
   // DOM world-label overlays stay removed; in-canvas facts render through
   // the holographic layer (agent panels, room labels, data streams, and the
   // global timeline), all driven by the server projection.
@@ -120,12 +125,42 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /syncAgentPanels/);
   assert.match(sceneSource, /agentPanel/);
   assert.match(sceneSource, /ROOM_LABELS/);
+  assert.match(sceneSource, /Delivery spine stage legend/);
+  assert.match(sceneSource, /paintPipelineLegend\(\)/);
+  assert.match(sceneSource, /pipelineSpine/);
+  assert.match(
+    sceneSource,
+    /\['15-STAGE DELIVERY PIPELINE', 0, 1\.42, -2\.85, 3\.2, 0\.48\]/,
+  );
+  assert.match(sceneSource, /sprite\.scale\.set\(scaleX, scaleY, 1\)/);
+  assert.doesNotMatch(sceneSource, /pipelineGantry|Gantry stage legend|paintGantryLegend/);
   assert.match(sceneSource, /rebuildStreams/);
   assert.match(sceneSource, /paintGlobalTimeline/);
+  assert.match(sceneSource, /MAX_CAPTIONS/);
+  assert.match(sceneSource, /captionMaterialCache/);
+  assert.match(sceneSource, /depthTest:\s*false/);
+  assert.match(sceneSource, /transitionCaptionFact/);
+  assert.match(sceneSource, /completedAt/);
+  assert.match(sceneSource, /managerAction/);
+  assert.match(sceneSource, /activeCaptions/);
+  assert.match(sceneSource, /actionCaptions/);
+  assert.match(sceneSource, /cameraMoving/);
+  assert.match(appSource, /studioManagerState/);
+  assert.match(appSource, /studioManagerAction/);
+  assert.match(appSource, /studioManagerX/);
+  assert.match(appSource, /studioManagerZ/);
+  assert.match(appSource, /studioActiveCaptions/);
+  assert.match(appSource, /studioActionCaptions/);
+  assert.match(appSource, /studioCameraMoving/);
+  assert.match(sceneSource, /animator\.freeze\(now\)/);
+  assert.match(sceneSource, /animator\.resume\(now\)/);
+  assert.doesNotMatch(sceneSource, /caption[^\n]*userData\.interactive\s*=\s*true/i);
   assert.match(sceneSource, /MAX_DETAILED_RIGS\s*=\s*16/);
+  assert.match(sceneSource, /FIXED_DETAILED_RIGS\s*=\s*2/);
+  assert.match(sceneSource, /MAX_DETAILED_SESSIONS\s*=\s*MAX_DETAILED_RIGS - FIXED_DETAILED_RIGS/);
   // 200 accommodates the GLB cast (battlestation = 26 textured materials,
-  // pipeline wall = 15 panels); measured full-cast overview with 8 live
-  // sessions is 177 calls — see scene.js rationale.
+  // delivery spine = 15 adopted panels); measured full-cast overview stays
+  // pinned by browser evidence and scene.js diagnostics.
   assert.match(sceneSource, /DRAW_CALL_CEILING\s*=\s*200/);
   assert.match(sceneSource, /TRIANGLE_CEILING\s*=\s*200_000/);
   assert.match(sceneSource, /enforceQualityCeilings/);

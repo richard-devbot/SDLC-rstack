@@ -17,15 +17,23 @@ import {
 } from './assets.js';
 import { restingBehavior } from './behavior.js';
 import {
+  approvalCaptionFacts,
+  MAX_CAPTIONS,
+  selectCaptionFacts,
+  transitionCaptionFact,
+  waitingCaptionFacts,
+} from './captions.js';
+import {
   createCapabilityInstances,
   createEntityFactories,
+  createProceduralHumanApprover,
   createResourcePool,
   createWorkPacket,
 } from './geometry.js';
 import { assignOfficeProjection, createOfficeEnvironment } from './office.js';
 import { createEntityReconciler } from './reconciler.js';
 import { createRobotFleetRenderer, ROBOT_PELVIS_HEIGHT } from './robot.js';
-import { STUDIO_TOPOLOGY } from './topology.js';
+import { pipelineStageX, STUDIO_TOPOLOGY } from './topology.js';
 import { createTransitionScheduler } from './transitions.js';
 
 const QUALITY = Object.freeze({
@@ -35,9 +43,11 @@ const QUALITY = Object.freeze({
 });
 const QUALITY_ORDER = ['high', 'balanced', 'low'];
 const MAX_DETAILED_RIGS = 16;
+const FIXED_DETAILED_RIGS = 2;
+const MAX_DETAILED_SESSIONS = MAX_DETAILED_RIGS - FIXED_DETAILED_RIGS;
 // Raised from 90 for the Richardson-supplied GLB cast: the HQ battlestation
 // alone carries 26 textured materials (26 draws), each occupied desk pod ~4,
-// plus the 15-panel pipeline wall and two team-lead fixtures. Measured
+// plus the 15-panel delivery spine and two team-lead fixtures. Measured
 // full-cast overview with 8 live sessions: 177 calls / 169k triangles. The
 // quality loop still degrades tiers above these ceilings.
 const DRAW_CALL_CEILING = 200;
@@ -101,12 +111,13 @@ export function createStudioScene(canvas, {
   const pool = createResourcePool();
   const office = createOfficeEnvironment(pool);
   scene.add(office.object);
-  const robotFleet = createRobotFleetRenderer(pool, { maxRobots: MAX_DETAILED_RIGS + 1 });
+  const robotFleet = createRobotFleetRenderer(pool, { maxRobots: MAX_DETAILED_SESSIONS + 1 });
   scene.add(robotFleet.object);
   let cast = null;
   const reconciler = createEntityReconciler({
     scene,
     factories: createEntityFactories(pool, office, () => cast),
+    maxDetailedSessions: MAX_DETAILED_SESSIONS,
   });
   const workstationBySession = new Map();
 
@@ -118,6 +129,25 @@ export function createStudioScene(canvas, {
   castProps.name = 'Executive cast props';
   scene.add(castProps);
   let librarianProp = null;
+  let humanApprover = createProceduralHumanApprover(pool);
+
+  function placeHumanApprover(handle) {
+    const approval = STUDIO_TOPOLOGY.strategyApproval;
+    handle.object.position.set(approval.humanSeat[0], 0, approval.humanSeat[2]);
+    handle.object.rotation.y = approval.chairRotationY;
+    handle.setMode?.('sitting');
+    castProps.add(handle.object);
+  }
+
+  function replaceHumanApprover() {
+    if (!cast?.human) return;
+    humanApprover.dispose?.();
+    humanApprover = createCastAgent(cast.human);
+    humanApprover.object.name = 'Human approver';
+    placeHumanApprover(humanApprover);
+  }
+
+  placeHumanApprover(humanApprover);
 
   function placeCastProps() {
     if (cast?.station) {
@@ -129,9 +159,9 @@ export function createStudioScene(canvas, {
     }
     if (cast?.chair) {
       const chair = createCastProp(cast.chair);
-      chair.name = 'Orchestrator HQ chair';
-      chair.position.set(-4, 0, -10.4);
-      chair.rotation.y = -Math.PI / 2;
+      chair.name = 'Human approver strategy chair';
+      chair.position.fromArray(STUDIO_TOPOLOGY.strategyApproval.chairPosition);
+      chair.rotation.y = STUDIO_TOPOLOGY.strategyApproval.chairRotationY;
       castProps.add(chair);
     }
     if (cast?.librarian) {
@@ -163,6 +193,7 @@ export function createStudioScene(canvas, {
     cast = loaded;
     office.setPodMode?.(Boolean(cast.worker));
     placeCastProps();
+    replaceHumanApprover();
     // Rebuild live entities so orchestrator/session bodies pick up the cast.
     if (projection) {
       reconciler.clear();
@@ -190,6 +221,8 @@ export function createStudioScene(canvas, {
   let controlsActive = false;
   let transitionCostMs = 0;
   let lastRenderedAt = 0;
+  let captionPausedAt = null;
+  const transientCaptions = new Map();
 
   const animator = createAgentAnimator({
     scene,
@@ -199,6 +232,8 @@ export function createStudioScene(canvas, {
       : null),
     getWorkstation: (sessionId) => workstationBySession.get(sessionId) ?? null,
     createPacket: (kind) => createWorkPacket(pool, kind),
+    onTransitionStart,
+    onTransitionComplete,
   });
 
   let transitionStorage = null;
@@ -250,12 +285,12 @@ export function createStudioScene(canvas, {
     ['ORCHESTRATION CENTER', -2, 3.8, -10],
     ['GOVERNANCE', 7.5, 3.6, -10],
     ['EVIDENCE VAULT', 15.5, 3.6, -10],
-    ['15-STAGE PIPELINE', 16.1, 3.6, 4],
+    ['15-STAGE DELIVERY PIPELINE', 0, 1.42, -2.85, 3.2, 0.48],
     ['DISPATCH', -16, 2.6, 10],
   ];
   const roomLabelGroup = new THREE.Group();
   roomLabelGroup.name = 'Room labels';
-  for (const [text, x, y, z] of ROOM_LABELS) {
+  for (const [text, x, y, z, scaleX = 4.6, scaleY = 0.75] of ROOM_LABELS) {
     const canvasEl = makeCanvas(512, 84);
     const context = canvasEl.getContext('2d');
     context.fillStyle = 'rgba(18, 24, 30, 0.66)';
@@ -269,12 +304,75 @@ export function createStudioScene(canvas, {
     context.fillStyle = '#f4f6f8';
     context.fillText(text, 256, 44);
     const sprite = canvasSprite(canvasEl, { depthTest: true });
-    sprite.scale.set(4.6, 0.75, 1);
+    sprite.scale.set(scaleX, scaleY, 1);
     sprite.position.set(x, y, z);
     sprite.renderOrder = 20;
     roomLabelGroup.add(sprite);
   }
   scene.add(roomLabelGroup);
+
+  // A single transparent texture atlas makes all fifteen canonical stages
+  // read as individual company delivery cards without spending fifteen more
+  // sprite draw calls or rebuilding the removed black work-cell docks.
+  let pipelineLegendMaterial = null;
+  const pipelineLegend = new THREE.Mesh(pool.geometries.slab, pool.materials.graphite);
+  pipelineLegend.name = 'Delivery spine stage legend';
+  pipelineLegend.position.set(
+    0,
+    0.68,
+    STUDIO_TOPOLOGY.pipelineSpine.z + 0.4,
+  );
+  pipelineLegend.scale.set(
+    STUDIO_TOPOLOGY.pipelineSpine.endX - STUDIO_TOPOLOGY.pipelineSpine.startX,
+    0.64,
+    0.035,
+  );
+  scene.add(pipelineLegend);
+
+  function paintPipelineLegend() {
+    const canvasEl = makeCanvas(4096, 192);
+    const context = canvasEl.getContext('2d');
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    (projection.departments ?? []).slice(0, 15).forEach((department, index) => {
+      const width = canvasEl.width / 15;
+      const left = index * width + 7;
+      const [statusColor, statusWord] = STATUS_UI[department.status] ?? STATUS_UI.unknown;
+      context.fillStyle = 'rgba(242, 239, 231, 0.97)';
+      context.strokeStyle = statusColor;
+      context.lineWidth = 7;
+      context.beginPath();
+      context.roundRect(left, 11, width - 14, 170, 15);
+      context.fill();
+      context.stroke();
+      context.font = '800 40px ui-monospace, SFMono-Regular, monospace';
+      context.fillStyle = statusColor;
+      context.fillText(String(index + 1).padStart(2, '0'), left + width / 2 - 7, 48);
+      context.font = '650 25px ui-sans-serif, system-ui, sans-serif';
+      context.fillStyle = '#20252b';
+      context.fillText(
+        String(department.title ?? department.id).slice(0, 14),
+        left + width / 2 - 7,
+        102,
+        width - 30,
+      );
+      context.font = '750 20px ui-monospace, SFMono-Regular, monospace';
+      context.fillStyle = statusColor;
+      context.fillText(statusWord, left + width / 2 - 7, 148, width - 30);
+    });
+    const texture = new THREE.CanvasTexture(canvasEl);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: true,
+    });
+    pipelineLegendMaterial?.map?.dispose();
+    pipelineLegendMaterial?.dispose();
+    pipelineLegendMaterial = material;
+    pipelineLegend.material = material;
+  }
 
   // Holographic status panels above each observed agent: goal, current
   // skill, status, and canonical stage progress (n of 15).
@@ -386,6 +484,199 @@ export function createStudioScene(canvas, {
     }
   }
 
+  // Quiet company-comms layer: approval dialogue, waiting thoughts, and
+  // lifecycle-backed action captions share one bounded, non-interactive
+  // sprite system. Materials follow the same mark/sweep discipline as the
+  // agent panels so changing source text never leaks canvas textures.
+  const captionMaterialCache = new Map();
+  const captionSprites = new Map();
+  const captionGroup = new THREE.Group();
+  captionGroup.name = 'Source-backed company captions';
+  scene.add(captionGroup);
+
+  function drawCaptionShape(context, kind, width, height) {
+    context.fillStyle = kind === 'action'
+      ? 'rgba(12, 25, 35, 0.92)'
+      : kind === 'speech' ? 'rgba(248, 245, 237, 0.97)' : 'rgba(239, 244, 247, 0.96)';
+    context.strokeStyle = kind === 'speech'
+      ? '#d6a85c' : kind === 'thought' ? '#8fa2b3' : '#5f7487';
+    context.lineWidth = kind === 'action' ? 2 : 4;
+    context.setLineDash(kind === 'thought' ? [12, 9] : []);
+    context.beginPath();
+    context.roundRect(8, 8, width - 16, height - 30, kind === 'action' ? 18 : 28);
+    context.fill();
+    context.stroke();
+    if (kind !== 'speech') return;
+    context.setLineDash([]);
+    context.beginPath();
+    context.moveTo(62, height - 24);
+    context.lineTo(86, height - 2);
+    context.lineTo(104, height - 24);
+    context.closePath();
+    context.fill();
+    context.stroke();
+  }
+
+  function captionMaterial(fact, opacity = 1) {
+    const opacityBucket = THREE.MathUtils.clamp(Math.round(opacity * 10), 0, 10);
+    const key = JSON.stringify([fact.kind, fact.text, opacityBucket]);
+    if (captionMaterialCache.has(key)) {
+      const entry = captionMaterialCache.get(key);
+      entry.used = true;
+      return entry.material;
+    }
+    const height = fact.kind === 'action' ? 112 : 176;
+    const canvasEl = makeCanvas(512, height);
+    const context = canvasEl.getContext('2d');
+    drawCaptionShape(context, fact.kind, 512, height);
+    context.textBaseline = 'middle';
+    context.textAlign = 'left';
+    context.fillStyle = fact.kind === 'action' ? '#f5f7fb' : '#17202a';
+    context.font = fact.kind === 'action'
+      ? '600 28px ui-monospace, SFMono-Regular, monospace'
+      : '600 30px ui-sans-serif, system-ui, sans-serif';
+    context.fillText(fact.text, 28, fact.kind === 'action' ? 53 : 72, 456);
+    const texture = new THREE.CanvasTexture(canvasEl);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false,
+      opacity: opacityBucket / 10,
+    });
+    captionMaterialCache.set(key, { material, used: true });
+    return material;
+  }
+
+  function onTransitionStart(transition) {
+    const fact = transitionCaptionFact(transition);
+    if (!fact) return;
+    transientCaptions.set(transition.id, {
+      fact,
+      completedAt: null,
+      removeOnReconcile: false,
+    });
+  }
+
+  function onTransitionComplete(transition, { reducedMotion = false } = {}) {
+    const record = transientCaptions.get(transition.id);
+    if (!record) return;
+    if (reducedMotion) record.removeOnReconcile = true;
+    else record.completedAt = performance.now();
+  }
+
+  function captionOwnerPosition(fact) {
+    let handle = null;
+    if (fact.ownerKind === 'orchestrator' && projection?.orchestrator?.id) {
+      handle = reconciler.get({ kind: 'orchestrator', id: projection.orchestrator.id });
+    } else if (fact.ownerKind === 'session') {
+      handle = reconciler.get({ kind: 'session', id: fact.ownerId });
+    }
+    const source = fact.ownerKind === 'human' ? humanApprover?.object : handle?.object;
+    if (!source) return null;
+    const position = source.getWorldPosition(new THREE.Vector3());
+    const isOrchestrator = fact.ownerKind === 'orchestrator';
+    const castBody = fact.ownerKind === 'human' || handle?.seatedAtOrigin;
+    const panelHeight = isOrchestrator
+      ? (castBody ? 3 : 4)
+      : (castBody ? 2.5 : 3.85);
+    let height = fact.ownerKind === 'human'
+      ? 2.55
+      : panelHeight + (fact.kind === 'action' ? 1 : 1.4);
+    if (fact.id === 'approval-manager-thought') height += 1.2;
+    if (fact.ownerKind === 'human') position.x += 0.35;
+    else if (fact.ownerKind === 'orchestrator' && fact.kind === 'speech') position.x -= 0.35;
+    position.y += height;
+    return position;
+  }
+
+  function purgeReducedCaptionCompletions() {
+    for (const [id, record] of transientCaptions) {
+      if (record.removeOnReconcile) transientCaptions.delete(id);
+    }
+  }
+
+  function syncCaptionLayer(now = performance.now()) {
+    const transitionFacts = [];
+    let fading = false;
+    for (const [id, record] of transientCaptions) {
+      let opacity = 1;
+      if (record.completedAt !== null) {
+        const elapsed = Math.max(0, now - record.completedAt);
+        if (elapsed >= 1_000) {
+          transientCaptions.delete(id);
+          continue;
+        }
+        opacity = 1 - elapsed / 1_000;
+        fading = true;
+      }
+      transitionFacts.push({ ...record.fact, opacity });
+    }
+
+    const approvalFacts = animator.managerState() === 'approval'
+      ? approvalCaptionFacts(projection?.approval_summary ?? null)
+      : [];
+    const candidates = [
+      ...approvalFacts,
+      ...waitingCaptionFacts(projection?.sessions ?? []),
+      ...transitionFacts,
+    ].map((fact) => {
+      const ownerPosition = captionOwnerPosition(fact);
+      if (!ownerPosition) return null;
+      return {
+        ...fact,
+        ownerPosition,
+        distance: ownerPosition.distanceTo(camera.position),
+      };
+    }).filter(Boolean);
+    const selected = selectCaptionFacts(candidates, { limit: MAX_CAPTIONS });
+    const usedSprites = new Set();
+    for (const entry of captionMaterialCache.values()) entry.used = false;
+    for (const fact of selected) {
+      const material = captionMaterial(fact, fact.opacity ?? 1);
+      let sprite = captionSprites.get(fact.id);
+      if (!sprite) {
+        sprite = new THREE.Sprite(material);
+        sprite.name = `caption:${fact.id}`;
+        sprite.renderOrder = 50;
+        captionGroup.add(sprite);
+        captionSprites.set(fact.id, sprite);
+      } else {
+        sprite.material = material;
+      }
+      sprite.position.copy(fact.ownerPosition);
+      const width = THREE.MathUtils.clamp(2.4 + fact.text.length * 0.045, 2.8, 4.4);
+      sprite.scale.set(width, fact.kind === 'action' ? 0.62 : 1.2, 1);
+      sprite.visible = true;
+      usedSprites.add(fact.id);
+    }
+    for (const [id, sprite] of captionSprites) {
+      if (usedSprites.has(id)) continue;
+      captionGroup.remove(sprite);
+      captionSprites.delete(id);
+    }
+    for (const [key, entry] of captionMaterialCache) {
+      if (entry.used) continue;
+      entry.material.map?.dispose();
+      entry.material.dispose();
+      captionMaterialCache.delete(key);
+    }
+    return fading;
+  }
+
+  function clearCaptionLayer() {
+    captionGroup.clear();
+    captionSprites.clear();
+    transientCaptions.clear();
+    for (const entry of captionMaterialCache.values()) {
+      entry.material.map?.dispose();
+      entry.material.dispose();
+    }
+    captionMaterialCache.clear();
+    scene.remove(captionGroup);
+  }
+
   // Light-trail data streams: Orchestration Center → each ACTIVE session's
   // workstation. A stream exists only while its session is observed live;
   // pulses freeze on stale, disconnect, and reduced motion.
@@ -409,7 +700,7 @@ export function createStudioScene(canvas, {
     clearStreams();
     const source = new THREE.Vector3(-2, 1.9, -10);
     const curves = [];
-    (projection.sessions ?? []).slice(-MAX_DETAILED_RIGS).forEach((session) => {
+    (projection.sessions ?? []).slice(-MAX_DETAILED_SESSIONS).forEach((session) => {
       if (!['active', 'starting'].includes(session.status)) return;
       const workstation = workstationBySession.get(session.id);
       if (!workstation) return;
@@ -461,12 +752,17 @@ export function createStudioScene(canvas, {
     return motionMode !== 'reduced';
   }
 
-  // Pipeline conveyor: work packets glide along the 15-stage wall, but only
+  // Pipeline conveyor: work packets glide along the low delivery belt, but only
   // as far as the furthest stage the run has actually reached — the flow is
-  // read from the same departments the wall panels render, so it can never
+  // read from the same departments the spine panels render, so it can never
   // show progress the projection doesn't. Frozen in reduced motion.
-  const CONVEYOR = { startZ: -11.7, step: 23.4 / 14, x: 16.55, packets: 6 };
-  const conveyorState = { mesh: null, endZ: null };
+  const CONVEYOR = Object.freeze({
+    startX: STUDIO_TOPOLOGY.pipelineSpine.startX,
+    y: STUDIO_TOPOLOGY.pipelineSpine.beltY + 0.16,
+    z: STUDIO_TOPOLOGY.pipelineSpine.z,
+    packets: 6,
+  });
+  const conveyorState = { mesh: null, endX: null };
 
   function clearConveyor() {
     if (!conveyorState.mesh) return;
@@ -482,7 +778,7 @@ export function createStudioScene(canvas, {
       if (department.status !== 'unknown') reached = index;
     });
     if (reached < 1) return;
-    conveyorState.endZ = CONVEYOR.startZ + reached * CONVEYOR.step;
+    conveyorState.endX = pipelineStageX(reached);
     const mesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.amber, CONVEYOR.packets);
     mesh.name = 'Pipeline conveyor packets';
     mesh.frustumCulled = false;
@@ -494,13 +790,13 @@ export function createStudioScene(canvas, {
   function updateConveyor(now) {
     if (!conveyorState.mesh) return false;
     const transform = new THREE.Object3D();
-    const span = conveyorState.endZ - CONVEYOR.startZ;
+    const span = conveyorState.endX - CONVEYOR.startX;
     for (let index = 0; index < CONVEYOR.packets; index += 1) {
       const t = motionMode === 'reduced'
         ? index / CONVEYOR.packets
         : ((now / 5200) + index / CONVEYOR.packets) % 1;
-      transform.position.set(CONVEYOR.x, 0.62, CONVEYOR.startZ + t * span);
-      transform.scale.set(0.26, 0.12, 0.4);
+      transform.position.set(CONVEYOR.startX + t * span, CONVEYOR.y, CONVEYOR.z);
+      transform.scale.set(0.4, 0.12, 0.26);
       transform.updateMatrix();
       conveyorState.mesh.setMatrixAt(index, transform.matrix);
     }
@@ -628,9 +924,11 @@ export function createStudioScene(canvas, {
     if (frameInterval && now - lastRenderedAt < frameInterval) return;
     lastRenderedAt = now;
     transitions.tick(now);
+    reconcileManagerProjection(now);
     const transitionStarted = performance.now();
     const workforceActive = animator.update(now);
     transitionCostMs = performance.now() - transitionStarted;
+    const captionsAnimating = syncCaptionLayer(now);
     const castAnimating = updateCastMixers(now);
     const streamsFlowing = updateStreamPulses(now);
     const conveyorFlowing = updateConveyor(now);
@@ -643,7 +941,8 @@ export function createStudioScene(canvas, {
     enforceQualityCeilings(now);
     onDiagnostics(diagnostics());
     if (!workforceActive && !castAnimating && transitions.pending() === 0 && !cameraTween
-      && !controlsActive && !streamsFlowing && !conveyorFlowing && !ambienceActive) {
+      && !controlsActive && !streamsFlowing && !conveyorFlowing && !ambienceActive
+      && !captionsAnimating) {
       renderer.setAnimationLoop(null);
     }
   }
@@ -714,8 +1013,21 @@ export function createStudioScene(canvas, {
     if (select(ref)) onSelect(ref);
   }
 
+  function applyManagerSeat() {
+    const managerId = projection.orchestrator?.id;
+    const handle = managerId
+      ? reconciler.get({ kind: 'orchestrator', id: managerId })
+      : null;
+    if (!handle) return;
+    const [x, y, z] = STUDIO_TOPOLOGY.managerSeat.position;
+    handle.object.position.set(x, handle.seatedAtOrigin ? 0 : y - ROBOT_PELVIS_HEIGHT, z);
+    handle.object.rotation.set(0, STUDIO_TOPOLOGY.managerSeat.rotationY, 0);
+    handle.setPose(handle.seatedAtOrigin ? 'sitting' : 'seated_work');
+  }
+
   function applyRestingStates() {
-    (projection.sessions ?? []).slice(-MAX_DETAILED_RIGS).forEach((session) => {
+    (projection.sessions ?? []).slice(-MAX_DETAILED_SESSIONS).forEach((session) => {
+      if (animator.isSessionActive(session.id)) return;
       const handle = reconciler.get({ kind: 'session', id: session.id });
       if (!handle) return;
       const workstation = workstationBySession.get(session.id);
@@ -740,11 +1052,27 @@ export function createStudioScene(canvas, {
         handle.setPose(observedPose === 'seated_work' || observedPose === 'validating' ? 'standing' : observedPose);
       }
     });
+    if (animator.managerState() === 'seated') applyManagerSeat();
+  }
+
+  function reconcileManagerProjection(now = performance.now()) {
+    if (!projection || transitions.pending() > 0) return false;
+    const approvalSummary = projection.approval_summary ?? null;
+    return animator.reconcileManager({
+      approvalActive: Number(approvalSummary?.pending_count) > 0,
+      approvalSummary,
+    }, now);
   }
 
   function reconcile(nextProjection) {
     projection = nextProjection;
-    const assigned = assignOfficeProjection(office, projection, pool);
+    purgeReducedCaptionCompletions();
+    const assigned = assignOfficeProjection(
+      office,
+      projection,
+      pool,
+      MAX_DETAILED_SESSIONS,
+    );
     workstationBySession.clear();
     assigned.forEach((desk, sessionId) => workstationBySession.set(sessionId, desk));
     reconciler.apply(projection);
@@ -753,11 +1081,14 @@ export function createStudioScene(canvas, {
     syncAgentPanels();
     rebuildStreams();
     rebuildConveyor();
+    paintPipelineLegend();
     paintGlobalTimeline();
     robotFleet.update();
     refreshProjectionGeometry();
     transitions.ingest(projection.timeline, { prime: firstTimeline });
     firstTimeline = false;
+    reconcileManagerProjection();
+    syncCaptionLayer();
     if (selectedRef && !reconciler.get(selectedRef)) selectedRef = null;
     startLoop();
   }
@@ -766,15 +1097,22 @@ export function createStudioScene(canvas, {
     motionMode = nextMotion === 'reduced' ? 'reduced' : 'full';
     transitions.setMotion(motionMode);
     animator.setMotion(motionMode);
+    reconcileManagerProjection();
+    syncCaptionLayer();
     setCastMotion(motionMode);
     if (motionMode === 'reduced') cameraTween = null;
     startLoop();
   }
 
   function pause(reason = 'manual') {
+    const wasPaused = pauseReasons.size > 0;
     pauseReasons.add(reason);
     transitions.pause(reason);
-    animator.freeze();
+    if (!wasPaused) {
+      const now = performance.now();
+      animator.freeze(now);
+      captionPausedAt = now;
+    }
     renderer.setAnimationLoop(null);
   }
 
@@ -782,19 +1120,42 @@ export function createStudioScene(canvas, {
     pauseReasons.delete(reason);
     transitions.resume(reason);
     if (pauseReasons.size) return;
-    animator.resume();
+    const now = performance.now();
+    animator.resume(now);
+    if (captionPausedAt !== null) {
+      const pausedFor = Math.max(0, now - captionPausedAt);
+      for (const record of transientCaptions.values()) {
+        if (record.completedAt !== null) record.completedAt += pausedFor;
+      }
+      captionPausedAt = null;
+    }
     startLoop();
   }
 
   function diagnostics() {
+    const managerId = projection?.orchestrator?.id;
+    const managerHandle = managerId
+      ? reconciler.get({ kind: 'orchestrator', id: managerId })
+      : null;
     return {
       qualityTier,
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
       geometries: renderer.info.memory.geometries,
       textures: renderer.info.memory.textures,
-      activeRigs: reconciler.entries().filter(([entry]) => entry.startsWith('session:')).length,
+      activeRigs: Math.min(
+        MAX_DETAILED_RIGS,
+        FIXED_DETAILED_RIGS
+          + reconciler.entries().filter(([entry]) => entry.startsWith('session:')).length,
+      ),
       activeTransitions: animator.activeCount(),
+      managerState: animator.managerState(),
+      managerAction: animator.managerAction(),
+      managerX: managerHandle?.object.position.x ?? null,
+      managerZ: managerHandle?.object.position.z ?? null,
+      activeCaptions: captionSprites.size,
+      actionCaptions: [...captionSprites.keys()].filter((id) => id.startsWith('action:')).length,
+      cameraMoving: Boolean(cameraTween),
       transitionCostMs,
     };
   }
@@ -854,6 +1215,7 @@ export function createStudioScene(canvas, {
       entry.material.dispose();
     }
     panelCache.clear();
+    clearCaptionLayer();
     clearStreams();
     clearConveyor();
     roomLabelGroup.traverse((child) => {
@@ -867,6 +1229,12 @@ export function createStudioScene(canvas, {
       timelineMaterial.map?.dispose();
       timelineMaterial.dispose();
     }
+    if (pipelineLegendMaterial) {
+      pipelineLegendMaterial.map?.dispose();
+      pipelineLegendMaterial.dispose();
+    }
+    scene.remove(pipelineLegend);
+    humanApprover.dispose?.();
     scene.remove(castProps);
     disposeStudioCast();
     office.dispose();

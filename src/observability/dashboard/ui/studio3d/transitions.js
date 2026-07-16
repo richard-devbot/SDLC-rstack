@@ -8,7 +8,7 @@
  * owner: RStack developed by Richardson Gunde
  */
 import { timelineIdentity } from './model.js';
-import { behaviorIntent } from './behavior.js';
+import { behaviorIntent, managerIntent } from './behavior.js';
 
 const EVENT_DURATIONS = Object.freeze({
   delegation_requested: 700,
@@ -78,7 +78,8 @@ export function createTransitionScheduler({
     ));
     for (const item of ordered) {
       const intent = behaviorIntent(item);
-      if (!intent) continue;
+      const manager = managerIntent(item);
+      if (!intent && !manager) continue;
       const identity = eventIdentity(item);
       if (!remember(identity)) continue;
       changed = true;
@@ -89,6 +90,14 @@ export function createTransitionScheduler({
           duration_ms: motion === 'reduced' ? 0 : EVENT_DURATIONS[item.type],
           event: item,
         });
+        if (manager) {
+          queue.push({
+            id: `${identity}:manager`,
+            intent: manager,
+            duration_ms: motion === 'reduced' ? 0 : 4_500,
+            event: item,
+          });
+        }
       }
     }
     if (changed) persistSeen();

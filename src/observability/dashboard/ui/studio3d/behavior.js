@@ -59,6 +59,17 @@ export function behaviorIntent(event) {
   };
 }
 
+export function managerIntent(event) {
+  if (!['handoff_created', 'task_retry_scheduled'].includes(event?.type)) return null;
+  return {
+    action: 'manager_check_in',
+    sessionId: event.agent_session_id ?? event.session_id ?? event.entity_id ?? null,
+    taskId: event.task_id ?? null,
+    trigger: event.type,
+    attempt: Number.isSafeInteger(event.attempt) ? event.attempt : undefined,
+  };
+}
+
 export function restingBehavior(session) {
   if (session?.status === 'failed') return 'failed';
   if (session?.status === 'waiting' || session?.status === 'blocked') return 'waiting';

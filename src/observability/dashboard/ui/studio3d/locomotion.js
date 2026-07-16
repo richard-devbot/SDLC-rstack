@@ -33,6 +33,12 @@ const RIG_FAMILIES = [
     thighSwing: 0.5,
     kneeBend: 0.8,
     armSwing: 0.3,
+    sit: Object.freeze({
+      hipsDrop: 0.42,
+      thighPitch: -Math.PI / 2,
+      kneePitch: Math.PI / 2,
+      armPitch: -0.48,
+    }),
   },
   {
     id: 'lowpoly-worker',
@@ -50,6 +56,12 @@ const RIG_FAMILIES = [
     thighSwing: 0.5,
     kneeBend: 0.8,
     armSwing: 0.25,
+    sit: Object.freeze({
+      hipsDrop: 0.34,
+      thighPitch: -Math.PI / 2,
+      kneePitch: Math.PI / 2,
+      armPitch: -0.42,
+    }),
   },
 ];
 
@@ -77,6 +89,18 @@ export function createLocomotion(object) {
 
   const spin = new THREE.Quaternion();
   const AXIS_X = new THREE.Vector3(1, 0, 0);
+  // The imported Mixamo files use different authoring units (manager bones
+  // are roughly centimetres; the human rig is larger again). Scale the hip
+  // translation from the actual upper-leg link instead of treating a raw
+  // bone position as metres. A little over one thigh length places the
+  // pelvis at a conventional chair seat after the template is metre-scaled.
+  const upperLegLengths = [rig.kneeL, rig.kneeR]
+    .filter(Boolean)
+    .map((bone) => rest.get(bone).position.length());
+  const upperLegLength = upperLegLengths.length
+    ? upperLegLengths.reduce((sum, length) => sum + length, 0) / upperLegLengths.length
+    : 0;
+  const seatedHipDrop = Math.max(family.sit.hipsDrop, upperLegLength * 1.1);
   const pose = (key, angle) => {
     const bone = rig[key];
     if (!bone) return;
@@ -99,6 +123,20 @@ export function createLocomotion(object) {
       if (rig.hips) {
         rig.hips.position.copy(rest.get(rig.hips).position);
         rig.hips.position.y += Math.abs(Math.cos(phase * Math.PI * 2)) * 0.015;
+      }
+    },
+    /** Seat the rig around captured rest transforms without cumulative drift. */
+    sit() {
+      for (const key of Object.keys(rig)) pose(key, 0);
+      pose('thighL', family.sit.thighPitch);
+      pose('thighR', family.sit.thighPitch);
+      pose('kneeL', family.sit.kneePitch);
+      pose('kneeR', family.sit.kneePitch);
+      pose('armL', family.sit.armPitch);
+      pose('armR', family.sit.armPitch);
+      if (rig.hips) {
+        rig.hips.position.copy(rest.get(rig.hips).position);
+        rig.hips.position.y -= seatedHipDrop;
       }
     },
     /** Return every driven bone to its rest pose. */
