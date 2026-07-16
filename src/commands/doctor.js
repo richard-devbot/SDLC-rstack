@@ -34,7 +34,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(__dirname, '..', '..');
 const BIN = join(PACKAGE_ROOT, 'bin', 'rstack-agents.js');
 
-export const DOCTOR_FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'tau', 'custom']);
+export const DOCTOR_FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'tau', 'hermes', 'custom']);
 
 const PASS = 'PASS';
 const FAIL = 'FAIL';
@@ -437,9 +437,9 @@ function checkBridge() {
 }
 
 function checkAdapterWiring(framework) {
-  // operator / tau share the Node bridge; each has its own adapter file. The
-  // tau adapter ships separately (#243) — a missing adapter is a FAIL with the
-  // expected path, NEVER a crash (defensive probe).
+  // operator / tau / hermes share the Node bridge; each has its own adapter
+  // file. The tau adapter ships separately (#243) — a missing adapter is a
+  // FAIL with the expected path, NEVER a crash (defensive probe).
   const adapterPaths = {
     operator: [
       join(PACKAGE_ROOT, 'src', 'integrations', 'operator', 'rstack_sdlc.py'),
@@ -449,6 +449,9 @@ function checkAdapterWiring(framework) {
       join(PACKAGE_ROOT, 'src', 'integrations', 'tau', 'rstack_sdlc.py'),
       join(PACKAGE_ROOT, 'src', 'integrations', 'tau', 'adapter.py'),
       join(PACKAGE_ROOT, 'src', 'integrations', 'tau', 'index.js'),
+    ],
+    hermes: [
+      join(PACKAGE_ROOT, 'src', 'integrations', 'hermes', 'rstack_sdlc.py'),
     ],
   };
   const candidates = adapterPaths[framework] ?? [];
@@ -468,8 +471,49 @@ function checkAdapterWiring(framework) {
   // `rstack-agents observe` and injects context via `rstack-agents context`.
   // WARN (additive) if absent.
   if (framework === 'tau') checks.push(...checkTauObservability(found));
+  if (framework === 'hermes') checks.push(...checkHermesWiring(found));
 
   return checks;
+}
+
+// #390: Hermes requires a plugin.yaml manifest alongside the adapter's
+// __init__.py — the loader silently SKIPS any plugin directory without one
+// (verified against a live hermes-agent install), so a missing manifest is a
+// FAIL, not a WARN. Also verifies the guard payload uses the real
+// {"action": "block", "message": ...} shape a live Hermes dispatch actually
+// reads (hermes_cli/plugins.py _get_pre_tool_call_directive_details) — the
+// original {"decision": "block", "reason": ...} shape (a Claude-Code
+// convention that applies to a DIFFERENT Hermes subsystem) is silently
+// ignored, so the guard fires but never actually blocks anything.
+function checkHermesWiring(adapterPath) {
+  const manifestPath = join(PACKAGE_ROOT, 'src', 'integrations', 'hermes', 'plugin.yaml');
+  const manifestCheck = fileCheck('hermes plugin.yaml manifest', manifestPath, 'src/integrations/hermes/plugin.yaml',
+    'Reinstall the package: npm install rstack-agents');
+
+  if (!adapterPath) {
+    return [manifestCheck, check('hermes guard payload shape', WARN,
+      'hermes adapter not found — cannot confirm the guard payload shape', null)];
+  }
+  let raw = '';
+  try {
+    raw = readFileSync(adapterPath, 'utf8');
+  } catch (error) {
+    return [manifestCheck, check('hermes guard payload shape', WARN,
+      `could not read the hermes adapter to confirm the guard payload shape: ${error.message}`, null)];
+  }
+  // Match the actual `return {...}` statement only — the module docstring and
+  // comments quote the OLD wrong shape verbatim to document the correction,
+  // which would otherwise false-positive this check against prose, not code.
+  const blockReturn = raw.match(/^[ \t]*return[ \t]*\{[^}]*\}/m)?.[0] ?? '';
+  const usesRealShape = blockReturn.includes('"action": "block"') && !blockReturn.includes('"decision": "block"');
+  const shapeCheck = usesRealShape
+    ? check('hermes guard payload shape', PASS,
+      'the hermes adapter returns the real {"action":"block","message":...} shape hermes_cli/plugins.py reads — the guard actually blocks')
+    : check('hermes guard payload shape', FAIL,
+      'the hermes adapter does not appear to use the real {"action":"block"} payload shape — a Claude-Code-style {"decision":"block"} is silently ignored by Hermes\' pre_tool_call dispatch, so the guard would fire but never actually block anything',
+      'Update the package: npm install rstack-agents@latest');
+
+  return [manifestCheck, shapeCheck];
 }
 
 // The tau adapter carries its own observability wiring (loading it IS the
@@ -497,13 +541,15 @@ function checkTauObservability(adapterPath) {
       'the tau adapter does not appear to emit `rstack-agents observe` events — Tau terminal work will NOT appear in the Business Hub (enforcement still works)',
       'Update the package: npm install rstack-agents@latest');
 
-  // Context injection (#255): the tau adapter injects the RStack packet on the
-  // before_agent_start hook. WARN if the wiring is absent (additive).
+  // Context injection (#255, corrected #389): the tau adapter injects the
+  // RStack packet on the real `input` hook — NOT `before_agent_start`, which
+  // a #389 source audit found is never fired by the real Tau engine. WARN if
+  // the wiring is absent (additive).
   const injectsContext = raw.includes('rstack-agents') && raw.includes('context')
-    && raw.includes('before_agent_start');
+    && raw.includes('@tau.on("input")');
   const contextCheck = injectsContext
     ? check('tau context hook', PASS,
-      'the tau adapter injects RStack context via `rstack-agents context` on before_agent_start — Tau agents start each turn run-aware')
+      'the tau adapter injects RStack context via `rstack-agents context` on the real `input` hook — Tau agents start each turn run-aware')
     : check('tau context hook', WARN,
       'the tau adapter does not appear to inject `rstack-agents context` — Tau agents will NOT get the RStack run/stage/approval packet (enforcement + observability still work)',
       'Update the package: npm install rstack-agents@latest');
@@ -514,7 +560,7 @@ function checkTauObservability(adapterPath) {
 async function checkFrameworkWiring(framework, projectRoot) {
   if (framework === 'claude-code') return [...checkClaudeCodeWiring(projectRoot), ...checkClaudeCodePlugin()];
   if (framework === 'pi') return checkPiWiring();
-  if (framework === 'operator' || framework === 'tau') return checkAdapterWiring(framework);
+  if (framework === 'operator' || framework === 'tau' || framework === 'hermes') return checkAdapterWiring(framework);
   if (framework === 'custom') {
     // custom: the only requirement is a reachable guard binary — verified by
     // the guard self-test below. Report the bin file presence here too.

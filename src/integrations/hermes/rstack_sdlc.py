@@ -1,22 +1,40 @@
-"""RStack SDLC — Hermes adapter (#375).
+"""RStack SDLC — Hermes adapter (#375, corrected in #390).
 
 Hermes (Nous Research, https://github.com/NousResearch/hermes-agent) loads this
-as a **plugin**: a directory whose ``__init__.py`` exposes ``register(ctx)``,
-installed into ``~/.hermes/plugins/`` (Hermes' own convention for third-party
-integrations — see its AGENTS.md). This adapter exposes the same ``sdlc_*`` tool
-surface as the Pi adapter and wires the enforcement guard, exactly like the Tau
-and Operator adapters — no SDLC logic is reimplemented in Python. Every tool
-shells out to the generic Node bridge (bin/rstack-bridge.ts). Conformance
-contract: docs/integrations/adapter-contract.md.
+as a **plugin**: a directory containing both ``plugin.yaml`` (a manifest —
+required; the loader silently skips any directory without one, see
+hermes_cli/plugins.py) and an ``__init__.py`` that exposes ``register(ctx)``,
+installed into ``~/.hermes/plugins/<name>/`` and enabled via that project's
+``plugins.enabled`` allow-list (or ``hermes plugins enable rstack-sdlc``).
+This adapter exposes the same ``sdlc_*`` tool surface as the Pi adapter and
+wires the enforcement guard, exactly like the Tau and Operator adapters — no
+SDLC logic is reimplemented in Python. Every tool shells out to the generic
+Node bridge (bin/rstack-bridge.ts). Conformance contract:
+docs/integrations/adapter-contract.md.
 
-Why the bridge pattern fits Hermes cleanly:
-  - ``ctx.register_tool(name, toolset, schema, handler)`` registers each tool.
-  - ``ctx.register_hook("pre_tool_call", fn)`` is a real BLOCKING gate: Hermes
-    normalises a Claude-Code-style ``{"decision": "block", "reason": ...}`` return
-    into a blocked tool call (see hermes-agent/agent/shell_hooks.py). That is the
-    exact shape ``rstack-agents guard`` already emits, so the guard drops in with
-    almost no glue — the same destructive gate + validator sandbox Pi/Tau/Claude
-    Code enforce.
+Why the bridge pattern fits Hermes cleanly — and the #390 correction:
+  - ``ctx.register_tool(name, toolset, schema, handler)`` registers each tool
+    (verified against tools/registry.py — sync handler contract confirmed
+    correct, Hermes turns already run off the main event loop so a blocking
+    subprocess call inside a handler is fine).
+  - ``ctx.register_hook("pre_tool_call", fn)`` IS a real blocking gate, but
+    NOT via the shape the adapter originally assumed. A #390 audit found the
+    Claude-Code-style ``{"decision": "block", "reason": ...}`` shape (the
+    previous return value here) is real, but for a DIFFERENT subsystem —
+    Hermes' external shell-hooks bridge (agent/shell_hooks.py) — not the
+    Python-plugin ``pre_tool_call`` path this adapter actually uses. The
+    real dispatcher (hermes_cli/plugins.py
+    ``_get_pre_tool_call_directive_details``) reads ``result.get("action")``
+    and requires ``"block"``/``"approve"`` plus a non-empty ``"message"``;
+    a dict shaped ``{"decision", "reason"}`` has ``action == None`` and is
+    silently ignored. **This means the guard fired on every call but never
+    actually blocked anything until this fix** — worse than a loud failure,
+    since a manual smoke test would show the hook running without any
+    obvious sign the block was discarded. Verified live: constructing a
+    real ``PluginManager``, loading this plugin for real, and calling
+    ``get_pre_tool_call_directive`` directly reproduced the bug (returned
+    allow for a destructive command) before the fix, and blocks correctly
+    after it.
 
 Requirements on the host:
   - node + npx on PATH
@@ -191,19 +209,33 @@ _TOOLS: dict[str, tuple[str, dict]] = {
     ),
 }
 
-# Hermes built-in tool name -> the input field carrying the shell command or
-# write-target path. Read-only tools are absent (they skip the guard). Mirrors
-# the Tau adapter's mapping so enforcement is uniform across harnesses.
+# Hermes built-in tool name -> (guard tool_name, the input field carrying the
+# shell command or write-target path). Read-only tools are absent (they skip
+# the guard).
+#
+# #390 CORRECTION: this used to map straight to the input field only, so the
+# RAW Hermes tool name (e.g. "terminal") was sent to `rstack-agents guard` as
+# `tool_name`. The classifier's tool-name dispatch
+# (src/core/harness/destructive-actions.js classifyDestructiveAction) only
+# recognizes `bash`/`shell`/`powershell`/`pwsh`/`cmd` for shell commands and a
+# fixed WRITE_TOOLS set (`write`, `edit`, `applypatch`, `strreplace`, ...) for
+# writes — "terminal" (Hermes' real tool name, confirmed via a live plugin
+# load) matches NEITHER, so every call silently classified as
+# "non-destructive" regardless of the fixed block-payload shape. Live-verified
+# via a real npx guard invocation: `{"tool_name":"terminal","tool_input":
+# {"command":"rm -rf ..."}}` returned `{"decision":"allow","reason":
+# "non-destructive action"}`. Translating to the guard's own canonical names
+# below (mirrors the Tau adapter's `_GUARDED_BUILTINS`) fixes it.
 _GUARDED_TOOLS = {
-    "terminal": "command",
-    "bash": "command",
-    "shell": "command",
-    "write": "path",
-    "write_file": "path",
-    "edit": "path",
-    "edit_file": "path",
-    "str_replace": "path",
-    "apply_patch": "path",
+    "terminal": ("Bash", "command"),
+    "bash": ("Bash", "command"),
+    "shell": ("Bash", "command"),
+    "write": ("Write", "path"),
+    "write_file": ("Write", "path"),
+    "edit": ("Edit", "path"),
+    "edit_file": ("Edit", "path"),
+    "str_replace": ("Edit", "path"),
+    "apply_patch": ("Edit", "path"),
 }
 
 
@@ -282,8 +314,17 @@ def _resolve_guard_argv(cwd: str) -> tuple[Optional[list], bool]:
 
 
 def _guard_block(reason: str) -> dict:
-    # Claude-Code-style shape Hermes normalises into a blocked tool call.
-    return {"decision": "block", "reason": reason}
+    # #390 CORRECTION: the shape a Hermes Python plugin's pre_tool_call hook
+    # must return to actually block a call is {"action": "block", "message":
+    # ...} — verified against hermes_cli/plugins.py
+    # _get_pre_tool_call_directive_details, which reads result.get("action")
+    # and requires it to be "block"/"approve" with a non-empty "message".
+    # The previous {"decision": "block", "reason": ...} shape (a Claude-Code
+    # convention that applies to Hermes' SEPARATE shell-hooks-bridge
+    # subsystem in agent/shell_hooks.py, not this Python-plugin path) has
+    # `action == None` and is silently ignored — this adapter's guard has
+    # never actually blocked anything on real Hermes until this fix.
+    return {"action": "block", "message": reason}
 
 
 def _guard_unavailable(detail: str) -> Optional[dict]:
@@ -325,31 +366,51 @@ def _run_guard(tool_name: str, tool_input: dict, cwd: str) -> Optional[dict]:
 
 def _guard_hook(**kwargs: Any) -> Optional[dict]:
     """pre_tool_call hook: route the host's mutating tool calls through the guard.
-    Read-only tools and RStack's own sdlc_* tools are not gated."""
+    Read-only tools and RStack's own sdlc_* tools are not gated.
+
+    #390: the real kwargs Hermes passes are tool_name/args/task_id/session_id/
+    tool_call_id/turn_id/api_request_id/middleware_trace (verified against
+    hermes_cli/plugins.py _get_pre_tool_call_directive_details) — there is no
+    tool_input or cwd. Read args directly; cwd always falls back to the
+    plugin process's own cwd (Hermes does not pass a per-call working
+    directory to this hook).
+    """
     tool_name = kwargs.get("tool_name") or ""
-    field = _GUARDED_TOOLS.get(str(tool_name).lower())
-    if not field:
+    mapping = _GUARDED_TOOLS.get(str(tool_name).lower())
+    if mapping is None:
         return None  # not a guarded mutating tool
-    raw = kwargs.get("tool_input")
-    if not isinstance(raw, dict):
-        raw = kwargs.get("args") if isinstance(kwargs.get("args"), dict) else {}
+    guard_tool_name, field = mapping
+    raw = kwargs.get("args") if isinstance(kwargs.get("args"), dict) else {}
     tool_input = {field: raw.get(field)} if field in raw else dict(raw)
-    cwd = str(kwargs.get("cwd") or os.getcwd())
-    return _run_guard(str(tool_name), tool_input, cwd)
+    cwd = os.getcwd()
+    return _run_guard(guard_tool_name, tool_input, cwd)
 
 
 # ── best-effort observability + hub launch ────────────────────────────────────
 
 def _observe_hook(**kwargs: Any) -> None:
-    """post_tool_call -> feed the Business Hub, best-effort. Never raises."""
+    """post_tool_call -> feed the Business Hub, best-effort. Never raises.
+
+    #390: `rstack-agents observe` parses a Claude-Code-style payload keyed on
+    `hook_event_name`/`tool_name` (see src/commands/observe.js) — the
+    previous `{"tool", "input", "is_error"}` shape used real Hermes kwarg
+    names in the wrong SLOTS (Hermes' post_tool_call actually passes
+    tool_name/args/result/status/error_type/error_message, verified against
+    model_tools.py _emit_post_tool_call_hook) and matched neither what
+    Hermes sends nor what observe.js expects, so nothing reached the
+    Business Hub.
+    """
     npx = shutil.which("npx")
     if npx is None:
         return
     try:
+        status = kwargs.get("status")
+        is_error = bool(kwargs.get("error_type")) or status == "error"
         payload = json.dumps({
-            "tool": kwargs.get("tool_name"),
-            "input": kwargs.get("tool_input") or kwargs.get("args") or {},
-            "is_error": bool(kwargs.get("is_error", False)),
+            "tool_name": kwargs.get("tool_name"),
+            "hook_event_name": "PostToolUse",
+            "content": kwargs.get("result"),
+            "is_error": is_error,
         })
         subprocess.run(
             [npx, "--yes", "rstack-agents", "observe", "--source", "hermes", "--project", os.getcwd()],
@@ -395,7 +456,8 @@ def register(ctx: Any) -> None:
         )
 
     # Enforcement: the destructive gate + validator sandbox, same as Pi/Tau/Claude
-    # Code. Hermes normalises the {"decision":"block"} return into a blocked call.
+    # Code. A {"action": "block", "message": ...} return from _guard_hook is what
+    # actually blocks the call (see _guard_block's #390 correction above).
     ctx.register_hook("pre_tool_call", _guard_hook)
     # Observability + companion dashboard (both best-effort, never blocking).
     ctx.register_hook("post_tool_call", _observe_hook)
