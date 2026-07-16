@@ -302,6 +302,28 @@ test('doctor', async (t) => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  await t.test('operator adapter (shipped) PASSes and never crashes (#391)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-operator-'));
+    seedRstack(root);
+    const { json } = await runDoctor(['--framework', 'operator', '--project', root, '--json'], { cwd: root });
+
+    assert.ok(json, 'doctor produced parseable JSON (did not crash) for the operator framework');
+    const adapter = checkByName(json, 'operator adapter present');
+    assert.equal(adapter.status, 'PASS');
+    assert.ok(adapter.detail.includes('operator'), 'detail names the operator adapter path');
+    assert.equal(checkByName(json, 'operator bootstrap.py').status, 'PASS');
+    // The shipped adapter imports the real operator_use.plugins/tools API — its own
+    // docstring quotes the OLD fictional operator_use.extension/operator_use.tool
+    // modules verbatim to document the #391 correction, which must not
+    // false-positive this check against prose.
+    assert.equal(checkByName(json, 'operator adapter uses the real operator_use API').status, 'PASS');
+    // operator-use has no third-party plugin discovery — this is a WARN, not a
+    // FAIL, since it's a host-design limitation honestly disclosed, not a bug.
+    assert.equal(checkByName(json, 'operator plugin-loading tier').status, 'WARN');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
   await t.test('self-dependency fixture triggers the tripwire WARN with a fix', async () => {
     const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-selfdep-'));
     seedRstack(root);
