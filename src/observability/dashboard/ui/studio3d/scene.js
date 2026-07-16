@@ -47,7 +47,7 @@ const FIXED_DETAILED_RIGS = 2;
 const MAX_DETAILED_SESSIONS = MAX_DETAILED_RIGS - FIXED_DETAILED_RIGS;
 // Raised from 90 for the Richardson-supplied GLB cast: the HQ battlestation
 // alone carries 26 textured materials (26 draws), each occupied desk pod ~4,
-// plus the 15-panel pipeline wall and two team-lead fixtures. Measured
+// plus the 15-panel delivery spine and two team-lead fixtures. Measured
 // full-cast overview with 8 live sessions: 177 calls / 169k triangles. The
 // quality loop still degrades tiers above these ceilings.
 const DRAW_CALL_CEILING = 200;
@@ -285,7 +285,7 @@ export function createStudioScene(canvas, {
     ['ORCHESTRATION CENTER', -2, 3.8, -10],
     ['GOVERNANCE', 7.5, 3.6, -10],
     ['EVIDENCE VAULT', 15.5, 3.6, -10],
-    ['15-STAGE PIPELINE', 0, 4.45, -5.55],
+    ['15-STAGE DELIVERY PIPELINE', 0, 1.62, -1.9],
     ['DISPATCH', -16, 2.6, 10],
   ];
   const roomLabelGroup = new THREE.Group();
@@ -311,43 +311,67 @@ export function createStudioScene(canvas, {
   }
   scene.add(roomLabelGroup);
 
-  // One physical legend rail makes all fifteen canonical stages readable
-  // from Overview without spending fifteen more sprite draw calls.
-  let gantryLegendMaterial = null;
-  const gantryLegend = new THREE.Mesh(pool.geometries.slab, pool.materials.graphite);
-  gantryLegend.name = 'Gantry stage legend';
-  gantryLegend.position.set(
+  // A single transparent texture atlas makes all fifteen canonical stages
+  // read as individual company delivery cards without spending fifteen more
+  // sprite draw calls or rebuilding the removed black work-cell docks.
+  let pipelineLegendMaterial = null;
+  const pipelineLegend = new THREE.Mesh(pool.geometries.slab, pool.materials.graphite);
+  pipelineLegend.name = 'Delivery spine stage legend';
+  pipelineLegend.position.set(
     0,
-    STUDIO_TOPOLOGY.pipelineGantry.panelY + 0.72,
-    STUDIO_TOPOLOGY.pipelineGantry.z,
+    0.68,
+    STUDIO_TOPOLOGY.pipelineSpine.z + 0.4,
   );
-  gantryLegend.scale.set(15.45, 0.52, 0.035);
-  gantryLegend.rotation.x = STUDIO_TOPOLOGY.pipelineGantry.panelTiltX;
-  scene.add(gantryLegend);
+  pipelineLegend.scale.set(
+    STUDIO_TOPOLOGY.pipelineSpine.endX - STUDIO_TOPOLOGY.pipelineSpine.startX,
+    0.64,
+    0.035,
+  );
+  scene.add(pipelineLegend);
 
-  function paintGantryLegend() {
-    const canvasEl = makeCanvas(2048, 144);
+  function paintPipelineLegend() {
+    const canvasEl = makeCanvas(4096, 192);
     const context = canvasEl.getContext('2d');
-    context.fillStyle = '#111a24';
-    context.fillRect(0, 0, canvasEl.width, canvasEl.height);
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.font = '700 22px ui-sans-serif, system-ui';
     (projection.departments ?? []).slice(0, 15).forEach((department, index) => {
       const width = canvasEl.width / 15;
-      context.fillStyle = '#f4f6f8';
-      const label = `${String(index + 1).padStart(2, '0')} ${String(
-        department.title ?? department.id,
-      ).slice(0, 14)}`;
-      context.fillText(label, width * (index + 0.5), 72, width - 10);
+      const left = index * width + 7;
+      const [statusColor, statusWord] = STATUS_UI[department.status] ?? STATUS_UI.unknown;
+      context.fillStyle = 'rgba(242, 239, 231, 0.97)';
+      context.strokeStyle = statusColor;
+      context.lineWidth = 7;
+      context.beginPath();
+      context.roundRect(left, 11, width - 14, 170, 15);
+      context.fill();
+      context.stroke();
+      context.font = '800 40px ui-monospace, SFMono-Regular, monospace';
+      context.fillStyle = statusColor;
+      context.fillText(String(index + 1).padStart(2, '0'), left + width / 2 - 7, 48);
+      context.font = '650 25px ui-sans-serif, system-ui, sans-serif';
+      context.fillStyle = '#20252b';
+      context.fillText(
+        String(department.title ?? department.id).slice(0, 14),
+        left + width / 2 - 7,
+        102,
+        width - 30,
+      );
+      context.font = '750 20px ui-monospace, SFMono-Regular, monospace';
+      context.fillStyle = statusColor;
+      context.fillText(statusWord, left + width / 2 - 7, 148, width - 30);
     });
     const texture = new THREE.CanvasTexture(canvasEl);
     texture.colorSpace = THREE.SRGBColorSpace;
-    const material = new THREE.MeshBasicMaterial({ map: texture });
-    gantryLegendMaterial?.map?.dispose();
-    gantryLegendMaterial?.dispose();
-    gantryLegendMaterial = material;
-    gantryLegend.material = material;
+    texture.anisotropy = 4;
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: true,
+    });
+    pipelineLegendMaterial?.map?.dispose();
+    pipelineLegendMaterial?.dispose();
+    pipelineLegendMaterial = material;
+    pipelineLegend.material = material;
   }
 
   // Holographic status panels above each observed agent: goal, current
@@ -728,14 +752,14 @@ export function createStudioScene(canvas, {
     return motionMode !== 'reduced';
   }
 
-  // Pipeline conveyor: work packets glide along the overhead gantry, but only
+  // Pipeline conveyor: work packets glide along the low delivery belt, but only
   // as far as the furthest stage the run has actually reached — the flow is
-  // read from the same departments the gantry panels render, so it can never
+  // read from the same departments the spine panels render, so it can never
   // show progress the projection doesn't. Frozen in reduced motion.
   const CONVEYOR = Object.freeze({
-    startX: STUDIO_TOPOLOGY.pipelineGantry.startX,
-    y: STUDIO_TOPOLOGY.pipelineGantry.panelY - 0.33,
-    z: STUDIO_TOPOLOGY.pipelineGantry.z + 0.18,
+    startX: STUDIO_TOPOLOGY.pipelineSpine.startX,
+    y: STUDIO_TOPOLOGY.pipelineSpine.beltY + 0.16,
+    z: STUDIO_TOPOLOGY.pipelineSpine.z,
     packets: 6,
   });
   const conveyorState = { mesh: null, endX: null };
@@ -1057,7 +1081,7 @@ export function createStudioScene(canvas, {
     syncAgentPanels();
     rebuildStreams();
     rebuildConveyor();
-    paintGantryLegend();
+    paintPipelineLegend();
     paintGlobalTimeline();
     robotFleet.update();
     refreshProjectionGeometry();
@@ -1205,11 +1229,11 @@ export function createStudioScene(canvas, {
       timelineMaterial.map?.dispose();
       timelineMaterial.dispose();
     }
-    if (gantryLegendMaterial) {
-      gantryLegendMaterial.map?.dispose();
-      gantryLegendMaterial.dispose();
+    if (pipelineLegendMaterial) {
+      pipelineLegendMaterial.map?.dispose();
+      pipelineLegendMaterial.dispose();
     }
-    scene.remove(gantryLegend);
+    scene.remove(pipelineLegend);
     humanApprover.dispose?.();
     scene.remove(castProps);
     disposeStudioCast();

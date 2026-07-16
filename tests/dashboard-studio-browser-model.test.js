@@ -125,9 +125,10 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /syncAgentPanels/);
   assert.match(sceneSource, /agentPanel/);
   assert.match(sceneSource, /ROOM_LABELS/);
-  assert.match(sceneSource, /Gantry stage legend/);
-  assert.match(sceneSource, /paintGantryLegend\(\)/);
-  assert.match(sceneSource, /pipelineGantry/);
+  assert.match(sceneSource, /Delivery spine stage legend/);
+  assert.match(sceneSource, /paintPipelineLegend\(\)/);
+  assert.match(sceneSource, /pipelineSpine/);
+  assert.doesNotMatch(sceneSource, /pipelineGantry|Gantry stage legend|paintGantryLegend/);
   assert.match(sceneSource, /rebuildStreams/);
   assert.match(sceneSource, /paintGlobalTimeline/);
   assert.match(sceneSource, /MAX_CAPTIONS/);
@@ -153,8 +154,8 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /FIXED_DETAILED_RIGS\s*=\s*2/);
   assert.match(sceneSource, /MAX_DETAILED_SESSIONS\s*=\s*MAX_DETAILED_RIGS - FIXED_DETAILED_RIGS/);
   // 200 accommodates the GLB cast (battlestation = 26 textured materials,
-  // pipeline wall = 15 panels); measured full-cast overview with 8 live
-  // sessions is 177 calls — see scene.js rationale.
+  // delivery spine = 15 adopted panels); measured full-cast overview stays
+  // pinned by browser evidence and scene.js diagnostics.
   assert.match(sceneSource, /DRAW_CALL_CEILING\s*=\s*200/);
   assert.match(sceneSource, /TRIANGLE_CEILING\s*=\s*200_000/);
   assert.match(sceneSource, /enforceQualityCeilings/);
