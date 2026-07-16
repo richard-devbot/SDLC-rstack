@@ -66,15 +66,15 @@ The master AGENTS.md includes a Plugins section:
 ## Plugins (Domain Packs)
 | Plugin | Path | Agents | Skills |
 |--------|------|--------|--------|
-| backend-development | plugins/backend-development/ | 8 | 10 |
-| ui-design | plugins/ui-design/ | 3 | 7 |
-| payment-processing | plugins/payment-processing/ | 1 | 4 |
+| backend-development | plugins/backend/backend-development/ | 8 | 10 |
+| ui-design | plugins/frontend-mobile/ui-design/ | 3 | 7 |
+| payment-processing | plugins/specialized/payment-processing/ | 1 | 4 |
 ```
 
 ## How Orchestrator Reaches Plugins
 
 The orchestrator reads AGENTS.md to discover plugin paths. To use a plugin agent,
-spawn it by its full path: `plugins/backend-development/agents/backend-architect.md`
+spawn it by its full path: `plugins/backend/backend-development/agents/backend-architect.md`
 
 ## Plugin vs Standalone Agent — When to Use Which
 

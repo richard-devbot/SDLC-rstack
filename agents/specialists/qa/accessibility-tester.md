@@ -51,7 +51,7 @@ Load these before executing domain work. Use `cat [package-local path] | head -4
 - `skills/benchmark/SKILL.md` — performance regression detection — page load, Core Web Vitals
 
 ### Plugin packs
-- `plugins/incident-response/` — incident patterns, runbook templates, postmortem writing
+- `plugins/devops-cloud/incident-response/` — incident patterns, runbook templates, postmortem writing
 
 ## Workflow
 1. **Automated scan** — run axe-core or similar to collect machine-detectable violations:

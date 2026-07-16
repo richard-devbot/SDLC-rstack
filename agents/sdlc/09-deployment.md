@@ -62,7 +62,7 @@ cat skills/canary/SKILL.md | head -20
 
 ## Plugin to check:
 ```bash
-ls plugins/backend-development/skills/
+ls plugins/backend/backend-development/skills/
 ```
 
 ## Context Recovery

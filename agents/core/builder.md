@@ -173,12 +173,12 @@ Creation work:
 ### Plugin Packs — load the plugin's agents/skills for domain-specific work:
 
 ```
-Backend systems:    plugins/backend-development/
-UI/design:          plugins/ui-design/
-ML/AI pipelines:    plugins/machine-learning-ops/
-Payments/billing:   plugins/payment-processing/
-Incidents/debug:    plugins/incident-response/
-Developer tools:    plugins/developer-essentials/
+Backend systems:    plugins/backend/backend-development/
+UI/design:          plugins/frontend-mobile/ui-design/
+ML/AI pipelines:    plugins/data-ml/machine-learning-ops/
+Payments/billing:   plugins/specialized/payment-processing/
+Incidents/debug:    plugins/devops-cloud/incident-response/
+Developer tools:    plugins/product-team/developer-essentials/
 ```
 
 To use a plugin agent:
@@ -213,7 +213,7 @@ Load these before executing domain work. Use `cat [package-local path] | head -4
 - `skills/benchmark/SKILL.md` — performance regression detection
 
 ### Plugin packs
-- `plugins/backend-development/` — API patterns, event sourcing, CQRS, temporal workflows
+- `plugins/backend/backend-development/` — API patterns, event sourcing, CQRS, temporal workflows
 
 ## Workflow
 
@@ -235,7 +235,7 @@ cat skills/frontend-design/SKILL.md
 **Step 3: Load the relevant plugin if domain-specific**:
 ```bash
 # Example: payment feature
-cat plugins/payment-processing/skills/stripe-integration/SKILL.md
+cat plugins/specialized/payment-processing/skills/stripe-integration/SKILL.md
 ```
 
 **Step 4: Execute** — write code, create files, modify existing files.

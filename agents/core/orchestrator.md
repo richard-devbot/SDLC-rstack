@@ -148,12 +148,12 @@ skills/bounty-hunting/SKILL.md       — find and fix code smells + technical de
 
 ### Plugin Packs (domain-specific agent + skill bundles)
 ```
-plugins/backend-development/         — 8 agents + 10 skills for backend systems
-plugins/ui-design/                   — 3 agents + 7 skills for UI/design
-plugins/machine-learning-ops/        — 3 agents + 1 skill for ML pipelines
-plugins/payment-processing/          — 1 agent + 4 skills for payments/billing
-plugins/incident-response/           — 6 agents + 3 skills for incidents/debugging
-plugins/developer-essentials/        — 1 agent + 2 skills for core DX
+plugins/backend/backend-development/           — 8 agents + 10 skills for backend systems
+plugins/frontend-mobile/ui-design/             — 3 agents + 7 skills for UI/design
+plugins/data-ml/machine-learning-ops/          — 3 agents + 1 skill for ML pipelines
+plugins/specialized/payment-processing/        — 1 agent + 4 skills for payments/billing
+plugins/devops-cloud/incident-response/        — 6 agents + 3 skills for incidents/debugging
+plugins/product-team/developer-essentials/     — 1 agent + 2 skills for core DX
 ```
 
 Runtime plugin routing is handled by the Pi extension registry. `sdlc_plan` writes `.rstack/registry/plugins.json` and `.rstack/registry/routing.json`, then each task receives matching plugin IDs in `specialists`. When a plugin ID is selected, the builder prompt includes the plugin manifest plus a bounded list/preview of nested `agents/`, `skills/`, and `commands/` assets. Route plugin packs as domain accelerators, not as replacements for the core builder/validator contracts.
@@ -202,7 +202,7 @@ Load these before executing domain work. Use `cat [package-local path] | head -4
 - `skills/benchmark/SKILL.md` — performance regression detection
 
 ### Plugin packs
-- `plugins/backend-development/` — API patterns, event sourcing, CQRS, temporal workflows
+- `plugins/backend/backend-development/` — API patterns, event sourcing, CQRS, temporal workflows
 
 ## Workflow
 
