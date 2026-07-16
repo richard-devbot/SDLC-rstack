@@ -80,12 +80,50 @@ npx rstack-agents init --framework operator
 npx rstack-agents doctor --framework operator
 ```
 
-Expect all PASS, including **operator adapter present**, **bridge reachable**,
-and **guard self-test**.
+Expect **operator adapter present**, **operator bootstrap.py**, **operator
+adapter uses the real operator_use API**, **bridge reachable**, and **guard
+self-test** all PASS; **operator plugin-loading tier** WARNs — that's
+expected and informational (see [operator.md](operator.md) for why).
 
-The governed action: merge `rstack-operator.example.json` into your Operator
-settings, start a run, and attempt a destructive tool call — the adapter routes
-it through the same guard, which blocks until approval.
+**Verified against real `operator-use` source (#391)** — cloning
+`pip install operator-use` and reading it directly, not inferring from its
+own docs, found the adapter this replaced imported two modules
+(`operator_use.extension.types`, `operator_use.tool.types`) that don't
+exist at all; every import would have raised `ModuleNotFoundError`. The real
+contract is `operator_use.plugins.Plugin` + `operator_use.tools.Tool`, and
+`HookEvent.BEFORE_TOOL_CALL` genuinely blocks (`ctx.skip = True` +
+`ctx.result` short-circuits the real tool call —
+`agent/service.py::_execute_tool`). `operator-use` has no third-party
+plugin discovery at all (no entry_points, no config field, no directory
+scan) — `bootstrap.py` monkeypatches the CLI's hardcoded plugin list, which
+is the honest maximum available, not a supported extension point.
+
+**Reproducing the live verification** (no LLM API key needed — the bug
+surface is entirely in tool/hook registration and dispatch):
+
+```bash
+# once: uv/pip install operator-use in a scratch venv
+uv venv /tmp/operator-venv --python 3.12
+uv pip install --python /tmp/operator-venv/bin/python operator-use
+
+# then, from the rstack-agents repo root, run a small harness that:
+#  1. constructs a real RStackPlugin() from src/integrations/operator/rstack_sdlc.py
+#  2. calls get_tools() and asserts all 18 sdlc_* tools are returned as real
+#     operator_use.tools.Tool instances
+#  3. constructs a real operator_use.agent.hooks.Hooks(), calls
+#     register_hooks(hooks), asserts both BEFORE_TOOL_CALL and
+#     AFTER_TOOL_CALL handlers are registered
+#  4. builds a real operator_use.providers.events.ToolCall(name="terminal",
+#     params={"cmd": "rm -rf ..."}) and a real BeforeToolCallContext, calls
+#     the registered hook directly, and asserts ctx.skip is True with a
+#     block reason (not just that the hook ran)
+#  5. calls it again with a safe command and asserts ctx.skip stays False
+```
+
+The governed action in an interactive session: run
+`python .../bootstrap.py start` instead of `operator start`, then attempt a
+destructive tool call — it routes through the real `BEFORE_TOOL_CALL` hook
+and blocks until approval, no manual host wiring needed.
 
 ---
 

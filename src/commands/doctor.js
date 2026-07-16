@@ -472,8 +472,57 @@ function checkAdapterWiring(framework) {
   // WARN (additive) if absent.
   if (framework === 'tau') checks.push(...checkTauObservability(found));
   if (framework === 'hermes') checks.push(...checkHermesWiring(found));
+  if (framework === 'operator') checks.push(...checkOperatorWiring(found));
 
   return checks;
+}
+
+// #391: operator-use 0.2.9 has NO third-party plugin discovery (no
+// entry_points, no config field, no directory scan) — cli/start.py hardcodes
+// its plugin list directly in Python source. bootstrap.py is the only way to
+// wire RStack in: it's a drop-in replacement for the `operator` console
+// script that monkeypatches the hardcoded plugin list before handing off to
+// the real Typer app. This check fails loud if bootstrap.py is missing, and
+// pins the adapter against regressing to the fictional
+// operator_use.extension/operator_use.tool modules the pre-#391 adapter
+// imported (neither exists in the real package — verified live).
+function checkOperatorWiring(adapterPath) {
+  const bootstrapPath = join(PACKAGE_ROOT, 'src', 'integrations', 'operator', 'bootstrap.py');
+  const bootstrapCheck = fileCheck('operator bootstrap.py', bootstrapPath, 'src/integrations/operator/bootstrap.py',
+    'Reinstall the package: npm install rstack-agents');
+
+  if (!adapterPath) {
+    return [bootstrapCheck, check('operator adapter uses the real operator_use API', WARN,
+      'operator adapter not found — cannot confirm which API it targets', null)];
+  }
+  let raw = '';
+  try {
+    raw = readFileSync(adapterPath, 'utf8');
+  } catch (error) {
+    return [bootstrapCheck, check('operator adapter uses the real operator_use API', WARN,
+      `could not read the operator adapter to confirm its API surface: ${error.message}`, null)];
+  }
+  // Match real import statements only — the module docstring quotes the OLD
+  // broken import paths verbatim to document the #391 correction, which would
+  // otherwise false-positive this check against prose, not code (the same
+  // class of bug fixed in checkHermesWiring above).
+  const imports = (raw.match(/^(?:from|import)[ \t]+operator_use\S*/gm) ?? []).join('\n');
+  const usesRealApi = imports.includes('operator_use.plugins') && imports.includes('operator_use.tools')
+    && !imports.includes('operator_use.extension') && !imports.includes('operator_use.tool.types');
+  const apiCheck = usesRealApi
+    ? check('operator adapter uses the real operator_use API', PASS,
+      'imports operator_use.plugins.Plugin / operator_use.tools.Tool — both verified against the installed package (#391)')
+    : check('operator adapter uses the real operator_use API', FAIL,
+      'the operator adapter references operator_use.extension/operator_use.tool — neither module exists in operator-use 0.2.9; every import would raise ModuleNotFoundError',
+      'Update the package: npm install rstack-agents@latest');
+
+  const tierNote = check('operator plugin-loading tier', WARN,
+    'operator-use has no third-party plugin discovery mechanism (no entry_points, no config field, no directory scan) — '
+    + 'run the RStack-wrapped bootstrap in place of the `operator` command: '
+    + 'python node_modules/rstack-agents/src/integrations/operator/bootstrap.py start. '
+    + 'See docs/integrations/operator.md for why.', null);
+
+  return [bootstrapCheck, apiCheck, tierNote];
 }
 
 // #390: Hermes requires a plugin.yaml manifest alongside the adapter's
