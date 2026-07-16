@@ -128,6 +128,11 @@ test('scene modules expose stable reconciliation, selection, diagnostics, and cl
   assert.match(sceneSource, /Delivery spine stage legend/);
   assert.match(sceneSource, /paintPipelineLegend\(\)/);
   assert.match(sceneSource, /pipelineSpine/);
+  assert.match(
+    sceneSource,
+    /\['15-STAGE DELIVERY PIPELINE', 0, 1\.42, -2\.85, 3\.2, 0\.48\]/,
+  );
+  assert.match(sceneSource, /sprite\.scale\.set\(scaleX, scaleY, 1\)/);
   assert.doesNotMatch(sceneSource, /pipelineGantry|Gantry stage legend|paintGantryLegend/);
   assert.match(sceneSource, /rebuildStreams/);
   assert.match(sceneSource, /paintGlobalTimeline/);

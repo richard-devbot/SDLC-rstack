@@ -285,12 +285,12 @@ export function createStudioScene(canvas, {
     ['ORCHESTRATION CENTER', -2, 3.8, -10],
     ['GOVERNANCE', 7.5, 3.6, -10],
     ['EVIDENCE VAULT', 15.5, 3.6, -10],
-    ['15-STAGE DELIVERY PIPELINE', 0, 1.62, -1.9],
+    ['15-STAGE DELIVERY PIPELINE', 0, 1.42, -2.85, 3.2, 0.48],
     ['DISPATCH', -16, 2.6, 10],
   ];
   const roomLabelGroup = new THREE.Group();
   roomLabelGroup.name = 'Room labels';
-  for (const [text, x, y, z] of ROOM_LABELS) {
+  for (const [text, x, y, z, scaleX = 4.6, scaleY = 0.75] of ROOM_LABELS) {
     const canvasEl = makeCanvas(512, 84);
     const context = canvasEl.getContext('2d');
     context.fillStyle = 'rgba(18, 24, 30, 0.66)';
@@ -304,7 +304,7 @@ export function createStudioScene(canvas, {
     context.fillStyle = '#f4f6f8';
     context.fillText(text, 256, 44);
     const sprite = canvasSprite(canvasEl, { depthTest: true });
-    sprite.scale.set(4.6, 0.75, 1);
+    sprite.scale.set(scaleX, scaleY, 1);
     sprite.position.set(x, y, z);
     sprite.renderOrder = 20;
     roomLabelGroup.add(sprite);
