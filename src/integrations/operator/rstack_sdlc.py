@@ -273,12 +273,25 @@ def _extract_text(stdout: str) -> str:
     return stdout
 
 
-async def _run_bridge(tool: str, params: dict, cwd: str, config_env: dict) -> str:
+async def _communicate_or_kill(proc: "asyncio.subprocess.Process", data: Optional[bytes], timeout: float) -> tuple[bytes, bytes]:
+    """asyncio.wait_for cancels the *await*, not the child — a timed-out proc
+    is left running as an orphan unless killed and reaped explicitly."""
+    try:
+        return await asyncio.wait_for(proc.communicate(data), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise
+
+
+async def _run_bridge(tool: str, params: dict, cwd: str, config_env: dict) -> tuple[bool, str]:
+    """Returns (success, text) — callers must not report a failed bridge call
+    as a successful ToolResult (the framework logs and routes on .success)."""
     npx = shutil.which("npx")
     if npx is None:
-        return "RStack: `npx` not found on PATH. Install Node.js and run `npm install` in the rstack-agents package."
+        return (False, "RStack: `npx` not found on PATH. Install Node.js and run `npm install` in the rstack-agents package.")
     if not BRIDGE.is_file():
-        return f"RStack: bridge not found at {BRIDGE}."
+        return (False, f"RStack: bridge not found at {BRIDGE}.")
     env = {**os.environ, **config_env, "RSTACK_PROJECT_ROOT": cwd, "RSTACK_BRIDGE_CALLER": "operator"}
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -286,22 +299,22 @@ async def _run_bridge(tool: str, params: dict, cwd: str, config_env: dict) -> st
             cwd=str(PKG_ROOT), env=env,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=_BRIDGE_TIMEOUT_S)
+        out, err = await _communicate_or_kill(proc, None, _BRIDGE_TIMEOUT_S)
     except asyncio.TimeoutError:
-        return f"RStack {tool} timed out after {_BRIDGE_TIMEOUT_S:.0f}s."
+        return (False, f"RStack {tool} timed out after {_BRIDGE_TIMEOUT_S:.0f}s.")
     stdout = out.decode("utf-8", "replace").strip()
     stderr = err.decode("utf-8", "replace").strip()
     if proc.returncode != 0:
-        return f"RStack {tool} failed: {(stderr or stdout or f'exit {proc.returncode}')}"
-    return _extract_text(stdout)
+        return (False, f"RStack {tool} failed: {(stderr or stdout or f'exit {proc.returncode}')}")
+    return (True, _extract_text(stdout))
 
 
 def _make_handler(tool: str, config_env: dict):
     async def handler(**kwargs: Any) -> ToolResult:
         cwd = os.getcwd()
         params = {k: v for k, v in kwargs.items() if v is not None}
-        text = await _run_bridge(tool, params, cwd, config_env)
-        return ToolResult.success_result(text)
+        success, text = await _run_bridge(tool, params, cwd, config_env)
+        return ToolResult.success_result(text) if success else ToolResult.error_result(text)
     return handler
 
 
@@ -353,7 +366,7 @@ async def _run_guard(tool_name: str, tool_input: dict, cwd: str) -> Optional[str
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             env=os.environ, cwd=cwd,
         )
-        out, err = await asyncio.wait_for(proc.communicate(payload.encode("utf-8")), timeout=_GUARD_TIMEOUT_S)
+        out, err = await _communicate_or_kill(proc, payload.encode("utf-8"), _GUARD_TIMEOUT_S)
     except asyncio.TimeoutError:
         return _guard_unavailable_reason("guard timed out")
     except OSError as exc:
@@ -381,7 +394,10 @@ def _launch_business_hub() -> None:
     import urllib.request
     import webbrowser
 
-    port = int(os.environ.get("RSTACK_BUSINESS_PORT", "3008"))
+    try:
+        port = int(os.environ.get("RSTACK_BUSINESS_PORT", "3008"))
+    except ValueError:
+        port = 3008  # malformed env var — fall back rather than abort plugin construction
     url = f"http://localhost:{port}"
     alive = False
     try:
