@@ -26,23 +26,33 @@ test('office builds every company facility with exactly fifteen stage signals', 
 
   assert.ok(office.object instanceof THREE.Group);
   assert.equal(office.stageSignals.size, 15);
-  const gantry = office.object.getObjectByName('Fifteen-stage pipeline gantry');
+  const spine = office.object.getObjectByName('Fifteen-stage delivery spine');
   const stageSignals = [...office.stageSignals.values()];
-  assert.ok(gantry instanceof THREE.Group);
+  assert.ok(spine instanceof THREE.Group);
+  assert.ok(spine.getObjectByName('Pipeline delivery belt') instanceof THREE.InstancedMesh);
+  assert.ok(spine.getObjectByName('Pipeline console frames') instanceof THREE.InstancedMesh);
+  assert.equal(office.object.getObjectByName('Fifteen-stage pipeline gantry'), undefined);
   assert.equal(office.object.getObjectByName('Fifteen-stage pipeline wall'), undefined);
+  assert.equal(office.object.getObjectByName('Stage work-cell docks'), undefined);
   assert.deepEqual(
     [...office.stageSignals.keys()],
     STUDIO_TOPOLOGY.departments.map((department) => department.id),
   );
-  assert.ok(stageSignals.every((signal) => signal.position.y >= 2.6));
   assert.ok(stageSignals.every((signal) => (
-    Math.abs(signal.position.z - STUDIO_TOPOLOGY.corridor.z) < 0.8
+    signal.position.y <= STUDIO_TOPOLOGY.pipelineSpine.maxHeight
+  )));
+  assert.ok(stageSignals.every((signal) => (
+    Math.abs(signal.position.z - STUDIO_TOPOLOGY.pipelineSpine.z)
+      <= STUDIO_TOPOLOGY.pipelineSpine.consoleOffsetZ
   )));
   assert.ok(stageSignals.every((signal, index) => (
     index === 0 || signal.position.x > stageSignals[index - 1].position.x
   )));
-  assert.ok(Object.values(STUDIO_TOPOLOGY.routes).flat().every((point) => (
-    point[1] < STUDIO_TOPOLOGY.pipelineGantry.minClearanceY
+  assert.ok(
+    Math.abs(STUDIO_TOPOLOGY.pipelineSpine.z - STUDIO_TOPOLOGY.corridor.z) >= 3,
+  );
+  assert.ok(STUDIO_TOPOLOGY.routes.builder_to_validator.every((point) => (
+    Math.abs(point[2] - STUDIO_TOPOLOGY.pipelineSpine.z) >= 3
   )));
   assert.equal(office.missionBoards.size, 8);
   assert.equal(office.desks.builder.length, 8);
@@ -64,7 +74,7 @@ test('office builds every company facility with exactly fifteen stage signals', 
     assert.ok(office.object.getObjectByName(name), name);
   }
   // The cutaway architecture is real: walls, glass, room finishes, plants,
-  // casework, and the stage work-cell rail — all instanced.
+  // casework, and library stock — all instanced.
   for (const name of [
     'Office walls',
     'Glass partitions',
@@ -73,7 +83,6 @@ test('office builds every company facility with exactly fifteen stage signals', 
     'Plant foliage',
     'Office casework',
     'Library capability stock',
-    'Stage work-cell docks',
   ]) {
     assert.ok(office.object.getObjectByName(name) instanceof THREE.InstancedMesh, name);
   }

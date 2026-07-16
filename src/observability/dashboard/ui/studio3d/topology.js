@@ -46,14 +46,15 @@ export const STUDIO_TOPOLOGY = Object.freeze({
   // Building envelope, shared with the office renderer.
   bounds: Object.freeze({ west: -18, east: 18, north: -13, south: 13 }),
   corridor: Object.freeze({ north: -7, south: -4, z: CORRIDOR_Z }),
-  pipelineGantry: Object.freeze({
-    startX: -15.4,
-    endX: 15.4,
-    z: CORRIDOR_Z,
-    frameY: 3.55,
-    panelY: 3.06,
-    minClearanceY: 2.6,
-    panelTiltX: -0.3,
+  pipelineSpine: Object.freeze({
+    startX: -14.4,
+    endX: 14.4,
+    z: -1.5,
+    beltY: 0.16,
+    beltWidth: 0.5,
+    consoleOffsetZ: 0.72,
+    panelY: 0.98,
+    maxHeight: 1.35,
   }),
   doors: DOORS,
 
@@ -87,8 +88,9 @@ export const STUDIO_TOPOLOGY = Object.freeze({
   }),
   // Eight mission boards on the Builder Bullpen's corridor wall.
   missions: row('mission-board', 8, -16, 2.5, -3.62),
-  // Fifteen canonical stage work cells: eight along the Builder Bullpen rail,
-  // seven inside the glass Validator Lab.
+  // Fifteen canonical department identities. Their adopted visual fixtures
+  // live on the compact delivery spine while these stable IDs preserve the
+  // projection-to-office contract.
   departments: Object.freeze([
     ...row('department', 8, -16.5, 2, -1.5),
     ...row('department', 7, 6.9, 1, -1.5, 0, 8),
@@ -146,7 +148,7 @@ export const STUDIO_TOPOLOGY = Object.freeze({
 });
 
 export function pipelineStageX(index, count = STUDIO_TOPOLOGY.departments.length) {
-  const { startX, endX } = STUDIO_TOPOLOGY.pipelineGantry;
+  const { startX, endX } = STUDIO_TOPOLOGY.pipelineSpine;
   return count <= 1
     ? startX
     : startX + ((endX - startX) * index) / (count - 1);
