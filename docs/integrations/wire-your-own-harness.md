@@ -19,8 +19,10 @@ flags) and read the verdict:
 
 That is the whole guard contract. Claude Code is wired automatically by
 `init --framework claude-code` (see [claude-code.md](claude-code.md)); Pi has
-a native extension; Tau's adapter wires the guard itself on its `tool_call`
-hook (see [tau.md](tau.md)). For **codex, gemini-cli, or your own agent
+a native extension; Tau's adapter wires the guard itself by shadowing the
+built-in `terminal`/`write`/`edit` tools — its documented `tool_call` hook
+is never actually fired by the real engine (see [tau.md](tau.md)). For
+**codex, gemini-cli, or your own agent
 loop**, you don't have to figure out the wiring yourself — paste the guided
 prompt below into your coding agent and let it wire its own harness. If you
 are writing a full adapter (tools + guard), the complete conformance

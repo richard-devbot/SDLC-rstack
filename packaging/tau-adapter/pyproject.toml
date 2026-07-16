@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rstack-tau-adapter"
+version = "1.0.0"
+description = "RStack governed SDLC loop as a Tau extension — install-and-go via `tau install` (see https://github.com/richard-devbot/SDLC-rstack)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Richardson Gunde" }]
+dependencies = ["pydantic"]
+
+[project.urls]
+Homepage = "https://github.com/richard-devbot/SDLC-rstack"
+Repository = "https://github.com/richard-devbot/SDLC-rstack"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rstack_tau_adapter"]
