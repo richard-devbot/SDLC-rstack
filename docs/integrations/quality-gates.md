@@ -83,8 +83,10 @@ comma string or list of preset names:
   "settings": { "quality_gates": "plan,tdd,scope" } }] } }
 ```
 
-The adapter runs the gates on `write`/`edit` tools after guard, on the same
-`tool_call` hook. Off unless configured.
+The adapter runs the gates on the shadowed `write`/`edit` tools after guard,
+inside the same `execute()` (see [tau.md](tau.md) — enforcement shadows the
+built-ins rather than using Tau's documented but non-functional `tool_call`
+hook). Off unless configured.
 
 ### Operator / custom harnesses
 

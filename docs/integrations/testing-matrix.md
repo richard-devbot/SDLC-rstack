@@ -94,19 +94,48 @@ it through the same guard, which blocks until approval.
 ```bash
 mkdir ~/rstack-test-tau && cd ~/rstack-test-tau
 npm install rstack-agents
-npx rstack-agents init --framework custom  # tau shares the generic wiring path today
+npx rstack-agents init --framework tau
 npx rstack-agents doctor --framework tau
 ```
 
-The **tau adapter** ships as a separate change. Until it lands, `doctor
---framework tau` reports the adapter check as FAIL with the expected path (it
-never crashes) while the shared **bridge reachable** and **guard self-test**
-checks still PASS — so you can confirm enforcement works and see exactly what
-the tau wiring still needs. Once the adapter is installed, the same recipe goes
-all-green.
+**Enforcement mechanism, and why it's not the documented `tool_call` hook**
+(#389 audit, upstream Tau commit `4763f38`, 2026-07): Tau's `tool_call` hook
+is defined in its type system and documented in `docs/extensions.md`, but the
+real engine (`AgentService._before_tool_call`) never fires it — a hard-coded
+pass-through, confirmed via `grep -rn "ToolCallEvent(" tau/` returning zero
+matches anywhere in Tau's own codebase. `src/integrations/tau/rstack_sdlc.py`
+therefore enforces by **shadowing** the built-in `write`/`terminal`/`edit`
+tools (a real, documented Tau capability — same-named extension tools
+override built-ins while loaded) and running `rstack-agents guard` inside
+each shadow's `execute()`, before delegating to the real tool. Same fix
+applies to context injection: `before_agent_start` is equally dead (the
+system prompt is fixed at Agent construction, never re-read per turn), so
+context injection instead uses Tau's real `input` hook, verified live to
+transform the prompt text for `interactive`/`rpc` sources.
 
-The governed action: same as Operator — start a run, attempt a destructive tool
-call, watch the guard block it until approval.
+**Reproducing the live verification** (no Tau project needed — this
+exercises the real `tau-coding-agent` package directly against the adapter
+module, the same way its own factories document for delegation):
+
+```bash
+# once: pip/uv install tau-coding-agent in a scratch venv
+uv venv /tmp/tau-venv --python 3.13
+uv pip install --python /tmp/tau-venv/bin/python tau-coding-agent
+
+# then, from the rstack-agents repo root, run a small harness that:
+#  1. builds a fake ExtensionAPI (register_tool/register_command/on/config)
+#  2. calls register(fake_tau) from src/integrations/tau/rstack_sdlc.py
+#  3. asserts "tool_call" is NOT among the registered hook events
+#  4. calls the registered "terminal" tool's real .execute() with a
+#     destructive command and asserts is_error is True (guard blocked it)
+#  5. calls it again with a safe command and asserts the real TerminalTool
+#     actually ran (delegation works, not just the block path)
+```
+
+The governed action in an interactive session: same as Operator — start a
+run, attempt a destructive tool call (it will visibly go through the
+shadowed `terminal`/`write`/`edit` tool, not a hook), watch the guard block
+it until approval.
 
 ---
 

@@ -17,13 +17,19 @@ obvious free-text field for that subcommand (e.g. `/sdlc start "add auth"`),
 and `/sdlc <subcommand> {"...": "..."}` accepts full JSON params for anything
 more complex (e.g. `/sdlc delegate {"agent": "...", "task": "..."}`).
 
-**Enforcement comes wired.** Unlike Operator (no blocking hook) or Claude
-Code (hook installed into settings), Tau's `tool_call` event hook can cancel
-a tool call before it executes — and the adapter registers that hook itself.
-Loading the extension IS the wiring: Tau's built-in `terminal` / `write` /
-`edit` tools are routed through `rstack-agents guard` (destructive-action
-gate + validator sandbox), and a guard exit 2 blocks the call with the
-guard's reason. It fails open only when `npx` itself is missing on the host.
+**Enforcement comes wired — via built-in shadowing, not the documented
+`tool_call` hook.** A source audit for issue #389 (upstream Tau commit
+`4763f38`, 2026-07) found that Tau's `tool_call` event is defined and
+documented (`docs/extensions.md`) but never actually fired by the real
+engine (`AgentService._before_tool_call` is a hardcoded pass-through) — so
+no adapter relying on it, on any framework, is really enforcing anything.
+This adapter instead **shadows** the built-in `terminal` / `write` / `edit`
+tools — a genuine, documented Tau capability (same-named extension tools
+override built-ins while loaded, restored on unload/reload) — and runs
+`rstack-agents guard` inside each shadow's `execute()` before delegating to
+the real tool. Loading the extension is still the only wiring step; a guard
+exit 2 blocks the call with the guard's reason before the real tool ever
+runs. Fails open only when `npx` itself is missing on the host.
 
 **Opt-in quality gates.** Set the `quality_gates` extension setting (a comma
 string or list of `plan-gate`/`tdd-gate`/`scope-guard`) — or the
@@ -68,6 +74,30 @@ into your Tau `settings.json`:
 Each `settings` key maps to the matching `RSTACK_*` environment variable and
 is forwarded to the bridge per tool call.
 
+### Alternative: `tau install` (packaged, one command — currently blocked upstream)
+
+The adapter is also packaged as a real pip-installable distribution at
+`packaging/tau-adapter/` (`rstack-tau-adapter`, generated from
+`src/integrations/tau/rstack_sdlc.py` via `node scripts/generate-tau-package.mjs`
+— regenerate after changing the adapter):
+
+```bash
+tau install ./node_modules/rstack-agents/packaging/tau-adapter
+```
+
+**Tested against a real `tau install` run (#389) — the packaging itself is
+correct, but this currently fails on Tau's side.** `pip install` succeeds
+(verified: `rstack_tau_adapter` lands correctly in Tau's managed venv with
+its `manifest.json` in the right place), but `tau install`'s own
+book-keeping step crashes: `tau/console/commands/packages.py`'s `install()`
+is a synchronous function that calls `SettingsManager.add_package()`, which
+internally calls `asyncio.create_task()` — but no event loop is running yet
+at that point (one only starts on the *next* line, `asyncio.run(settings.flush())`,
+too late). This reproduces with any package, not just this one — it's an
+upstream Tau bug, not something fixable from this repo. Until it's fixed,
+use the manual `extensions.list` wiring above (fully working, this is what
+every verification in this doc and in `testing-matrix.md` actually exercises).
+
 ## Verify
 
 ```bash
@@ -84,7 +114,9 @@ RSTACK_PROJECT_ROOT=$(pwd) npx tsx node_modules/rstack-agents/bin/rstack-bridge.
 A JSON run summary means the bridge, adapter, and harness all work. Then,
 inside a Tau session, ask it to run `rm -rf /tmp/rstack-guard-check` — the
 guard blocks it with a `destructive-action:<taskId>` reason, proving the
-`tool_call` hook is live.
+shadowed `terminal` tool's pre-execution gate is live (see
+[testing-matrix.md](testing-matrix.md#tau) for a live-verification recipe
+that exercises this against the real `tau-coding-agent` package directly).
 
 ## Everyday commands
 
@@ -98,16 +130,22 @@ Full table: [README.md → Everyday commands](README.md#everyday-commands-any-fr
 Loading the extension IS the wiring — the adapter registers Tau's hooks itself
 (no host config). Coverage:
 
-- `tool_call` → `tool_call` intent event + the guard verdict; `tool_result` →
-  `tool_result`; `tool_execution_failure` → an error `tool_result` — all
-  fire-and-forget to `rstack-agents observe` (source `tau`), so terminal
-  activity and failures reach the Business Hub.
-- `before_compaction` → a `context_preserved` event (records when context is
-  trimmed).
-- `before_agent_start` → RStack **context injection**: the packet from
-  `rstack-agents context` (run + stage + blockers + orchestrator pointer) is
-  prepended to the turn's system prompt. Best-effort and timeout-bounded — it
-  can never block or delay a turn.
+- The shadowed `write`/`terminal`/`edit` tools emit a pre-execution INTENT
+  event even when a call is later blocked; `tool_result` (real, verified) →
+  a `tool_result` observe event; `tool_execution_failure` (real, verified) →
+  an error `tool_result` — all fire-and-forget to `rstack-agents observe`
+  (source `tau`), so terminal activity and failures reach the Business Hub.
+- `before_compaction` (real, verified) → a `context_preserved` event
+  (records when context is trimmed).
+- `input` → RStack **context injection**: the same #389 audit found
+  `before_agent_start` is equally dead (the system prompt is fixed once at
+  Agent construction, never re-read per turn), so this adapter uses Tau's
+  real `input` hook instead — fired for every submitted prompt, verified to
+  genuinely replace the text the agent receives. The RStack packet (run +
+  stage + blockers + orchestrator pointer) is prepended to the prompt text
+  for `interactive`/`rpc` sources only (not delegated subagents or
+  cron/goal/queue turns, to avoid duplicate injection). Best-effort and
+  timeout-bounded — it can never block or corrupt a turn.
 
 Everything except the guard is additive and can never disrupt a session. Two
 Claude Code events have **no Tau equivalent** and are deliberately not wired:
