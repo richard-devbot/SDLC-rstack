@@ -252,6 +252,18 @@ test('doctor', async (t) => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  await t.test('claude-code plugin/marketplace presence (#388): package-shipped manifests PASS', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-plugin-'));
+    seedRstack(root);
+    const { json } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
+
+    assert.equal(checkByName(json, 'claude-code marketplace manifest').status, 'PASS');
+    assert.equal(checkByName(json, 'claude-code sdlc-rstack plugin').status, 'PASS');
+    assert.equal(checkByName(json, 'claude-code marketplace lists sdlc-rstack').status, 'PASS');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
   await t.test('tau adapter (shipped) PASSes and never crashes', async () => {
     const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-tau-'));
     seedRstack(root);

@@ -1,0 +1,41 @@
+{
+  "name": "quality-testing",
+  "description": "RStack quality-testing plugin pack — combines: WCAG accessibility auditing, compliance validation, UI testing for screen readers, keyboard navigation, and inclusive design | Code cleanup, refactoring automation, and technical debt management with context restoration | Technical debt reduction, dependency updates, and code refactoring automation | Multi-perspective code analysis covering architecture, security, and best practices | Interactive debugging, developer experience optimization, and smart debugging workflows | Dependency auditing, version management, and security vulnerability scanning | Distributed system tracing and debugging across microservices | Error analysis, trace debugging, and multi-agent problem diagnosis | Error tracing, root cause analysis, and smart debugging for production systems | Performance analysis, test coverage review, and AI-powered code quality assessment | Test-driven development methodology with red-green-refactor cycles and code review | Unit and integration test automation for Python and JavaScript with debugging support",
+  "owner": "RStack developed by Richardson Gunde",
+  "author": {
+    "name": "Seth Hobson",
+    "email": "seth@major7apps.com"
+  },
+  "license": "MIT",
+  "agents": [
+    "accessibility-compliance/agents",
+    "code-refactoring/agents",
+    "codebase-cleanup/agents",
+    "comprehensive-review/agents",
+    "debugging-toolkit/agents",
+    "dependency-management/agents",
+    "distributed-debugging/agents",
+    "error-debugging/agents",
+    "error-diagnostics/agents",
+    "performance-testing-review/agents",
+    "tdd-workflows/agents",
+    "unit-testing/agents"
+  ],
+  "commands": [
+    "accessibility-compliance/commands",
+    "code-refactoring/commands",
+    "codebase-cleanup/commands",
+    "comprehensive-review/commands",
+    "debugging-toolkit/commands",
+    "dependency-management/commands",
+    "distributed-debugging/commands",
+    "error-debugging/commands",
+    "error-diagnostics/commands",
+    "performance-testing-review/commands",
+    "tdd-workflows/commands",
+    "unit-testing/commands"
+  ],
+  "skills": [
+    "accessibility-compliance/skills"
+  ]
+}

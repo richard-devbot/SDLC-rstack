@@ -1,0 +1,36 @@
+{
+  "name": "product-team",
+  "description": "RStack product-team plugin pack — combines: Multi-agent system optimization, agent improvement workflows, and context management | Orchestrate multi-agent teams for parallel code review, hypothesis-driven debugging, and coordinated feature development using Claude Code's Agent Teams | Business metrics analysis, KPI tracking, financial reporting, and data-driven decision making | Context-Driven Development plugin that transforms Claude Code into a project management tool with structured workflow: Context → Spec & Plan → Implement | Context persistence, restoration, and long-running conversation management | Customer support workflow automation, sales pipeline management, email campaigns, and CRM integration | Essential developer skills including Git workflows, SQL optimization, error handling, code review, E2E testing, authentication, debugging, and monorepo management | Comprehensive startup business analysis with market sizing (TAM/SAM/SOM), financial modeling, team planning, and strategic research | Team workflows, issue management, standup automation, and developer experience optimization",
+  "owner": "RStack developed by Richardson Gunde",
+  "author": {
+    "name": "Seth Hobson",
+    "email": "seth@major7apps.com"
+  },
+  "license": "Apache-2.0 AND MIT",
+  "agents": [
+    "agent-orchestration/agents",
+    "agent-teams/agents",
+    "business-analytics/agents",
+    "conductor/agents",
+    "context-management/agents",
+    "customer-sales-automation/agents",
+    "developer-essentials/agents",
+    "startup-business-analyst/agents",
+    "team-collaboration/agents"
+  ],
+  "commands": [
+    "agent-orchestration/commands",
+    "agent-teams/commands",
+    "conductor/commands",
+    "context-management/commands",
+    "startup-business-analyst/commands",
+    "team-collaboration/commands"
+  ],
+  "skills": [
+    "agent-teams/skills",
+    "business-analytics/skills",
+    "conductor/skills",
+    "developer-essentials/skills",
+    "startup-business-analyst/skills"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "security",
+  "description": "RStack security plugin pack — combines: HR policy documentation, legal compliance templates (GDPR/SOC2/HIPAA), employment contracts, and regulatory documentation | SOC2, HIPAA, and GDPR compliance validation, secrets scanning, compliance checklists, and regulatory documentation | SAST analysis, dependency vulnerability scanning, OWASP Top 10 compliance, container security scanning, and automated security hardening",
+  "owner": "RStack developed by Richardson Gunde",
+  "author": {
+    "name": "Seth Hobson",
+    "email": "seth@major7apps.com"
+  },
+  "license": "MIT",
+  "agents": [
+    "hr-legal-compliance/agents",
+    "security-compliance/agents",
+    "security-scanning/agents"
+  ],
+  "commands": [
+    "security-compliance/commands",
+    "security-scanning/commands"
+  ],
+  "skills": [
+    "hr-legal-compliance/skills",
+    "security-scanning/skills"
+  ]
+}

@@ -13,7 +13,7 @@ npx rstack-agents init --framework pi       # or be explicit
 | Framework | Guide | Adapter |
 |---|---|---|
 | Pi | [pi.md](pi.md) | `src/integrations/pi/rstack-sdlc.ts` (native TypeScript extension) |
-| Claude Code | [claude-code.md](claude-code.md) | `sdlc-automation` plugin + PreToolUse `rstack-agents guard` hook |
+| Claude Code | [claude-code.md](claude-code.md) | `sdlc-rstack` plugin (`/sdlc-*` commands) + PreToolUse `rstack-agents guard` hook |
 | Operator | [operator.md](operator.md) | `src/integrations/operator/rstack_sdlc.py` (Python, bridges to Node) |
 | Tau | [tau.md](tau.md) | `src/integrations/tau/rstack_sdlc.py` (Python, bridges to Node + self-wiring guard hook) |
 | Anything else | [custom.md](custom.md) | The `.rstack/` state contract + Node bridge |

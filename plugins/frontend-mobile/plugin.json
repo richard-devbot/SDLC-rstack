@@ -1,0 +1,28 @@
+{
+  "name": "frontend-mobile",
+  "description": "RStack frontend-mobile plugin pack — combines: Frontend UI development and mobile application implementation across platforms | XSS prevention, CSRF protection, content security policies, mobile app security, and secure storage patterns | Unity game development with C# scripting, Minecraft server plugin development with Bukkit/Spigot APIs | Cross-platform application development coordinating web, iOS, Android, and desktop implementations | Comprehensive UI/UX design plugin for mobile (iOS, Android, React Native) and web applications with design systems, accessibility, and modern patterns",
+  "owner": "RStack developed by Richardson Gunde",
+  "author": {
+    "name": "Seth Hobson",
+    "email": "seth@major7apps.com"
+  },
+  "license": "MIT",
+  "agents": [
+    "frontend-mobile-development/agents",
+    "frontend-mobile-security/agents",
+    "game-development/agents",
+    "multi-platform-apps/agents",
+    "ui-design/agents"
+  ],
+  "commands": [
+    "frontend-mobile-development/commands",
+    "frontend-mobile-security/commands",
+    "multi-platform-apps/commands",
+    "ui-design/commands"
+  ],
+  "skills": [
+    "frontend-mobile-development/skills",
+    "game-development/skills",
+    "ui-design/skills"
+  ]
+}

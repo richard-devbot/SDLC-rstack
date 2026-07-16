@@ -206,6 +206,41 @@ const CONTEXT_HOOK_SNIPPET = 'Add a UserPromptSubmit hook to .claude/settings.js
   + '"command":"npx --yes rstack-agents context --source claude-code"}]}]}} '
   + '(or run: rstack-agents init --framework claude-code)';
 
+// Plugin/marketplace presence (#388): the hooks check above verifies
+// *enforcement* wiring, but before this the onboarding docs pointed at a
+// `/plugin install sdlc-rstack` that did not exist anywhere in the repo — a
+// user could have a perfectly wired guard hook and still have no /sdlc-*
+// commands. This checks what the PACKAGE ships (like checkPiWiring/
+// checkBridge do for their frameworks), not the user's project — the plugin
+// and marketplace manifest live in the rstack-agents package itself.
+function checkClaudeCodePlugin() {
+  const marketplacePath = join(PACKAGE_ROOT, '.claude-plugin', 'marketplace.json');
+  const pluginPath = join(PACKAGE_ROOT, 'plugins', 'sdlc-rstack', 'plugin.json');
+  const checks = [
+    fileCheck('claude-code marketplace manifest', marketplacePath, '.claude-plugin/marketplace.json',
+      'Reinstall the package: npm install rstack-agents (or regenerate: node scripts/generate-marketplace.mjs)'),
+    fileCheck('claude-code sdlc-rstack plugin', pluginPath, 'plugins/sdlc-rstack/plugin.json',
+      'Reinstall the package: npm install rstack-agents'),
+  ];
+  if (existsSync(marketplacePath)) {
+    try {
+      const manifest = JSON.parse(readFileSync(marketplacePath, 'utf8'));
+      const listed = Array.isArray(manifest.plugins) && manifest.plugins.some((p) => p?.name === 'sdlc-rstack');
+      checks.push(listed
+        ? check('claude-code marketplace lists sdlc-rstack', PASS,
+          '`/plugin marketplace add richard-devbot/SDLC-rstack` then `/plugin install sdlc-rstack` will resolve')
+        : check('claude-code marketplace lists sdlc-rstack', FAIL,
+          '.claude-plugin/marketplace.json exists but does not list the sdlc-rstack plugin',
+          'node scripts/generate-marketplace.mjs'));
+    } catch (error) {
+      checks.push(check('claude-code marketplace lists sdlc-rstack', FAIL,
+        `.claude-plugin/marketplace.json is not valid JSON: ${error.message}`,
+        'node scripts/generate-marketplace.mjs'));
+    }
+  }
+  return checks;
+}
+
 function checkClaudeCodeWiring(projectRoot) {
   const settingsPath = join(projectRoot, '.claude', 'settings.json');
   if (!existsSync(settingsPath)) {
@@ -449,7 +484,7 @@ function checkTauObservability(adapterPath) {
 }
 
 async function checkFrameworkWiring(framework, projectRoot) {
-  if (framework === 'claude-code') return checkClaudeCodeWiring(projectRoot);
+  if (framework === 'claude-code') return [...checkClaudeCodeWiring(projectRoot), ...checkClaudeCodePlugin()];
   if (framework === 'pi') return checkPiWiring();
   if (framework === 'operator' || framework === 'tau') return checkAdapterWiring(framework);
   if (framework === 'custom') {

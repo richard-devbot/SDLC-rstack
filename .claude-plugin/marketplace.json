@@ -1,0 +1,107 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "rstack-agents",
+  "description": "RStack plugin library — the governed sdlc-rstack pipeline plugin plus the full domain plugin catalog, installable via `/plugin marketplace add richard-devbot/SDLC-rstack`.",
+  "owner": {
+    "name": "Richardson Gunde"
+  },
+  "plugins": [
+    {
+      "name": "backend",
+      "source": "./plugins/backend",
+      "description": "RStack backend plugin pack — combines: REST and GraphQL API scaffolding, framework selection, backend architecture, and API generation | API testing automation, request mocking, OpenAPI documentation generation, observability setup, and monitoring | API security hardening, authentication implementation, authorization patterns, rate limiting, and input validation | Backend API design, GraphQL architecture, workflow orchestration with Temporal, and test-driven backend development | Comprehensive C4 architecture documentation workflow with bottom-up code analysis, component synthesis, container mapping, and context diagram generation | Database query optimization, cloud cost optimization, and scalability improvements | Database architecture, schema design, and SQL optimization for production systems | Database migration automation, observability, and cross-database migration strategies | End-to-end feature orchestration with testing, security, performance, and deployment",
+      "author": {
+        "name": "Seth Hobson",
+        "email": "seth@major7apps.com"
+      }
+    },
+    {
+      "name": "data-ml",
+      "source": "./plugins/data-ml",
+      "description": "RStack data-ml plugin pack — combines: Smart contract development with Solidity, DeFi protocol implementation, NFT platforms, and Web3 application architecture | ETL pipeline construction, data warehouse design, batch processing workflows, and data-driven feature development | Schema validation, data quality monitoring, streaming validation pipelines, and input validation for backend APIs | LLM application development with LangGraph, RAG systems, vector search, and AI agent architectures for Claude 4.6 and GPT-5.2 | ML model training pipelines, hyperparameter tuning, model deployment automation, experiment tracking, and MLOps workflows | Quantitative analysis, algorithmic trading strategies, financial modeling, portfolio risk management, and backtesting",
+      "author": {
+        "name": "Seth Hobson",
+        "email": "seth@major7apps.com"
+      }
+    },
+    {
+      "name": "devops-cloud",
+      "source": "./plugins/devops-cloud",
+      "description": "RStack devops-cloud plugin pack — combines: Application profiling, performance optimization, and observability for frontend and backend systems | CI/CD pipeline configuration, GitHub Actions/GitLab CI workflow setup, and automated deployment pipeline orchestration | Cloud architecture design for AWS/Azure/GCP, Kubernetes cluster configuration, Terraform infrastructure-as-code, hybrid cloud networking, and multi-cloud cost optimization | Deployment patterns, rollback automation, and infrastructure templates | Pre-deployment checks, configuration validation, and deployment readiness assessment | Production incident management, triage workflows, and automated incident resolution | Kubernetes manifest generation, networking configuration, security policies, observability setup, GitOps workflows, and auto-scaling | Metrics collection, logging infrastructure, distributed tracing, SLO implementation, and monitoring dashboards",
+      "author": {
+        "name": "Seth Hobson",
+        "email": "seth@major7apps.com"
+      }
+    },
+    {
+      "name": "docs-content",
+      "source": "./plugins/docs-content",
+      "description": "RStack docs-content plugin pack — combines: Documentation generation, code explanation, and technical writing with automated doc generation and tutorial creation | Content marketing strategy, web research, and information synthesis for marketing operations | OpenAPI specification generation, Mermaid diagram creation, tutorial writing, API reference documentation | Content freshness analysis, cannibalization detection, and authority building for SEO | SEO content writing, planning, and quality auditing with E-E-A-T optimization | Technical SEO optimization including meta tags, keywords, structure, and featured snippets",
+      "author": {
+        "name": "Seth Hobson",
+        "email": "seth@major7apps.com"
+      }
+    },
+    {
+      "name": "frontend-mobile",
+      "source": "./plugins/frontend-mobile",
+      "description": "RStack frontend-mobile plugin pack — combines: Frontend UI development and mobile application implementation across platforms | XSS prevention, CSRF protection, content security policies, mobile app security, and secure storage patterns | Unity game development with C# scripting, Minecraft server plugin development with Bukkit/Spigot APIs | Cross-platform application development coordinating web, iOS, Android, and desktop implementations | Comprehensive UI/UX design plugin for mobile (iOS, Android, React Native) and web applications with design systems, accessibility, and modern patterns",
+      "author": {
+        "name": "Seth Hobson",
+        "email": "seth@major7apps.com"
+      }
+    },
+    {
+      "name": "languages",
+      "source": "./plugins/languages",
+      "description": "RStack languages plugin pack — combines: ARM Cortex-M firmware development for Teensy, STM32, nRF52, and SAMD with peripheral drivers and memory safety patterns | Comprehensive .NET backend development with C#, ASP.NET Core, Entity Framework Core, and Dapper for production-grade applications | Functional programming with Elixir, OTP patterns, Phoenix framework, and distributed systems | JavaScript and TypeScript development with ES6+, Node.js, React, and modern web frameworks | Modern Julia development with Julia 1.10+, package management, scientific computing, high-performance numerical code, and production best practices | JVM language development including Java, Scala, and C# with enterprise patterns and frameworks | Modern Python development with Python 3.12+, Django, FastAPI, async patterns, and production best practices | Production-grade Bash scripting with defensive programming, POSIX compliance, and comprehensive testing | Systems programming with Rust, Go, C, and C++ for performance-critical and low-level development | Web scripting with PHP and Ruby for web applications, CMS development, and backend services",
+      "author": {
+        "name": "Multiple contributors — see THIRD-PARTY-NOTICES.md"
+      }
+    },
+    {
+      "name": "product-team",
+      "source": "./plugins/product-team",
+      "description": "RStack product-team plugin pack — combines: Multi-agent system optimization, agent improvement workflows, and context management | Orchestrate multi-agent teams for parallel code review, hypothesis-driven debugging, and coordinated feature development using Claude Code's Agent Teams | Business metrics analysis, KPI tracking, financial reporting, and data-driven decision making | Context-Driven Development plugin that transforms Claude Code into a project management tool with structured workflow: Context → Spec & Plan → Implement | Context persistence, restoration, and long-running conversation management | Customer support workflow automation, sales pipeline management, email campaigns, and CRM integration | Essential developer skills including Git workflows, SQL optimization, error handling, code review, E2E testing, authentication, debugging, and monorepo management | Comprehensive startup business analysis with market sizing (TAM/SAM/SOM), financial modeling, team planning, and strategic research | Team workflows, issue management, standup automation, and developer experience optimization",
+      "author": {
+        "name": "Seth Hobson",
+        "email": "seth@major7apps.com"
+      }
+    },
+    {
+      "name": "quality-testing",
+      "source": "./plugins/quality-testing",
+      "description": "RStack quality-testing plugin pack — combines: WCAG accessibility auditing, compliance validation, UI testing for screen readers, keyboard navigation, and inclusive design | Code cleanup, refactoring automation, and technical debt management with context restoration | Technical debt reduction, dependency updates, and code refactoring automation | Multi-perspective code analysis covering architecture, security, and best practices | Interactive debugging, developer experience optimization, and smart debugging workflows | Dependency auditing, version management, and security vulnerability scanning | Distributed system tracing and debugging across microservices | Error analysis, trace debugging, and multi-agent problem diagnosis | Error tracing, root cause analysis, and smart debugging for production systems | Performance analysis, test coverage review, and AI-powered code quality assessment | Test-driven development methodology with red-green-refactor cycles and code review | Unit and integration test automation for Python and JavaScript with debugging support",
+      "author": {
+        "name": "Seth Hobson",
+        "email": "seth@major7apps.com"
+      }
+    },
+    {
+      "name": "sdlc-rstack",
+      "source": "./plugins/sdlc-rstack",
+      "description": "The RStack governed SDLC loop as native Claude Code slash commands — /sdlc-start, /sdlc-plan, /sdlc-build-next, /sdlc-validate, /sdlc-approve, and the rest of the sdlc_* tool surface, driven through the same harness (src/core/harness/) that backs Pi. Ships the orchestrator/builder/validator team alongside the commands.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Richardson Gunde"
+      }
+    },
+    {
+      "name": "security",
+      "source": "./plugins/security",
+      "description": "RStack security plugin pack — combines: HR policy documentation, legal compliance templates (GDPR/SOC2/HIPAA), employment contracts, and regulatory documentation | SOC2, HIPAA, and GDPR compliance validation, secrets scanning, compliance checklists, and regulatory documentation | SAST analysis, dependency vulnerability scanning, OWASP Top 10 compliance, container security scanning, and automated security hardening",
+      "author": {
+        "name": "Seth Hobson",
+        "email": "seth@major7apps.com"
+      }
+    },
+    {
+      "name": "specialized",
+      "source": "./plugins/specialized",
+      "description": "RStack specialized plugin pack — combines: Framework updates, migration planning, and architectural transformation workflows | Git workflow automation, pull request enhancement, and team onboarding processes | Payment gateway integration with Stripe, PayPal, checkout flow implementation, subscription billing, and PCI compliance | Binary reverse engineering, malware analysis, firmware security, and software protection research for authorized security research, CTF competitions, and defensive security",
+      "author": {
+        "name": "Multiple contributors — see THIRD-PARTY-NOTICES.md"
+      }
+    }
+  ]
+}
