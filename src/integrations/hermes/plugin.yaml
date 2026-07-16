@@ -1,0 +1,28 @@
+name: rstack-sdlc
+version: "1.0.0"
+description: "RStack governed SDLC loop — sdlc_* tools + destructive-action guard"
+author: "Richardson Gunde"
+provides_tools:
+  - sdlc_orchestrate
+  - sdlc_start
+  - sdlc_clarify
+  - sdlc_plan
+  - sdlc_spec
+  - sdlc_approve
+  - sdlc_build_next
+  - sdlc_validate
+  - sdlc_agents
+  - sdlc_delegate
+  - sdlc_status
+  - sdlc_memory
+  - sdlc_dashboard
+  - sdlc_trace
+  - sdlc_rollback
+  - sdlc_decisions
+  - sdlc_decide
+  - sdlc_dor_check
+provides_hooks:
+  - pre_tool_call
+  - post_tool_call
+  - on_session_start
+kind: standalone

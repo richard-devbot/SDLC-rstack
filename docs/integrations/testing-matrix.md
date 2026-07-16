@@ -139,6 +139,53 @@ it until approval.
 
 ---
 
+## Hermes
+
+```bash
+mkdir ~/rstack-test-hermes && cd ~/rstack-test-hermes
+npm install rstack-agents
+npx rstack-agents init --framework hermes
+npx rstack-agents doctor --framework hermes
+```
+
+**Four corrections verified against real Hermes source** (#390 audit —
+cloning `NousResearch/hermes-agent`, constructing a real `PluginManager`,
+loading the plugin for real, and calling the actual dispatch functions
+directly): the block-guard's return shape (`{"action":"block","message":...}`,
+not the Claude-Code-style `{"decision":"block","reason":...}` a *different*
+Hermes subsystem uses), the tool-name translation (Hermes' real `terminal`
+tool name maps to nothing in the guard's classifier until translated to
+`Bash`), the `pre_tool_call` kwargs shape, and the `post_tool_call`
+(observability) kwargs shape. Full detail:
+[hermes.md](hermes.md#four-corrections-verified-against-real-hermes-source-390).
+
+**Reproducing the live verification** (no LLM API key needed — the bug
+surface is entirely in tool/hook registration and dispatch, not model
+inference):
+
+```bash
+# once: uv/pip install hermes-agent in a scratch venv
+uv venv /tmp/hermes-venv --python 3.11
+uv pip install --python /tmp/hermes-venv/bin/python hermes-agent
+
+# then, from the rstack-agents repo root, run a small harness that:
+#  1. installs src/integrations/hermes/{plugin.yaml,rstack_sdlc.py} as a
+#     real plugin directory under a scratch ~/.hermes/plugins/
+#  2. constructs a real PluginManager, calls discover_and_load()
+#  3. asserts all 18 sdlc_* tools are registered
+#  4. calls get_pre_tool_call_directive(tool_name="terminal",
+#     args={"command": "rm -rf /"}) directly and asserts the returned
+#     directive actually blocks (action == "block"), not just that the
+#     hook ran
+#  5. calls it again with a safe command and asserts it allows
+```
+
+The governed action in an interactive session: enable the plugin
+(`hermes plugins enable rstack-sdlc`), start a run, attempt a destructive
+tool call, watch the guard block it until approval.
+
+---
+
 ## Custom / any harness
 
 ```bash

@@ -278,8 +278,26 @@ test('doctor', async (t) => {
     assert.equal(checkByName(json, 'bridge reachable').status, 'PASS');
     // Observability (#251): the shipped tau adapter emits observe events.
     assert.equal(checkByName(json, 'tau observability hook').status, 'PASS');
-    // Context injection (#255): the shipped tau adapter injects context on before_agent_start.
+    // Context injection (#255, corrected #389): the shipped tau adapter injects context on the real `input` hook.
     assert.equal(checkByName(json, 'tau context hook').status, 'PASS');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('hermes adapter (shipped) PASSes and never crashes (#390)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-hermes-'));
+    seedRstack(root);
+    const { json } = await runDoctor(['--framework', 'hermes', '--project', root, '--json'], { cwd: root });
+
+    assert.ok(json, 'doctor produced parseable JSON (did not crash) for the hermes framework');
+    const adapter = checkByName(json, 'hermes adapter present');
+    assert.equal(adapter.status, 'PASS');
+    assert.ok(adapter.detail.includes('hermes'), 'detail names the hermes adapter path');
+    assert.equal(checkByName(json, 'hermes plugin.yaml manifest').status, 'PASS');
+    // The shipped adapter's `_guard_block` really returns {"action":"block",...} — its
+    // own docstring/comments quote the OLD {"decision":"block"} shape verbatim to explain
+    // the #390 correction, which must not false-positive this check against prose.
+    assert.equal(checkByName(json, 'hermes guard payload shape').status, 'PASS');
 
     rmSync(root, { recursive: true, force: true });
   });
