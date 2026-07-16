@@ -1,0 +1,34 @@
+{
+  "name": "backend",
+  "description": "RStack backend plugin pack — combines: REST and GraphQL API scaffolding, framework selection, backend architecture, and API generation | API testing automation, request mocking, OpenAPI documentation generation, observability setup, and monitoring | API security hardening, authentication implementation, authorization patterns, rate limiting, and input validation | Backend API design, GraphQL architecture, workflow orchestration with Temporal, and test-driven backend development | Comprehensive C4 architecture documentation workflow with bottom-up code analysis, component synthesis, container mapping, and context diagram generation | Database query optimization, cloud cost optimization, and scalability improvements | Database architecture, schema design, and SQL optimization for production systems | Database migration automation, observability, and cross-database migration strategies | End-to-end feature orchestration with testing, security, performance, and deployment",
+  "owner": "RStack developed by Richardson Gunde",
+  "author": {
+    "name": "Seth Hobson",
+    "email": "seth@major7apps.com"
+  },
+  "license": "MIT",
+  "agents": [
+    "api-scaffolding/agents",
+    "api-testing-observability/agents",
+    "backend-api-security/agents",
+    "backend-development/agents",
+    "c4-architecture/agents",
+    "database-cloud-optimization/agents",
+    "database-design/agents",
+    "database-migrations/agents",
+    "full-stack-orchestration/agents"
+  ],
+  "commands": [
+    "api-testing-observability/commands",
+    "backend-development/commands",
+    "c4-architecture/commands",
+    "database-cloud-optimization/commands",
+    "database-migrations/commands",
+    "full-stack-orchestration/commands"
+  ],
+  "skills": [
+    "api-scaffolding/skills",
+    "backend-development/skills",
+    "database-design/skills"
+  ]
+}

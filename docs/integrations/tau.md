@@ -29,7 +29,15 @@ override built-ins while loaded, restored on unload/reload) — and runs
 `rstack-agents guard` inside each shadow's `execute()` before delegating to
 the real tool. Loading the extension is still the only wiring step; a guard
 exit 2 blocks the call with the guard's reason before the real tool ever
-runs. Fails open only when `npx` itself is missing on the host.
+runs.
+
+If the guard cannot run at all — a crash, a timeout, or a cold `npx --yes`
+that can't reach the registry — it **fails closed** (blocks) by default so
+an install hiccup never silently disables enforcement (#371); set
+`RSTACK_GUARD_FAIL_OPEN=1` to allow-on-unavailable instead. The adapter
+prefers a locally-resolved `rstack-agents` binary (checked in the calling
+project's own `node_modules/.bin`) over `npx --yes`, so enforcement doesn't
+depend on the network; `rstack-agents doctor` reports which path resolves.
 
 **Opt-in quality gates.** Set the `quality_gates` extension setting (a comma
 string or list of `plan-gate`/`tdd-gate`/`scope-guard`) — or the

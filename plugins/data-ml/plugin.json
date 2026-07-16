@@ -1,0 +1,30 @@
+{
+  "name": "data-ml",
+  "description": "RStack data-ml plugin pack — combines: Smart contract development with Solidity, DeFi protocol implementation, NFT platforms, and Web3 application architecture | ETL pipeline construction, data warehouse design, batch processing workflows, and data-driven feature development | Schema validation, data quality monitoring, streaming validation pipelines, and input validation for backend APIs | LLM application development with LangGraph, RAG systems, vector search, and AI agent architectures for Claude 4.6 and GPT-5.2 | ML model training pipelines, hyperparameter tuning, model deployment automation, experiment tracking, and MLOps workflows | Quantitative analysis, algorithmic trading strategies, financial modeling, portfolio risk management, and backtesting",
+  "owner": "RStack developed by Richardson Gunde",
+  "author": {
+    "name": "Seth Hobson",
+    "email": "seth@major7apps.com"
+  },
+  "license": "MIT",
+  "agents": [
+    "blockchain-web3/agents",
+    "data-engineering/agents",
+    "data-validation-suite/agents",
+    "llm-application-dev/agents",
+    "machine-learning-ops/agents",
+    "quantitative-trading/agents"
+  ],
+  "commands": [
+    "data-engineering/commands",
+    "llm-application-dev/commands",
+    "machine-learning-ops/commands"
+  ],
+  "skills": [
+    "blockchain-web3/skills",
+    "data-engineering/skills",
+    "llm-application-dev/skills",
+    "machine-learning-ops/skills",
+    "quantitative-trading/skills"
+  ]
+}

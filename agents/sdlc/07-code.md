@@ -45,7 +45,7 @@ Stage 7 of 15. Prior stages have already consumed significant context. Apply the
 Load these skills via their trigger phrases — do not read them with bash:
 - If debugging why generated code fails to start: invoke the `investigate` skill
 - Before any file deletion or destructive overwrite: invoke the `careful` skill
-- For backend API patterns and domain architecture: load `plugins/backend-development/`
+- For backend API patterns and domain architecture: load `plugins/backend/backend-development/`
 
 ## Context Recovery
 

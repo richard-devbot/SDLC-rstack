@@ -20,7 +20,7 @@ import { registerProject } from '../core/tracker/registry.js';
 import { budgetPolicyForProfile, profileConfig } from '../core/profiles.js';
 import { packsForProfile } from '../core/packs.js';
 
-export const FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'tau', 'custom']);
+export const FRAMEWORKS = Object.freeze(['pi', 'claude-code', 'operator', 'tau', 'hermes', 'custom']);
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -30,6 +30,7 @@ export const BOOTSTRAP_BY_FRAMEWORK = Object.freeze({
   pi: ['SOUL.md', 'HEARTBEAT.md'],
   operator: ['SOUL.md', 'HEARTBEAT.md'],
   tau: ['SOUL.md', 'HEARTBEAT.md'],
+  hermes: ['SOUL.md', 'HEARTBEAT.md'],
   custom: ['AGENTS.md', 'SOUL.md', 'HEARTBEAT.md'],
 });
 
@@ -39,6 +40,7 @@ export async function detectFramework(projectRoot) {
   if (existsSync(join(root, '.claude'))) return 'claude-code';
   if (existsSync(join(root, 'operator.json')) || existsSync(join(root, 'operator_settings.json'))) return 'operator';
   if (existsSync(join(root, 'tau.json')) || existsSync(join(root, 'tau_settings.json')) || existsSync(join(root, '.tau'))) return 'tau';
+  if (existsSync(join(root, '.hermes')) || existsSync(join(root, 'cli-config.yaml')) || existsSync(join(root, 'hermes.json'))) return 'hermes';
   const pkgPath = join(root, 'package.json');
   if (existsSync(pkgPath)) {
     try {
@@ -222,8 +224,8 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
       report.nextSteps.push('Your .claude/settings.json already exists — RStack never edits it. Merge from .claude/rstack-hooks.json: the top-level `statusLine` key draws the RStack status bar via `rstack-agents statusline`, SessionStart opens the Business Hub and injects RStack context, UserPromptSubmit injects context via `rstack-agents context`, PreToolUse enforces the destructive gate + validator sandbox via `rstack-agents guard`, PostToolUse/PostToolUseFailure/SubagentStart/SubagentStop/PreCompact/Stop/SessionEnd feed the dashboard via `rstack-agents observe`, and Notification routes to your channels via `rstack-agents notify-hook` (all best-effort, only the guard ever blocks).');
     }
     report.nextSteps.push(
-      'Install the Claude Code plugin: /plugin install sdlc-automation (or add the marketplace repo)',
-      'Run /sdlc-start in Claude Code to drive the full pipeline',
+      'Install the Claude Code plugin: /plugin marketplace add richard-devbot/SDLC-rstack, then /plugin install sdlc-rstack',
+      'Run /sdlc-start "<goal>" in Claude Code to begin a governed run — see .claude/rstack-sdlc.md for the full command list',
       'The Business Hub auto-opens each session (SessionStart hook) — or run: npx rstack-agents hub',
       'Context: the SessionStart + UserPromptSubmit hooks inject an RStack packet (active run + stage + blockers + orchestrator pointer) via `rstack-agents context` — no-op when there is no active run, never blocks.',
       'Enforcement: the PreToolUse hook routes Bash/Write/Edit through `rstack-agents guard` — destructive actions block until a destructive-action:<taskId> approval exists (docs/integrations/claude-code.md).',
@@ -286,6 +288,25 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
       'Requirements on this host: node + npx on PATH, npm install run once in the package directory',
       'Enforcement: loading the extension IS the wiring — the adapter routes Tau\'s terminal/write/edit tools through `rstack-agents guard` on the tool_call hook (destructive gate + validator sandbox, exit 2 = block).',
       'Quality gates (opt-in, #256): set the `quality_gates` setting (e.g. "plan,tdd,scope") or RSTACK_TAU_GATES to run the presets on write/edit after guard. OFF by default. tdd-gate blocks production edits with no test — override with RSTACK_ALLOW_NO_TESTS=1. See docs/integrations/quality-gates.md.',
+      'Open the dashboard: npx rstack-business',
+    );
+  }
+
+  if (fw === 'hermes') {
+    // Hermes loads plugin DIRECTORIES from ~/.hermes/plugins/ (its own
+    // convention for third-party integrations). The shipped adapter is the
+    // plugin's register(ctx) module; symlink (or copy) it in as __init__.py.
+    const adapterPath = packageRoot
+      ? join(packageRoot, 'src', 'integrations', 'hermes', 'rstack_sdlc.py')
+      : 'node_modules/rstack-agents/src/integrations/hermes/rstack_sdlc.py';
+    report.nextSteps.push(
+      'Install the package: npm install rstack-agents (the Python plugin shells out to its Node bridge)',
+      'Install the RStack plugin into Hermes (its own convention for third-party integrations):',
+      '  mkdir -p ~/.hermes/plugins/rstack-sdlc',
+      `  ln -s "$(pwd)/${adapterPath}" ~/.hermes/plugins/rstack-sdlc/__init__.py`,
+      'Requirements on this host: node + npx on PATH, npm install run once in the package directory',
+      'Enforcement: loading the plugin IS the wiring — register() routes Hermes\' terminal/write/edit tools through `rstack-agents guard` on the pre_tool_call hook, returning a {"decision":"block"} that Hermes honors (destructive gate + validator sandbox). Fails closed on a guard-unavailable unless RSTACK_GUARD_FAIL_OPEN=1 (#371).',
+      'Observability: the post_tool_call hook feeds `rstack-agents observe` and on_session_start opens the Business Hub — both best-effort, never blocking.',
       'Open the dashboard: npx rstack-business',
     );
   }
@@ -427,12 +448,30 @@ const CLAUDE_CODE_DOC = `# RStack SDLC — Claude Code integration
 
 This project uses RStack for governed SDLC runs. State lives in \`.rstack/\`.
 
-## Commands (via the sdlc-automation plugin)
+## Commands (via the sdlc-rstack plugin)
 
-- \`/sdlc-start\` — start the full pipeline (interactive)
-- \`/sdlc-status\` — which agents completed, which are pending
-- \`/sdlc-resume\` — resume from a specific agent
-- \`/sdlc-agent <name>\` — run one SDLC agent in isolation
+Install once: \`/plugin marketplace add richard-devbot/SDLC-rstack\` then
+\`/plugin install sdlc-rstack\`. Every command drives the matching \`sdlc_*\`
+tool through the bridge — full list in \`plugins/sdlc-rstack/commands/\`.
+
+- \`/sdlc-start <goal>\` — begin a governed run under \`.rstack/runs/<id>/\`
+- \`/sdlc-clarify\` — capture product-owner answers before planning
+- \`/sdlc-plan\` — build the stage/task graph
+- \`/sdlc-spec <artifact>\` — read/update a stage artifact
+- \`/sdlc-dor-check\` — Definition-of-Ready gate
+- \`/sdlc-build-next\` — claim + prepare the next builder task
+- \`/sdlc-validate\` — read-only validation report
+- \`/sdlc-approve <artifact> <APPROVED|REJECTED>\` — record a human approval
+- \`/sdlc-decisions\` / \`/sdlc-decide\` — list/add, resolve/waive Decision Queue items
+- \`/sdlc-delegate <agent> <task>\` — spawn an agent as an isolated worker
+- \`/sdlc-status\` — run status, task progress, next recommended action
+- \`/sdlc-agents\` — list package/project agents/skills by domain
+- \`/sdlc-memory\` — search/append episodic project learnings
+- \`/sdlc-rollback <stage-id>\` — restore a stage to its last checkpoint
+- \`/sdlc-trace\` — trace tool calls/results for a task
+- \`/sdlc-dashboard\` — generate a static run dashboard
+- \`/sdlc-resume\` — resume an interrupted run (CLI \`pipeline run\`, not a tool)
+- \`/sdlc-orchestrate\` — load the orchestrator/builder/validator packet
 
 ## Enforcement
 

@@ -48,8 +48,10 @@
     "agents/",
     "skills/",
     "prompts/",
+    ".claude-plugin/",
     "plugins/",
     "packs/",
+    "packaging/",
     "docs/public/",
     "docs/HARNESS.md",
     "docs/quick-start-guide.md",
@@ -63,7 +65,8 @@
     "research/",
     "rfcs/",
     "operator.json",
-    "README.md"
+    "README.md",
+    "THIRD-PARTY-NOTICES.md"
   ],
   "pi": {
     "extensions": [
@@ -89,6 +92,7 @@
     "fs-extra": "^11.2.0",
     "ora": "^8.0.1",
     "playwright-core": "^1.61.1",
+    "three": "0.185.1",
     "tsx": "^4.19.0",
     "typebox": "^1.1.38"
   },

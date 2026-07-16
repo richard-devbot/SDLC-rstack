@@ -82,11 +82,14 @@ Details: [Pi adapter](/adapters/pi).
     `.claude/settings.json`, RStack leaves a mergeable snippet instead of
     overwriting it.
   </Step>
-  <Step title="Install the plugin (optional, adds slash commands)">
+  <Step title="Install the plugin (adds the /sdlc-* commands)">
     ```text
-    /plugin install sdlc-automation
+    /plugin marketplace add richard-devbot/SDLC-rstack
+    /plugin install sdlc-rstack
     ```
-    Then drive the pipeline with `/sdlc-start`, `/sdlc-status`, `/sdlc-resume`.
+    Then drive the pipeline with `/sdlc-start "<goal>"`, `/sdlc-plan`,
+    `/sdlc-build-next`, `/sdlc-validate`, `/sdlc-approve`, `/sdlc-status`,
+    `/sdlc-resume` — full list in `plugins/sdlc-rstack/commands/`.
   </Step>
 </Steps>
 

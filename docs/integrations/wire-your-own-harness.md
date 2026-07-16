@@ -54,8 +54,11 @@ THE GUARD CONTRACT
   {"decision":"allow"|"block","category":...,"reason":...,"context":...,"tool":...}
 - Exit code 0 = allow the tool call. Exit code 2 = BLOCK the tool call and
   feed the guard's stderr text back to the model as the reason, so it can
-  request an approval instead of retrying blindly. Treat any other exit code
-  as allow (the guard itself never exits non-0/2 by design).
+  request an approval instead of retrying blindly. Any OTHER outcome — a
+  non-0/2 exit, a timeout, a spawn failure, or unparseable stdout — means the
+  guard could not decide; do NOT treat it as allow. Fail closed (block) unless
+  `RSTACK_GUARD_FAIL_OPEN=1` is set — see step 5 for the full guard-unavailable
+  policy (#371).
 
 WHAT TO WIRE
 
@@ -80,6 +83,14 @@ WHAT TO WIRE
      human emergency override for the builder gate.
 4. On block (exit 2): cancel the tool call, surface the stderr reason to the
    model/user verbatim. Do NOT auto-retry the same command.
+5. Fail CLOSED on guard-UNAVAILABLE (#371): treat ONLY exit 0 as allow and exit
+   2 as block. Any other exit (crash / module-load error / a cold `npx --yes`
+   that can't reach the registry), a timeout, or a spawn failure means the guard
+   could not decide — block it (or warn loudly and record), never silently
+   allow. `RSTACK_GUARD_FAIL_OPEN=1` opts back into allow-on-unavailable. Bound
+   each call with a timeout (`RSTACK_GUARD_TIMEOUT_MS`, default 15s), and prefer
+   a resolved `rstack-agents` binary over `npx --yes` so enforcement doesn't
+   depend on the network. `rstack-agents doctor` reports which path resolves.
 
 VERIFY YOUR WIRING (run these through the wired hook path, not manually)
 

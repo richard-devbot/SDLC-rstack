@@ -122,7 +122,9 @@ export function etagFor(payload) {
 
 // State builders restamp evaluation timestamps ("now") on every rebuild — the
 // top-level `ts`, each alert's `ts`, the decision-readiness `generated_at`, and
-// any future per-page stamp. They also emit dashboard-internal telemetry about
+// any future per-page stamp. Freshness projections also carry a continuously
+// increasing `age_ms`; its discrete state remains hashable, but the raw age is
+// evaluation-time data. They also emit dashboard-internal telemetry about
 // HOW the snapshot was assembled (rollup-index age and cold/warm parse
 // counters) that flips as the index warms but says nothing about the run data
 // itself. Hashing any of these would make every poll a fresh ETag and 304s
@@ -137,7 +139,7 @@ export function etagFor(payload) {
 // ETag, exactly the failure mode this strip exists to prevent. Records whose
 // updatedAt moves for a real reason (an approval resolving) always move a
 // status alongside it, so the strip stays cache-correct.
-const VOLATILE_KEY = /^(ts|generated_at|generatedAt|evaluated_at|evaluatedAt|computed_at|computedAt|loadedAt|updatedAt|updated_at|freshnessMs|fullyParsedRuns|indexServedRuns)$/;
+const VOLATILE_KEY = /^(ts|generated_at|generatedAt|evaluated_at|evaluatedAt|computed_at|computedAt|loadedAt|updatedAt|updated_at|age_ms|ageMs|freshnessMs|fullyParsedRuns|indexServedRuns)$/;
 
 export function stableStringify(value) {
   return JSON.stringify(stripVolatileKeys(value));

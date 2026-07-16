@@ -282,7 +282,7 @@ Root manifest entries:
 {
   "name": "backend-development",
   "kind": "plugin",
-  "path": "plugins/backend-development/plugin.json",
+  "path": "plugins/backend/backend-development/plugin.json",
   "domains": ["backend", "api"],
   "owner": "RStack developed by Richardson Gunde",
   "description": "Backend API design and implementation bundle"

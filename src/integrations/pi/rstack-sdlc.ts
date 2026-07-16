@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { createConnection } from "node:net";
 import { existsSync, openSync, readFileSync } from "node:fs";
@@ -10,6 +11,8 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { CANONICAL_SDLC_STAGES, getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
+import { MISSION_STAGE_IDS } from "../../core/harness/missions.js";
+import { agentLifecycleEvent } from "../../core/harness/agent-lifecycle.js";
 import { validateBuilderContract, validateBuilderCompleteness } from "../../core/harness/contracts.js";
 import { validateStageGoalEvaluation } from "../../core/harness/goal-check.js";
 // #237: environment_report.json shape check — best-effort WARN at stage-00
@@ -19,7 +22,7 @@ import { taskStageIds, writePipelineState } from "../../core/harness/pipeline-st
 import { MANIFEST_SCHEMA_VERSION, migrateManifest } from "../../core/harness/migrations.js";
 import { appendEvidenceEvent } from "../../core/harness/evidence.js";
 import { DEFAULT_HARNESS_GUARDRAILS, guardrailSummary, loadProjectGuardrails, evaluateTaskClaim, evaluateBuilderTelemetry, guardrailEvent, guardrailOverrideArtifact, isDestructiveTask } from "../../core/harness/guardrails.js";
-import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedApprovedArtifacts } from "../../core/harness/approval-audit.js";
+import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedApprovedArtifacts, signApprovalRecord } from "../../core/harness/approval-audit.js";
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
 import { classifyDestructiveAction, requireApprovalForDestructiveAction, destructiveApprovalArtifact } from "../../core/harness/destructive-actions.js";
 import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate, builderContractKey } from "../../core/harness/telemetry.js";
@@ -225,6 +228,9 @@ type ApprovalRecord = {
   // activating the #133 cross-run replay check. Optional because legacy
   // records predate the stamp (the audit grandfathers them).
   run_id?: string;
+  // Provenance (#369): HMAC over the load-bearing fields, present only when
+  // RSTACK_APPROVAL_SIGNING_KEY is configured (unsigned mode omits it).
+  sig?: string;
 };
 
 type LifecycleStage = {
@@ -247,7 +253,7 @@ const lifecycleStages: LifecycleStage[] = [
     description: "Confirm target users, business outcome, must-have behavior, non-goals, risks, and open decisions.",
     acceptanceCriteria: ["User goal is restated in concrete product terms", "Open questions are resolved or explicitly marked NEEDS_CONTEXT", "Non-goals and release boundaries are listed"],
     validationChecks: ["Product brief exists", "Ambiguities are not silently guessed", "Recommended option is provided for each unresolved decision"],
-    stageIds: ["00-environment", "01-transcript"],
+    stageIds: [...MISSION_STAGE_IDS["001-product-clarification"]],
   },
   {
     id: "002-requirements",
@@ -257,7 +263,7 @@ const lifecycleStages: LifecycleStage[] = [
     description: "Convert the clarified goal into testable functional requirements, non-functional requirements, user stories, and out-of-scope items.",
     acceptanceCriteria: ["Every requirement has observable acceptance criteria", "NFRs use measurable targets where possible", "Out-of-scope items are explicit"],
     validationChecks: ["No vague requirements like fast/easy/secure without measurable criteria", "Acceptance criteria can be tested by QA", "Requirements map to the original goal"],
-    stageIds: ["02-requirements", "04-planning", "05-jira"],
+    stageIds: [...MISSION_STAGE_IDS["002-requirements"]],
   },
   {
     id: "003-architecture",
@@ -267,7 +273,7 @@ const lifecycleStages: LifecycleStage[] = [
     description: "Design the system, data flow, interfaces, storage, security boundaries, deployment shape, and trade-offs.",
     acceptanceCriteria: ["Architecture maps to requirements", "Key trade-offs and failure modes are documented", "Security and data boundaries are identified"],
     validationChecks: ["No unexplained tech stack choices", "Interfaces and data models are clear enough to build", "Threat-sensitive areas are flagged"],
-    stageIds: ["06-architecture", "12-security-threat-model", "14-cost-estimation"],
+    stageIds: [...MISSION_STAGE_IDS["003-architecture"]],
   },
   {
     id: "004-implementation",
@@ -277,7 +283,7 @@ const lifecycleStages: LifecycleStage[] = [
     description: "Build scoped, working code that follows the architecture and existing project conventions.",
     acceptanceCriteria: ["Required behavior is implemented without placeholder TODO stubs", "Files changed stay within scope", "Relevant local verification command is run or blocked with reason"],
     validationChecks: ["Code starts or compiles when applicable", "Error handling exists for expected failure paths", "No unrelated refactors or broad rewrites"],
-    stageIds: ["07-code"],
+    stageIds: [...MISSION_STAGE_IDS["004-implementation"]],
   },
   {
     id: "005-testing",
@@ -287,7 +293,7 @@ const lifecycleStages: LifecycleStage[] = [
     description: "Create or run unit, integration, browser, and regression checks appropriate to the project.",
     acceptanceCriteria: ["Critical acceptance criteria have tests or manual verification steps", "Test command output is captured", "Known coverage gaps are listed"],
     validationChecks: ["Tests actually ran or blockers are explicit", "Failures include root-cause direction", "No false pass when tests were skipped"],
-    stageIds: ["08-testing"],
+    stageIds: [...MISSION_STAGE_IDS["005-testing"]],
   },
   {
     id: "006-security-review",
@@ -297,7 +303,7 @@ const lifecycleStages: LifecycleStage[] = [
     description: "Review auth, secrets, input validation, permissions, PII, dependency, and deployment risks.",
     acceptanceCriteria: ["Security-sensitive surfaces are enumerated", "Critical and high risks have mitigation or block recommendation", "Secrets and destructive operations are checked"],
     validationChecks: ["OWASP-style risks considered", "No secrets are introduced", "Auth/payment/PII changes get conservative review"],
-    stageIds: ["12-security-threat-model", "13-compliance-checker"],
+    stageIds: [...MISSION_STAGE_IDS["006-security-review"]],
   },
   {
     id: "007-documentation",
@@ -307,7 +313,7 @@ const lifecycleStages: LifecycleStage[] = [
     description: "Update user, developer, release, and operations documentation needed to maintain the work.",
     acceptanceCriteria: ["Setup and run instructions are current", "Changed behavior is documented", "Known limitations and next steps are listed"],
     validationChecks: ["Docs match implemented behavior", "No stale commands are introduced", "Handoff is useful to a new maintainer"],
-    stageIds: ["03-documentation", "10-summary"],
+    stageIds: [...MISSION_STAGE_IDS["007-documentation"]],
   },
   {
     id: "008-release-readiness",
@@ -317,7 +323,7 @@ const lifecycleStages: LifecycleStage[] = [
     description: "Verify package boundaries, tests, docs, versioning, git status, and release blockers before shipping.",
     acceptanceCriteria: ["All previous required tasks are PASS or explicitly accepted with concerns", "Release blockers are listed", "Next release or PR action is clear"],
     validationChecks: ["Package excludes private files", "Tests pass", "No unreviewed destructive or deployment step is implied"],
-    stageIds: ["09-deployment", "10-summary", "11-feedback-loop"],
+    stageIds: [...MISSION_STAGE_IDS["008-release-readiness"]],
   },
 ];
 
@@ -1095,12 +1101,14 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
   const runId = sessionRun(projectRoot);
   let attempts = 1;
   let model = process.env.RSTACK_DEFAULT_MODEL || "gemini-2.5-flash";
+  let activeTask: any = null;
   if (runId) {
     const runDir = join(runsDir(projectRoot), runId);
     let activeTaskId: string | null = null;
     try {
       const taskState = JSON.parse(await readFile(join(runDir, "tasks.json"), "utf8"));
-      activeTaskId = (taskState.tasks || []).find((t: any) => t.status === "IN_PROGRESS")?.id ?? null;
+      activeTask = (taskState.tasks || []).find((t: any) => t.status === "IN_PROGRESS") ?? null;
+      activeTaskId = activeTask?.id ?? null;
     } catch { /* no/unreadable tasks.json → no active task → no escalation */ }
     if (activeTaskId) {
       const events = await readJsonl(join(runDir, "events.jsonl"));
@@ -1132,10 +1140,43 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
     childEnv[VALIDATOR_CONTEXT_ENV] = "1";
     if (runId) childEnv[VALIDATOR_RUN_ID_ENV] = runId;
   }
+  const lifecycleBase = {
+    run_id: runId,
+    task_id: activeTask?.id ?? null,
+    stage_ids: taskStageIds(activeTask ?? {}),
+    delegation_id: `delegation-${randomUUID()}`,
+    agent_session_id: `session-${randomUUID()}`,
+    agent_id: agent.id,
+    role: validatorRole ? "validator" : "builder",
+    harness: "pi",
+    model,
+    sandbox_id: task.cwd || projectRoot,
+    specialist_ids: activeTask?.specialists ?? [],
+    skill_ids: [],
+    plugin_ids: [],
+    source: "sdlc_delegate",
+  };
+  const emitLifecycle = async (type: string, fields: Record<string, unknown> = {}) => {
+    if (!runId) return;
+    await appendEvent(projectRoot, runId, agentLifecycleEvent(type, { ...lifecycleBase, ...fields }));
+  };
+
+  await emitLifecycle("delegation_requested", { status: "requested" });
   const messages: any[] = [];
   let stderr = "";
-  const code = await new Promise<number>((resolveCode) => {
-    const proc = spawn(invocation.command, invocation.args, { cwd: task.cwd || projectRoot, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
+  let proc;
+  try {
+    proc = spawn(invocation.command, invocation.args, { cwd: task.cwd || projectRoot, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
+  } catch (error) {
+    stderr = String((error as any)?.message ?? error);
+    await emitLifecycle("agent_session_failed", { status: "spawn_failed", reason_class: "spawn_error" });
+    await emitLifecycle("agent_session_stopped", { status: "stopped", reason_class: "spawn_error" });
+    return { agent: agent.name, agent_id: agent.id, path: agent.path, tools, validator_sandbox: validatorRole, task: task.task, exit_code: 1, output: "", stderr, messages };
+  }
+  // Attach process listeners before lifecycle writes. A very fast worker can
+  // exit while those asynchronous writes are pending; close events are not
+  // replayed to listeners attached afterwards.
+  const processCompletion = new Promise<number>((resolveCode) => {
     let buffer = "";
     const processLine = (line: string) => {
       if (!line.trim()) return;
@@ -1159,6 +1200,23 @@ async function runDelegateAgent(projectRoot: string, registry: RegistryItem[], t
       if (signal.aborted) abort();
       else signal.addEventListener("abort", abort, { once: true });
     }
+  });
+  await emitLifecycle("agent_session_started", { status: "starting" });
+  await emitLifecycle("agent_session_ready", { status: "active" });
+  await emitLifecycle("agent_capabilities_attached", { status: "attached" });
+
+  const code = await processCompletion;
+  if (code === 0 && !signal?.aborted) {
+    await emitLifecycle("agent_session_completed", { status: "completed" });
+  } else {
+    await emitLifecycle("agent_session_failed", {
+      status: signal?.aborted ? "aborted" : "failed",
+      reason_class: signal?.aborted ? "aborted" : "nonzero_exit",
+    });
+  }
+  await emitLifecycle("agent_session_stopped", {
+    status: "stopped",
+    reason_class: signal?.aborted ? "aborted" : "cleanup",
   });
   return { agent: agent.name, agent_id: agent.id, path: agent.path, tools, validator_sandbox: validatorRole, task: task.task, exit_code: code, output: finalAssistantText(messages), stderr, messages };
 }
@@ -1417,7 +1475,10 @@ export default function (pi: ExtensionAPI) {
             approvals = JSON.parse(await readFile(path, "utf8"));
           } catch {}
         }
-        const next: ApprovalRecord = {
+        // Provenance (#369): sign the record so it satisfies the audit's
+        // signature check when RSTACK_APPROVAL_SIGNING_KEY is set; a no-key
+        // host gets the record unchanged (unsigned mode, legacy behavior).
+        const next: ApprovalRecord = signApprovalRecord({
           id: `app-${timestamp().replace(/[:.]/g, "-")}`,
           artifact: params.artifact,
           status: params.status,
@@ -1426,7 +1487,7 @@ export default function (pi: ExtensionAPI) {
           comments: params.comments,
           // Run binding (#298): the stamp the #133 replay audit compares.
           run_id: manifest.run_id,
-        };
+        });
         approvals.push(next);
         await writeJsonAtomic(path, approvals);
         return next;

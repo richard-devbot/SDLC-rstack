@@ -307,7 +307,16 @@ test('init framework detection and setup', async (t) => {
   });
 
   await t.test('FRAMEWORKS list is the published contract', () => {
-    assert.deepEqual([...FRAMEWORKS], ['pi', 'claude-code', 'operator', 'tau', 'custom']);
+    assert.deepEqual([...FRAMEWORKS], ['pi', 'claude-code', 'operator', 'tau', 'hermes', 'custom']);
+  });
+
+  await t.test('init --framework hermes scaffolds plugin-install guidance', async () => {
+    const root = tmpProject('rstack-init-hermes-');
+    const report = await initFramework(root, 'hermes', { packageRoot: root });
+    assert.equal(report.framework, 'hermes');
+    assert.ok(report.nextSteps.some((step) => step.includes('~/.hermes/plugins/')), 'guidance explains the Hermes plugin install path');
+    assert.ok(report.nextSteps.some((step) => step.includes('pre_tool_call')), 'guidance explains the guard wiring on pre_tool_call');
+    rmSync(root, { recursive: true, force: true });
   });
 
   await t.test('init with lean-mvp profile writes correct profile and budget files', async () => {

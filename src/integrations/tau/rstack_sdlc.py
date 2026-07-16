@@ -114,6 +114,8 @@ import asyncio
 import json
 import os
 import shutil
+import sys
+from pathlib import Path
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -442,25 +444,102 @@ class _BridgeTool(Tool):
         return await _run_bridge(self.name, params, cwd, invocation.id, self._config_env)
 
 
+def _guard_fail_open() -> bool:
+    """#371: fail CLOSED by default when the guard cannot RUN; opt back into the
+    legacy fail-OPEN with RSTACK_GUARD_FAIL_OPEN=1. Mirrors the JS guard policy
+    (src/commands/guard.js guardFailOpen) so enforcement behaves the same way on
+    every harness."""
+    return os.environ.get("RSTACK_GUARD_FAIL_OPEN") == "1"
+
+
+def _guard_timeout_s() -> float:
+    """Hard bound on a single guard invocation (RSTACK_GUARD_TIMEOUT_MS, default
+    15s) so a hung `npx`/guard process can never stall a Tau tool call."""
+    try:
+        return max(1.0, float(os.environ.get("RSTACK_GUARD_TIMEOUT_MS", "15000")) / 1000.0)
+    except (TypeError, ValueError):
+        return 15.0
+
+
+def _resolve_guard_argv(cwd: str) -> tuple[Optional[list[str]], bool]:
+    """Resolve how to invoke `rstack-agents`, PREFERRING a locally-installed
+    binary (no network) over `npx --yes` (which may hit the registry on a cold
+    cache). Returns (argv_prefix, needs_network); (None, False) means the guard
+    cannot be invoked at all. (#371)
+
+    Only checks `cwd` (the calling project), not a package-tree-relative
+    path — this adapter has no fixed install location of its own (see the
+    module docstring), so there is no second directory to check beyond the
+    project the guard is actually being run against.
+    """
+    binary = "rstack-agents.cmd" if os.name == "nt" else "rstack-agents"
+    candidate = Path(cwd) / "node_modules" / ".bin" / binary
+    if candidate.is_file():
+        return ([str(candidate)], False)
+    on_path = shutil.which("rstack-agents")
+    if on_path:
+        return ([on_path], False)
+    npx = shutil.which("npx")
+    if npx:
+        return ([npx, "--yes", "rstack-agents"], True)
+    return (None, False)
+
+
+def _guard_unavailable(detail: str) -> tuple[bool, str]:
+    """Verdict when the guard COULD NOT RUN (spawn failure, timeout, crash, or a
+    cold-npx registry miss). Fails closed by default so enforcement is never
+    silently skipped; RSTACK_GUARD_FAIL_OPEN=1 restores the legacy allow, with a
+    loud warning so the skipped enforcement is never invisible. (#371)"""
+    if _guard_fail_open():
+        print(
+            f"[rstack] WARNING: guard unavailable ({detail}); RSTACK_GUARD_FAIL_OPEN=1 — "
+            "allowing this tool call WITHOUT enforcement.",
+            file=sys.stderr,
+        )
+        return True, ""
+    return False, (
+        f"RStack guard is UNAVAILABLE ({detail}) — failing closed so enforcement is not "
+        "silently skipped. Run `rstack-agents doctor` to fix the guard, or set "
+        "RSTACK_GUARD_FAIL_OPEN=1 to allow tool calls without enforcement."
+    )
+
+
 async def _run_guard(guard_tool_name: str, tool_input: dict, cwd: str) -> tuple[bool, str]:
     """Classify one pending tool call via `rstack-agents guard`.
 
-    Fails OPEN (allows the call) only when `npx` itself is unreachable — the
-    guard binary is never reachable, so refusing to load the extension would
-    be worse than skipping enforcement for that one session. Any exit code
-    other than 2 is treated as allow, matching the documented guard contract.
+    Exit-code contract (#371): 0 = ALLOW, 2 = BLOCK. ANY other outcome — a
+    non-0/2 exit (crash, module-load error, cold-`npx` registry miss), a
+    timeout, or a spawn failure — means the guard could not decide, so it is
+    UNAVAILABLE and fails closed by default (see _guard_unavailable). This fixes
+    the old "any exit != 2 = allow" behavior, under which a partial install or an
+    offline cold cache would silently disable enforcement with no signal.
     """
-    npx = shutil.which("npx")
-    if npx is None:
-        return True, ""
+    argv_prefix, _needs_network = _resolve_guard_argv(cwd)
+    if argv_prefix is None:
+        return _guard_unavailable("no rstack-agents binary and no npx on PATH")
 
     payload = json.dumps({"tool_name": guard_tool_name, "tool_input": tool_input}).encode("utf-8")
-    proc = await asyncio.create_subprocess_exec(
-        npx, "--yes", "rstack-agents", "guard", "--context", "builder", "--project", cwd,
-        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        env=os.environ, cwd=cwd,
-    )
-    out, err = await proc.communicate(payload)
+    argv = [*argv_prefix, "guard", "--context", "builder", "--project", cwd]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            env=os.environ, cwd=cwd,
+        )
+    except OSError as exc:
+        return _guard_unavailable(f"could not spawn guard: {exc}")
+
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(payload), timeout=_guard_timeout_s())
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        return _guard_unavailable("guard timed out")
+
+    if proc.returncode == 0:
+        return True, ""
     if proc.returncode == 2:
         reason = (
             err.decode("utf-8", "replace").strip()
@@ -468,7 +547,14 @@ async def _run_guard(guard_tool_name: str, tool_input: dict, cwd: str) -> tuple[
             or "RStack guard blocked this tool call."
         )
         return False, reason
-    return True, ""
+    # Any OTHER exit code = the guard ran abnormally (crash / module-load error /
+    # cold npx registry miss). Do NOT read it as allow.
+    detail = (
+        err.decode("utf-8", "replace").strip()
+        or out.decode("utf-8", "replace").strip()
+        or f"exit {proc.returncode}"
+    )
+    return _guard_unavailable(detail)
 
 
 async def _run_gate(gate_name: str, guard_tool_name: str, tool_input: dict, cwd: str) -> tuple[bool, str]:

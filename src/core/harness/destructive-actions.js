@@ -32,6 +32,8 @@ export const DESTRUCTIVE_CATEGORIES = Object.freeze({
   SECRET_WRITE: 'secret-write',
   PROTECTED_CONFIG_WRITE: 'protected-config-write',
   DB_DESTROY: 'db-destroy',
+  REMOTE_EXEC: 'remote-exec',
+  PERM_DESTROY: 'perm-destroy',
 });
 
 // Command classification rules, evaluated in order; first match wins. Each
@@ -45,6 +47,17 @@ const COMMAND_RULES = Object.freeze([
     // --force / --force-with-lease / -f on push, and history-destroying resets.
     pattern: /\bgit\s+push\b[^|;&]*(--force\b|--force-with-lease\b|\s-f\b)|\bgit\s+reset\s+--hard\b|\bgit\s+push\b[^|;&]*\+/i,
     reason: 'git force-push or hard reset can overwrite remote or local history',
+  }),
+  Object.freeze({
+    category: DESTRUCTIVE_CATEGORIES.GIT_FORCE,
+    // Working-tree destruction siblings of `reset --hard` (#370): `git checkout`
+    // with `--`/a `.` pathspec/`-f` discards uncommitted changes (but a branch
+    // op like `checkout -b`/`checkout main` does not); `git restore` discards
+    // the worktree unless it is `--staged`-only; `git clean -f` deletes
+    // untracked files (incl. local .env/configs). `git clean -n`/`--dry-run` is
+    // safe. Branch switches and no-op inspections stay allowed.
+    pattern: /\bgit\s+checkout\b[^|;&]*(\s--(\s|$)|\s\.(\s|$)|\s-f\b|--force\b)|\bgit\s+restore\b(?![^|;&]*--staged)|\bgit\s+restore\b[^|;&]*(--worktree\b|\s-W\b)|\bgit\s+clean\b[^|;&]*(-[a-zA-Z]*[fF]|--force\b)/i,
+    reason: 'git command discards uncommitted or untracked work (checkout/restore/clean)',
   }),
   Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.BROAD_DELETE,
@@ -65,6 +78,15 @@ const COMMAND_RULES = Object.freeze([
     reason: 'recursive/forced delete (PowerShell/cmd form)',
   }),
   Object.freeze({
+    category: DESTRUCTIVE_CATEGORIES.PERM_DESTROY,
+    // Recursive permission/ownership change (#370): `chmod -R`, `chown -R`,
+    // `chgrp -R` can wreck an entire tree's access. A single-target
+    // `chmod 644 file` / `chmod +x script` is ordinary work and stays allowed;
+    // recursion is the escalation.
+    pattern: /\b(chmod|chown|chgrp)\b[^|;&]*(\s-{1,2}[a-zA-Z]*[Rr][a-zA-Z]*\b|\s--recursive\b)/i,
+    reason: 'recursive permission or ownership change (chmod/chown/chgrp -R)',
+  }),
+  Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.PUBLISH,
     pattern: /\b(npm|yarn|pnpm)\s+publish\b|\bnpm\s+unpublish\b|\bcargo\s+publish\b|\bgem\s+push\b|\btwine\s+upload\b|\bgh\s+release\s+(create|delete)\b/i,
     reason: 'package or release publish',
@@ -81,6 +103,15 @@ const COMMAND_RULES = Object.freeze([
     // much ordinary code (DOM `el.remove()`, list ops) and would false-positive.
     pattern: /\b(DROP\s+(TABLE|DATABASE|SCHEMA)|DELETE\s+FROM|TRUNCATE\s+(TABLE\s+)?)\b|\.dropDatabase\s*\(|\.deleteMany\s*\(|\bdropdb\b|\bmongo(sh)?\s+\S*\s*--eval\b|\bprisma\s+migrate\s+reset\b|\bsequelize\s+db:drop\b/i,
     reason: 'destructive database statement (SQL drop/delete/truncate, or ORM/CLI drop/reset)',
+  }),
+  Object.freeze({
+    category: DESTRUCTIVE_CATEGORIES.REMOTE_EXEC,
+    // Download-and-execute (#370): piping a fetched payload straight into an
+    // interpreter runs untrusted code (supply-chain / RCE). Requires the pipe
+    // into a shell/interpreter — `curl -o file url` (no pipe) is a plain
+    // download and stays allowed.
+    pattern: /\b(curl|wget|fetch)\b[^|;&]*\|\s*(sudo\s+)?(sh|bash|zsh|dash|ksh|fish|python[0-9.]*|perl|ruby|node)\b/i,
+    reason: 'pipes a downloaded payload into an interpreter (download-and-execute / RCE)',
   }),
   Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.SECRET_WRITE,
@@ -106,7 +137,16 @@ const COMMAND_RULES = Object.freeze([
 // caught regardless of leading directories.
 const SECRET_PATH_PATTERN = /(^|[/\\])(\.env(\.\S+)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|id_ecdsa|credentials?(\.\w+)?|secrets?(\.\w+)?)$|\.(pem|key|p12|pfx|keystore)$/i;
 
-const PROTECTED_CONFIG_PATTERN = /(^|[/\\])(\.git[/\\]|\.github[/\\]workflows[/\\]|Dockerfile$|docker-compose\.ya?ml$|\.rstack[/\\]|package-lock\.json$|yarn\.lock$|pnpm-lock\.ya?ml$)|\.(tf|tfvars)$/i;
+// `.rstack[/\\]` protects the ENTIRE governance-state surface (approvals.json,
+// policy.json, budget.json, rstack.config.json, session.json, validators/…) —
+// forging any of these subverts a gate. `.claude/settings*.json` and
+// `*rstack-hooks.json` are the HOST's enforcement wiring (#369): an agent that
+// rewrites the file holding its own PreToolUse guard hook disables enforcement
+// as surely as forging an approval, so those are protected on every write path
+// too. We do NOT blanket-protect `.claude/` — agents legitimately author
+// `.claude/agents/*.md`, commands, and skills; only the enforcement-bearing
+// settings + hooks files are gated.
+const PROTECTED_CONFIG_PATTERN = /(^|[/\\])(\.git[/\\]|\.github[/\\]workflows[/\\]|Dockerfile$|docker-compose\.ya?ml$|\.rstack([/\\]|$)|\.claude[/\\]settings(\.local)?\.json$|rstack-hooks\.json$|package-lock\.json$|yarn\.lock$|pnpm-lock\.ya?ml$)|\.(tf|tfvars)$/i;
 
 function notDestructive() {
   return Object.freeze({ destructive: false, category: null, reason: null, matched: null });
@@ -114,6 +154,68 @@ function notDestructive() {
 
 function verdict(category, reason, matched) {
   return Object.freeze({ destructive: true, category, reason, matched });
+}
+
+// Write-capable command verbs whose arguments name paths they create, replace,
+// move, remove, or re-permission (#369). A shell redirect (`>` / `>>`) into any
+// path is a write regardless of the verb. This is what makes classifyCommand
+// catch writes to protected/secret paths SYMMETRICALLY with the write-TOOL path
+// (classifyWritePath already gates Write/Edit): the bash path historically
+// flagged only secret redirects, so `echo forged > .rstack/runs/<id>/approvals.json`
+// — and every other .rstack/ governance file, plus the host's own guard-hook
+// config — was wide open. See the self-approval bypass (#369).
+const WRITE_COMMAND_VERBS = new Set([
+  'tee', 'cp', 'mv', 'install', 'dd', 'ln', 'rm', 'unlink', 'shred',
+  'chmod', 'chown', 'chgrp', 'truncate', 'touch',
+  // PowerShell / cmd content + item cmdlets (compared lowercased)
+  'set-content', 'add-content', 'out-file', 'tee-object', 'clear-content',
+  'remove-item', 'move-item', 'copy-item', 'new-item',
+]);
+
+function stripQuotes(token) {
+  return token.replace(/^['"]+|['"]+$/g, '');
+}
+
+// Candidate write-target tokens for one command segment (already split on shell
+// separators). Over-inclusive by design: only targets that classifyWritePath
+// flags as protected/secret change the verdict, so extracting an extra
+// non-protected token is harmless. This keeps the parser simple and avoids
+// false negatives (missing a real write matters; a spurious safe target does not).
+function writeTargetsInSegment(segment) {
+  const targets = [];
+  // Redirections: `> p`, `>> p`, `N> p`, `>| p`, glued `>p`.
+  const redirectRe = /\d*>>?\|?\s*("[^"]*"|'[^']*'|[^\s|;&<>()]+)/g;
+  let m;
+  while ((m = redirectRe.exec(segment)) !== null) targets.push(stripQuotes(m[1]));
+  const tokens = segment.trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return targets;
+  const verb = stripQuotes(tokens[0]).toLowerCase().replace(/.*[/\\]/, ''); // basename of /bin/rm etc.
+  // sed/perl only WRITE with an in-place flag (`-i`, `-pi`, `--in-place`);
+  // without it they read to stdout, so a bare `sed 's/x/y/' file` is not a write.
+  const inPlaceEditor = (verb === 'sed' || verb === 'perl') && /(^|\s)-\w*i\b|--in-place\b/.test(segment);
+  if (WRITE_COMMAND_VERBS.has(verb) || inPlaceEditor) {
+    for (const raw of tokens.slice(1)) {
+      const tok = stripQuotes(raw);
+      if (!tok || tok.startsWith('-')) continue; // skip flags
+      const kv = /^of=(.+)$/i.exec(tok) || /^--?path[:=](.+)$/i.exec(tok); // dd of=… / -Path:…
+      targets.push(kv ? kv[1] : tok);
+    }
+  }
+  return targets;
+}
+
+// A write/move/remove/chmod/redirect whose target lands on a protected
+// governance path or a secret — the command-side mirror of classifyWritePath.
+function classifyProtectedWrite(command) {
+  for (const segment of command.split(/\|\||&&|[|;&\n]/)) {
+    for (const target of writeTargetsInSegment(segment)) {
+      const v = classifyWritePath(target);
+      if (v.destructive) {
+        return verdict(v.category, `command writes to a protected or secret path (${target}): ${v.reason}`, v.category);
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -127,6 +229,12 @@ export function classifyCommand(command) {
   for (const rule of COMMAND_RULES) {
     if (rule.pattern.test(command)) return verdict(rule.category, rule.reason, rule.category);
   }
+  // Symmetry with the write-TOOL path (#369): a write/move/remove/chmod or a
+  // redirect targeting a protected governance path (all of .rstack/, the host
+  // guard-hook config) or a secret is destructive even when no COMMAND_RULE
+  // named it. Runs after the explicit rules so their precise reasons win.
+  const protectedWrite = classifyProtectedWrite(command);
+  if (protectedWrite) return protectedWrite;
   return notDestructive();
 }
 
@@ -187,11 +295,6 @@ export function classifyDestructiveAction(arg) {
     return classifyCommand(input.command);
   }
 
-  const WRITE_TOOLS = new Set([
-    'write', 'edit', 'multiedit', 'notebookedit', 'applypatch',
-    'strreplace', 'strreplaceeditor', 'createfile', 'deletefile',
-    'movefile', 'renamefile',
-  ]);
   if (WRITE_TOOLS.has(tool)) {
     // notebook_path is NotebookEdit's target parameter — without it the tool
     // name matches but the classifier sees an empty path (#286).
@@ -200,6 +303,44 @@ export function classifyDestructiveAction(arg) {
   }
 
   return notDestructive();
+}
+
+// Workspace-writing tool names, canonicalized (lowercase + separators stripped,
+// so Claude Code PascalCase "MultiEdit" and Pi snake_case "multi_edit" both
+// match). Hoisted to module scope so the guard's BLOCKED-task gate (#373) can
+// ask "is this a write/edit tool" without re-declaring the list.
+const WRITE_TOOLS = Object.freeze(new Set([
+  'write', 'edit', 'multiedit', 'notebookedit', 'applypatch',
+  'strreplace', 'strreplaceeditor', 'createfile', 'deletefile',
+  'movefile', 'renamefile',
+]));
+
+/** True when `toolName` is a workspace-writing tool (any spelling). */
+export function isWriteTool(toolName) {
+  return WRITE_TOOLS.has(String(toolName || '').toLowerCase().replace(/[_-]/g, ''));
+}
+
+/**
+ * True when a shell command writes a file (redirect/tee/cp/mv/dd/ln/…), even to
+ * a non-protected path — reuses the same write-target extraction as the
+ * protected-path classifier (#369). Scratch/discard targets (`/dev/null`, fd
+ * dups like `2>&1`) do not count. Used by the guard's BLOCKED-task gate (#373)
+ * so a hard-blocked task cannot keep mutating the workspace via bash.
+ */
+export function commandWritesFile(command) {
+  if (typeof command !== 'string' || !command.trim()) return false;
+  for (const segment of command.split(/\|\||&&|[|;&\n]/)) {
+    for (const target of writeTargetsInSegment(segment)) {
+      const t = String(target).trim();
+      // Skip scratch/discard targets that aren't a persistent workspace change
+      // (matches the validator sandbox's temp allowance): /dev/null, fd dups,
+      // and the temp dirs.
+      if (!t || t === '/dev/null' || /^&?\d+$/.test(t)) continue;
+      if (/^(\/var\/tmp|\/private\/tmp|\/tmp)\//.test(t)) continue;
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Convenience predicate. */

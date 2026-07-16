@@ -96,6 +96,34 @@ function commandExists(cmd) {
   });
 }
 
+async function checkGuardResolution(cwd) {
+  // #371: the guard now fails CLOSED when it cannot RUN, so HOW it resolves is a
+  // real posture question. A locally-installed binary runs with no network; if
+  // the guard resolves only via `npx --yes`, a cold cache or an offline host
+  // cannot start it — and every gated tool call then fails closed (blocks) until
+  // the install is fixed or RSTACK_GUARD_FAIL_OPEN=1 is set. This surfaces that
+  // before it bites, complementing the guard self-test (which proves the guard
+  // WORKS, not that it resolves without network).
+  let localResolvable = false;
+  try {
+    createRequire(join(resolve(cwd), 'package.json')).resolve('rstack-agents/package.json');
+    localResolvable = true;
+  } catch { /* not installed locally — fall through to the npx check */ }
+  if (localResolvable) {
+    return check('guard resolution', PASS,
+      'guard resolves from a local install (no network needed); it fails closed if it ever cannot run — set RSTACK_GUARD_FAIL_OPEN=1 to allow instead');
+  }
+  const hasNpx = await commandExists('npx');
+  if (hasNpx) {
+    return check('guard resolution', WARN,
+      'guard resolves ONLY via `npx --yes` (downloads on a cold cache; offline → the guard cannot start → gated tool calls fail closed by default)',
+      'npm install rstack-agents in this project so the guard runs locally without network');
+  }
+  return check('guard resolution', FAIL,
+    'guard cannot be resolved — no local rstack-agents install and no npx on PATH; every gated tool call fails closed',
+    'Install Node.js (ships npx) and run `npm install rstack-agents` in this project');
+}
+
 // --- .rstack + config -------------------------------------------------------
 
 function checkRstackDir(projectRoot) {
@@ -205,6 +233,41 @@ const CONTEXT_HOOK_SNIPPET = 'Add a UserPromptSubmit hook to .claude/settings.js
   + '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command",'
   + '"command":"npx --yes rstack-agents context --source claude-code"}]}]}} '
   + '(or run: rstack-agents init --framework claude-code)';
+
+// Plugin/marketplace presence (#388): the hooks check above verifies
+// *enforcement* wiring, but before this the onboarding docs pointed at a
+// `/plugin install sdlc-rstack` that did not exist anywhere in the repo — a
+// user could have a perfectly wired guard hook and still have no /sdlc-*
+// commands. This checks what the PACKAGE ships (like checkPiWiring/
+// checkBridge do for their frameworks), not the user's project — the plugin
+// and marketplace manifest live in the rstack-agents package itself.
+function checkClaudeCodePlugin() {
+  const marketplacePath = join(PACKAGE_ROOT, '.claude-plugin', 'marketplace.json');
+  const pluginPath = join(PACKAGE_ROOT, 'plugins', 'sdlc-rstack', 'plugin.json');
+  const checks = [
+    fileCheck('claude-code marketplace manifest', marketplacePath, '.claude-plugin/marketplace.json',
+      'Reinstall the package: npm install rstack-agents (or regenerate: node scripts/generate-marketplace.mjs)'),
+    fileCheck('claude-code sdlc-rstack plugin', pluginPath, 'plugins/sdlc-rstack/plugin.json',
+      'Reinstall the package: npm install rstack-agents'),
+  ];
+  if (existsSync(marketplacePath)) {
+    try {
+      const manifest = JSON.parse(readFileSync(marketplacePath, 'utf8'));
+      const listed = Array.isArray(manifest.plugins) && manifest.plugins.some((p) => p?.name === 'sdlc-rstack');
+      checks.push(listed
+        ? check('claude-code marketplace lists sdlc-rstack', PASS,
+          '`/plugin marketplace add richard-devbot/SDLC-rstack` then `/plugin install sdlc-rstack` will resolve')
+        : check('claude-code marketplace lists sdlc-rstack', FAIL,
+          '.claude-plugin/marketplace.json exists but does not list the sdlc-rstack plugin',
+          'node scripts/generate-marketplace.mjs'));
+    } catch (error) {
+      checks.push(check('claude-code marketplace lists sdlc-rstack', FAIL,
+        `.claude-plugin/marketplace.json is not valid JSON: ${error.message}`,
+        'node scripts/generate-marketplace.mjs'));
+    }
+  }
+  return checks;
+}
 
 function checkClaudeCodeWiring(projectRoot) {
   const settingsPath = join(projectRoot, '.claude', 'settings.json');
@@ -449,7 +512,7 @@ function checkTauObservability(adapterPath) {
 }
 
 async function checkFrameworkWiring(framework, projectRoot) {
-  if (framework === 'claude-code') return checkClaudeCodeWiring(projectRoot);
+  if (framework === 'claude-code') return [...checkClaudeCodeWiring(projectRoot), ...checkClaudeCodePlugin()];
   if (framework === 'pi') return checkPiWiring();
   if (framework === 'operator' || framework === 'tau') return checkAdapterWiring(framework);
   if (framework === 'custom') {
@@ -496,6 +559,13 @@ async function checkGuardSelfTest(projectRoot) {
     { label: 'Bash rm -rf', want: 2, payload: { tool_name: 'Bash', tool_input: { command: 'rm -rf /tmp/x' } } },
     { label: 'MultiEdit .env write', want: 2, payload: { tool_name: 'MultiEdit', tool_input: { file_path: '.env', edits: [] } } },
     { label: 'PowerShell Remove-Item -Recurse -Force', want: 2, payload: { tool_name: 'Bash', tool_input: { command: 'Remove-Item -Recurse -Force C:\\tmp\\x' } } },
+    // #372: a validator subagent (identified by `agent_type` in the PreToolUse
+    // payload — the only signal available for a plugin subagent, whose agent-def
+    // hooks Claude Code ignores) must be sandboxed read-only even though the
+    // hook wiring passes `--context builder`. Its bash WRITE blocks; its bash
+    // READ allows. This proves the shared escalation is live, not just wired.
+    { label: 'validator subagent bash write (agent_type)', want: 2, payload: { tool_name: 'Bash', tool_input: { command: 'echo x > src/app.js' }, agent_type: 'validator' } },
+    { label: 'validator subagent bash read (agent_type)', want: 0, payload: { tool_name: 'Bash', tool_input: { command: 'ls -la' }, agent_type: 'validator' } },
     { label: 'safe ls', want: 0, payload: { tool_name: 'Bash', tool_input: { command: 'ls' } } },
     { label: 'safe Edit to source file', want: 0, payload: { tool_name: 'Edit', tool_input: { file_path: 'src/app.js' } } },
   ];
@@ -515,7 +585,7 @@ async function checkGuardSelfTest(projectRoot) {
   const failures = results.filter((probe) => probe.code !== probe.want);
   if (!failures.length) {
     return check('guard self-test (enforcement live)', PASS,
-      'destructive Bash, MultiEdit secret-write, and PowerShell delete all blocked (exit 2); safe calls allowed (exit 0) — RStack enforcement is live on this machine');
+      'destructive Bash, MultiEdit secret-write, and PowerShell delete all blocked (exit 2); a validator subagent\'s bash WRITE blocked but its READ allowed (agent_type sandbox, #372); safe calls allowed (exit 0) — RStack enforcement is live on this machine');
   }
   const detail = failures.map((probe) => `${probe.label} exited ${probe.code} (want ${probe.want})`).join('; ');
   return check('guard self-test (enforcement live)', FAIL, `enforcement is NOT behaving as expected: ${detail}`,
@@ -585,6 +655,7 @@ export async function runDoctor({ framework, project, cwd = process.cwd() } = {}
   checks.push(checkNodeVersion(pkg));
   checks.push(await checkNpx());
   checks.push(checkPackageResolvable(cwd));
+  checks.push(await checkGuardResolution(cwd));
 
   // State + config
   checks.push(checkRstackDir(projectRoot));

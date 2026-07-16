@@ -50,7 +50,7 @@ Load these before executing domain work. Use `cat [package-local path] | head -4
 - `skills/benchmark/SKILL.md` — performance regression detection
 
 ### Plugin packs
-- `plugins/backend-development/` — API patterns, event sourcing, CQRS, temporal workflows
+- `plugins/backend/backend-development/` — API patterns, event sourcing, CQRS, temporal workflows
 
 ## Workflow
 1. **Identify the problem** — collect current performance metrics:

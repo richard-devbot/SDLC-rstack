@@ -40,9 +40,9 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-import { classifyDestructiveAction } from '../core/harness/destructive-actions.js';
+import { classifyDestructiveAction, isWriteTool, commandWritesFile } from '../core/harness/destructive-actions.js';
 import { evaluateDestructiveAction } from '../core/harness/guardrails.js';
-import { evaluateValidatorAction, isValidatorContext } from '../core/harness/validator-sandbox.js';
+import { evaluateValidatorAction, isValidatorContext, isValidatorRole } from '../core/harness/validator-sandbox.js';
 import { resolveRunId, runDirectory } from '../core/harness/runs.js';
 
 export const GUARD_CONTEXTS = Object.freeze(['builder', 'validator', 'reviewer', 'security']);
@@ -60,18 +60,67 @@ export const GUARD_CONTEXT_ENV = 'RSTACK_AGENT_CONTEXT';
 export const GUARD_TASK_ENV = 'RSTACK_TASK_ID';
 
 /**
+ * Env var to opt back into legacy fail-OPEN behavior when the guard cannot RUN
+ * — a load/exec failure, NOT a classification decision (#371). The default is
+ * fail-CLOSED: a governance guard that silently vanishes on an install hiccup,
+ * a cold-`npx` registry miss, or a crash is worse than one that blocks and says
+ * why. Host adapters (Tau/Operator/custom) read the SAME env so the policy is
+ * uniform across harnesses.
+ */
+export const GUARD_FAIL_OPEN_ENV = 'RSTACK_GUARD_FAIL_OPEN';
+
+export function guardFailOpen(env = process.env) {
+  return env[GUARD_FAIL_OPEN_ENV] === '1';
+}
+
+/**
+ * Verdict for a guard that COULD NOT RUN (an unexpected throw, unreadable
+ * state, or — reported by a host adapter — the guard process crashed/timed out
+ * or produced no verdict). This is categorically different from an allow/block
+ * DECISION: here the classifier never ran, so "exit != 2" must NOT be read as
+ * "allow". Fails closed by default (block, exit 2) so enforcement is never
+ * silently skipped; `RSTACK_GUARD_FAIL_OPEN=1` restores the legacy allow.
+ * Returns the same { verdict, exitCode } shape as runGuard.
+ */
+export function guardUnavailableVerdict(reason, env = process.env) {
+  const failOpen = guardFailOpen(env);
+  return {
+    verdict: verdictOf(failOpen ? 'allow' : 'block', {
+      category: 'guard-unavailable',
+      reason: failOpen
+        ? `guard could not run (${reason}); ${GUARD_FAIL_OPEN_ENV}=1 is set — allowing WITHOUT enforcement`
+        : `guard could not run (${reason}) — failing closed so enforcement is not silently skipped. Fix the guard (\`rstack-agents doctor\`) or set ${GUARD_FAIL_OPEN_ENV}=1 to allow tool calls without enforcement.`,
+      context: null,
+      tool: null,
+    }),
+    exitCode: failOpen ? EXIT_ALLOW : EXIT_BLOCK,
+  };
+}
+
+/**
  * Resolve the effective agent context. Precedence:
  *   1. RSTACK_VALIDATOR_CONTEXT=1 (the delegate-stamped sandbox env) always
  *      wins — a sandboxed subprocess must not escape by passing
  *      `--context builder` (the flag travels with the hook command, the env
  *      travels with the subprocess).
- *   2. --context flag.
- *   3. RSTACK_AGENT_CONTEXT env.
- *   4. builder.
+ *   2. Subagent identity (#372): the calling subagent's name is a validator
+ *      role. Claude Code delivers it as `agent_type` in the PreToolUse payload,
+ *      and plugin subagents IGNORE agent-def hooks (a documented CC security
+ *      rule), so the SESSION guard is the only place that can sandbox a plugin
+ *      validator's tool calls. This escalates to the validator sandbox and
+ *      beats the static `--context builder` the hook wiring passes. It is
+ *      ONE-WAY (escalate to the stricter sandbox only) — it never downgrades an
+ *      explicit validator context to builder — so a spoofed `agent_type` can
+ *      only make a call MORE restricted, never less. Same role pattern the Pi
+ *      delegate uses to stamp read-only workers, applied uniformly.
+ *   3. --context flag.
+ *   4. RSTACK_AGENT_CONTEXT env.
+ *   5. builder.
  * An unrecognized explicit value falls through to builder (the caller warns).
  */
-export function resolveGuardContext(flag, env = process.env) {
+export function resolveGuardContext(flag, env = process.env, agentType = null) {
   if (isValidatorContext(env)) return 'validator';
+  if (agentType && isValidatorRole(agentType)) return 'validator';
   const explicit = String(flag ?? env[GUARD_CONTEXT_ENV] ?? '').trim().toLowerCase();
   if (GUARD_CONTEXTS.includes(explicit)) return explicit;
   return 'builder';
@@ -84,8 +133,10 @@ export function resolveGuardContext(flag, env = process.env) {
  *   - shorthand: { command: "..." }
  *   - raw non-JSON text → sniffed as a bash command (so destructive-looking
  *     raw input still classifies instead of failing open)
- * Returns { ok, toolName, input, sniffed?, empty? }. ok:false means there is
- * nothing classifiable at all.
+ * Returns { ok, toolName, input, agentType?, sniffed?, empty? }. `agentType` is
+ * the calling subagent's name when the host supplies it (Claude Code PreToolUse
+ * `agent_type`) — used to escalate to the validator sandbox (#372). ok:false
+ * means there is nothing classifiable at all.
  */
 export function parseHookInput(raw) {
   const text = typeof raw === 'string' ? raw.trim() : '';
@@ -100,8 +151,13 @@ export function parseHookInput(raw) {
         : parsed.input && typeof parsed.input === 'object' ? parsed.input
           : typeof parsed.command === 'string' ? { command: parsed.command }
             : {};
+      // Subagent identity for validator-sandbox escalation (#372). Claude Code
+      // PreToolUse delivers `agent_type`; accept a couple of aliases too.
+      const agentType = typeof parsed.agent_type === 'string' ? parsed.agent_type
+        : typeof parsed.agentType === 'string' ? parsed.agentType
+          : typeof parsed.agent === 'string' ? parsed.agent : null;
       const inferred = toolName ?? (typeof input.command === 'string' ? 'bash' : null);
-      return { ok: true, toolName: inferred, input };
+      return { ok: true, toolName: inferred, input, agentType };
     }
     // Valid JSON but not an object (a number, a string, an array) — nothing
     // classifiable in it.
@@ -118,6 +174,25 @@ function verdictOf(decision, { category = null, reason, context, tool = null, ex
 }
 
 /**
+ * True when the run's tasks.json marks `taskId` as BLOCKED (attempt budget
+ * exhausted). Reads the canonical task file — tolerates both the array and
+ * `{ tasks: [...] }` shapes. Any read/parse failure returns false: this is a
+ * hardening layer (#373), not the primary gate, so an unresolvable task must
+ * not manufacture a block.
+ */
+async function taskIsBlocked(projectRoot, runId, taskId) {
+  try {
+    const raw = await readFile(join(runDirectory(projectRoot, runId), 'tasks.json'), 'utf8');
+    const parsed = JSON.parse(raw);
+    const tasks = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.tasks) ? parsed.tasks : [];
+    const found = tasks.find((entry) => entry && entry.id === taskId);
+    return Boolean(found && String(found.status).toUpperCase() === 'BLOCKED');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Run the guard decision. Options mirror the CLI flags; `stdinText` is the
  * raw hook payload used when no --tool/--command/--path flag is given.
  * Returns { verdict, exitCode, warnings } and never throws.
@@ -127,15 +202,14 @@ export async function runGuard({
   explain = false, stdinText = '', env = process.env, cwd = process.cwd(),
 } = {}) {
   const warnings = [];
-  const context = resolveGuardContext(contextFlag, env);
-  const explicit = String(contextFlag ?? env[GUARD_CONTEXT_ENV] ?? '').trim().toLowerCase();
-  if (explicit && !GUARD_CONTEXTS.includes(explicit)) {
-    warnings.push(`unknown context '${explicit}' — defaulting to '${context}'`);
-  }
 
-  // Resolve the action under test: explicit flags win over stdin.
+  // Resolve the action under test: explicit flags win over stdin. Parse stdin
+  // FIRST so the calling subagent's identity (`agent_type`) is known before we
+  // resolve the context — a validator subagent must land in the sandbox even
+  // though the hook wiring passes a static `--context builder` (#372).
   let toolName = null;
   let input = null;
+  let agentType = null;
   if (tool !== undefined || command !== undefined || path !== undefined) {
     toolName = tool ?? (command !== undefined ? 'bash' : 'write');
     input = {};
@@ -150,7 +224,7 @@ export async function runGuard({
         ? 'no input to classify (empty stdin, no --tool/--command/--path flags) — allowing'
         : 'input parsed as JSON but contains no recognizable tool call — allowing');
       return {
-        verdict: verdictOf('allow', { reason: 'unclassifiable input', context }),
+        verdict: verdictOf('allow', { reason: 'unclassifiable input', context: resolveGuardContext(contextFlag, env) }),
         exitCode: EXIT_ALLOW,
         warnings,
       };
@@ -158,6 +232,16 @@ export async function runGuard({
     if (parsed.sniffed) warnings.push('input was not valid JSON — classified the raw text as a shell command');
     toolName = parsed.toolName;
     input = parsed.input;
+    agentType = parsed.agentType ?? null;
+  }
+
+  const context = resolveGuardContext(contextFlag, env, agentType);
+  const explicit = String(contextFlag ?? env[GUARD_CONTEXT_ENV] ?? '').trim().toLowerCase();
+  if (explicit && !GUARD_CONTEXTS.includes(explicit)) {
+    warnings.push(`unknown context '${explicit}' — defaulting to '${context}'`);
+  }
+  if (context === 'validator' && agentType && isValidatorRole(agentType) && !isValidatorContext(env)) {
+    warnings.push(`subagent '${agentType}' is a validator role — enforcing the read-only validator sandbox (#372)`);
   }
 
   // Validator sandbox contexts: deny-outright policy, no approval path, and
@@ -185,6 +269,41 @@ export async function runGuard({
 
   // Builder context: classify via the single source of truth (#131).
   const classified = classifyDestructiveAction({ toolName: toolName ?? '', input });
+
+  // #373: a task hard-blocked at its attempt budget must not keep mutating the
+  // workspace tool-call by tool-call. Keyed on task STATUS (BLOCKED), NEVER raw
+  // attempt count — so a legitimate in-progress Nth attempt the claim gate
+  // already permitted is never false-blocked. Fires only for a MUTATING action
+  // (a destructive command or a write/edit tool) with a resolvable task id whose
+  // status is BLOCKED, and it is NOT bypassable by RSTACK_ALLOW_DESTRUCTIVE (the
+  // attempt budget is a separate guardrail — its only release is an audited
+  // guardrail-override, consumed when the task is re-claimed into IN_PROGRESS).
+  const budgetTaskId = task ?? env[GUARD_TASK_ENV];
+  const mutatingAction = classified.destructive
+    || isWriteTool(toolName)
+    || (typeof input?.command === 'string' && commandWritesFile(input.command));
+  if (!explain && budgetTaskId && mutatingAction) {
+    try {
+      const projectRoot = resolve(project ?? cwd);
+      const selectedRun = await resolveRunId(projectRoot, runId);
+      if (await taskIsBlocked(projectRoot, selectedRun, budgetTaskId)) {
+        return {
+          verdict: verdictOf('block', {
+            category: 'attempt-budget-exhausted',
+            reason: `task ${budgetTaskId} is BLOCKED (attempt budget exhausted) — no further changes until a human approves 'guardrail-override:${budgetTaskId}' via sdlc_approve or the Business Hub to grant one more attempt.`,
+            context,
+            tool: toolName,
+            extra: { run_id: selectedRun },
+          }),
+          exitCode: EXIT_BLOCK,
+          warnings,
+        };
+      }
+    } catch {
+      // Run/tasks unresolvable → this hardening layer no-ops; the destructive
+      // gate below still applies. (Not a guard failure — no active task context.)
+    }
+  }
 
   if (explain) {
     return {

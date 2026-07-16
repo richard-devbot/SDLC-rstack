@@ -17,7 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.resolve(__dirname, '..', '..');
 const PACKAGE_AGENTS_DIR = path.join(PACKAGE_ROOT, 'agents');
 const PACKAGE_SKILLS_DIR = path.join(PACKAGE_ROOT, 'skills');
-const PACKAGE_PLUGINS_DIR = path.join(PACKAGE_ROOT, 'plugins');
+export const PACKAGE_PLUGINS_DIR = path.join(PACKAGE_ROOT, 'plugins');
 
 const DOMAIN_KEYWORDS = {
   core: ['orchestrator', 'builder', 'validator', 'planner', 'router', 'core'],
@@ -167,20 +167,41 @@ async function readPluginMeta(pluginDir, name) {
   return { name, description: '' };
 }
 
+// Plugins may sit directly under plugins/ (e.g. sdlc-rstack) or nested one
+// level under a domain folder (e.g. backend/backend-development) — this
+// finds every plugin.json regardless of depth so a domain reorg never
+// silently drops a plugin from `list`/`add`.
+// Recursive by NAME (readdir per level), not a file-only predicate walk — a
+// directory stops descending as soon as it contains a plugin.json entry,
+// matching how a plugin is actually shaped (agents/skills/commands beneath
+// it are never scanned for a nested plugin.json).
+async function findPluginLeafDirs(dir) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  if (entries.some((entry) => entry.name === 'plugin.json')) return [dir];
+  const dirs = [];
+  for (const entry of entries) {
+    if (entry.isDirectory()) dirs.push(...await findPluginLeafDirs(path.join(dir, entry.name)));
+  }
+  return dirs;
+}
+
+export async function findPluginDirs(pluginsDir) {
+  const found = [];
+  for (const dir of await findPluginLeafDirs(pluginsDir)) {
+    const meta = await readPluginMeta(dir, path.basename(dir));
+    found.push({ dir, name: meta.name, description: meta.description });
+  }
+  return found;
+}
+
 export async function listPlugins() {
   const pluginsDir = PACKAGE_PLUGINS_DIR;
   if (!(await pathExists(pluginsDir))) {
     log.warn('No package plugins found.');
     return;
   }
-  const entries = await readdir(pluginsDir);
-  const plugins = [];
-  for (const entry of entries) {
-    const full = path.join(pluginsDir, entry);
-    const st = await stat(full).catch(() => null);
-    if (!st || !st.isDirectory()) continue;
-    plugins.push(await readPluginMeta(full, entry));
-  }
+  const plugins = (await findPluginDirs(pluginsDir))
+    .map(({ name, description }) => ({ name, description }));
   plugins.sort((a, b) => a.name.localeCompare(b.name));
   console.log(chalk.bold(`\nrstack plugins (${plugins.length} total)\n`));
   for (const p of plugins) {
@@ -218,12 +239,16 @@ export async function addPlugin(name) {
   if (!name || !/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
     throw new Error(`Invalid plugin name "${name}". Use letters, digits, dots, dashes, underscores.`);
   }
-  const src = path.join(PACKAGE_PLUGINS_DIR, name);
-  const dst = path.join(localRstackDir(), 'plugins', name);
-
-  if (!(await pathExists(src))) {
+  if (!(await pathExists(PACKAGE_PLUGINS_DIR))) {
     throw new Error(`Plugin "${name}" not found in package plugins/.`);
   }
+  const match = (await findPluginDirs(PACKAGE_PLUGINS_DIR)).find((p) => p.name === name);
+  if (!match) {
+    throw new Error(`Plugin "${name}" not found in package plugins/.`);
+  }
+  const src = match.dir;
+  const dst = path.join(localRstackDir(), 'plugins', name);
+
   await ensureDir(path.dirname(dst));
   if (await pathExists(dst)) {
     log.warn(`Plugin "${name}" already exists locally. Overwriting.`);
