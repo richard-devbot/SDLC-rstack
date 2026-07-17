@@ -4,6 +4,11 @@ outputs/
 docs/internal-specs/
 logs/
 
+# NOTE: src/assetsglb/ (unreferenced 3D-asset experiments that leaked ~125MB
+# into the published 2.1.0 tarball) is excluded via a negated entry in
+# package.json's "files" array, NOT here — .npmignore has no effect on a path
+# once "src/" is already allowlisted by "files" (verified empirically).
+
 # Legacy/private local workspaces are not part of the Pi-first package
 .claude/
 .agents/
