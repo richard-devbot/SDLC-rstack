@@ -450,7 +450,9 @@ test('README.md roadmap lists only unshipped work — no phase spec links', asyn
 test('README.md roadmap references the live tracking issues', async () => {
   const text = await readRepoFile('README.md');
   // Remaining roadmap items are tracked as GitHub issues, not local spec files.
-  for (const issue of ['208', '71', '228', '229']) {
+  // #208/#71/#228/#229 shipped in 2.1.0 and were removed from the roadmap table
+  // (CodeRabbit review on PR #387) — #392/#374 are the current open items.
+  for (const issue of ['392', '374']) {
     assert.ok(
       text.includes(`SDLC-rstack/issues/${issue}`),
       `README.md roadmap should link issue #${issue}`,

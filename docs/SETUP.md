@@ -344,7 +344,7 @@ Profiles scale up in place — `lean-mvp → business-flex → enterprise`:
 
 ```bash
 # edit .rstack/rstack.config.json to add enabled_domains / enabled_plugins, then:
-npx rstack-agents add plugin <name>   # copy a plugin pack locally
+npx rstack-agents add plugin PLUGIN_NAME   # copy a plugin pack locally
 npx rstack-agents validate            # refresh the registry after config changes
 # raise thresholds in .rstack/budget.json as scope grows
 ```

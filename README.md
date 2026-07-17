@@ -439,11 +439,9 @@ The loop-engineering program that earlier READMEs listed as planned has shipped:
 
 | Feature | Ref |
 |---------|-----|
-| **Parallel execution enforcement** — wire benchmarked data-independent stage groups into the pipeline runner | [#208](https://github.com/richard-devbot/SDLC-rstack/issues/208) |
 | **Pack installer** — physically copy only selected packs into `.rstack/` | future |
-| **RStack Spec v1alpha1** — JSON schemas + conformance examples | [#71](https://github.com/richard-devbot/SDLC-rstack/issues/71) |
-| **Stage-blanket approvals** — `required_stage_approvals` + `approvals.every_stage` per-stage human gates | [#228](https://github.com/richard-devbot/SDLC-rstack/issues/228) |
-| **Exposure CLI verbs** — `pipeline rollback`, checkpoint status, config validate, approvals audit, memory inspect | [#229](https://github.com/richard-devbot/SDLC-rstack/issues/229) |
+| **End-to-end live-test matrix per harness** — systematic live verification beyond Pi's automated CI coverage | [#392](https://github.com/richard-devbot/SDLC-rstack/issues/392) |
+| **Native MCP server** — expose the 18 `sdlc_*` tools to Cursor, Codex, and other MCP clients | [#374](https://github.com/richard-devbot/SDLC-rstack/issues/374) |
 
 **Contributions are welcome.** Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for branching rules, CI requirements, IP policy, and CodeRabbit guidelines before opening a PR.
 
