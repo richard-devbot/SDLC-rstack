@@ -146,7 +146,18 @@ const SECRET_PATH_PATTERN = /(^|[/\\])(\.env(\.\S+)?|\.npmrc|\.pypirc|id_rsa|id_
 // too. We do NOT blanket-protect `.claude/` — agents legitimately author
 // `.claude/agents/*.md`, commands, and skills; only the enforcement-bearing
 // settings + hooks files are gated.
-const PROTECTED_CONFIG_PATTERN = /(^|[/\\])(\.git[/\\]|\.github[/\\]workflows[/\\]|Dockerfile$|docker-compose\.ya?ml$|\.rstack([/\\]|$)|\.claude[/\\]settings(\.local)?\.json$|rstack-hooks\.json$|package-lock\.json$|yarn\.lock$|pnpm-lock\.ya?ml$)|\.(tf|tfvars)$/i;
+//
+// Carve-out (found via a live manual Tau run): a run's own `artifacts/`,
+// `tasks/<task_id>/`, and `specs/` directories are the builder's ROUTINE,
+// every-single-task output — every task in an 8-task run needed its own
+// separate destructive-action approval just to write its own product-brief,
+// requirements, threat model, QA report, etc. That's not a governance
+// decision surface (unlike manifest.json/tasks.json/approvals.json/
+// decisions.json/events.jsonl/evidence.jsonl/pipeline-state.json/
+// checkpoints/, all of which stay protected below), and training a reviewer
+// to rubber-stamp "destructive-action" approvals on completely routine work
+// dulls the signal for when something genuinely needs a look.
+const PROTECTED_CONFIG_PATTERN = /(^|[/\\])(\.git[/\\]|\.github[/\\]workflows[/\\]|Dockerfile$|docker-compose\.ya?ml$|\.rstack(?![/\\]runs[/\\][^/\\]+[/\\](artifacts|tasks|specs)([/\\]|$))([/\\]|$)|\.claude[/\\]settings(\.local)?\.json$|rstack-hooks\.json$|package-lock\.json$|yarn\.lock$|pnpm-lock\.ya?ml$)|\.(tf|tfvars)$/i;
 
 function notDestructive() {
   return Object.freeze({ destructive: false, category: null, reason: null, matched: null });
