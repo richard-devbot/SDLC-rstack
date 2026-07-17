@@ -131,7 +131,7 @@ Then install the plugin and drive it:
 
 ```text
 /plugin marketplace add richard-devbot/SDLC-rstack   # or your marketplace
-/plugin install sdlc-automation
+/plugin install sdlc-rstack
 /sdlc-start
 ```
 
@@ -321,7 +321,7 @@ Two things to know after a version bump:
 | Harness | What to do |
 |---|---|
 | **Pi** | Nothing — it auto-loads the new version from the package. |
-| **Claude Code** | Update the plugin too: `/plugin update sdlc-automation` (or run `/sdlc-update`). Re-run `init` to pick up new hook wiring. |
+| **Claude Code** | Update the plugin too: `/plugin update sdlc-rstack` (or run `/sdlc-update`). Re-run `init` to pick up new hook wiring. |
 | **Tau / Operator** | The adapter shells to the package, so `npm update` is enough; re-run `doctor --framework <name>`. |
 | **Hermes** | The plugin symlink points into `node_modules/`, so `npm update` refreshes it automatically; re-run `doctor`. |
 

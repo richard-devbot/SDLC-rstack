@@ -28,7 +28,7 @@ Read `.rstack/rstack.config.json` for the active profile, `enabled_domains`, and
 
 ## Commands
 
-With the **sdlc-automation** plugin installed:
+With the **sdlc-rstack** plugin installed:
 
 - `/sdlc-start` — start the full pipeline (interactive)
 - `/sdlc-status` — completed vs pending agents
