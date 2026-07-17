@@ -45,7 +45,7 @@ const COMMAND_RULES = Object.freeze([
   Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.GIT_FORCE,
     // --force / --force-with-lease / -f on push, and history-destroying resets.
-    pattern: /\bgit\s+push\b[^|;&\n\r]*(--force\b|--force-with-lease\b|\s-f\b)|\bgit\s+reset\s+--hard\b|\bgit\s+push\b[^|;&\n\r]*\+/i,
+    pattern: /\bgit\s+push\b[^|;&\n\r]*(--force\b|--force-with-lease\b|[ \t]-f\b)|\bgit\s+reset\s+--hard\b|\bgit\s+push\b[^|;&\n\r]*\+/i,
     reason: 'git force-push or hard reset can overwrite remote or local history',
   }),
   Object.freeze({
@@ -56,7 +56,7 @@ const COMMAND_RULES = Object.freeze([
     // the worktree unless it is `--staged`-only; `git clean -f` deletes
     // untracked files (incl. local .env/configs). `git clean -n`/`--dry-run` is
     // safe. Branch switches and no-op inspections stay allowed.
-    pattern: /\bgit\s+checkout\b[^|;&\n\r]*(\s--(\s|$)|\s\.(\s|$)|\s-f\b|--force\b)|\bgit\s+restore\b(?![^|;&\n\r]*--staged)|\bgit\s+restore\b[^|;&\n\r]*(--worktree\b|\s-W\b)|\bgit\s+clean\b[^|;&\n\r]*(-[a-zA-Z]*[fF]|--force\b)/i,
+    pattern: /\bgit\s+checkout\b[^|;&\n\r]*([ \t]--(\s|$)|[ \t]\.(\s|$)|[ \t]-f\b|--force\b)|\bgit\s+restore\b(?![^|;&\n\r]*--staged)|\bgit\s+restore\b[^|;&\n\r]*(--worktree\b|[ \t]-W\b)|\bgit\s+clean\b[^|;&\n\r]*(-[a-zA-Z]*[fF]|--force\b)/i,
     reason: 'git command discards uncommitted or untracked work (checkout/restore/clean)',
   }),
   Object.freeze({
@@ -74,7 +74,7 @@ const COMMAND_RULES = Object.freeze([
     // with /s /q /f switches. PowerShell is case-insensitive by design, so
     // the rule is too. Plain `del file.txt` is NOT flagged — same escalation
     // logic as the Unix rule.
-    pattern: /\bremove-item\b[^|;&\n\r]*(\s-(recurse|force|rf?|fo?)\b)|\brd\b[^|;&\n\r]*\/s\b|\bdel\b[^|;&\n\r]*\/[sqf]\b/i,
+    pattern: /\bremove-item\b[^|;&\n\r]*([ \t]-(recurse|force|rf?|fo?)\b)|\brd\b[^|;&\n\r]*\/s\b|\bdel\b[^|;&\n\r]*\/[sqf]\b/i,
     reason: 'recursive/forced delete (PowerShell/cmd form)',
   }),
   Object.freeze({
@@ -83,7 +83,7 @@ const COMMAND_RULES = Object.freeze([
     // `chgrp -R` can wreck an entire tree's access. A single-target
     // `chmod 644 file` / `chmod +x script` is ordinary work and stays allowed;
     // recursion is the escalation.
-    pattern: /\b(chmod|chown|chgrp)\b[^|;&\n\r]*(\s-{1,2}[a-zA-Z]*[Rr][a-zA-Z]*\b|\s--recursive\b)/i,
+    pattern: /\b(chmod|chown|chgrp)\b[^|;&\n\r]*([ \t]-{1,2}[a-zA-Z]*[Rr][a-zA-Z]*\b|[ \t]--recursive\b)/i,
     reason: 'recursive permission or ownership change (chmod/chown/chgrp -R)',
   }),
   Object.freeze({
@@ -116,7 +116,7 @@ const COMMAND_RULES = Object.freeze([
   Object.freeze({
     category: DESTRUCTIVE_CATEGORIES.SECRET_WRITE,
     // Shell redirect / tee into a secret, credential, or key path.
-    pattern: />>?\s*(\S*[/\\])?(\.env(\.\S+)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|id_ecdsa|\S*\.pem|\S*\.key|secrets?\.\S+|credentials?(\.\S+)?)\b|\btee\b[^|;&\n\r]*(\.env|id_rsa|\.pem|\.key|secrets?|credentials?)/i,
+    pattern: />>?[ \t]*(\S*[/\\])?(\.env(\.\S+)?|\.npmrc|\.pypirc|id_rsa|id_ed25519|id_ecdsa|\S*\.pem|\S*\.key|secrets?\.\S+|credentials?(\.\S+)?)\b|\btee\b[^|;&\n\r]*(\.env|id_rsa|\.pem|\.key|secrets?|credentials?)/i,
     reason: 'shell write into a secret, credential, or key path',
   }),
   Object.freeze({
@@ -157,7 +157,7 @@ const SECRET_PATH_PATTERN = /(^|[/\\])(\.env(\.\S+)?|\.npmrc|\.pypirc|id_rsa|id_
 // checkpoints/, all of which stay protected below), and training a reviewer
 // to rubber-stamp "destructive-action" approvals on completely routine work
 // dulls the signal for when something genuinely needs a look.
-const PROTECTED_CONFIG_PATTERN = /(^|[/\\])(\.git[/\\]|\.github[/\\]workflows[/\\]|Dockerfile$|docker-compose\.ya?ml$|\.rstack(?![/\\]runs[/\\][^/\\]+[/\\](artifacts|tasks|specs)([/\\]|$))([/\\]|$)|\.claude[/\\]settings(\.local)?\.json$|rstack-hooks\.json$|package-lock\.json$|yarn\.lock$|pnpm-lock\.ya?ml$)|\.(tf|tfvars)$/i;
+const PROTECTED_CONFIG_PATTERN = /(^|[/\\])(\.git[/\\]|\.github[/\\]workflows[/\\]|Dockerfile$|docker-compose\.ya?ml$|\.rstack(?![/\\]runs[/\\](?!\.\.[/\\]|\.\.$)[^/\\]+[/\\](artifacts|tasks|specs)([/\\](?![^|;&\n\r]*\.\.)|$))([/\\]|$)|\.claude[/\\]settings(\.local)?\.json$|rstack-hooks\.json$|package-lock\.json$|yarn\.lock$|pnpm-lock\.ya?ml$)|\.(tf|tfvars)$/i;
 
 function notDestructive() {
   return Object.freeze({ destructive: false, category: null, reason: null, matched: null });

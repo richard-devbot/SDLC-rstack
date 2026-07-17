@@ -69,3 +69,37 @@ for (const [path, why] of STILL_PROTECTED) {
 test('a top-level .rstack file named like a carve-out segment stays protected', () => {
   assert.equal(classifyWritePath('.rstack/artifacts.json').destructive, true);
 });
+
+// CodeRabbit review (PR #399, CRITICAL): the original carve-out only checked
+// that "artifacts"/"tasks"/"specs" appeared where expected — it never
+// verified the path stopped there. `.rstack/runs/<id>/tasks/../../policy.json`
+// satisfies "runs/<id>/tasks/" and was wrongly carved out, even though it
+// resolves straight through to a genuinely protected governance file. Pins
+// that any ".." traversal segment anywhere in a .rstack path — whether in the
+// run-id position or after the carved-out directory — forces fail-closed
+// (stays protected) rather than trying to out-regex path normalization.
+const TRAVERSAL_MUST_STAY_PROTECTED = [
+  [`${RUN}/tasks/001-product-clarification/../../policy.json`, 'traversal out of a carved-out task dir back to a run-level governance file'],
+  [`${RUN}/artifacts/../../../policy.json`, 'traversal out of artifacts/ back past the run root'],
+  ['.rstack/runs/../artifacts/foo.json', 'traversal via a ".." run-id segment'],
+  ['.rstack/runs/..', 'bare ".." as the entire run-id segment, nothing after'],
+  [`${RUN}/specs/../tasks.json`, 'traversal out of specs/ to the protected run-level tasks.json'],
+  // Windows separators must not open a traversal path the forward-slash check missed.
+  [`${RUN.replace(/\//g, '\\')}\\tasks\\001-product-clarification\\..\\..\\policy.json`, 'Windows-separator traversal'],
+];
+
+for (const [path, why] of TRAVERSAL_MUST_STAY_PROTECTED) {
+  test(`path traversal cannot bypass the carve-out (${why}): ${path}`, () => {
+    const v = classifyWritePath(path);
+    assert.equal(v.destructive, true, `expected protected (traversal bypass): ${path}`);
+    assert.equal(v.category, DESTRUCTIVE_CATEGORIES.PROTECTED_CONFIG_WRITE);
+  });
+}
+
+// A run-id that merely CONTAINS ".." as a substring without it being an
+// actual parent-directory segment (e.g. a timestamp-derived slug) is not a
+// real traversal and must still get the carve-out — the fix targets literal
+// ".." path segments, not the substring "..".
+test('a run-id containing ".." as a harmless substring (not a path segment) still gets the carve-out', () => {
+  assert.equal(classifyWritePath('.rstack/runs/build-foo..bar-run/artifacts/out.json').destructive, false);
+});

@@ -96,3 +96,46 @@ test('newline is a hard statement boundary — trigger word and flag on differen
   // match — callers should not rely on the classifier to undo shell parsing.
   assert.equal(v.destructive, false);
 });
+
+// CodeRabbit review (PR #399): the newline-excluding wildcard fix above was
+// necessary but not sufficient — several rules follow that wildcard with a
+// literal \s immediately before the dangerous flag, and \s itself matches \n
+// and \r. So `\s` could still consume the newline and bridge to a flag sitting
+// alone on the next line, defeating the very fix this file pins. A bare flag
+// on its own line with no continuation is not part of the same shell
+// statement — real destructive usage needs the flag on the same logical line.
+const NEWLINE_ADJACENT_FLAG_NOT_BLOCKED = [
+  ['git push origin main\n-f', 'git-force: -f alone on the next line'],
+  ['git checkout src/app.js\n--', 'git-force: bare -- alone on the next line'],
+  ['git checkout src/app.js\n.', 'git-force: bare . alone on the next line'],
+  ['git checkout src/app.js\n-f', 'git-force: -f alone on the next line'],
+  ['Remove-Item C:\\temp\n-Recurse', 'broad-delete PowerShell: -Recurse alone on the next line'],
+  ['chmod file.txt\n-R', 'perm-destroy: -R alone on the next line'],
+  ['echo secret >>\n.env', 'secret-write: redirect target alone on the next line, after the operator'],
+];
+
+for (const [command, label] of NEWLINE_ADJACENT_FLAG_NOT_BLOCKED) {
+  test(`\\s no longer bridges a newline to a flag on the next line: ${label}`, () => {
+    const v = classify(command);
+    assert.equal(v.destructive, false, `expected allow, got blocked as ${v.category}: ${v.reason}`);
+  });
+}
+
+// Same flag, but genuinely on the same line — must still block. Pins that the
+// [ \t] fix didn't overcorrect into never matching a real same-line flag.
+const SAME_LINE_FLAG_STILL_BLOCKED = [
+  ['git push origin main -f', DESTRUCTIVE_CATEGORIES.GIT_FORCE],
+  ['git checkout -- src/app.js', DESTRUCTIVE_CATEGORIES.GIT_FORCE],
+  ['git restore --worktree -W src/app.js', DESTRUCTIVE_CATEGORIES.GIT_FORCE],
+  ['Remove-Item C:\\temp -Recurse', DESTRUCTIVE_CATEGORIES.BROAD_DELETE],
+  ['chmod -R 777 dir', DESTRUCTIVE_CATEGORIES.PERM_DESTROY],
+  ['echo secret >> .env', DESTRUCTIVE_CATEGORIES.SECRET_WRITE],
+];
+
+for (const [command, category] of SAME_LINE_FLAG_STILL_BLOCKED) {
+  test(`same-line flag still blocked: ${command}`, () => {
+    const v = classify(command);
+    assert.equal(v.destructive, true, `expected block: ${command}`);
+    assert.equal(v.category, category, `expected category ${category} for: ${command}`);
+  });
+}
