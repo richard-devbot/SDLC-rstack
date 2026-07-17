@@ -450,7 +450,9 @@ test('README.md roadmap lists only unshipped work — no phase spec links', asyn
 test('README.md roadmap references the live tracking issues', async () => {
   const text = await readRepoFile('README.md');
   // Remaining roadmap items are tracked as GitHub issues, not local spec files.
-  for (const issue of ['208', '71', '228', '229']) {
+  // #208/#71/#228/#229 shipped in 2.1.0 and were removed from the roadmap table
+  // (CodeRabbit review on PR #387) — #392/#374 are the current open items.
+  for (const issue of ['392', '374']) {
     assert.ok(
       text.includes(`SDLC-rstack/issues/${issue}`),
       `README.md roadmap should link issue #${issue}`,
@@ -488,12 +490,23 @@ test('README.md contains Current limitations and Roadmap subsections', async () 
 // CHANGELOG.md — v1.9.0-rc and Unreleased entries
 // ---------------------------------------------------------------------------
 
-test('CHANGELOG.md has [Unreleased] v2.1 planning section', async () => {
+test('CHANGELOG.md has [2.1.0] release entry documenting cross-harness governance', async () => {
   const text = await readRepoFile('CHANGELOG.md');
-  assert.ok(
-    text.includes('[Unreleased]') && text.includes('v2.1 planning'),
-    'CHANGELOG.md must have an [Unreleased] — v2.1 planning section',
+  assert.match(
+    text,
+    /\[2\.1\.0\] - \d{4}-\d{2}-\d{2}/,
+    'CHANGELOG.md [2.1.0] must have ISO date format YYYY-MM-DD',
   );
+  const features = [
+    'Hermes',                    // Hermes adapter
+    'fails closed',              // guard fail-closed on unavailable
+    'read-only',                 // validator sandbox (incl. bash) on Claude Code
+    'required_stage_approvals',  // blanket per-stage gates (#228)
+    'v1alpha1',                  // published RStack spec (#71)
+  ];
+  for (const feature of features) {
+    assert.ok(text.includes(feature), `CHANGELOG.md [2.1.0] entry should mention ${feature}`);
+  }
 });
 
 test('CHANGELOG.md has [2.0.0] release entry documenting the enforced governed loop', async () => {
@@ -740,12 +753,12 @@ test('README.md tracks remaining roadmap work on GitHub, not local issue specs',
   );
 });
 
-test('CHANGELOG.md [Unreleased] section links to docs/github-issues/ for issue specs', async () => {
+test('CHANGELOG.md [2.1.0] documents the release-readiness governance change as breaking', async () => {
   const text = await readRepoFile('CHANGELOG.md');
-  const unreleasedIndex = text.indexOf('[Unreleased]');
-  const unreleasedSection = text.slice(unreleasedIndex, unreleasedIndex + 600);
+  const idx = text.indexOf('[2.1.0]');
+  const section = text.slice(idx, idx + 6000);
   assert.ok(
-    unreleasedSection.includes('docs/github-issues/'),
-    'CHANGELOG.md [Unreleased] section must link to docs/github-issues/ for issue specs',
+    section.includes('Breaking') && section.includes('release-readiness'),
+    'CHANGELOG.md [2.1.0] must document the release-readiness release-only change under a Breaking heading (#293)',
   );
 });

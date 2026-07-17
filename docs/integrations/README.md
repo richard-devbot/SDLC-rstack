@@ -14,8 +14,9 @@ npx rstack-agents init --framework pi       # or be explicit
 |---|---|---|
 | Pi | [pi.md](pi.md) | `src/integrations/pi/rstack-sdlc.ts` (native TypeScript extension) |
 | Claude Code | [claude-code.md](claude-code.md) | `sdlc-rstack` plugin (`/sdlc-*` commands) + PreToolUse `rstack-agents guard` hook |
-| Operator | [operator.md](operator.md) | `src/integrations/operator/rstack_sdlc.py` (Python, bridges to Node) |
-| Tau | [tau.md](tau.md) | `src/integrations/tau/rstack_sdlc.py` (Python, bridges to Node + self-wiring guard hook) |
+| Operator | [operator.md](operator.md) | `src/integrations/operator/rstack_sdlc.py` (Python, bridges to Node) + `bootstrap.py` (operator-use has no plugin discovery — see the doc) |
+| Tau | [tau.md](tau.md) | `src/integrations/tau/rstack_sdlc.py` (Python, bridges to Node + built-in-shadowing guard hook) |
+| Hermes | [hermes.md](hermes.md) | `src/integrations/hermes/rstack_sdlc.py` (Python plugin, bridges to Node + `pre_tool_call` guard hook) |
 | Anything else | [custom.md](custom.md) | The `.rstack/` state contract + Node bridge |
 
 Writing a new adapter? The conformance checklist every adapter must satisfy —
@@ -46,7 +47,7 @@ npx rstack-business   # multi-project observability on :3008
 
 These CLI commands work the same on every harness — they operate on `.rstack/`
 state directly, so they behave identically whether you run Pi, Claude Code,
-Operator, Tau, or a custom host. Run them from your project root.
+Operator, Tau, Hermes, or a custom host. Run them from your project root.
 
 | Command | What it does |
 |---|---|
@@ -71,7 +72,7 @@ Operator, Tau, or a custom host. Run them from your project root.
 ```bash
 mkdir ~/rstack-test && cd ~/rstack-test          # a scratch project, NOT the rstack-agents repo
 npm install rstack-agents
-npx rstack-agents init --framework <pi|claude-code|operator|tau|custom>
+npx rstack-agents init --framework <pi|claude-code|operator|tau|hermes|custom>
 npx rstack-agents doctor --framework <same>       # all PASS = you are ready
 npx rstack-business                                # watch runs live on :3008
 ```
@@ -85,8 +86,9 @@ live in [testing-matrix.md](testing-matrix.md).
 1. `.claude/` directory exists → **claude-code**
 2. `operator.json` or `operator_settings.json` exists → **operator**
 3. `tau.json`, `tau_settings.json`, or `.tau/` exists → **tau**
-4. `package.json` references Pi (`@earendil-works/*` or a `pi` key) → **pi**
-5. otherwise → **custom**
+4. `.hermes/`, `cli-config.yaml`, or `hermes.json` exists → **hermes**
+5. `package.json` references Pi (`@earendil-works/*` or a `pi` key) → **pi**
+6. otherwise → **custom**
 
 ## Environment configuration (all frameworks)
 

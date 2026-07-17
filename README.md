@@ -12,9 +12,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0-brightgreen" alt="v2.0.0"/>
+  <img src="https://img.shields.io/badge/version-2.1.0-brightgreen" alt="v2.1.0"/>
   <img src="https://img.shields.io/badge/agents-196%20validated-brightgreen" alt="196 agents"/>
-  <img src="https://img.shields.io/badge/tests-756%20pass-brightgreen" alt="756 tests"/>
+  <img src="https://img.shields.io/badge/tests-1454%20pass-brightgreen" alt="1454 tests"/>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"/>
 </p>
 
@@ -22,11 +22,17 @@
 
 RStack sits on top of Pi, Claude Code, Operator, Codex-style CLIs, Gemini-style CLIs, or a custom harness and gives agent teams a repeatable lifecycle with approvals, builder/validator contracts, evidence, memory, budget envelopes, and a live Business Hub.
 
-**Enforcement tiers:** full runtime enforcement on Pi and Operator (live tool-call gating), and on Claude Code via the `rstack-agents guard` PreToolUse hook (installed by `init`). Every other harness gets the governed contracts, state, and Business Hub, plus a guided recipe to wire the guard into its own hook system ([wire-your-own-harness](docs/integrations/wire-your-own-harness.md)).
+**Enforcement tiers:** full, live tool-call gating on **Pi, Tau, Claude Code, Hermes, and Operator** — each verified against the real, installed framework (Tau by shadowing its built-in tools, Hermes via its real `pre_tool_call` hook, Operator via the shipped `bootstrap.py` wrapper, since `operator-use` has no plugin-loading mechanism of its own). Every other harness gets the governed contracts, state, and Business Hub, plus a guided recipe to wire the guard into its own hook system ([wire-your-own-harness](docs/integrations/wire-your-own-harness.md)).
 
 ```text
 clarify → plan → spec → approve → build → validate → release-readiness → learn
 ```
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/richard-devbot/SDLC-rstack/main/assets/pipeline.png" alt="RStack — 15-step governed SDLC pipeline: stages 00–14 (requirements → cost estimate) with agents, outputs, tools and a human approval gate per stage; an orchestrator core; builder and validator sandboxes around a human-in-the-loop; guardrails, harness truth/traceability layer, hooks, and observability" width="960"/>
+</p>
+
+> **New here? Start with the [one-page Setup & Usage guide → `docs/SETUP.md`](docs/SETUP.md)** — install, per-harness wiring (Pi · Claude Code · Tau · Operator · Hermes · custom), running a governed pipeline, approvals, the dashboard, and the full CLI reference, all in one place.
 
 ## Meet the studio
 
@@ -427,24 +433,25 @@ The loop-engineering program that earlier READMEs listed as planned has shipped:
 
 - **Actual token/cost capture:** per-stage cost and token totals persist from builder contracts at validate time; provider-level usage still needs host-side reporting or provider adapters.
 - **Physical pack pruning:** profiles narrow routing today; a future pack installer should reduce project-local agent/plugin footprint.
-- **Runtime enforcement tiers:** live tool-call gating runs on Pi and Operator; Claude Code and other harnesses get contracts, state, and validate-time checks until the `rstack-agents guard` hook ships ([#227](https://github.com/richard-devbot/SDLC-rstack/issues/227)).
-- **MCP/A2A:** `.rstack` is adapter-friendly, but a native MCP/A2A server is still a future slice.
+- **MCP/A2A:** `.rstack` is adapter-friendly, but a native MCP server is still a future slice — held deliberately pending a decision on scope ([#374](https://github.com/richard-devbot/SDLC-rstack/issues/374)).
 
 ### Roadmap (contributions welcome)
 
 | Feature | Ref |
 |---------|-----|
-| **Parallel execution enforcement** — wire benchmarked data-independent stage groups into the pipeline runner | [#208](https://github.com/richard-devbot/SDLC-rstack/issues/208) |
 | **Pack installer** — physically copy only selected packs into `.rstack/` | future |
-| **RStack Spec v1alpha1** — JSON schemas + conformance examples | [#71](https://github.com/richard-devbot/SDLC-rstack/issues/71) |
-| **Stage-blanket approvals** — `required_stage_approvals` + `approvals.every_stage` per-stage human gates | [#228](https://github.com/richard-devbot/SDLC-rstack/issues/228) |
-| **Exposure CLI verbs** — `pipeline rollback`, checkpoint status, config validate, approvals audit, memory inspect | [#229](https://github.com/richard-devbot/SDLC-rstack/issues/229) |
+| **End-to-end live-test matrix per harness** — systematic live verification beyond Pi's automated CI coverage | [#392](https://github.com/richard-devbot/SDLC-rstack/issues/392) |
+| **Native MCP server** — expose the 18 `sdlc_*` tools to Cursor, Codex, and other MCP clients | [#374](https://github.com/richard-devbot/SDLC-rstack/issues/374) |
 
 **Contributions are welcome.** Read [`CONTRIBUTING.md`](CONTRIBUTING.md) for branching rules, CI requirements, IP policy, and CodeRabbit guidelines before opening a PR.
 
 ---
 
 ## Documentation
+
+**Start here:** [`docs/SETUP.md`](docs/SETUP.md) — the single-page setup & usage
+guide covering every harness (install → wiring → running a governed pipeline →
+approvals → dashboard → CLI reference → env vars → troubleshooting).
 
 ### Bootstrap templates
 
@@ -491,7 +498,7 @@ npm run validate
 Latest verified branch state:
 
 ```text
-npm test          # 756 pass, 0 fail
+npm test          # 1454 pass, 0 fail
 npm run lint      # pass
 npm run validate  # All 196 agents passed validation
 npm pack --dry-run  # package includes templates/bootstrap/
