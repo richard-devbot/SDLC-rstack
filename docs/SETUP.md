@@ -99,9 +99,9 @@ read-only validator sandbox) needs a pre-tool hook.
 |---|---|:--:|---|
 | **Pi** | native extension (auto-loaded) | ✅ | reference implementation |
 | **Claude Code** | `PreToolUse` hook + plugin | ✅ | installed by `init` |
-| **Tau** | extension + `tool_call` hook | ✅ | via the Node bridge |
-| **Hermes** | plugin (`register(ctx)`) | ✅ | `pre_tool_call` gate |
-| **Operator** | bridge tools | ⚠️ manual | host has no blocking hook — wire the guard yourself |
+| **Tau** | extension, shadows built-in tools | ✅ | `tool_call` is documented but dead upstream — shadowing is the real mechanism |
+| **Hermes** | plugin (`register(ctx)`) | ✅ | real `pre_tool_call` gate |
+| **Operator** | `bootstrap.py` wrapper | ✅ | `operator-use` has no plugin discovery — run the wrapper in place of `operator` |
 | **Custom** | bridge + your hook | ⚠️ DIY | [wire-your-own-harness](integrations/wire-your-own-harness.md) |
 
 ### Pi
@@ -145,9 +145,12 @@ npx rstack-agents init --framework tau
 ```
 
 Merge `rstack-tau.example.json` into your Tau `settings.json` extensions list.
-Loading the extension **is** the wiring — it routes Tau's terminal/write/edit
-tools through `rstack-agents guard` on the `tool_call` hook. Optional gates via
-the `quality_gates` setting or `RSTACK_TAU_GATES`.
+Tau's documented `tool_call` hook never actually fires upstream, so loading
+the extension wires enforcement by **shadowing** Tau's built-in
+`terminal`/`write`/`edit` tools instead (a real, documented Tau capability) —
+a shadowed tool runs `rstack-agents guard` before delegating to the real
+tool. Optional gates via the `quality_gates` setting or `RSTACK_TAU_GATES`.
+Details: [tau.md](integrations/tau.md).
 
 ### Operator
 
@@ -156,20 +159,25 @@ npm install rstack-agents
 npx rstack-agents init --framework operator
 ```
 
-Merge `rstack-operator.example.json` into your Operator settings. Operator
-exposes **no blocking tool-call hook**, so it gets the full bridge-tool
-governance (state, approvals, budgets, checkpoints) but the destructive gate must
-be wired into your host's own pre-exec — see
-[wire-your-own-harness](integrations/wire-your-own-harness.md):
+`operator-use` has **no third-party plugin discovery mechanism at all** (no
+entry_points, no config field, no directory scan) — its CLI hardcodes its
+plugin list directly in Python source. Run the shipped bootstrap in place of
+the `operator` command instead:
 
 ```bash
-echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /tmp/x"}}' \
-  | npx rstack-agents guard --context builder   # exit 2 = blocked
+python node_modules/rstack-agents/src/integrations/operator/bootstrap.py start
 ```
+
+This wires all 18 `sdlc_*` tools and the real, genuinely blocking
+`BEFORE_TOOL_CALL` guard hook, then hands off to the real Typer CLI — every
+other `operator` subcommand behaves identically to a stock install. Details:
+[operator.md](integrations/operator.md).
 
 ### Hermes
 
-Hermes loads plugins from `~/.hermes/plugins/`. Install the shipped plugin:
+Hermes loads plugins from `~/.hermes/plugins/` — a directory with a
+`plugin.yaml` manifest (the loader silently skips a directory without one)
+plus an `__init__.py`. Plugins are also opt-in via `plugins.enabled`:
 
 ```bash
 npm install rstack-agents
@@ -177,11 +185,16 @@ npx rstack-agents init --framework hermes
 mkdir -p ~/.hermes/plugins/rstack-sdlc
 ln -s "$(pwd)/node_modules/rstack-agents/src/integrations/hermes/rstack_sdlc.py" \
       ~/.hermes/plugins/rstack-sdlc/__init__.py
+ln -s "$(pwd)/node_modules/rstack-agents/src/integrations/hermes/plugin.yaml" \
+      ~/.hermes/plugins/rstack-sdlc/plugin.yaml
+hermes plugins enable rstack-sdlc
 ```
 
-Loading the plugin **is** the wiring — `register(ctx)` registers the `sdlc_*`
-tools and routes Hermes' terminal/write/edit tools through `rstack-agents guard`
-on the `pre_tool_call` hook (returns a `{"decision":"block"}` Hermes honors).
+Enabling the plugin registers the `sdlc_*` tools and routes Hermes'
+`terminal`/`write_file`/`edit_file` tools through `rstack-agents guard` on
+the real `pre_tool_call` hook (a `{"action":"block","message":...}` return —
+NOT the `{"decision":"block"}` shape used by a different Hermes subsystem).
+Details: [hermes.md](integrations/hermes.md).
 
 ### Custom (any other harness)
 
