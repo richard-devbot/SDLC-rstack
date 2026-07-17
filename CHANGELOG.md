@@ -11,17 +11,29 @@ what you can now do that you couldn't before.
 
 ---
 
-## [2.1.0] - 2026-07-15
+## [2.1.0] - 2026-07-17
 
 The "governed on every harness, and you can trust it" release. RStack now runs the
 same enforced loop on **Pi, Tau, Claude Code, Operator, and Hermes**, the guardrails
 survive an adversarial agent, and the Business Hub can drive the loop, not just watch it.
 
 ### Works on every major harness
-- **You can now govern runs on Hermes (Nous Research).** A drop-in Hermes plugin registers
-  the SDLC tools and routes tool calls through the same enforcement guard as everywhere else —
-  no bespoke logic, install it into `~/.hermes/plugins/`. Pi, Tau, Claude Code, and Operator
-  are unchanged.
+- **Claude Code gets a real plugin, not just a usage guide.** `/plugin marketplace add
+  richard-devbot/SDLC-rstack` then `/plugin install sdlc-rstack` gives you 19 slash commands
+  (`/sdlc-start`, `/sdlc-plan`, `/sdlc-approve`, `/sdlc-resume`, ...) — no manual hook wiring.
+  The plugin catalog is also now organized by domain (`plugins/backend/`, `plugins/security/`, ...)
+  for easier browsing.
+- **Tau's enforcement gate genuinely blocks destructive actions.** Tool calls now route through
+  the guard by way of Tau's real tool-loading mechanism, closing a gap where the previously-wired
+  hook never actually fired on a live Tau session.
+- **Hermes' enforcement gate genuinely blocks destructive actions.** A drop-in Hermes plugin
+  registers the SDLC tools and routes tool calls through the same enforcement guard as everywhere
+  else — install it into `~/.hermes/plugins/`, enable it, and destructive actions are blocked until
+  approved, not just logged.
+- **Operator now works, via a small wrapper.** `operator-use` has no plugin-loading mechanism of
+  its own, so run `python node_modules/rstack-agents/src/integrations/operator/bootstrap.py start`
+  in place of `operator start` to get RStack's tools and its real, blocking enforcement hook — every
+  other Operator command behaves exactly like a stock install.
 - **Validators are truly read-only on Claude Code now — including their shell.** A validator
   subagent can no longer write files via bash; the guard recognizes the validator from the
   subagent identity and applies the read-only sandbox, even for plugin-provided agents.
