@@ -8,11 +8,11 @@ logs/
 *.log
 
 # local/private agent runtime noise
-.claude/logs/
-.claude/agents/logs/
+.claude/
 .codex/
 .agents/
 .superpowers/
+graphify-out/
 
 # secrets and local env
 .env
@@ -30,9 +30,6 @@ logs/
 
 # package artifacts
 *.tgz
-
-# backups
-.claude/_backups/
 
 # loop engineering runtime (Phase 0-5)
 .rstack/worktrees/
