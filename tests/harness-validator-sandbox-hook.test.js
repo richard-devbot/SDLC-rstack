@@ -28,6 +28,27 @@ function readEvents(runDir) {
   return readFileSync(path, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
 }
 
+const AGENT_LIFECYCLE = new Set([
+  'delegation_requested',
+  'agent_session_started',
+  'agent_session_ready',
+  'agent_capabilities_attached',
+  'agent_session_completed',
+  'agent_session_failed',
+  'agent_session_stopped',
+]);
+
+test('delegate observes fast worker exit before awaiting lifecycle writes', () => {
+  const source = readFileSync(join(process.cwd(), 'src', 'integrations', 'pi', 'rstack-sdlc.ts'), 'utf8');
+  const spawnAt = source.indexOf('proc = spawn(invocation.command');
+  const closeListenerAt = source.indexOf('proc.on("close"', spawnAt);
+  const firstLifecycleWriteAt = source.indexOf('await emitLifecycle("agent_session_started"', spawnAt);
+
+  assert.ok(spawnAt >= 0, 'delegate worker spawn exists');
+  assert.ok(closeListenerAt > spawnAt, 'delegate close listener exists after spawn');
+  assert.ok(closeListenerAt < firstLifecycleWriteAt, 'close listener attaches before asynchronous lifecycle writes');
+});
+
 test('Validator sandbox enforcement in the Pi tool_call hook', async (t) => {
   const projectRoot = mkdtempSync(join(tmpdir(), 'rstack-validator-sandbox-'));
   process.env.RSTACK_PROJECT_ROOT = projectRoot;
@@ -138,6 +159,20 @@ test('Validator sandbox enforcement in the Pi tool_call hook', async (t) => {
     const validatorEnv = JSON.parse(validatorResult.output);
     assert.equal(validatorEnv.context, '1', 'validator child gets RSTACK_VALIDATOR_CONTEXT=1');
     assert.equal(validatorEnv.run_id, start.details.run_id, 'validator child gets the owning run id');
+    const validatorLifecycle = readEvents(runDir).filter((event) => AGENT_LIFECYCLE.has(event.type));
+    assert.deepEqual(validatorLifecycle.map((event) => event.type), [
+      'delegation_requested',
+      'agent_session_started',
+      'agent_session_ready',
+      'agent_capabilities_attached',
+      'agent_session_completed',
+      'agent_session_stopped',
+    ]);
+    assert.equal(new Set(validatorLifecycle.map((event) => event.delegation_id)).size, 1);
+    assert.equal(new Set(validatorLifecycle.map((event) => event.agent_session_id)).size, 1);
+    assert.equal(validatorLifecycle[1].role, 'validator');
+    assert.equal(validatorLifecycle[1].harness, 'pi');
+    assert.deepEqual(validatorLifecycle[3].skill_ids, []);
 
     const builderRun = await mockPi.tools.sdlc_delegate.execute('d2', { agent: 'builder', task: 'Implement the thing' });
     const builderResult = builderRun.details.results[0];
@@ -150,6 +185,22 @@ test('Validator sandbox enforcement in the Pi tool_call hook', async (t) => {
     // Explicit caller tools still win over the validator default.
     const explicitRun = await mockPi.tools.sdlc_delegate.execute('d3', { tasks: [{ agent: 'validator', task: 'Check again', tools: ['read', 'grep'] }] });
     assert.deepEqual(explicitRun.details.results[0].tools, ['read', 'grep']);
+
+    writeFileSync(workerPath, '#!/bin/sh\nexit 7\n');
+    chmodSync(workerPath, 0o755);
+    const failedRun = await mockPi.tools.sdlc_delegate.execute('d4', { agent: 'builder', task: 'Exercise failure telemetry' });
+    assert.equal(failedRun.details.results[0].exit_code, 7);
+    const allLifecycle = readEvents(runDir).filter((event) => AGENT_LIFECYCLE.has(event.type));
+    const failedDelegationId = allLifecycle.at(-1).delegation_id;
+    const failedLifecycle = allLifecycle.filter((event) => event.delegation_id === failedDelegationId);
+    assert.deepEqual(failedLifecycle.map((event) => event.type), [
+      'delegation_requested',
+      'agent_session_started',
+      'agent_session_ready',
+      'agent_capabilities_attached',
+      'agent_session_failed',
+      'agent_session_stopped',
+    ]);
 
     delete process.env.RSTACK_WORKER_COMMAND;
     delete process.env.RSTACK_VALIDATOR_CONTEXT;

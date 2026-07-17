@@ -68,13 +68,11 @@ test('stage metadata exists in exactly one source in the served bundle', () => {
   assert.match(bundle, /generated at process start from src\/core\/harness\/stages\.js/);
 });
 
-test('Studio 3D personas are injected from the same stage-meta source', () => {
+test('legacy persona decoration remains canonical while Studio consumes its server projection', () => {
   assert.deepEqual(Object.keys(STUDIO_PERSONAS), CANONICAL_IDS);
-  const html = studio3dHtml(3008);
-  for (const id of CANONICAL_IDS) {
-    assert.match(html, new RegExp(`"${id}":`), `studio3d personas include ${id}`);
-  }
-  assert.match(html, /const PERSONAS = \{"00-environment":\["DevOps Engineer","Prepare the Workshop"\]/);
+  const html = studio3dHtml();
+  assert.doesNotMatch(html, /const PERSONAS/);
+  assert.match(html, /\/studio3d\/assets\/app\.js/);
 });
 
 test('stage-report artifact map is derived from the canonical stages', () => {

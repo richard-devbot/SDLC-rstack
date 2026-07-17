@@ -46,3 +46,7 @@ logs/session_end.json
 logs/stop.json
 logs/subagent_stop.json
 outputs/team_state
+
+# Python bytecode cache (src/integrations/{tau,operator}/ adapters)
+__pycache__/
+*.pyc

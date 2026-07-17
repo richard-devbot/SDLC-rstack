@@ -224,8 +224,8 @@ export async function initFramework(projectRoot, framework, { packageRoot, profi
       report.nextSteps.push('Your .claude/settings.json already exists — RStack never edits it. Merge from .claude/rstack-hooks.json: the top-level `statusLine` key draws the RStack status bar via `rstack-agents statusline`, SessionStart opens the Business Hub and injects RStack context, UserPromptSubmit injects context via `rstack-agents context`, PreToolUse enforces the destructive gate + validator sandbox via `rstack-agents guard`, PostToolUse/PostToolUseFailure/SubagentStart/SubagentStop/PreCompact/Stop/SessionEnd feed the dashboard via `rstack-agents observe`, and Notification routes to your channels via `rstack-agents notify-hook` (all best-effort, only the guard ever blocks).');
     }
     report.nextSteps.push(
-      'Install the Claude Code plugin: /plugin install sdlc-rstack (or add the marketplace repo)',
-      'Run /sdlc-start in Claude Code to drive the full pipeline',
+      'Install the Claude Code plugin: /plugin marketplace add richard-devbot/SDLC-rstack, then /plugin install sdlc-rstack',
+      'Run /sdlc-start "<goal>" in Claude Code to begin a governed run — see .claude/rstack-sdlc.md for the full command list',
       'The Business Hub auto-opens each session (SessionStart hook) — or run: npx rstack-agents hub',
       'Context: the SessionStart + UserPromptSubmit hooks inject an RStack packet (active run + stage + blockers + orchestrator pointer) via `rstack-agents context` — no-op when there is no active run, never blocks.',
       'Enforcement: the PreToolUse hook routes Bash/Write/Edit through `rstack-agents guard` — destructive actions block until a destructive-action:<taskId> approval exists (docs/integrations/claude-code.md).',
@@ -450,10 +450,28 @@ This project uses RStack for governed SDLC runs. State lives in \`.rstack/\`.
 
 ## Commands (via the sdlc-rstack plugin)
 
-- \`/sdlc-start\` — start the full pipeline (interactive)
-- \`/sdlc-status\` — which agents completed, which are pending
-- \`/sdlc-resume\` — resume from a specific agent
-- \`/sdlc-agent <name>\` — run one SDLC agent in isolation
+Install once: \`/plugin marketplace add richard-devbot/SDLC-rstack\` then
+\`/plugin install sdlc-rstack\`. Every command drives the matching \`sdlc_*\`
+tool through the bridge — full list in \`plugins/sdlc-rstack/commands/\`.
+
+- \`/sdlc-start <goal>\` — begin a governed run under \`.rstack/runs/<id>/\`
+- \`/sdlc-clarify\` — capture product-owner answers before planning
+- \`/sdlc-plan\` — build the stage/task graph
+- \`/sdlc-spec <artifact>\` — read/update a stage artifact
+- \`/sdlc-dor-check\` — Definition-of-Ready gate
+- \`/sdlc-build-next\` — claim + prepare the next builder task
+- \`/sdlc-validate\` — read-only validation report
+- \`/sdlc-approve <artifact> <APPROVED|REJECTED>\` — record a human approval
+- \`/sdlc-decisions\` / \`/sdlc-decide\` — list/add, resolve/waive Decision Queue items
+- \`/sdlc-delegate <agent> <task>\` — spawn an agent as an isolated worker
+- \`/sdlc-status\` — run status, task progress, next recommended action
+- \`/sdlc-agents\` — list package/project agents/skills by domain
+- \`/sdlc-memory\` — search/append episodic project learnings
+- \`/sdlc-rollback <stage-id>\` — restore a stage to its last checkpoint
+- \`/sdlc-trace\` — trace tool calls/results for a task
+- \`/sdlc-dashboard\` — generate a static run dashboard
+- \`/sdlc-resume\` — resume an interrupted run (CLI \`pipeline run\`, not a tool)
+- \`/sdlc-orchestrate\` — load the orchestrator/builder/validator packet
 
 ## Enforcement
 

@@ -46,7 +46,7 @@ Load these before executing domain work. Use `cat [package-local path] | head -4
 - `skills/plan-eng-review/SKILL.md` — review data architecture, pipeline design, evaluation strategy
 
 ### Plugin packs
-- `plugins/machine-learning-ops/` — ML pipeline patterns, MLOps, training workflow
+- `plugins/data-ml/machine-learning-ops/` — ML pipeline patterns, MLOps, training workflow
 
 ## Workflow
 1. **Understand the data and tooling** — read the project setup:

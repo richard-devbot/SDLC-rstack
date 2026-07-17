@@ -24,8 +24,9 @@ npx rstack-agents init        # auto-detects your framework
 |---|---|---|
 | **Pi** | 🟢 Native adapter | All 18 `sdlc_*` tools, lifecycle hooks, gating, auto-launch dashboard |
 | **Claude Code** | 🟢 First-class | `init` writes a usage guide + a SessionStart hook; plugin commands |
-| **Operator** | 🟢 First-class | Python adapter bridges to the same harness; auto-launch dashboard |
-| **Tau** | 🟢 First-class | Python adapter (community, by Jeomon) bridges to the same harness; guard enforcement self-wires on Tau's `tool_call` hook |
+| **Tau** | 🟢 First-class | Python adapter (community, by Jeomon) bridges to the same harness; guard enforcement wires by shadowing Tau's built-in `terminal`/`write`/`edit` tools |
+| **Hermes** | 🟢 First-class | Python plugin bridges to the same harness; guard enforcement wires on Hermes' real `pre_tool_call` hook |
+| **Operator** | 🟡 Wrapped, not native | Python adapter bridges to the same harness; `operator-use` has no plugin-loading mechanism, so RStack ships a `bootstrap.py` you run in place of the `operator` command |
 | **Codex CLI** | 🟡 Asset-based | RStack agents/skills as context via `AGENTS.md`; no native tool gating |
 | **Gemini CLI** | 🟡 Asset-based | RStack agents/skills as context via `GEMINI.md`; no native tool gating |
 | **Any other harness** | 🟡 Universal | The `.rstack/` state contract + a Node bridge any tool can call |
@@ -82,11 +83,14 @@ Details: [Pi adapter](/adapters/pi).
     `.claude/settings.json`, RStack leaves a mergeable snippet instead of
     overwriting it.
   </Step>
-  <Step title="Install the plugin (optional, adds slash commands)">
+  <Step title="Install the plugin (adds the /sdlc-* commands)">
     ```text
+    /plugin marketplace add richard-devbot/SDLC-rstack
     /plugin install sdlc-rstack
     ```
-    Then drive the pipeline with `/sdlc-start`, `/sdlc-status`, `/sdlc-resume`.
+    Then drive the pipeline with `/sdlc-start "<goal>"`, `/sdlc-plan`,
+    `/sdlc-build-next`, `/sdlc-validate`, `/sdlc-approve`, `/sdlc-status`,
+    `/sdlc-resume` — full list in `plugins/sdlc-rstack/commands/`.
   </Step>
 </Steps>
 
@@ -96,10 +100,16 @@ Details: [Claude Code adapter](/adapters/claude-code).
 
 ## Operator
 
+`operator-use` has no third-party plugin discovery at all — no entry_points,
+no config field, no directory scan. RStack ships `bootstrap.py`: a drop-in
+replacement for the `operator` command that wires the plugin before handing
+off to the real CLI.
+
 <Steps>
   <Step title="Install Operator + Node">
-    Operator is a Python harness. RStack's Operator adapter shells out to a
-    Node bridge, so you need `node` and `npx` on `PATH`.
+    Operator is a Python harness (`pip install operator-use`). RStack's
+    Operator adapter shells out to a Node bridge, so you also need `node` and
+    `npx` on `PATH`.
   </Step>
   <Step title="Add RStack + init">
     ```bash
@@ -107,12 +117,14 @@ Details: [Claude Code adapter](/adapters/claude-code).
     npm install rstack-agents
     npx rstack-agents init --framework operator
     ```
-    `init` writes `rstack-operator.example.json`.
   </Step>
-  <Step title="Wire the adapter into Operator settings">
-    Merge the `extensions.list` entry from `rstack-operator.example.json` into
-    your Operator `settings.json`. The Business Hub auto-launches when the
-    extension loads.
+  <Step title="Run the bootstrap in place of `operator`">
+    ```bash
+    python node_modules/rstack-agents/src/integrations/operator/bootstrap.py start
+    ```
+    This wires all 18 `sdlc_*` tools and the real `BEFORE_TOOL_CALL` guard
+    hook, then hands off to the real Typer CLI — every other `operator`
+    subcommand behaves identically to a stock install.
   </Step>
 </Steps>
 
@@ -123,8 +135,10 @@ Details: [Operator adapter](/adapters/universal).
 ## Tau
 
 Tau ([github.com/Jeomon/Tau](https://github.com/Jeomon/Tau)) is a Python
-agent framework with a blocking `tool_call` hook — so RStack's enforcement
-guard wires itself when the adapter loads. Adapter contributed by Jeomon.
+agent framework. Its documented `tool_call` hook never actually fires
+upstream, so RStack's adapter wires enforcement by **shadowing** Tau's
+built-in `terminal`/`write`/`edit` tools instead — a real, documented Tau
+capability. Adapter contributed by Jeomon.
 
 <Steps>
   <Step title="Install Tau + Node">
@@ -143,13 +157,50 @@ guard wires itself when the adapter loads. Adapter contributed by Jeomon.
   <Step title="Wire the adapter into Tau settings">
     Merge the `extensions.list` entry from `rstack-tau.example.json` into
     your Tau `settings.json`. Loading the extension registers all `sdlc_*`
-    tools **and** routes Tau's `terminal`/`write`/`edit` tools through
-    `rstack-agents guard` — destructive actions block until a
+    tools **and** shadows Tau's `terminal`/`write`/`edit` tools to route
+    through `rstack-agents guard` — destructive actions block until a
     `destructive-action:<taskId>` approval exists.
   </Step>
 </Steps>
 
-Details: [Universal adapter](/adapters/universal).
+Details: [Tau adapter](/adapters/universal).
+
+---
+
+## Hermes
+
+Hermes ([github.com/NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent))
+loads RStack as a **plugin** — a directory with a `plugin.yaml` manifest and
+an `__init__.py` exposing `register(ctx)`. Its `pre_tool_call` hook is a real
+blocking gate, so enforcement wires itself once the plugin is enabled.
+
+<Steps>
+  <Step title="Install Hermes + Node">
+    RStack's Hermes adapter shells out to the same Node bridge, so you need
+    `node` and `npx` on `PATH`.
+  </Step>
+  <Step title="Add RStack + init">
+    ```bash
+    cd your-project
+    npm install rstack-agents
+    npx rstack-agents init --framework hermes
+    ```
+  </Step>
+  <Step title="Install and enable the plugin">
+    ```bash
+    mkdir -p ~/.hermes/plugins/rstack-sdlc
+    ln -s "$(pwd)/node_modules/rstack-agents/src/integrations/hermes/rstack_sdlc.py" \
+          ~/.hermes/plugins/rstack-sdlc/__init__.py
+    ln -s "$(pwd)/node_modules/rstack-agents/src/integrations/hermes/plugin.yaml" \
+          ~/.hermes/plugins/rstack-sdlc/plugin.yaml
+    hermes plugins enable rstack-sdlc
+    ```
+    Hermes plugins are opt-in — the loader silently skips a plugin directory
+    with no `plugin.yaml`, and a plugin not in `plugins.enabled` never loads.
+  </Step>
+</Steps>
+
+Details: [Hermes adapter](/adapters/universal).
 
 ---
 

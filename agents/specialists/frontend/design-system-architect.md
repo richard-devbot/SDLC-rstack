@@ -48,7 +48,7 @@ Load these before executing domain work. Use `cat [package-local path] | head -4
 - `skills/plan-design-review/SKILL.md` — designer's eye on a plan — rates each dimension 0-10
 
 ### Plugin packs
-- `plugins/ui-design/` — responsive design, mobile, design system patterns, accessibility
+- `plugins/frontend-mobile/ui-design/` — responsive design, mobile, design system patterns, accessibility
 
 ## Workflow
 1. **Read the frontend stack and structure** — understand what's in use:

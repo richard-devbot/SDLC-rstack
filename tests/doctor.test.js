@@ -252,6 +252,18 @@ test('doctor', async (t) => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  await t.test('claude-code plugin/marketplace presence (#388): package-shipped manifests PASS', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-plugin-'));
+    seedRstack(root);
+    const { json } = await runDoctor(['--framework', 'claude-code', '--project', root, '--json'], { cwd: root });
+
+    assert.equal(checkByName(json, 'claude-code marketplace manifest').status, 'PASS');
+    assert.equal(checkByName(json, 'claude-code sdlc-rstack plugin').status, 'PASS');
+    assert.equal(checkByName(json, 'claude-code marketplace lists sdlc-rstack').status, 'PASS');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
   await t.test('tau adapter (shipped) PASSes and never crashes', async () => {
     const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-tau-'));
     seedRstack(root);
@@ -266,8 +278,48 @@ test('doctor', async (t) => {
     assert.equal(checkByName(json, 'bridge reachable').status, 'PASS');
     // Observability (#251): the shipped tau adapter emits observe events.
     assert.equal(checkByName(json, 'tau observability hook').status, 'PASS');
-    // Context injection (#255): the shipped tau adapter injects context on before_agent_start.
+    // Context injection (#255, corrected #389): the shipped tau adapter injects context on the real `input` hook.
     assert.equal(checkByName(json, 'tau context hook').status, 'PASS');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('hermes adapter (shipped) PASSes and never crashes (#390)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-hermes-'));
+    seedRstack(root);
+    const { json } = await runDoctor(['--framework', 'hermes', '--project', root, '--json'], { cwd: root });
+
+    assert.ok(json, 'doctor produced parseable JSON (did not crash) for the hermes framework');
+    const adapter = checkByName(json, 'hermes adapter present');
+    assert.equal(adapter.status, 'PASS');
+    assert.ok(adapter.detail.includes('hermes'), 'detail names the hermes adapter path');
+    assert.equal(checkByName(json, 'hermes plugin.yaml manifest').status, 'PASS');
+    // The shipped adapter's `_guard_block` really returns {"action":"block",...} — its
+    // own docstring/comments quote the OLD {"decision":"block"} shape verbatim to explain
+    // the #390 correction, which must not false-positive this check against prose.
+    assert.equal(checkByName(json, 'hermes guard payload shape').status, 'PASS');
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test('operator adapter (shipped) PASSes and never crashes (#391)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'rstack-doctor-operator-'));
+    seedRstack(root);
+    const { json } = await runDoctor(['--framework', 'operator', '--project', root, '--json'], { cwd: root });
+
+    assert.ok(json, 'doctor produced parseable JSON (did not crash) for the operator framework');
+    const adapter = checkByName(json, 'operator adapter present');
+    assert.equal(adapter.status, 'PASS');
+    assert.ok(adapter.detail.includes('operator'), 'detail names the operator adapter path');
+    assert.equal(checkByName(json, 'operator bootstrap.py').status, 'PASS');
+    // The shipped adapter imports the real operator_use.plugins/tools API — its own
+    // docstring quotes the OLD fictional operator_use.extension/operator_use.tool
+    // modules verbatim to document the #391 correction, which must not
+    // false-positive this check against prose.
+    assert.equal(checkByName(json, 'operator adapter uses the real operator_use API').status, 'PASS');
+    // operator-use has no third-party plugin discovery — this is a WARN, not a
+    // FAIL, since it's a host-design limitation honestly disclosed, not a bug.
+    assert.equal(checkByName(json, 'operator plugin-loading tier').status, 'WARN');
 
     rmSync(root, { recursive: true, force: true });
   });

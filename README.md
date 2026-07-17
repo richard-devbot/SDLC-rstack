@@ -126,8 +126,8 @@ RStack is a plugin layer — install your AI coding framework first, then run `i
 
 | Framework | What you get |
 |---|---|
-| Pi | All 15 `sdlc_*` tools, lifecycle hooks, tool gating, auto-launch dashboard |
-| Claude Code | Usage guide, optional SessionStart hook, slash commands via plugin |
+| Pi | All 18 `sdlc_*` tools, lifecycle hooks, tool gating, auto-launch dashboard |
+| Claude Code | Guard/observe/context hooks + the `sdlc-rstack` plugin (`/plugin install sdlc-rstack`) for the full `/sdlc-*` command surface |
 | Operator | Python adapter shells out to the same Node harness |
 | Codex / Gemini / custom | `.rstack/` state contract, agents/skills as context, CLI bridge |
 
@@ -146,7 +146,7 @@ Full contract: [docs/integrations/custom.md](docs/integrations/custom.md)
 
 ## Configure your team
 
-RStack ships a large catalog (196 agents, 68 skills, 72 plugins), but you configure only what your project needs.
+RStack ships a large catalog (196 agents, 68 skills, 73 plugins), but you configure only what your project needs. Plugins are organized by domain under `plugins/<domain>/<name>/` (e.g. `plugins/backend/backend-development/`) — `sdlc-rstack` itself stays at `plugins/sdlc-rstack/` since it's the core product plugin, not a domain accelerator. Vendored plugins keep their original author/license; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ### 1. Pick a profile
 

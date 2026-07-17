@@ -28,14 +28,21 @@ Read `.rstack/rstack.config.json` for the active profile, `enabled_domains`, and
 
 ## Commands
 
-With the **sdlc-rstack** plugin installed:
+Install: `/plugin marketplace add richard-devbot/SDLC-rstack` then
+`/plugin install sdlc-rstack`. Every command drives the matching `sdlc_*`
+tool through the bridge (`plugins/sdlc-rstack/commands/`):
 
-- `/sdlc-start` — start the full pipeline (interactive)
-- `/sdlc-status` — completed vs pending agents
-- `/sdlc-resume` — resume from a specific agent
-- `/sdlc-agent <name>` — run one SDLC agent in isolation
+- `/sdlc-start <goal>` — begin a governed run
+- `/sdlc-plan` — build the stage/task graph
+- `/sdlc-build-next` — claim + prepare the next builder task
+- `/sdlc-validate` — read-only validation report
+- `/sdlc-approve <artifact> <APPROVED|REJECTED>` — record a human approval
+- `/sdlc-status` — completed vs pending, next recommended action
+- `/sdlc-resume` — resume an interrupted run
+- `/sdlc-agents` — list agents/skills/plugins by domain
 
-Without the plugin, read `agents/core/orchestrator.md` and drive the lifecycle manually.
+Full list: `plugins/sdlc-rstack/commands/`. Without the plugin, read
+`agents/core/orchestrator.md` and drive the lifecycle manually.
 
 Additional usage notes: `.claude/rstack-sdlc.md`.
 

@@ -189,6 +189,9 @@ export function toClientState(state) {
       : { stages: {}, runs: [] },
     people: (state.people ?? []).slice(0, 60),
     presence: (state.presence ?? []).slice(0, 40),
+    // Agent Force Studio consumes one compact, server-owned semantic
+    // projection. Raw run events remain stripped above.
+    studio: state.studio ?? null,
     businessFlex,
     // [wave:money] The armed loop budget caps per source root (from
     // .rstack/budget.json — the file the goal loop enforces).

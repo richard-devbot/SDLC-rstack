@@ -1,0 +1,25 @@
+{
+  "name": "docs-content",
+  "description": "RStack docs-content plugin pack — combines: Documentation generation, code explanation, and technical writing with automated doc generation and tutorial creation | Content marketing strategy, web research, and information synthesis for marketing operations | OpenAPI specification generation, Mermaid diagram creation, tutorial writing, API reference documentation | Content freshness analysis, cannibalization detection, and authority building for SEO | SEO content writing, planning, and quality auditing with E-E-A-T optimization | Technical SEO optimization including meta tags, keywords, structure, and featured snippets",
+  "owner": "RStack developed by Richardson Gunde",
+  "author": {
+    "name": "Seth Hobson",
+    "email": "seth@major7apps.com"
+  },
+  "license": "MIT",
+  "agents": [
+    "code-documentation/agents",
+    "content-marketing/agents",
+    "documentation-generation/agents",
+    "seo-analysis-monitoring/agents",
+    "seo-content-creation/agents",
+    "seo-technical-optimization/agents"
+  ],
+  "commands": [
+    "code-documentation/commands",
+    "documentation-generation/commands"
+  ],
+  "skills": [
+    "documentation-generation/skills"
+  ]
+}
