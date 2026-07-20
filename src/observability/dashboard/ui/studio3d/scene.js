@@ -1137,6 +1137,12 @@ export function createStudioScene(canvas, {
     const position = handle.object.position;
     const desired = new THREE.Vector3(position.x, 1.2, position.z);
     const offset = camera.position.clone().sub(controls.target);
+    if (motionMode === 'reduced') {
+      // Reduced motion: track by stepping, never by continuous glide.
+      controls.target.copy(desired);
+      camera.position.copy(controls.target).add(offset);
+      return false;
+    }
     controls.target.lerp(desired, 0.08);
     camera.position.copy(controls.target).add(offset);
     return true;
@@ -1456,6 +1462,9 @@ export function createStudioScene(canvas, {
     clearCaptionLayer();
     clearStreams();
     clearConveyor();
+    // Room selection ring: geometry is pooled, but the material is owned here.
+    scene.remove(roomRing);
+    roomRing.material.dispose();
     roomLabelGroup.traverse((child) => {
       if (child.isSprite) {
         child.material.map?.dispose();
