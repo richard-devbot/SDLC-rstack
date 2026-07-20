@@ -113,7 +113,7 @@ test('environmentReportCheck: PASS on clean report, WARN on issues/malformed/mis
   assert.ok([missing, legacy, canonical, malformed].every((check) => check.status !== 'FAIL'), 'the shape check is non-fatal by construction');
 });
 
-test('sdlc_validate wiring: stage-00 task gets the shape check; a malformed report never fails validation', async () => {
+test('sdlc_validate wiring: stage-00 shape check stays WARN, but an invalid run_mode FAILs the stage (#421)', async () => {
   const mockPi = {
     tools: {},
     commands: {},
@@ -139,8 +139,10 @@ test('sdlc_validate wiring: stage-00 task gets the shape check; a malformed repo
     const expectedStageIds = [...new Set(envTask.stage_artifacts.map((artifact) => artifact.stage_id))];
     assert.deepEqual(expectedStageIds, ['00-environment']);
 
-    // A v2 report with an INVALID run_mode: the shape check must WARN, and
-    // validation must still PASS (non-fatal by contract).
+    // A v2 report with an INVALID run_mode: the legacy shape check still WARNs
+    // (never flips the verdict on its own), but since #421 the registered
+    // 00-environment profile makes the invalid run_mode a hard FAIL — the
+    // report drives every downstream stage's brownfield/greenfield behavior.
     mkdirSync(join(runDir, 'artifacts', 'stages', '00-environment'), { recursive: true });
     writeFileSync(join(runDir, 'artifacts', 'stages', '00-environment', 'environment_report.json'), JSON.stringify({ ...LEGACY_REPORT, run_mode: 'not-a-mode' }));
 
@@ -164,13 +166,25 @@ test('sdlc_validate wiring: stage-00 task gets the shape check; a malformed repo
     }, null, 2));
 
     const result = await mockPi.tools.sdlc_validate.execute('3', { run_id: runId, task_id: envTask.id });
-    assert.equal(result.details.status, 'PASS', `shape WARN must never fail validation: ${JSON.stringify(result.details.issues)}`);
+    // #421: the invalid run_mode is now a hard FAIL via the registered profile.
+    assert.equal(result.details.status, 'FAIL', 'an invalid run_mode must fail the environment stage');
     const validation = JSON.parse(readFileSync(join(outputDir, 'validation.json'), 'utf8'));
+    assert.equal(validation.validator_profile.stage_id, '00-environment', 'the environment stage gets its own validator');
+    const modeCheck = validation.checks.find((check) => check.name === 'required_check_environment_run_mode_valid');
+    assert.ok(modeCheck && modeCheck.status === 'FAIL', 'the invalid run_mode is the recorded FAIL');
+    assert.match(modeCheck.evidence, /not-a-mode/);
+    // The legacy shape check is unchanged: still recorded, still WARN-only.
     const shapeCheck = validation.checks.find((check) => check.name === 'environment_report_shape');
     assert.ok(shapeCheck, 'stage-00 validation records the shape check');
     assert.equal(shapeCheck.status, 'WARN');
     assert.match(shapeCheck.evidence, /run_mode/);
     assert.ok(!validation.issues.some((issue) => issue.name === 'environment_report_shape'), 'WARN checks never land in issues[]');
+
+    // And a VALID run_mode passes the gate end-to-end (re-claim → re-validate).
+    writeFileSync(join(runDir, 'artifacts', 'stages', '00-environment', 'environment_report.json'), JSON.stringify({ ...LEGACY_REPORT, run_mode: 'brownfield' }));
+    claimTaskForTest(projectRoot, runId, '00-environment', { attempt: 2 });
+    const pass = await mockPi.tools.sdlc_validate.execute('4', { run_id: runId, task_id: envTask.id });
+    assert.equal(pass.details.status, 'PASS', `a valid run_mode should pass: ${JSON.stringify(pass.details.issues)}`);
   } finally {
     if (previousProjectRoot === undefined) delete process.env.RSTACK_PROJECT_ROOT;
     else process.env.RSTACK_PROJECT_ROOT = previousProjectRoot;

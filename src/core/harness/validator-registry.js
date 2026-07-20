@@ -25,6 +25,23 @@ export const GENERIC_VALIDATOR_PROFILE = Object.freeze({
 // riskier verdict must own the validation). `model_hint` is advisory only:
 // the host framework picks the model; mechanical checks suggest a cheap one.
 export const DEFAULT_VALIDATOR_REGISTRY = Object.freeze({
+  // #421: the environment report is the ground truth every downstream stage
+  // plans from — run_mode (greenfield/brownfield/feature) decides how agents
+  // treat the repo. Previously its only check was WARN-only shape validation
+  // that could never fail a run; an empty or mode-less report now FAILs the
+  // stage. The legacy WARN shape check stays for the softer fields.
+  '00-environment': Object.freeze({
+    stage_id: '00-environment',
+    validator: 'validator.00-environment',
+    model_hint: 'haiku',
+    read_only: true,
+    priority: 25,
+    required_checks: Object.freeze([
+      'environment_report_present',
+      'environment_run_mode_valid',
+    ]),
+    output_contract_fields: Object.freeze(['run_mode']),
+  }),
   // #410: the transcript stage previously had NO validation — a missing or
   // goalless transcript.json passed silently and stage 02 built requirements
   // from nothing. A low priority keeps it from ever shadowing a riskier stage

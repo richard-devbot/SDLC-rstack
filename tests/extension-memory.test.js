@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import extension from '../extensions/rstack-sdlc.ts';
@@ -38,7 +38,11 @@ test('sdlc_validate writes validator-approved agent episode memory', async () =>
 
     // #404/#405: sdlc_build_next claims the first canonical stage (00-environment)
     // and stamps it IN_PROGRESS with a claim nonce; validation is bound to that
-    // claimed task.
+    // claimed task. #421: the environment stage now validates its artifact, so
+    // the fixture produces a valid report.
+    const envDir = join(projectRoot, '.rstack', 'runs', runId, 'artifacts', 'stages', '00-environment');
+    mkdirSync(envDir, { recursive: true });
+    writeFileSync(join(envDir, 'environment_report.json'), JSON.stringify({ run_mode: 'greenfield', status: 'ready' }));
     const builderPath = join(projectRoot, '.rstack', 'runs', runId, 'tasks', '00-environment', 'builder.json');
     writeFileSync(builderPath, JSON.stringify({
       task_id: '00-environment',

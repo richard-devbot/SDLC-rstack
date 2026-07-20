@@ -98,9 +98,10 @@ test('sdlc_validate records the selected validator profile in validation.json', 
     'profile selection is recorded as an informational check',
   );
 
-  // 00-environment is an unregistered stage — the generic profile applies, even
+  // 04-planning is an unregistered stage — the generic profile applies, even
   // when the builder contract is missing (claimed but never built).
-  const genericTask = claimTaskForTest(projectRoot, runId, '00-environment');
+  // (00-environment and 01-transcript gained their own profiles in #421/#410.)
+  const genericTask = claimTaskForTest(projectRoot, runId, '04-planning');
   const genericResult = await mockPi.tools.sdlc_validate.execute('4', { run_id: runId, task_id: genericTask.id });
   assert.equal(genericResult.details.status, 'FAIL', 'missing builder contract still fails validation');
   const genericValidation = JSON.parse(readFileSync(join(projectRoot, genericTask.output_dir, 'validation.json'), 'utf8'));

@@ -55,6 +55,11 @@ test('sdlc_validate attributes stage_completed to canonical stages, not task ids
   const expectedStageIds = [...new Set(task.stage_artifacts.map((artifact) => artifact.stage_id))];
   assert.deepEqual(expectedStageIds, ['00-environment'], 'task targets exactly its own canonical stage');
 
+  // #421: the environment stage now validates its artifact — produce a valid one.
+  const envDir = join(projectRoot, '.rstack', 'runs', runId, 'artifacts', 'stages', '00-environment');
+  mkdirSync(envDir, { recursive: true });
+  writeFileSync(join(envDir, 'environment_report.json'), JSON.stringify({ run_mode: 'greenfield', status: 'ready' }));
+
   // Write a passing builder contract into the claimed task output dir.
   const outputDir = join(projectRoot, task.output_dir);
   mkdirSync(outputDir, { recursive: true });
