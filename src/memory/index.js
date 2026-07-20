@@ -553,7 +553,13 @@ export async function retractEpisode(memoryDir, episodeId, reason = 'retracted')
   await mkdir(memoryDir, { recursive: true });
   const record = { episode_id: episodeId, reason: sanitizeMemoryText(reason, 300), retracted_at: nowIso() };
   const path = jsonlPath(memoryDir, 'retractions.jsonl');
-  await appendFile(path, `${JSON.stringify(record)}\n`);
+  // #408: serialize the append. A torn retraction line (crash / concurrent
+  // bridge processes) is dropped by the tolerant JSONL parser on read, which
+  // would silently RESURRECT a retracted episode. The lock keeps every
+  // retraction an intact line — the same guarantee episodes.jsonl already has.
+  await withFileLock(path, async () => {
+    await appendFile(path, `${JSON.stringify(record)}\n`);
+  });
   return path;
 }
 
@@ -700,7 +706,10 @@ export async function appendLearning(memoryDir, learning) {
   await mkdir(memoryDir, { recursive: true });
   const path = jsonlPath(memoryDir, 'facts.jsonl');
   const entry = { ts: nowIso(), learning: sanitizeMemoryText(learning, 1000), type: 'project_fact' };
-  await appendFile(path, `${JSON.stringify(entry)}\n`);
+  // #408: serialize concurrent learning appends so lines never interleave.
+  await withFileLock(path, async () => {
+    await appendFile(path, `${JSON.stringify(entry)}\n`);
+  });
   return { path, entry };
 }
 
@@ -715,6 +724,9 @@ export async function searchLearnings(memoryDir, query, limit = 20) {
 export async function writeRetrievalEvent(memoryDir, event) {
   await mkdir(memoryDir, { recursive: true });
   const path = jsonlPath(memoryDir, 'retrieval-events.jsonl');
-  await appendFile(path, `${JSON.stringify({ ts: nowIso(), ...event })}\n`);
+  // #408: serialize so telemetry lines stay intact under concurrent recalls.
+  await withFileLock(path, async () => {
+    await appendFile(path, `${JSON.stringify({ ts: nowIso(), ...event })}\n`);
+  });
   return path;
 }
