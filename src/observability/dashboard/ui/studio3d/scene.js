@@ -63,6 +63,7 @@ export function createStudioScene(canvas, {
   onSelect = () => {},
   onDiagnostics = () => {},
   onRendererState = () => {},
+  onDirectorMode = () => {},
 } = {}) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -1042,6 +1043,8 @@ export function createStudioScene(canvas, {
   }
 
   function select(ref, options = {}) {
+    // Any explicit selection is manual intent — the cinema director yields.
+    setDirectorMode('explore');
     if (options.overview) {
       selectedRef = null;
       return focus(null, 'company');
@@ -1050,6 +1053,74 @@ export function createStudioScene(canvas, {
     selectedRef = ref;
     const level = options.level ?? (ref.kind === 'session' ? 'agent' : 'mission');
     return focus(ref, level);
+  }
+
+  // ── Cinema director (Move B · #433) ─────────────────────────────────────
+  // Hands-free mode: the camera frames whatever the RUN is actually doing —
+  // a pending human gate wins, then a round-robin tour of live sessions,
+  // else the authored overview. Shots key off the same projection the
+  // semantic DOM renders, so the director can never invent activity. A user
+  // grab (drag, click, Overview) always takes the camera back instantly.
+  const DIRECTOR_HOLD_MS = 9000;
+  const director = { mode: 'explore', timer: null, tourIndex: 0, lastKey: null };
+
+  function directorShot() {
+    if (motionMode === 'reduced') {
+      // Reduced motion: hold the calm wide shot instead of touring.
+      return { key: 'overview' };
+    }
+    if (projection?.approval_summary?.pending_count) {
+      const room = STUDIO_TOPOLOGY.governance.position;
+      return {
+        key: 'governance',
+        position: new THREE.Vector3(room[0] + 5.2, 4.4, room[2] + 7),
+        target: new THREE.Vector3(room[0], 1.1, room[2]),
+      };
+    }
+    const live = (projection?.sessions ?? [])
+      .filter((session) => ['active', 'starting'].includes(session.status))
+      .filter((session) => workstationBySession.has(session.id));
+    if (live.length) {
+      const session = live[director.tourIndex % live.length];
+      const seat = workstationBySession.get(session.id).seat.getWorldPosition(new THREE.Vector3());
+      return {
+        key: `session:${session.id}`,
+        position: seat.clone().add(new THREE.Vector3(3.8, 3.1, 5.2)),
+        target: seat.clone().setY(1.1),
+      };
+    }
+    return { key: 'overview' };
+  }
+
+  function directorCut({ advance = false } = {}) {
+    if (director.mode !== 'cinema' || destroyed) return;
+    if (advance) director.tourIndex += 1;
+    const shot = directorShot();
+    if (shot.key === director.lastKey) return;
+    director.lastKey = shot.key;
+    if (shot.key === 'overview') {
+      moveCameraTo(
+        new THREE.Vector3(...STUDIO_TOPOLOGY.overviewCamera),
+        new THREE.Vector3(...STUDIO_TOPOLOGY.overviewTarget),
+      );
+      return;
+    }
+    moveCameraTo(shot.position, shot.target);
+  }
+
+  function setDirectorMode(mode) {
+    if (director.mode === mode || destroyed) return;
+    director.mode = mode;
+    if (director.timer) {
+      clearInterval(director.timer);
+      director.timer = null;
+    }
+    if (mode === 'cinema') {
+      director.lastKey = null;
+      directorCut();
+      director.timer = setInterval(() => directorCut({ advance: true }), DIRECTOR_HOLD_MS);
+    }
+    onDirectorMode(mode);
   }
 
   function onPointerUp(event) {
@@ -1135,6 +1206,7 @@ export function createStudioScene(canvas, {
     rebuildStreams();
     rebuildWorkLights();
     rebuildConveyor();
+    directorCut();
     paintPipelineLegend();
     paintGlobalTimeline();
     robotFleet.update();
@@ -1234,6 +1306,8 @@ export function createStudioScene(canvas, {
 
   function onControlsStart() {
     controlsActive = true;
+    // Grabbing the camera is manual intent — cinema hands control over.
+    setDirectorMode('explore');
     startLoop();
   }
 
@@ -1250,6 +1324,10 @@ export function createStudioScene(canvas, {
   function destroy() {
     if (destroyed) return;
     destroyed = true;
+    if (director.timer) {
+      clearInterval(director.timer);
+      director.timer = null;
+    }
     renderer.setAnimationLoop(null);
     resizeObserver.disconnect();
     canvas.removeEventListener('pointerup', onPointerUp);
@@ -1315,6 +1393,7 @@ export function createStudioScene(canvas, {
     select,
     focus,
     setMotion,
+    setDirectorMode,
     diagnostics,
     pause,
     resume,

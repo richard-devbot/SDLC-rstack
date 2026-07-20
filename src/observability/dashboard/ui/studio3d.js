@@ -45,6 +45,7 @@ export function studio3dHtml() {
         <canvas id="studio-canvas" aria-hidden="true"></canvas>
         <div id="studio-renderer-banner" class="studio-renderer-banner" role="status" hidden></div>
         <div class="studio-camera-controls" aria-label="3D view controls">
+          <button id="studio-camera-mode" type="button">Take control</button>
           <button id="studio-overview" type="button">Overview</button>
         </div>
       </div>
