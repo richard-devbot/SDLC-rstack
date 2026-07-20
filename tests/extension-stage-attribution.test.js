@@ -78,6 +78,10 @@ test('sdlc_validate attributes stage_completed to canonical stages, not task ids
     })),
   }, null, 2));
 
+  // #405: validating a future PENDING task by id must be refused, not verdicted.
+  const bypass = await mockPi.tools.sdlc_validate.execute('bypass', { run_id: runId, task_id: '07-code' });
+  assert.equal(bypass.details.error, 'task_not_claimed', 'a PENDING task cannot be validated directly');
+
   const result = await mockPi.tools.sdlc_validate.execute('3', { run_id: runId, task_id: task.id });
   assert.equal(result.details.status, 'PASS', `validation should pass: ${JSON.stringify(result.details.issues)}`);
 
@@ -97,6 +101,9 @@ test('sdlc_validate attributes stage_completed to canonical stages, not task ids
     [...expectedStageIds].sort(),
     'one stage_completed per canonical stage the task targets',
   );
+  // The refused bypass must not have completed stage 07-code.
+  assert.ok(!stageEvents.some((event) => event.stage_id === '07-code'), 'refused validation must not complete a stage');
+
   const checkpointEvents = events.filter((event) => event.type === 'stage_checkpoint_saved');
   assert.deepEqual(
     checkpointEvents.map((event) => event.stage_id).sort(),

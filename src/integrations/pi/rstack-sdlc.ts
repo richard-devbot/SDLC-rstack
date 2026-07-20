@@ -1977,6 +1977,20 @@ export default function (pi: ExtensionAPI) {
         } catch { /* best-effort; a missing file is the expected case */ }
         task.status = "IN_PROGRESS";
         task._started_at = Date.now();
+        // Claim nonce (#405): bind this specific granted attempt so validation
+        // cannot be run against a task that was never claimed through the gates.
+        // sdlc_validate requires the task to be IN_PROGRESS AND to still carry
+        // the nonce it was claimed with. A fresh claim (retry) mints a new
+        // nonce, so a stale builder.json from a prior attempt cannot be
+        // re-validated, and a future PENDING task — which has no _claim — can
+        // never be validated directly. attempt counts prior task_started events.
+        const priorStarts = runEvents.filter((event: any) => event.type === "task_started" && event.task_id === task.id).length;
+        task._claim = {
+          nonce: randomUUID(),
+          attempt: priorStarts + 1,
+          run_id: manifest.run_id,
+          claimed_at: new Date().toISOString(),
+        };
         // Real attribution: stamp the routed pipeline agent so builder.json and
         // the dashboard show who actually executed, not a generic "builder".
         if (!task.agent && Array.isArray(task.pipeline_agents) && task.pipeline_agents.length) {
@@ -2145,14 +2159,31 @@ export default function (pi: ExtensionAPI) {
       const tasksPath = join(runsDir(projectRoot), manifest.run_id, "tasks.json");
       // Locked read-modify-write: the verdict stamp must not race a concurrent
       // sdlc_build_next claim on another task (issue #81).
-      const { task, taskState, checks, status, builderContract, validation, telemetryViolations, retryDecision } = await withFileLock(tasksPath, async () => {
+      const { task, taskState, checks, status, builderContract, validation, telemetryViolations, retryDecision, claimError } = await withFileLock(tasksPath, async () => {
         const taskState = JSON.parse(await readFile(tasksPath, "utf8"));
         const task = params.task_id ? taskState.tasks.find((t: any) => t.id === params.task_id) : taskState.tasks.find((t: any) => t.status === "IN_PROGRESS");
         // #266: no selectable task is an ordinary run state — every FAIL
         // stamps the task out of IN_PROGRESS, so the very next no-arg
         // validate lands here. Surface it as a structured response after the
         // lock instead of throwing a raw Error at the host.
-        if (!task) return { task: null as any, taskState, checks: [] as any[], status: null as any, builderContract: undefined as any, validation: null as any, telemetryViolations: [] as any[], retryDecision: null as any };
+        if (!task) return { task: null as any, taskState, checks: [] as any[], status: null as any, builderContract: undefined as any, validation: null as any, telemetryViolations: [] as any[], retryDecision: null as any, claimError: null as any };
+        // Claim gate (#405): a task may only be validated while it is the
+        // actively claimed attempt. sdlc_build_next stamps IN_PROGRESS and a
+        // _claim nonce ONLY after the Definition-of-Ready, approval, and
+        // guardrail gates pass. Validating any other task — a future PENDING
+        // task, or an already-resolved PASS/FAIL/BLOCKED one — would let a
+        // caller write a builder.json and mark stages complete while skipping
+        // every one of those gates (the reported bypass). Refuse with a
+        // structured response, never a verdict, so no stage_completed /
+        // checkpoint / memory side effect fires for an unclaimed task.
+        if (task.status !== "IN_PROGRESS" || !task._claim || task._claim.run_id !== manifest.run_id) {
+          return {
+            task: null as any, taskState, checks: [] as any[], status: null as any,
+            builderContract: undefined as any, validation: null as any,
+            telemetryViolations: [] as any[], retryDecision: null as any,
+            claimError: { task_id: task.id, task_status: task.status ?? null, has_claim: Boolean(task._claim) },
+          };
+        }
         const builderPath = join(projectRoot, task.output_dir, "builder.json");
         const checks = [];
         let status = "PASS";
@@ -2346,9 +2377,29 @@ export default function (pi: ExtensionAPI) {
           });
           task.status = retryDecision.next_status;
         }
+        // Consume the claim nonce (#405): this granted attempt has now been
+        // validated. A retry re-claims through sdlc_build_next, which mints a
+        // fresh nonce — so the same builder.json can never be validated twice
+        // without going back through the gates.
+        delete task._claim;
         await writeJsonAtomic(tasksPath, taskState);
         return { task, taskState, checks, status, builderContract, validation, telemetryViolations, retryDecision };
       });
+      if (claimError) {
+        // #405: the requested task exists but is not the actively claimed
+        // attempt. Refuse loudly with the reason and the correct next action —
+        // never a PASS/FAIL verdict, so no stage completes off an unclaimed
+        // contract.
+        const inProgress = (taskState?.tasks ?? []).filter((t: any) => t.status === "IN_PROGRESS").map((t: any) => t.id);
+        const text = `Task "${claimError.task_id}" cannot be validated: it is ${claimError.task_status ?? "unknown"}, not the actively claimed IN_PROGRESS attempt`
+          + `${claimError.has_claim ? "" : " (no claim on record)"}. `
+          + `Claim it through sdlc_build_next first — validation is bound to the attempt granted by the Definition-of-Ready, approval, and guardrail gates. `
+          + `${inProgress.length ? `Currently claimed: ${inProgress.join(", ")}.` : "No task is currently claimed."}`;
+        return {
+          content: [{ type: "text", text }],
+          details: { run_id: manifest.run_id, error: "task_not_claimed", requested_task_id: claimError.task_id, task_status: claimError.task_status, in_progress: inProgress },
+        };
+      }
       if (!task) {
         // Same structured shape as the sibling gates (approval, guardrail,
         // DOR): actionable text + machine-readable details, never a stack
