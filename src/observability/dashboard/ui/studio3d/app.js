@@ -53,11 +53,12 @@ function applyMotion(mode) {
 
 // The theme drives both the 3D palette (via scene rebuild) and the 2D chrome
 // (via the data attribute the stylesheet keys on). Guard the optional button so
-// the studio still works if the markup ever omits it.
+// the studio still works if the markup ever omits it. The label names the NEXT
+// action, so this is a plain action button — no aria-pressed toggle state
+// (CodeRabbit, PR #436).
 function applyThemeChrome(theme) {
   app.dataset.studioTheme = theme;
   if (!themeButton) return;
-  themeButton.setAttribute('aria-pressed', String(theme === 'twin'));
   themeButton.textContent = theme === 'twin' ? 'Classic look' : 'Studio look';
 }
 
