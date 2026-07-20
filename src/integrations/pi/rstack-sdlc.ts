@@ -47,7 +47,7 @@ import { requiredStageApprovalArtifacts } from "../../core/harness/stage-approva
 import { withFileLock, writeJsonAtomic, writeFileAtomic } from "../../core/harness/safe-write.js";
 import { readSessionPin, writeSessionPin } from "../../core/harness/runs.js";
 import { resolveUserIdentity } from "../../core/harness/identity.js";
-import { appendApproval as appendApprovalRequest, approvalQueueId, assertManagerAllowed, resolveQueuedApprovalForArtifact } from "../../core/tracker/approvals.js";
+import { appendApproval as appendApprovalRequest, approvalQueueId, assertManagerAllowed, configuredManagers, ensurePendingQueueApproval, readApprovalPolicy, resolveQueuedApprovalForArtifact } from "../../core/tracker/approvals.js";
 import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../../memory/index.js";
 import { buildRunReport, formatRetryTraceLine, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../../observability/collectors/reporter.js";
 import { notifyAll, hasConfiguredChannels, formatSlackStageMessage, formatSlackTaskReportMessage } from "../../notifications/index.js";
@@ -235,7 +235,16 @@ type ApprovalRecord = {
   // Provenance (#369): HMAC over the load-bearing fields, present only when
   // RSTACK_APPROVAL_SIGNING_KEY is configured (unsigned mode omits it).
   sig?: string;
+  // Identity provenance (#416): how the approver identity reached the record.
+  // Tool-path records stamp { via: 'tool', tokenVerified: false }; Business
+  // Hub records carry { via: 'dashboard', tokenVerified: true } evidence.
+  actor?: { name: string; via: string; tokenVerified: boolean; ts: string };
 };
+
+// #416: once-per-process nudge when an APPROVED lands with a caller-supplied
+// identity and no manager allowlist — working as configured, but the operator
+// should know the gate is effectively open.
+let warnedUnauthenticatedApproval = false;
 
 type LifecycleStage = {
   id: string;
@@ -837,7 +846,13 @@ function requiredApprovalsForTask(taskId: string): string[] {
 type RunPolicy = {
   required_approvals?: Record<string, string[]>;
   required_stage_approvals?: Record<string, string[]>;
-  approvals?: { every_stage?: boolean };
+  // #416: require_authenticated_principal — when true, the agent-callable
+  // sdlc_approve tool can no longer mint APPROVED records (a tool call cannot
+  // prove a human is behind it); sign-off must come through a token-verified
+  // surface (Business Hub Approvals page / email approval), which stamps
+  // audit-proof actor evidence. REJECTED stays tool-allowed: blocking work is
+  // the fail-closed direction.
+  approvals?: { every_stage?: boolean; require_authenticated_principal?: boolean };
   enforce_in_express?: boolean;
 };
 
@@ -1639,6 +1654,46 @@ export default function (pi: ExtensionAPI) {
       const approver = params.approver || resolveUserIdentity(projectRoot).name;
       await assertManagerAllowed(projectRoot, approver);
 
+      // Authenticated principal (#416): a tool call cannot prove a human is
+      // behind it — the approver string above is caller-supplied. When the
+      // team's policy demands an authenticated principal, this tool refuses to
+      // mint APPROVED records; sign-off must come through a token-verified
+      // surface (Business Hub Approvals page / email approval), which stamps
+      // audit-proof actor evidence on the record. To keep the flow seamless,
+      // the refusal enqueues a PENDING entry so the request is one click away
+      // on the Approvals page. REJECTED stays tool-allowed — blocking work is
+      // the fail-closed direction.
+      const runPolicy = await readRunPolicy(projectRoot);
+      if (params.status === "APPROVED" && runPolicy.approvals?.require_authenticated_principal === true) {
+        const queueId = approvalQueueId({ runId: manifest.run_id, taskId: undefined, artifact: params.artifact });
+        try {
+          await ensurePendingQueueApproval(projectRoot, {
+            id: queueId,
+            artifact: params.artifact,
+            type: "gate",
+            title: `Approve ${params.artifact}`,
+            detail: `Authenticated sign-off requested for ${params.artifact} on run ${manifest.run_id} (requested via sdlc_approve by ${approver}).`,
+            requestedBy: approver,
+            runId: manifest.run_id,
+          });
+        } catch (err) {
+          console.error("Failed to enqueue pending approval:", err);
+        }
+        await appendEvent(projectRoot, manifest.run_id, { type: "approval_refused_unauthenticated", artifact: params.artifact, requested_by: approver });
+        return {
+          content: [{ type: "text", text: `Approval for ${params.artifact} requires an authenticated principal (policy approvals.require_authenticated_principal). A pending request is queued — record the sign-off from the Business Hub Approvals page (token-verified) or the email approval link. This tool can still REJECT.` }],
+          details: { error: "authenticated_principal_required", artifact: params.artifact, run_id: manifest.run_id, approval_id: queueId },
+        };
+      }
+      // Default-off path: keep working, but never silently. With no manager
+      // allowlist configured, ANY caller-supplied name passes the gate — say
+      // so once per process, with the two ways to close the hole.
+      if (params.status === "APPROVED" && !warnedUnauthenticatedApproval
+        && configuredManagers(await readApprovalPolicy(projectRoot)).length === 0) {
+        warnedUnauthenticatedApproval = true;
+        console.error("[rstack] sdlc_approve accepted a caller-supplied approver with no manager allowlist configured — any caller can approve. Configure policy managers (or RSTACK_MANAGERS), or set approvals.require_authenticated_principal in .rstack/policy.json to require token-verified sign-off (#416).");
+      }
+
       // Locked read-modify-write: concurrent approvals (dashboard + tool)
       // must both land, and the file must never be observed half-written.
       const record: ApprovalRecord = await withFileLock(path, async () => {
@@ -1671,7 +1726,12 @@ export default function (pi: ExtensionAPI) {
           run_id: manifest.run_id,
           // Content binding (#407): present only for a file-backed APPROVED artifact.
           ...(artifactDigest ? { artifact_sha256: artifactDigest } : {}),
-        });
+          // Identity provenance (#416): this record's approver was supplied by
+          // the tool caller, never token-verified — stamped so audits and the
+          // dashboard can distinguish it from Business Hub sign-offs
+          // (source 'business-hub' + actor.tokenVerified true).
+          actor: { name: approver, via: "tool", tokenVerified: false, ts: timestamp() },
+        } as ApprovalRecord);
         approvals.push(next);
         await writeJsonAtomic(path, approvals);
         return next;
