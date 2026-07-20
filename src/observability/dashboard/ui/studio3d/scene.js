@@ -95,7 +95,12 @@ export function createStudioScene(canvas, {
   controls.maxPolarAngle = Math.PI * 0.46;
   controls.minPolarAngle = 0.02;
   controls.enablePan = true;
-  controls.screenSpacePanning = false;
+  // Screen-space panning + zoom-to-cursor free the camera from the ground
+  // plane: panning follows the screen at any viewing angle instead of sliding
+  // along the floor axes, and zoom heads toward the pointer rather than the
+  // fixed orbit target — the two behaviors that made navigation feel "stuck".
+  controls.screenSpacePanning = true;
+  controls.zoomToCursor = true;
   controls.zoomSpeed = 0.9;
 
   const ambient = new THREE.HemisphereLight(0xf6fbff, 0x73736a, 2.05);
@@ -743,6 +748,45 @@ export function createStudioScene(canvas, {
     updateStreamPulses(performance.now());
   }
 
+  // Work lights: a cool spotlight cone over each ACTIVE session's workstation —
+  // the "this desk is live right now" signal readable from any camera angle.
+  // Same honesty contract as the streams: a light exists only while its session
+  // is observed live. Shadowless and capped, so the cost stays negligible.
+  const WORK_LIGHT_LIMIT = 4;
+  const workLights = [];
+  const workLightRig = new THREE.Group();
+  workLightRig.name = 'Active session work lights';
+  scene.add(workLightRig);
+
+  function rebuildWorkLights() {
+    const targets = [];
+    (projection.sessions ?? []).slice(-MAX_DETAILED_SESSIONS).forEach((session) => {
+      if (!['active', 'starting'].includes(session.status)) return;
+      const workstation = workstationBySession.get(session.id);
+      if (!workstation) return;
+      if (targets.length >= WORK_LIGHT_LIMIT) return;
+      targets.push(workstation.seat.getWorldPosition(new THREE.Vector3()));
+    });
+    while (workLights.length < targets.length) {
+      const light = new THREE.SpotLight(0xbfe8ff, 0, 9, Math.PI / 7, 0.45, 1.4);
+      light.castShadow = false;
+      workLightRig.add(light, light.target);
+      workLights.push(light);
+    }
+    workLights.forEach((light, index) => {
+      const target = targets[index];
+      if (target) {
+        light.position.set(target.x, target.y + 4.4, target.z + 0.5);
+        light.target.position.copy(target);
+        light.intensity = 30;
+        light.visible = true;
+      } else {
+        light.visible = false;
+        light.intensity = 0;
+      }
+    });
+  }
+
   function updateStreamPulses(now) {
     if (!streamState.curves.length || !streamState.pulses) return false;
     const transform = new THREE.Object3D();
@@ -1089,6 +1133,7 @@ export function createStudioScene(canvas, {
     applyRestingStates();
     syncAgentPanels();
     rebuildStreams();
+    rebuildWorkLights();
     rebuildConveyor();
     paintPipelineLegend();
     paintGlobalTimeline();
@@ -1309,10 +1354,14 @@ function applyStudioTheme(theme, { renderer, scene, ambient, key, rim, materials
     m.needsUpdate = true;
   };
 
-  // Dark glassy shell + floor.
+  // Dark glassy shell + floor. floorFinish multiplies the per-room instance
+  // tints, so it sits a little lighter than the base floor for the team pads
+  // to stay distinguishable in the dark.
   set(materials.wall, 0x141d2e, { metalness: 0.4, roughness: 0.42 });
-  set(materials.floorFinish, 0x0c1422, { metalness: 0.3, roughness: 0.5 });
+  set(materials.floorFinish, 0x33415c, { metalness: 0.3, roughness: 0.5 });
   set(materials.floorLight, 0x111a2c, { metalness: 0.3, roughness: 0.45 });
+  set(materials.glass, 0x8fd8ea, { opacity: 0.14 });
+  set(materials.governanceGlass, 0x9fdce8, { opacity: 0.16 });
   set(materials.casework, 0x1a2536, { metalness: 0.35, roughness: 0.5 });
   set(materials.workSurface, 0x1c2740, { metalness: 0.4, roughness: 0.45 });
   set(materials.library, 0x18324a);

@@ -88,38 +88,40 @@ function writeSegments(mesh, segments) {
 function createWalls(pool) {
   const { bounds, corridor, doors } = STUDIO_TOPOLOGY;
   const P = 0.4; // perimeter thickness
-  const I = 0.26; // interior partition thickness
+  const G = 0.08; // glass panel thickness
   const solid = [
     // Perimeter: far walls full height, near walls lowered for the cutaway.
+    // Only the building shell stays opaque — every interior division is glass
+    // so the whole company is visible from any camera angle (Move A · #432).
     wallX(bounds.west - P / 2, bounds.east + P / 2, bounds.north, WALL_HEIGHT, P),
     wallZ(bounds.north, 9.4, bounds.west, WALL_HEIGHT, P), // dispatch entrance gap 9.4..11
     wallZ(11, bounds.south, bounds.west, WALL_HEIGHT, P),
     wallX(bounds.west - P / 2, bounds.east + P / 2, bounds.south, LOW_WALL_HEIGHT, P),
     wallZ(bounds.north, bounds.south, bounds.east, LOW_WALL_HEIGHT, P),
-    // North-wing dividers (Library | HQ · Governance | Vault).
-    wallZ(bounds.north, corridor.north, -7, PARTITION_HEIGHT, I),
-    wallZ(bounds.north, corridor.north, 12, PARTITION_HEIGHT, I),
-    // Corridor north wall with four door openings.
-    wallX(bounds.west, doors.library - 0.8, corridor.north, PARTITION_HEIGHT, I),
-    wallX(doors.library + 0.8, doors.hq - 0.8, corridor.north, PARTITION_HEIGHT, I),
-    wallX(doors.hq + 0.8, doors.governance - 0.8, corridor.north, PARTITION_HEIGHT, I),
-    wallX(doors.governance + 0.8, doors.vault - 0.8, corridor.north, PARTITION_HEIGHT, I),
-    wallX(doors.vault + 0.8, bounds.east, corridor.north, PARTITION_HEIGHT, I),
-    // Corridor south wall with the bullpen door; the lab section is glass.
-    wallX(bounds.west, doors.bullpen - 0.8, corridor.south, PARTITION_HEIGHT, I),
-    wallX(doors.bullpen + 0.8, 6, corridor.south, PARTITION_HEIGHT, I),
-    wallX(14, bounds.east, corridor.south, PARTITION_HEIGHT, I),
   ];
   const glass = [
+    // North-wing dividers (Library | HQ · Governance | Vault).
+    wallZ(bounds.north, corridor.north, -7, PARTITION_HEIGHT, G),
+    wallZ(bounds.north, corridor.north, 12, PARTITION_HEIGHT, G),
+    // Corridor north wall with four door openings.
+    wallX(bounds.west, doors.library - 0.8, corridor.north, PARTITION_HEIGHT, G),
+    wallX(doors.library + 0.8, doors.hq - 0.8, corridor.north, PARTITION_HEIGHT, G),
+    wallX(doors.hq + 0.8, doors.governance - 0.8, corridor.north, PARTITION_HEIGHT, G),
+    wallX(doors.governance + 0.8, doors.vault - 0.8, corridor.north, PARTITION_HEIGHT, G),
+    wallX(doors.vault + 0.8, bounds.east, corridor.north, PARTITION_HEIGHT, G),
+    // Corridor south wall with the bullpen door.
+    wallX(bounds.west, doors.bullpen - 0.8, corridor.south, PARTITION_HEIGHT, G),
+    wallX(doors.bullpen + 0.8, 6, corridor.south, PARTITION_HEIGHT, G),
+    wallX(14, bounds.east, corridor.south, PARTITION_HEIGHT, G),
     // Glass Validator Lab: corridor door, evidence hatch gap on the west side.
-    wallX(6, doors.lab - 0.8, corridor.south, GLASS_HEIGHT, 0.08),
-    wallX(doors.lab + 0.8, 14, corridor.south, GLASS_HEIGHT, 0.08),
-    wallZ(corridor.south, 1.4, 6, GLASS_HEIGHT, 0.08),
-    wallZ(2.6, 9, 6, GLASS_HEIGHT, 0.08),
-    wallX(6, 14, 9, GLASS_HEIGHT, 0.08),
-    wallZ(corridor.south, 9, 14, GLASS_HEIGHT, 0.08),
+    wallX(6, doors.lab - 0.8, corridor.south, GLASS_HEIGHT, G),
+    wallX(doors.lab + 0.8, 14, corridor.south, GLASS_HEIGHT, G),
+    wallZ(corridor.south, 1.4, 6, GLASS_HEIGHT, G),
+    wallZ(2.6, 9, 6, GLASS_HEIGHT, G),
+    wallX(6, 14, 9, GLASS_HEIGHT, G),
+    wallZ(corridor.south, 9, 14, GLASS_HEIGHT, G),
     // Orchestrator HQ glass side toward Governance.
-    wallZ(bounds.north, corridor.north, 3, PARTITION_HEIGHT, 0.08),
+    wallZ(bounds.north, corridor.north, 3, PARTITION_HEIGHT, G),
   ];
   const walls = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.wall, solid.length);
   walls.name = 'Office walls';
