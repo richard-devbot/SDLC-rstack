@@ -25,6 +25,22 @@ export const GENERIC_VALIDATOR_PROFILE = Object.freeze({
 // riskier verdict must own the validation). `model_hint` is advisory only:
 // the host framework picks the model; mechanical checks suggest a cheap one.
 export const DEFAULT_VALIDATOR_REGISTRY = Object.freeze({
+  // #410: the transcript stage previously had NO validation — a missing or
+  // goalless transcript.json passed silently and stage 02 built requirements
+  // from nothing. A low priority keeps it from ever shadowing a riskier stage
+  // (it is single-stage per task since #404, so priority is academic here).
+  '01-transcript': Object.freeze({
+    stage_id: '01-transcript',
+    validator: 'validator.01-transcript',
+    model_hint: 'haiku',
+    read_only: true,
+    priority: 20,
+    required_checks: Object.freeze([
+      'transcript_present',
+      'transcript_has_goals',
+    ]),
+    output_contract_fields: Object.freeze(['goals']),
+  }),
   '06-architecture': Object.freeze({
     stage_id: '06-architecture',
     validator: 'validator.06-architecture',
