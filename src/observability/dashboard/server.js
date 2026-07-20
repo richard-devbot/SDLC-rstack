@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { dirname, join, resolve, sep } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { appendFile, readFile, stat } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dashboardHtml } from './ui.js';
 import { studio3dHtml } from './ui/studio3d.js';
@@ -48,8 +48,9 @@ import { runPipeline } from '../../commands/pipeline-run.js';
 import { rollbackToCheckpoint, verifyStageCheckpoint } from '../../core/harness/checkpoints.js';
 import { verifyRunAttestations } from '../../core/harness/attestations.js';
 import { scanRunDrift } from '../../core/harness/drift.js';
-import { withFileLock } from '../../core/harness/safe-write.js';
-import { isSafeRunId } from '../../core/harness/approval-audit.js';
+import { withFileLock, writeJsonAtomic } from '../../core/harness/safe-write.js';
+import { isSafeRunId, isSafeArtifactName } from '../../core/harness/approval-audit.js';
+import { validateEnvironmentReport } from '../../core/harness/environment-report.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -1006,6 +1007,166 @@ async function handleArtifact(req, url, res) {
   }
 }
 
+// #422: operator-overridable stage artifacts. Deliberately limited to the two
+// human-authored intake artifacts — the environment report and the transcript
+// — so a business user can CORRECT a bad stage-00/01 input from the hub
+// instead of only re-running the agent. Every other stage artifact is
+// machine-produced and stays out of reach.
+const ARTIFACT_WRITE_STAGES = Object.freeze({
+  '00-environment': 'environment_report.json',
+  '01-transcript': 'transcript.json',
+});
+const ARTIFACT_WRITE_MAX_BYTES = 256 * 1024;
+
+// Schema gate per stage — reuse the SAME rules the validator enforces so an
+// override can never install an artifact the pipeline would then reject.
+// Returns null when clean, or a human-readable reason string.
+function validateOverrideArtifact(stageId, parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 'artifact must be a JSON object';
+  if (stageId === '00-environment') {
+    const issues = validateEnvironmentReport(parsed).filter((issue) => issue.severity === 'error');
+    if (issues.length) return `environment report invalid: ${issues.map((i) => `${i.field ?? '(root)'}: ${i.problem}`).join('; ')}`;
+    return null;
+  }
+  if (stageId === '01-transcript') {
+    if (!Array.isArray(parsed.goals) || parsed.goals.length === 0) return 'transcript must carry a non-empty goals[] array';
+    return null;
+  }
+  return `stage ${stageId} is not operator-overridable`;
+}
+
+// POST /api/artifact-write (#422): two-step, approval-gated override of a
+// stage-00/01 artifact — the same trust boundary and one-shot approval flow as
+// /api/env-write. Step 1 (no trusted approval) validates the payload, ensures
+// a PENDING queue entry, and returns 409 without writing. Step 2 (approved)
+// consumes the one-shot approval, schema-validates again, writes the artifact
+// atomically inside the run's stage dir, appends an artifact_overridden run
+// event, and re-broadcasts. The content is never persisted before approval.
+async function handleArtifactWrite(req, res) {
+  let auditContext = {};
+  const audit = (entry) => {
+    appendApprovalAudit(PROJECT_ROOT, {
+      ts: new Date().toISOString(),
+      kind: 'artifact_write',
+      remote: req.socket?.remoteAddress ?? null,
+      origin: req.headers?.origin ?? null,
+      ...auditContext,
+      ...entry,
+    }).catch((err) => {
+      process.stderr.write(`[rstack-business] artifact-write audit failed: ${err?.message}\n`);
+    });
+  };
+  handleGuardedPost(req, res, {
+    audit,
+    onBody: async (parsed, fail) => {
+      const { runId, stageId, content, resolvedBy } = parsed;
+      auditContext = {
+        run_id: typeof runId === 'string' ? runId.slice(0, 200) : null,
+        stage_id: typeof stageId === 'string' ? stageId.slice(0, 60) : null,
+        actor: typeof resolvedBy === 'string' ? resolvedBy.slice(0, 200) : null,
+      };
+      if (!isSafeRunId(runId)) {
+        audit({ outcome: 'denied', reason: 'invalid run id' });
+        return fail(400, 'valid runId is required');
+      }
+      if (!Object.prototype.hasOwnProperty.call(ARTIFACT_WRITE_STAGES, stageId)) {
+        audit({ outcome: 'denied', reason: 'stage not overridable' });
+        return fail(400, `stageId must be one of ${Object.keys(ARTIFACT_WRITE_STAGES).join(', ')} — only the intake artifacts are operator-overridable`);
+      }
+      if (!resolvedBy || typeof resolvedBy !== 'string') {
+        audit({ outcome: 'denied', reason: 'resolvedBy required' });
+        return fail(400, 'resolvedBy (requester identity) is required');
+      }
+      // Accept a JSON string or an already-parsed object; validate BEFORE any
+      // approval is consumed so a malformed payload can never burn a one-shot.
+      let parsedContent;
+      try {
+        parsedContent = typeof content === 'string' ? JSON.parse(content) : content;
+      } catch (err) {
+        audit({ outcome: 'denied', reason: 'content is not valid JSON' });
+        return fail(400, `content is not valid JSON: ${err?.message}`);
+      }
+      const serialized = JSON.stringify(parsedContent ?? null);
+      if (Buffer.byteLength(serialized, 'utf8') > ARTIFACT_WRITE_MAX_BYTES) {
+        audit({ outcome: 'denied', reason: 'artifact too large' });
+        return fail(400, `artifact exceeds ${ARTIFACT_WRITE_MAX_BYTES} bytes`);
+      }
+      const schemaError = validateOverrideArtifact(stageId, parsedContent);
+      if (schemaError) {
+        audit({ outcome: 'denied', reason: schemaError });
+        return fail(422, schemaError);
+      }
+
+      const runDir = await resolveRunDir(runId);
+      if (!runDir) {
+        audit({ outcome: 'denied', reason: 'run not found' });
+        return fail(404, 'run not found');
+      }
+
+      const artifactName = ARTIFACT_WRITE_STAGES[stageId];
+      // Approval artifact is run+stage-scoped so approving one override never
+      // unlocks another. Routed through the same trusted-approval audit as
+      // every gate via consume/ensure below.
+      const approvalArtifact = `artifact-write:${runId}:${stageId}`;
+      if (!isSafeArtifactName(approvalArtifact)) {
+        audit({ outcome: 'error', reason: 'unsafe approval artifact name' });
+        return fail(500, 'internal: unsafe approval artifact name');
+      }
+      const approval = await consumeApprovedQueueArtifact(PROJECT_ROOT, approvalArtifact);
+      if (!approval) {
+        const pending = await ensurePendingQueueApproval(PROJECT_ROOT, {
+          id: approvalArtifact,
+          artifact: approvalArtifact,
+          type: 'artifact_write',
+          title: `Override ${artifactName} (${stageId})`,
+          detail: `Business Hub requests approval to overwrite ${stageId}/${artifactName} in run ${runId}. The new content is held client-side only until approved.`,
+          requestedBy: resolvedBy,
+        });
+        audit({ outcome: 'approval-required', artifact: approvalArtifact });
+        return fail(409, 'approval_required', {
+          artifact: approvalArtifact,
+          approval_id: pending.id,
+          detail: `Approve '${approvalArtifact}' on the Approvals page, then submit the override again. Nothing was written.`,
+        });
+      }
+
+      // Containment: the target must resolve strictly inside the run's stage
+      // dir (belt-and-suspenders — stageId is allowlisted and artifactName is a
+      // constant, but never trust a computed path without the check).
+      const stageDir = join(runDir, 'artifacts', 'stages', stageId);
+      const target = resolve(stageDir, artifactName);
+      if (target !== resolve(stageDir) && !target.startsWith(resolve(stageDir) + sep)) {
+        audit({ outcome: 'error', reason: 'path escapes stage dir' });
+        return fail(500, 'internal: computed artifact path escaped the stage directory');
+      }
+      await mkdir(stageDir, { recursive: true });
+      await writeJsonAtomic(target, parsedContent);
+      audit({ outcome: 'written', artifact: approvalArtifact, approvedBy: approval.resolvedBy ?? null, bytes: Buffer.byteLength(serialized, 'utf8') });
+      try {
+        const eventsPath = join(runDir, 'events.jsonl');
+        await withFileLock(eventsPath, async () => {
+          await appendFile(eventsPath, JSON.stringify({
+            ts: new Date().toISOString(),
+            type: 'artifact_overridden',
+            stage_id: stageId,
+            artifact: artifactName,
+            actor: resolvedBy,
+            approved_by: approval.resolvedBy ?? null,
+          }) + '\n');
+        });
+      } catch (err) {
+        // The write succeeded; a run-event failure must not turn it into a 500.
+        process.stderr.write(`[rstack-business] artifact-write event append failed: ${err?.message}\n`);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, runId, stageId, artifact: artifactName, written: true, approvedBy: approval.resolvedBy ?? null }));
+      broadcastSnapshot().catch((err) => {
+        process.stderr.write(`[rstack-business] artifact-write broadcast error: ${err?.message}\n`);
+      });
+    },
+  });
+}
+
 // TLS is opt-in (#150): set RSTACK_TLS_CERT and RSTACK_TLS_KEY (PEM file
 // paths) to serve HTTPS — needed when the hub sits on a shared network where
 // the approval token must not travel in cleartext. Localhost HTTP stays the
@@ -1110,6 +1271,11 @@ const requestHandler = async (req, res) => {
 
   if (url.pathname === '/api/env-write' && req.method === 'POST') {
     await handleEnvWrite(req, res);
+    return;
+  }
+
+  if (url.pathname === '/api/artifact-write' && req.method === 'POST') {
+    await handleArtifactWrite(req, res);
     return;
   }
 
