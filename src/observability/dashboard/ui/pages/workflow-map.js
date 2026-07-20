@@ -40,10 +40,13 @@ function renderWorkflow(s) {
 function workflowRailHtml(stages) {
   if (!stages.length) return '';
   return stages.map(function(stage, index) {
-    var status = workflowStageStatus(stage);
-    return '<button type="button" class="rail-step ' + esc(status) + (stage.id === WORKFLOW_SELECTED_STAGE_ID ? ' selected' : '') + '" data-stageid="' + esc(stage.id) + '" onclick="openWorkflowStageButton(this)">' +
+    // #411: colour the rail by the authoritative severity gradient, and mark
+    // the stage the pipeline is actually waiting on.
+    var severity = workflowStageSeverity(stage);
+    var lock = (stage.approvalBlocked || 0) > 0 ? ' <i class="rail-lock" title="awaiting approval">🔒</i>' : '';
+    return '<button type="button" class="rail-step sev-' + esc(severity) + (stage.id === WORKFLOW_SELECTED_STAGE_ID ? ' selected' : '') + '" data-stageid="' + esc(stage.id) + '" data-severity="' + esc(severity) + '" onclick="openWorkflowStageButton(this)">' +
       '<span>' + esc(String(index).padStart(2, '0')) + '</span>' +
-      '<b>' + esc((stage.title || '').split(' ')[0] || stage.id) + '</b>' +
+      '<b>' + esc((stage.title || '').split(' ')[0] || stage.id) + lock + '</b>' +
     '</button>';
   }).join('');
 }
@@ -65,7 +68,8 @@ function workflowStageCardHtml(stage, index) {
   var activeWidth = Math.round(active / total * 100);
   var readyWidth = Math.max(0, 100 - passWidth - failWidth - activeWidth);
 
-  return '<button type="button" class="workspace-stage-card ' + esc(status) + (stage.id === WORKFLOW_SELECTED_STAGE_ID ? ' selected' : '') + '" data-stageid="' + esc(stage.id) + '" onclick="openWorkflowStageButton(this)">' +
+  var severity = workflowStageSeverity(stage);
+  return '<button type="button" class="workspace-stage-card ' + esc(status) + ' sev-' + esc(severity) + (stage.id === WORKFLOW_SELECTED_STAGE_ID ? ' selected' : '') + '" data-stageid="' + esc(stage.id) + '" data-severity="' + esc(severity) + '" onclick="openWorkflowStageButton(this)">' +
     '<div class="workspace-stage-top"><span class="workspace-stage-id">' + esc(String(index).padStart(2, '0')) + '</span>' + pill(status === 'fail' ? 'fail' : status === 'running' ? 'running' : status === 'pass' ? 'pass' : 'ready', status === 'fail' ? 'review' : status) + '</div>' +
     '<div class="workspace-agent">' +
       '<div class="agent-avatar">' + esc(String(index).padStart(2, '0')) + '</div>' +
@@ -88,6 +92,7 @@ function workflowStageCardHtml(stage, index) {
     '</div>' +
     '<div class="run-dot-row">' + runs.slice(0, 22).map(runDotHtml).join('') + (runs.length > 22 ? '<span class="run-more">+' + esc(runs.length - 22) + '</span>' : '') + '</div>' +
     '<div class="workspace-stage-foot">' + chip(evidenceCount + ' checks') + chip(validationCount + ' validations') + chip(riskCount + ' risks') + '</div>' +
+    (workflowStageSignals(stage) ? '<div class="workspace-stage-signals">' + workflowStageSignals(stage) + '</div>' : '') +
   '</button>';
 }
 
@@ -99,15 +104,27 @@ function workflowInspectorHtml(stage, s) {
   var evidenceCount = runs.reduce(function(total, run) { return total + (run.evidenceCount || 0); }, 0);
   var validationCount = runs.filter(function(run) { return !!run.validationStatus; }).length;
   var runRows = runs.map(function(run) {
-    return '<div class="inspector-run">' +
+    // #411: surface the authoritative per-stage fields the harness verified,
+    // not just the reconstructed status. Only render a signal when present.
+    var authChips = '';
+    if (run.retryState) authChips += chip('retry: ' + run.retryState);
+    if (run.attempts) authChips += chip('attempt ' + run.attempts);
+    if (run.status === 'PASS' && run.validationStatus === 'FAIL') authChips += chip('⚠ validation-fail');
+    if (run.approvalBlocker) authChips += chip('🔒 awaiting ' + (run.approvalBlocker.artifact || 'approval'));
+    if (run.checkpointRestorable === true) authChips += chip('↺ restorable');
+    else if (run.checkpointReason && run.checkpointReason.indexOf('corrupt') === 0) authChips += chip('⨯ checkpoint corrupt');
+    if (typeof run.costUsd === 'number') authChips += chip('$' + run.costUsd.toFixed(4));
+    if (run.contextPressure) authChips += chip('context pressure');
+    return '<div class="inspector-run' + (run.authoritative ? ' authoritative' : '') + '">' +
       '<div><div class="strong">' + esc(shortName(run.projectRoot)) + '</div><div class="mono faint">' + esc((run.runId || '').slice(-24)) + '</div></div>' +
       '<div class="inspector-run-meta">' +
         pill(run.status || 'ready') +
         chip((run.evidenceCount || 0) + ' checks') +
         chip((run.validationStatus || 'no validation')) +
         chip((run.riskCount || 0) + ' risks') +
+        authChips +
       '</div>' +
-      '<div class="mono muted">' + esc(run.taskId || stage.id || '') + '</div>' +
+      '<div class="mono muted">' + esc(run.taskId || stage.id || '') + (run.authoritative ? '' : ' · reconstructed (no pipeline-state)') + '</div>' +
     '</div>';
   }).join('');
 
@@ -158,6 +175,24 @@ function workflowStageStatus(stage) {
   if ((stage.active || 0) > 0) return 'running';
   if ((stage.pass || 0) > 0) return 'pass';
   return 'ready';
+}
+
+// #411: the authoritative severity gradient from the harness projection.
+// Falls back to the reconstructed status only when no projection exists.
+function workflowStageSeverity(stage) {
+  return stage.severity || workflowStageStatus(stage);
+}
+
+// #411: a compact one-line badge of the authoritative bottleneck signals on a
+// stage — only shows what is non-zero, so a healthy stage stays clean.
+function workflowStageSignals(stage) {
+  var out = '';
+  if ((stage.exhausted || 0) > 0) out += chip(stage.exhausted + ' exhausted');
+  if ((stage.retryable || 0) > 0) out += chip(stage.retryable + ' retryable');
+  if ((stage.validationFailed || 0) > 0) out += chip(stage.validationFailed + ' validation-fail');
+  if ((stage.approvalBlocked || 0) > 0) out += chip('🔒 ' + stage.approvalBlocked + ' awaiting approval');
+  if ((stage.restorable || 0) > 0) out += chip('↺ ' + stage.restorable + ' restorable');
+  return out;
 }
 
 function runDotHtml(run) {
