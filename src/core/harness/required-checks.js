@@ -178,6 +178,15 @@ const MECHANICAL_EVALUATORS = {
   compliance_report_present: (ctx, artifact) => artifactPresent('compliance_report_present', artifact),
   frameworks_enumerated: (ctx, artifact) => artifactFields('frameworks_enumerated', artifact, ['frameworks']),
   gaps_have_remediation: (ctx, artifact) => everyEntryHas('gaps_have_remediation', artifact, 'gaps', 'remediation'),
+
+  // #410: stage-01 transcript validation. Previously the transcript had NO
+  // validation at all — a missing or empty transcript.json passed silently and
+  // stage 02 fabricated requirements from nothing. These make the transcript's
+  // presence and its load-bearing field (goals) a real gate.
+  transcript_present: (ctx, artifact) => artifactPresent('transcript_present', artifact),
+  // goals is an array of strings — nonEmpty (via artifactFields) requires the
+  // field to be present and the array to be non-empty.
+  transcript_has_goals: (ctx, artifact) => artifactFields('transcript_has_goals', artifact, ['goals']),
 };
 
 /**
@@ -230,6 +239,7 @@ export async function evaluateRequiredChecks(ctx) {
 // module stays import-light; mirrors CANONICAL_SDLC_STAGES in stages.js and
 // is pinned against it by the tests.
 const STAGE_ARTIFACTS = Object.freeze({
+  '01-transcript': 'transcript.json',
   '06-architecture': 'system_design.json',
   '07-code': 'code_report.json',
   '08-testing': 'test_report.json',
