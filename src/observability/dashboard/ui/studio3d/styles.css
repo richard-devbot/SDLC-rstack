@@ -21,6 +21,37 @@
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+/* Digital Twin chrome (Move A · #432): the 2D shell follows the dark 3D world
+   by re-pointing the same design tokens the chrome already consumes. Default
+   look; app.js stamps data-studio-theme and toggles it to "classic". */
+#studio-app[data-studio-theme="twin"] {
+  color-scheme: dark;
+  --studio-bg: #070b12;
+  --studio-surface: #0f1420;
+  --studio-raised: #141b29;
+  --studio-panel: rgba(15, 20, 32, 0.94);
+  --studio-line: rgba(150, 167, 182, 0.16);
+  --studio-line-strong: rgba(56, 225, 214, 0.42);
+  --studio-text: #e6edf2;
+  --studio-muted: #9ba7b6;
+  --studio-dim: #66717f;
+  --studio-amber: #38e1d6;
+  --studio-amber-soft: #4a5f6a;
+  --studio-blue: #6ea7ff;
+  --studio-green: #4ade80;
+  --studio-red: #fb7185;
+  --studio-violet: #8a7cff;
+  --studio-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+}
+/* The topbar and page background carry hardcoded light values (not tokens),
+   so re-point them for the dark Digital Twin shell. */
+#studio-app[data-studio-theme="twin"] .studio-topbar {
+  background: rgba(9, 13, 22, 0.82);
+}
+#studio-app[data-studio-theme="twin"] {
+  background: radial-gradient(circle at 52% -10%, rgba(56, 225, 214, 0.10), transparent 34rem), var(--studio-bg);
+}
+
 * { box-sizing: border-box; }
 
 html,

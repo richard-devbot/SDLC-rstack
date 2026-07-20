@@ -59,6 +59,7 @@ function easeInOut(value) {
 
 export function createStudioScene(canvas, {
   motion = 'full',
+  theme = 'twin',
   onSelect = () => {},
   onDiagnostics = () => {},
   onRendererState = () => {},
@@ -83,17 +84,19 @@ export function createStudioScene(canvas, {
   const controls = new OrbitControls(camera, canvas);
   controls.target.fromArray(STUDIO_TOPOLOGY.overviewTarget);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.075;
+  controls.dampingFactor = 0.06;
   // Free navigation: pan across the floor, zoom close to a desk or out to
   // the whole campus, and orbit from near-top-down to eye level. The
-  // Overview button always restores the authored framing.
-  controls.minDistance = 2.5;
-  controls.maxDistance = 70;
-  controls.maxPolarAngle = Math.PI * 0.495;
+  // Overview button always restores the authored framing. minDistance and a
+  // slightly tighter maxPolarAngle keep the camera from diving into or grazing
+  // the floor plane on zoom-in — the "stuck to the ground" feeling.
+  controls.minDistance = 4;
+  controls.maxDistance = 72;
+  controls.maxPolarAngle = Math.PI * 0.46;
   controls.minPolarAngle = 0.02;
   controls.enablePan = true;
   controls.screenSpacePanning = false;
-  controls.zoomSpeed = 1.1;
+  controls.zoomSpeed = 0.9;
 
   const ambient = new THREE.HemisphereLight(0xf6fbff, 0x73736a, 2.05);
   const key = new THREE.DirectionalLight(0xfff1d1, 2.4);
@@ -113,6 +116,12 @@ export function createStudioScene(canvas, {
   scene.add(office.object);
   const robotFleet = createRobotFleetRenderer(pool, { maxRobots: MAX_DETAILED_SESSIONS + 1 });
   scene.add(robotFleet.object);
+
+  // Studio theme (Move A): 'twin' = Digital Twin palette (default), 'classic' =
+  // the authored light look. Applied once at build; app.js toggles by rebuilding
+  // the scene so there is no live-restore state to keep in sync.
+  applyStudioTheme(theme, { renderer, scene, ambient, key, rim, materials: pool.materials });
+
   let cast = null;
   const reconciler = createEntityReconciler({
     scene,
@@ -1266,4 +1275,58 @@ export function createStudioScene(canvas, {
     resume,
     destroy,
   };
+}
+
+// Studio themes (Move A · #432). 'twin' repaints the world into the Digital
+// Twin palette — deep navy ground, cool high-contrast light with the rim eased
+// down + a soft violet fill so the floor reads evenly (no single teal hotspot),
+// dark glassy surfaces, and telemetry-bright accents. 'classic' is a no-op so
+// the authored light look is preserved. Mutates shared lights + pooled
+// materials in place; app.js switches themes by rebuilding the scene.
+function applyStudioTheme(theme, { renderer, scene, ambient, key, rim, materials }) {
+  if (theme !== 'twin') return;
+  const GROUND = 0x0a0e17;
+  renderer.setClearColor(GROUND, 1);
+  renderer.toneMappingExposure = 1.15;
+  scene.fog = new THREE.FogExp2(GROUND, 0.014);
+
+  ambient.color.set(0x3a5580);
+  ambient.groundColor.set(0x05070d);
+  ambient.intensity = 0.9;
+  key.color.set(0xcfe2ff);
+  key.intensity = 1.6;
+  rim.color.set(0x38e1d6);
+  rim.intensity = 1.35;
+  const fill = new THREE.DirectionalLight(0x7c6cff, 0.7);
+  fill.position.set(2, 8, 16);
+  scene.add(fill);
+
+  const set = (m, hex, { emissive, ...patch } = {}) => {
+    if (!m) return;
+    if (hex != null && m.color) m.color.set(hex);
+    if (emissive != null && m.emissive) m.emissive.set(emissive);
+    Object.assign(m, patch);
+    m.needsUpdate = true;
+  };
+
+  // Dark glassy shell + floor.
+  set(materials.wall, 0x141d2e, { metalness: 0.4, roughness: 0.42 });
+  set(materials.floorFinish, 0x0c1422, { metalness: 0.3, roughness: 0.5 });
+  set(materials.floorLight, 0x111a2c, { metalness: 0.3, roughness: 0.45 });
+  set(materials.casework, 0x1a2536, { metalness: 0.35, roughness: 0.5 });
+  set(materials.workSurface, 0x1c2740, { metalness: 0.4, roughness: 0.45 });
+  set(materials.library, 0x18324a);
+  set(materials.chair, 0x27405c);
+
+  // Telemetry accents (WebGL emissive; true bloom arrives in Move D).
+  set(materials.stream, 0x38e1d6, { opacity: 0.95 });
+  set(materials.streamPulse, 0xaef6ff, { emissive: 0x38e1d6, emissiveIntensity: 2.2, roughness: 0.15 });
+  set(materials.screenGlow, 0xd6f6ff, { emissive: 0x38e1d6, emissiveIntensity: 1.35 });
+  set(materials.robotFace, 0x9fe0ff, { emissive: 0x38e1d6, emissiveIntensity: 1.0 });
+
+  // Run-state nodes keep their meaning but read as lit signals.
+  set(materials.validator, 0x71a7ff, { emissive: 0x1e5cff, emissiveIntensity: 0.8 });
+  set(materials.evidence, 0x4ade80, { emissive: 0x1f9d57, emissiveIntensity: 0.8 });
+  set(materials.governance, 0xfb7185, { emissive: 0xd64560, emissiveIntensity: 0.9 });
+  set(materials.amber, 0xfbbf24, { emissive: 0xc68417, emissiveIntensity: 0.7 });
 }
