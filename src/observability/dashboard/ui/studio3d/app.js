@@ -14,6 +14,7 @@ const fallback = document.getElementById('studio-fallback');
 const banner = document.getElementById('studio-renderer-banner');
 const motionButton = document.getElementById('studio-motion');
 const themeButton = document.getElementById('studio-theme');
+const cameraButton = document.getElementById('studio-camera-mode');
 const overviewButton = document.getElementById('studio-overview');
 const semanticButton = document.getElementById('studio-semantic-toggle');
 const systemMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -25,6 +26,12 @@ let currentTheme = 'twin';
 try {
   const savedTheme = localStorage.getItem('rstack.studio.theme');
   if (savedTheme === 'twin' || savedTheme === 'classic') currentTheme = savedTheme;
+} catch { /* storage is optional */ }
+// Camera mode: 'cinema' (hands-free director, default) or 'explore' (manual).
+let currentCamera = 'cinema';
+try {
+  const savedCamera = localStorage.getItem('rstack.studio.camera');
+  if (savedCamera === 'cinema' || savedCamera === 'explore') currentCamera = savedCamera;
 } catch { /* storage is optional */ }
 let currentSnapshot = null;
 let scene = null;
@@ -62,6 +69,17 @@ function applyThemeChrome(theme) {
   themeButton.textContent = theme === 'twin' ? 'Classic look' : 'Studio look';
 }
 
+// Camera-mode chrome. Like the theme button, the label names the NEXT action.
+// The scene owns the actual director state and reports changes back through
+// onDirectorMode (a camera grab or any selection exits cinema on its own).
+function applyCameraChrome(mode) {
+  currentCamera = mode;
+  app.dataset.studioCamera = mode;
+  try { localStorage.setItem('rstack.studio.camera', mode); } catch { /* storage is optional */ }
+  if (!cameraButton) return;
+  cameraButton.textContent = mode === 'cinema' ? 'Take control' : 'Cinema mode';
+}
+
 async function ensureScene(studio) {
   if (scene || app.dataset.renderer === 'semantic-only') {
     scene?.reconcile(studio);
@@ -78,6 +96,7 @@ async function ensureScene(studio) {
       motion: currentMotion,
       theme: currentTheme,
       onSelect: (ref) => dom.select(ref, { focus: false }),
+      onDirectorMode: applyCameraChrome,
       onDiagnostics: (stats) => {
         app.dataset.studioQualityTier = stats.qualityTier;
         app.dataset.studioDrawCalls = String(stats.drawCalls);
@@ -104,6 +123,7 @@ async function ensureScene(studio) {
     app.dataset.renderer = 'three';
     fallback.hidden = true;
     scene.reconcile(studio);
+    scene.setDirectorMode(currentCamera);
   } catch (error) {
     app.dataset.renderer = 'semantic';
     fallback.hidden = false;
@@ -147,6 +167,11 @@ motionButton.addEventListener('click', () => {
 systemMotion.addEventListener('change', () => {
   if (!explicitMotion) applyMotion(motionMode(null, systemMotion.matches));
 });
+cameraButton?.addEventListener('click', () => {
+  const next = currentCamera === 'cinema' ? 'explore' : 'cinema';
+  applyCameraChrome(next);
+  scene?.setDirectorMode(next);
+});
 themeButton?.addEventListener('click', () => {
   currentTheme = currentTheme === 'twin' ? 'classic' : 'twin';
   try { localStorage.setItem('rstack.studio.theme', currentTheme); } catch { /* storage is optional */ }
@@ -183,4 +208,5 @@ window.addEventListener('pagehide', () => {
 
 applyMotion(currentMotion);
 applyThemeChrome(currentTheme);
+applyCameraChrome(currentCamera);
 transport.start();

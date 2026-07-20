@@ -222,6 +222,41 @@ test('manager checks in at the involved desk, dwells, returns, and sits', () => 
   assert.deepEqual(callbacks, ['start:manager_check_in', 'complete:manager_check_in']);
 });
 
+test('a skill run walks the manager to the library door, dwells, and returns to the seat', () => {
+  const { handle: manager, modes } = managerHarness();
+  const callbacks = [];
+  const animator = createAgentAnimator({
+    getOrchestrator: () => manager,
+    getWorkstation: () => null, // the library run needs no workstation
+    onTransitionStart: (transition) => callbacks.push(`start:${transition.intent.action}`),
+    onTransitionComplete: (transition) => callbacks.push(`complete:${transition.intent.action}`),
+    scene: new THREE.Scene(),
+  });
+
+  assert.equal(animator.play({
+    id: 'skills-1:manager',
+    intent: { action: 'manager_skill_run', sessionId: 'session-a', skillId: 'pdf-extraction' },
+    event: { type: 'agent_capabilities_attached', agent_session_id: 'session-a', skill_ids: ['pdf-extraction'] },
+    duration_ms: 6_000,
+    started_at_ms: 0,
+  }), true);
+  assert.equal(animator.managerAction(), 'manager_skill_run');
+  animator.update(1_000);
+  assert.equal(modes.at(-1), 'walking');
+
+  // Dwell window: standing at the library door.
+  animator.update(3_000);
+  assert.equal(modes.at(-1), 'standing');
+  const [doorX, , doorZ] = STUDIO_TOPOLOGY.library.entry;
+  assert.deepEqual(manager.object.position.toArray(), [doorX, 0, doorZ]);
+
+  assert.equal(animator.update(6_000), false);
+  assert.equal(animator.managerAction(), null);
+  assert.equal(modes.at(-1), 'sitting');
+  assert.deepEqual(manager.object.position.toArray(), managerSeatRoot());
+  assert.deepEqual(callbacks, ['start:manager_skill_run', 'complete:manager_skill_run']);
+});
+
 test('delegation returns the manager to the authored seat in sitting mode', () => {
   const { handle: manager, modes } = managerHarness();
   const animator = createAgentAnimator({

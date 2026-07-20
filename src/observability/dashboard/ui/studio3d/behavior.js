@@ -60,7 +60,20 @@ export function behaviorIntent(event) {
 }
 
 export function managerIntent(event) {
-  if (!['handoff_created', 'task_retry_scheduled'].includes(event?.type)) return null;
+  // The orchestrator's reasons to leave HQ — each one an observed lifecycle
+  // event, never invented: a capability attachment sends the manager on a
+  // skill run to the Skills Library; a session reaching its desk, a handoff,
+  // or a scheduled retry earns a walking check-in at that desk.
+  if (event?.type === 'agent_capabilities_attached') {
+    return {
+      action: 'manager_skill_run',
+      sessionId: event.agent_session_id ?? event.session_id ?? event.entity_id ?? null,
+      taskId: event.task_id ?? null,
+      trigger: event.type,
+      skillId: event.skill_ids?.[0] ?? null,
+    };
+  }
+  if (!['handoff_created', 'task_retry_scheduled', 'agent_session_ready'].includes(event?.type)) return null;
   return {
     action: 'manager_check_in',
     sessionId: event.agent_session_id ?? event.session_id ?? event.entity_id ?? null,
