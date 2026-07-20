@@ -56,6 +56,31 @@ test('DOM renderer uses semantic buttons, focus restoration, and safe text inser
   assert.doesNotMatch(source, /insertAdjacentHTML/);
 });
 
+test('room inspector and follow mode surfaces exist and stay honest (Move C · #434)', () => {
+  const dom = readFileSync(DOM_PATH, 'utf8');
+  const app = readFileSync(APP_PATH, 'utf8');
+  const scene = readFileSync(join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'scene.js'), 'utf8');
+  const office = readFileSync(join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'office.js'), 'utf8');
+
+  // Rooms resolve from floor pads (per-instance refs) and facility ancestors.
+  assert.match(office, /userData\.roomRefs/);
+  assert.match(office, /kind:\s*'room'/);
+  assert.match(scene, /function roomRefFromHit/);
+  assert.match(scene, /function selectRoom/);
+  // Room panels render from the validated studio projection, never fetched.
+  assert.match(dom, /function renderRoomInspector/);
+  for (const room of ['hq', 'library', 'governance', 'evidence', 'dispatch', 'builder', 'validator']) {
+    assert.match(dom, new RegExp(`${room}:`), `room "${room}" is titled`);
+  }
+  assert.match(dom, /No sessions observed in this wing\./);
+  // Follow mode: ride-along camera that yields to a manual grab.
+  assert.match(dom, /Follow this agent/);
+  assert.match(scene, /function updateFollowCamera/);
+  assert.match(app, /'Stop following'/);
+  // Follow is never persisted as a default across reloads.
+  assert.match(app, /mode !== 'follow'/);
+});
+
 test('live announcements are limited to high-value operational changes', () => {
   const source = readFileSync(DOM_PATH, 'utf8');
 

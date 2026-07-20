@@ -133,27 +133,35 @@ function createWalls(pool) {
 
 function createFloorFinishes(pool) {
   const { bounds, corridor } = STUDIO_TOPOLOGY;
-  const finish = (x1, x2, z1, z2, color) => ({
+  const finish = (x1, x2, z1, z2, color, room = null) => ({
     center: [(x1 + x2) / 2, 0.03, (z1 + z2) / 2],
     scale: [x2 - x1, 0.05, z2 - z1],
     color,
+    room,
   });
   const finishes = [
-    finish(bounds.west, -7, bounds.north, corridor.north, 0xb9c4ae), // Library sage
-    finish(-7, 3, bounds.north, corridor.north, 0xc9a276), // HQ warm wood
-    finish(3, 12, bounds.north, corridor.north, 0xd8c9c2), // Governance blush
-    finish(12, bounds.east, bounds.north, corridor.north, 0xb7cec2), // Vault mint
+    finish(bounds.west, -7, bounds.north, corridor.north, 0xb9c4ae, 'library'), // Library sage
+    finish(-7, 3, bounds.north, corridor.north, 0xc9a276, 'hq'), // HQ warm wood
+    finish(3, 12, bounds.north, corridor.north, 0xd8c9c2, 'governance'), // Governance blush
+    finish(12, bounds.east, bounds.north, corridor.north, 0xb7cec2, 'evidence'), // Vault mint
     finish(bounds.west, bounds.east, corridor.north, corridor.south, 0x8f959c), // corridor
-    finish(bounds.west, 6, corridor.south, bounds.south, 0xd9d2c0), // Builder Bullpen
-    finish(6, 14, corridor.south, 9, 0xb4c4d8), // Validator Lab cool
+    finish(bounds.west, 6, corridor.south, bounds.south, 0xd9d2c0, 'builder'), // Builder Bullpen
+    finish(6, 14, corridor.south, 9, 0xb4c4d8, 'validator'), // Validator Lab cool
     finish(14, bounds.east, corridor.south, bounds.south, 0xdad3c4), // east lounge
     finish(6, 14, 9, bounds.south, 0xdad3c4), // south of the lab
-    finish(-17.8, -13, 8, 12.8, 0xd9a860), // Dispatch rug
-    finish(-4.4, 0.4, -12.6, -7.6, 0xb5824e), // HQ area rug
+    finish(-17.8, -13, 8, 12.8, 0xd9a860, 'dispatch'), // Dispatch rug
+    finish(-4.4, 0.4, -12.6, -7.6, 0xb5824e, 'hq'), // HQ area rug
   ];
   const mesh = new THREE.InstancedMesh(pool.geometries.slab, pool.materials.floorFinish, finishes.length);
   mesh.name = 'Room floor finishes';
   mesh.receiveShadow = true;
+  // Click-a-room (Move C · #434): each tinted pad names its room, mirroring
+  // the per-instance entityRefs pattern the robots use. Corridor and lounge
+  // pads stay null — they are circulation, not a team room.
+  mesh.userData.interactive = true;
+  mesh.userData.roomRefs = finishes.map((segment) => (
+    segment.room ? { kind: 'room', id: segment.room } : null
+  ));
   return writeSegments(mesh, finishes);
 }
 
@@ -429,6 +437,22 @@ function createNamedFacilities(pool) {
   vaultLight.visible = false;
   evidence.add(vaultLight);
   facilities.push(evidence);
+
+  // Click-a-room (Move C · #434): facility props resolve to their room via
+  // ancestor walk in the scene's raycast, so clicking a wall screen or beacon
+  // selects the room the same way clicking its floor pad does.
+  const facilityRooms = new Map([
+    ['Orchestrator HQ', 'hq'],
+    ['Skills and Plugin Library', 'library'],
+    ['Glass Validator Lab', 'validator'],
+    ['Governance Room', 'governance'],
+    ['Dispatch', 'dispatch'],
+    ['Evidence Vault', 'evidence'],
+  ]);
+  for (const group of facilities) {
+    const room = facilityRooms.get(group.name);
+    if (room) group.userData.roomRef = { kind: 'room', id: room };
+  }
 
   return { facilities, goalToken, governanceBeacon, vaultLight, timelineScreen };
 }

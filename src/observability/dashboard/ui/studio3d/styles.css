@@ -43,10 +43,13 @@
   --studio-violet: #8a7cff;
   --studio-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
 }
-/* The topbar and page background carry hardcoded light values (not tokens),
-   so re-point them for the dark Digital Twin shell. */
+/* The topbar, inspector, and page background carry hardcoded light values
+   (not tokens), so re-point them for the dark Digital Twin shell. */
 #studio-app[data-studio-theme="twin"] .studio-topbar {
   background: rgba(9, 13, 22, 0.82);
+}
+#studio-app[data-studio-theme="twin"] .studio-inspector {
+  background: rgba(13, 18, 29, 0.97);
 }
 #studio-app[data-studio-theme="twin"] {
   background: radial-gradient(circle at 52% -10%, rgba(56, 225, 214, 0.10), transparent 34rem), var(--studio-bg);
@@ -451,6 +454,25 @@ button { min-height: 44px; }
 .studio-capabilities { padding-left: 18px; color: var(--studio-muted); font-size: 12px; }
 .studio-inspector-summary { color: var(--studio-text); line-height: 1.55; }
 
+/* Room inspector + follow action (Move C · #434) */
+.studio-room-facts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.studio-room-facts li {
+  padding: 8px 10px;
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  background: var(--studio-raised);
+  color: var(--studio-text);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+.studio-follow { margin-top: 12px; }
+
 .studio-timeline-shell {
   z-index: 35;
   min-height: 138px;
@@ -575,7 +597,10 @@ button { min-height: 44px; }
   .studio-scene-shell {
     position: relative;
     inset: auto;
-    height: 220px;
+    /* Move C (#434): a real cinematic window instead of a 220px sliver — the
+       Cinema director curates the framing, so the small screen gets a watchable
+       stage while the semantic Studio stays primary below. */
+    height: min(52dvh, 430px);
     border-bottom: 1px solid var(--studio-line);
   }
 
@@ -650,5 +675,17 @@ button { min-height: 44px; }
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* Digital Twin — the mobile semantic sheet re-hardcodes a light background in
+   the 600px block above; keep the dark shell cohesive below the cinema window.
+   (Move C · #434) */
+@media (max-width: 600px) {
+  #studio-app[data-studio-theme="twin"] .semantic-studio,
+  #studio-app[data-studio-theme="twin"][data-renderer="three"] .semantic-studio,
+  #studio-app[data-studio-theme="twin"][data-renderer="semantic"] .semantic-studio,
+  #studio-app[data-studio-theme="twin"][data-renderer="semantic-only"] .semantic-studio {
+    background: var(--studio-bg);
   }
 }
