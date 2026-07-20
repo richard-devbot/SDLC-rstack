@@ -68,7 +68,29 @@ test('every normalized lifecycle event has a conservative robot intent', () => {
   }
 });
 
-test('only handoff and retry events request a source-backed manager check-in', () => {
+test('capability attachment sends the orchestrator on a library skill run', () => {
+  assert.deepEqual(managerIntent({
+    type: 'agent_capabilities_attached',
+    agent_session_id: 'session-c',
+    task_id: 'task-c',
+    skill_ids: ['pdf-extraction'],
+  }), {
+    action: 'manager_skill_run',
+    sessionId: 'session-c',
+    taskId: 'task-c',
+    trigger: 'agent_capabilities_attached',
+    skillId: 'pdf-extraction',
+  });
+});
+
+test('a session reaching its desk earns a manager check-in', () => {
+  assert.equal(managerIntent({
+    type: 'agent_session_ready',
+    agent_session_id: 'session-d',
+  })?.action, 'manager_check_in');
+});
+
+test('only observed lifecycle events request a source-backed manager walk', () => {
   assert.deepEqual(managerIntent({
     type: 'handoff_created',
     agent_session_id: 'session-a',

@@ -44,8 +44,12 @@ const WALKING_ACTIONS = new Set([
 /** Milliseconds per locomotion stride while a cast body walks a route. */
 const STRIDE_MS = 420;
 const MANAGER_CHECK_IN_DURATION_MS = 4_500;
+/** The Skills Library is a longer round trip than a desk check-in. */
+const MANAGER_SKILL_RUN_DURATION_MS = 6_000;
 const APPROVAL_TRAVEL_MS = 2_200;
-const MANAGER_EVENT_ACTIONS = new Set(['delegate', 'manager_check_in']);
+const MANAGER_EVENT_ACTIONS = new Set(['delegate', 'manager_check_in', 'manager_skill_run']);
+/** Manager actions that walk out, dwell, and walk back on authored routes. */
+const MANAGER_ROUND_TRIPS = new Set(['manager_check_in', 'manager_skill_run']);
 
 function clampedProgress(value) {
   const numeric = Number(value);
@@ -241,6 +245,24 @@ export function createAgentAnimator({
     };
   }
 
+  // Skill run: the orchestrator walks to the Skills Library door, dwells at
+  // the shelves, and returns to the HQ seat. Same walk/dwell/return shape as
+  // a desk check-in, aimed at the library instead of a workstation.
+  function managerSkillRunRoutes(handle) {
+    const start = [handle.object.position.x, 0, handle.object.position.z];
+    const [seatX, , seatZ] = STUDIO_TOPOLOGY.managerSeat.position;
+    const seat = [seatX, 0, seatZ];
+    const [doorX, , doorZ] = STUDIO_TOPOLOGY.library.entry;
+    const door = [doorX, 0, doorZ];
+    const [shelfX, , shelfZ] = STUDIO_TOPOLOGY.library.position;
+    return {
+      outbound: corridorRoute(start, door).map((point) => [...point]),
+      inbound: corridorRoute(door, seat).map((point) => [...point]),
+      desk: door,
+      worker: [shelfX, 0, shelfZ],
+    };
+  }
+
   function applyManagerCheckIn(item, progress, now) {
     const outboundEnd = 1 / 3;
     const dwellEnd = 2 / 3;
@@ -324,8 +346,10 @@ export function createAgentAnimator({
     const route = movementRoute(intent, handle);
     const managerRoutes = intent.action === 'manager_check_in'
       ? managerCheckInRoutes(intent, handle)
-      : null;
-    if (intent.action === 'manager_check_in' && !managerRoutes) {
+      : intent.action === 'manager_skill_run'
+        ? managerSkillRunRoutes(handle)
+        : null;
+    if (MANAGER_ROUND_TRIPS.has(intent.action) && !managerRoutes) {
       applyManagerSeat(handle);
       onTransitionComplete(playback, { reducedMotion: false });
       return true;
@@ -344,6 +368,8 @@ export function createAgentAnimator({
       // The orchestrator's delegation round trip earns a longer walk.
       duration: intent.action === 'manager_check_in'
         ? MANAGER_CHECK_IN_DURATION_MS
+        : intent.action === 'manager_skill_run'
+          ? MANAGER_SKILL_RUN_DURATION_MS
         : intent.action === 'delegate' && handle ? 2600
         : ACTION_DURATION[intent.action] ?? Math.max(1, transition.duration_ms),
     };
@@ -365,7 +391,7 @@ export function createAgentAnimator({
   function animateItem(item, now) {
     const progress = clampedProgress((now - item.startedAt) / item.duration);
     const routePosition = sampleWaypointRoute(item.route, progress);
-    if (item.intent.action === 'manager_check_in') {
+    if (MANAGER_ROUND_TRIPS.has(item.intent.action)) {
       applyManagerCheckIn(item, progress, now);
     } else if (item.handle && WALKING_ACTIONS.has(item.intent.action)) {
       moveWalkingHandle(item.handle, routePosition, now - item.startedAt);

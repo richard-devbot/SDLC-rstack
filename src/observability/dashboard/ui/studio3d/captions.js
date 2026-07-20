@@ -104,9 +104,12 @@ export function transitionCaptionFact(transition) {
       : 'retrying';
   } else if (action === 'manager_check_in') {
     text = 'walking to desk';
+  } else if (action === 'manager_skill_run') {
+    const skill = truncateCaption(event.skill_ids?.[0], 28);
+    text = skill ? `library run · ${skill}` : 'library run · picking skills';
   }
   if (!text) return null;
-  const managerAction = action === 'manager_check_in' || action === 'delegate';
+  const managerAction = ['manager_check_in', 'manager_skill_run', 'delegate'].includes(action);
   return captionFact(
     `action:${transition.id}`,
     managerAction ? 'orchestrator' : 'session',
