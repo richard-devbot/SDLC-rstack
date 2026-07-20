@@ -39,6 +39,7 @@ let scene = null;
 const dom = createStudioDom(app, {
   onRunSelect: (runKey) => transport.selectRun(runKey).catch((error) => dom.setConnection({ state: 'error', detail: error.message })),
   onSelect: (ref) => scene?.select(ref),
+  onFollow: (ref) => scene?.setDirectorMode('follow', ref),
 });
 
 function supportsWebGL2() {
@@ -75,9 +76,14 @@ function applyThemeChrome(theme) {
 function applyCameraChrome(mode) {
   currentCamera = mode;
   app.dataset.studioCamera = mode;
-  try { localStorage.setItem('rstack.studio.camera', mode); } catch { /* storage is optional */ }
+  // Follow rides a specific live entity — never restore it across reloads.
+  if (mode !== 'follow') {
+    try { localStorage.setItem('rstack.studio.camera', mode); } catch { /* storage is optional */ }
+  }
   if (!cameraButton) return;
-  cameraButton.textContent = mode === 'cinema' ? 'Take control' : 'Cinema mode';
+  cameraButton.textContent = mode === 'cinema' ? 'Take control'
+    : mode === 'follow' ? 'Stop following'
+    : 'Cinema mode';
 }
 
 async function ensureScene(studio) {
@@ -168,7 +174,8 @@ systemMotion.addEventListener('change', () => {
   if (!explicitMotion) applyMotion(motionMode(null, systemMotion.matches));
 });
 cameraButton?.addEventListener('click', () => {
-  const next = currentCamera === 'cinema' ? 'explore' : 'cinema';
+  // cinema → take control (explore) · follow → stop (explore) · explore → cinema
+  const next = currentCamera === 'explore' ? 'cinema' : 'explore';
   applyCameraChrome(next);
   scene?.setDirectorMode(next);
 });

@@ -481,7 +481,9 @@ export function createStudioScene(canvas, {
       if (!panel) {
         panel = canvasSprite(makeCanvas(2, 2));
         panel.name = 'agentPanel';
-        panel.scale.set(2.9, 1.34, 1);
+        // +14% over the original 2.9×1.34 so panels stay legible from the
+        // authored overview distance (Move A follow-up, #434).
+        panel.scale.set(3.3, 1.52, 1);
         panel.renderOrder = 30;
         handle.object.add(panel);
       }
@@ -989,6 +991,7 @@ export function createStudioScene(canvas, {
     const ambienceActive = updateAmbience(now);
     robotFleet.update();
     updateCameraTween(now);
+    const following = updateFollowCamera();
     controls.update();
     renderer.render(scene, camera);
     samplePerformance(now);
@@ -996,7 +999,7 @@ export function createStudioScene(canvas, {
     onDiagnostics(diagnostics());
     if (!workforceActive && !castAnimating && transitions.pending() === 0 && !cameraTween
       && !controlsActive && !streamsFlowing && !conveyorFlowing && !ambienceActive
-      && !captionsAnimating) {
+      && !captionsAnimating && !following) {
       renderer.setAnimationLoop(null);
     }
   }
@@ -1045,14 +1048,70 @@ export function createStudioScene(canvas, {
   function select(ref, options = {}) {
     // Any explicit selection is manual intent — the cinema director yields.
     setDirectorMode('explore');
+    hideRoomRing();
     if (options.overview) {
       selectedRef = null;
       return focus(null, 'company');
     }
+    if (ref?.kind === 'room') return selectRoom(ref);
     if (!reconciler.get(ref)) return false;
     selectedRef = ref;
     const level = options.level ?? (ref.kind === 'session' ? 'agent' : 'mission');
     return focus(ref, level);
+  }
+
+  // ── Room selection (Move C · #434) ──────────────────────────────────────
+  // Clicking a room focuses its authored anchor and drops a glowing ring so
+  // the selection reads in-world; the semantic room panel opens via onSelect.
+  const roomRing = new THREE.Mesh(
+    pool.geometries.ring,
+    new THREE.MeshStandardMaterial({
+      color: 0x9fe8ff, emissive: 0x38e1d6, emissiveIntensity: 1.3,
+      metalness: 0.2, roughness: 0.35,
+    }),
+  );
+  roomRing.name = 'Room selection ring';
+  roomRing.rotation.x = -Math.PI / 2;
+  roomRing.scale.set(2.6, 2.6, 1);
+  roomRing.position.y = 0.09;
+  roomRing.visible = false;
+  scene.add(roomRing);
+
+  function hideRoomRing() {
+    roomRing.visible = false;
+  }
+
+  function deskWingAnchor(desks) {
+    if (!desks?.length) return null;
+    const sum = desks.reduce((acc, desk) => {
+      acc.x += desk.object.position.x;
+      acc.z += desk.object.position.z;
+      return acc;
+    }, { x: 0, z: 0 });
+    return [sum.x / desks.length, 0, sum.z / desks.length];
+  }
+
+  function roomAnchor(id) {
+    if (id === 'hq') return [...STUDIO_TOPOLOGY.managerSeat.position];
+    if (id === 'library') return [...STUDIO_TOPOLOGY.library.position];
+    if (id === 'governance') return [...STUDIO_TOPOLOGY.governance.position];
+    if (id === 'evidence') return [...STUDIO_TOPOLOGY.evidence.position];
+    if (id === 'dispatch') return [...STUDIO_TOPOLOGY.dispatch.position];
+    if (id === 'builder') return deskWingAnchor(office.desks.builder);
+    if (id === 'validator') return deskWingAnchor(office.desks.validator);
+    return null;
+  }
+
+  function selectRoom(ref) {
+    const anchor = roomAnchor(ref?.id);
+    if (!anchor) return false;
+    setDirectorMode('explore');
+    selectedRef = ref;
+    roomRing.position.set(anchor[0], 0.09, anchor[2]);
+    roomRing.visible = true;
+    const target = new THREE.Vector3(anchor[0], 1, anchor[2]);
+    moveCameraTo(target.clone().add(new THREE.Vector3(6.5, 6, 8)), target);
+    return true;
   }
 
   // ── Cinema director (Move B · #433) ─────────────────────────────────────
@@ -1062,7 +1121,26 @@ export function createStudioScene(canvas, {
   // semantic DOM renders, so the director can never invent activity. A user
   // grab (drag, click, Overview) always takes the camera back instantly.
   const DIRECTOR_HOLD_MS = 9000;
-  const director = { mode: 'explore', timer: null, tourIndex: 0, lastKey: null };
+  const director = { mode: 'explore', timer: null, tourIndex: 0, lastKey: null, followRef: null };
+
+  // Follow mode (Move C · #434): ride along with one agent — the camera keeps
+  // its current offset and glides after the body every frame, so walks (desk
+  // trips, library runs) stay in frame. Falls back to explore if the entity
+  // leaves the floor.
+  function updateFollowCamera() {
+    if (director.mode !== 'follow') return false;
+    const handle = director.followRef ? reconciler.get(director.followRef) : null;
+    if (!handle) {
+      setDirectorMode('explore');
+      return false;
+    }
+    const position = handle.object.position;
+    const desired = new THREE.Vector3(position.x, 1.2, position.z);
+    const offset = camera.position.clone().sub(controls.target);
+    controls.target.lerp(desired, 0.08);
+    camera.position.copy(controls.target).add(offset);
+    return true;
+  }
 
   function directorShot() {
     if (motionMode === 'reduced') {
@@ -1108,9 +1186,11 @@ export function createStudioScene(canvas, {
     moveCameraTo(shot.position, shot.target);
   }
 
-  function setDirectorMode(mode) {
-    if (director.mode === mode || destroyed) return;
+  function setDirectorMode(mode, followRef = null) {
+    if (destroyed) return;
+    if (director.mode === mode && (mode !== 'follow' || director.followRef === followRef)) return;
     director.mode = mode;
+    director.followRef = mode === 'follow' ? followRef : null;
     if (director.timer) {
       clearInterval(director.timer);
       director.timer = null;
@@ -1120,7 +1200,22 @@ export function createStudioScene(canvas, {
       directorCut();
       director.timer = setInterval(() => directorCut({ advance: true }), DIRECTOR_HOLD_MS);
     }
+    if (mode === 'follow') startLoop();
     onDirectorMode(mode);
+  }
+
+  // A raycast hit resolves to a room when the mesh (or an instanced pad slot)
+  // names one, or when any ancestor facility group carries a roomRef.
+  function roomRefFromHit(entry) {
+    const direct = entry.object.userData.roomRefs?.[entry.instanceId]
+      ?? entry.object.userData.roomRef;
+    if (direct) return direct;
+    let node = entry.object.parent;
+    while (node) {
+      if (node.userData?.roomRef) return node.userData.roomRef;
+      node = node.parent;
+    }
+    return null;
   }
 
   function onPointerUp(event) {
@@ -1129,12 +1224,23 @@ export function createStudioScene(canvas, {
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
     const hits = raycaster.intersectObjects(scene.children, true);
-    const hit = hits.find((entry) => entry.object.userData.interactive && (
+    // Agents and entities keep priority over the room they stand in.
+    const entityHit = hits.find((entry) => entry.object.userData.interactive && (
       entry.object.userData.entityRef || entry.object.userData.entityRefs?.[entry.instanceId]
     ));
-    if (!hit) return;
-    const ref = hit.object.userData.entityRef ?? hit.object.userData.entityRefs?.[hit.instanceId];
-    if (select(ref)) onSelect(ref);
+    if (entityHit) {
+      const ref = entityHit.object.userData.entityRef
+        ?? entityHit.object.userData.entityRefs?.[entityHit.instanceId];
+      if (select(ref)) onSelect(ref);
+      return;
+    }
+    for (const entry of hits) {
+      const roomRef = roomRefFromHit(entry);
+      if (roomRef) {
+        if (selectRoom(roomRef)) onSelect(roomRef);
+        return;
+      }
+    }
   }
 
   function applyManagerSeat() {

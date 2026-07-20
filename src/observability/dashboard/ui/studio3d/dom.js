@@ -92,6 +92,7 @@ function populatePicker(doc, select, snapshot) {
 export function createStudioDom(root, {
   onSelect = () => {},
   onRunSelect = () => {},
+  onFollow = () => {},
 } = {}) {
   const doc = root.ownerDocument ?? root;
   const byId = (id) => doc.getElementById(id);
@@ -133,6 +134,101 @@ export function createStudioDom(root, {
     return collection.find((item) => item.id === id) ?? null;
   }
 
+  // Room inspector (Move C · #434): a click on a room in the 3D floor opens a
+  // team-scoped panel assembled from the SAME validated projection collections
+  // the semantic sections render — sessions, governance_items, evidence_items,
+  // capability_attachments, missions. Nothing is fetched or invented.
+  const ROOM_TITLES = Object.freeze({
+    hq: 'Orchestrator HQ',
+    library: 'Skills & Plugin Library',
+    governance: 'Governance Room',
+    evidence: 'Evidence Vault',
+    dispatch: 'Dispatch',
+    builder: 'Builder Bullpen',
+    validator: 'Validator Lab',
+  });
+
+  function roomLines(id) {
+    if (!studio) return [];
+    const sessions = studio.sessions ?? [];
+    const bySessionStatus = (list) => {
+      const counts = new Map();
+      for (const session of list) counts.set(session.status, (counts.get(session.status) ?? 0) + 1);
+      return [...counts.entries()].map(([status, count]) => `${count} ${statusLabel(status).toLowerCase()}`);
+    };
+    if (id === 'hq') {
+      const next = studio.orchestrator?.next_action?.title;
+      return [
+        `Orchestrator · ${statusLabel(studio.orchestrator?.status ?? 'unknown')}`,
+        next ? `Next · ${next}` : null,
+        approvalSemanticText(studio.approval_summary ?? null),
+      ];
+    }
+    if (id === 'builder' || id === 'validator') {
+      const wing = sessions.filter((session) => (
+        id === 'validator' ? session.role === 'validator' : session.role !== 'validator'
+      ));
+      if (!wing.length) return ['No sessions observed in this wing.'];
+      return [
+        `${wing.length} session${wing.length === 1 ? '' : 's'} · ${bySessionStatus(wing).join(' · ')}`,
+        ...wing.slice(0, 6).map((session) => (
+          `${session.agent_id ?? session.id} · ${statusLabel(session.status)}${session.activity ? ` · ${session.activity}` : ''}`
+        )),
+      ];
+    }
+    if (id === 'governance') {
+      const items = studio.governance_items ?? [];
+      const approvalLine = approvalSemanticText(studio.approval_summary ?? null);
+      if (!items.length && !approvalLine) return ['No open gates or approvals observed.'];
+      return [
+        approvalLine,
+        ...items.slice(0, 6).map((item) => `${item.title ?? item.id} · ${statusLabel(item.status ?? 'pending')}`),
+      ];
+    }
+    if (id === 'evidence') {
+      const items = studio.evidence_items ?? [];
+      if (!items.length) return ['No evidence records observed yet.'];
+      return [
+        `${items.length} evidence record${items.length === 1 ? '' : 's'}`,
+        ...items.slice(0, 6).map((item) => `${item.title ?? item.id} · ${statusLabel(item.status ?? 'recorded')}`),
+      ];
+    }
+    if (id === 'library') {
+      const attachments = studio.capability_attachments ?? [];
+      if (!attachments.length) return ['No capability attachments observed.'];
+      return attachments.slice(0, 8).map((item) => (
+        `${statusLabel(item.kind ?? 'capability')} · ${item.id ?? item.title} → ${item.session_id ?? 'session'}`
+      ));
+    }
+    if (id === 'dispatch') {
+      const missions = studio.missions ?? [];
+      const observed = missions.filter((mission) => mission.status !== 'unknown');
+      if (!missions.length) return ['No missions observed.'];
+      return [
+        `${observed.length} / ${missions.length} missions observed`,
+        ...missions.slice(0, 6).map((mission) => `${mission.title} · ${statusLabel(mission.status)}`),
+      ];
+    }
+    return [];
+  }
+
+  function renderRoomInspector(id, focus = true) {
+    const title = ROOM_TITLES[id];
+    if (!title) return false;
+    inspectorKind.textContent = 'Room';
+    inspectorTitle.textContent = title;
+    clear(inspectorBody);
+    const list = element(doc, 'ul', 'studio-room-facts');
+    for (const line of roomLines(id)) {
+      if (line) list.append(element(doc, 'li', '', line));
+    }
+    inspectorBody.append(list);
+    inspector.hidden = false;
+    selectedRef = `room:${id}`;
+    if (focus) inspectorTitle.focus({ preventScroll: true });
+    return true;
+  }
+
   function renderInspector(kind, entity, focus = true) {
     if (!entity) return;
     inspectorKind.textContent = kind === 'session' ? `${statusLabel(entity.role)} session` : statusLabel(kind);
@@ -171,6 +267,13 @@ export function createStudioDom(root, {
       inspectorBody.append(heading, list);
     }
     if (entity.activity) inspectorBody.append(element(doc, 'p', 'studio-inspector-summary', entity.activity));
+    if (kind === 'session') {
+      // Ride-along camera: the label names the action (no toggle state).
+      const follow = element(doc, 'button', 'studio-icon-button studio-follow', 'Follow this agent');
+      follow.type = 'button';
+      follow.addEventListener('click', () => onFollow({ kind: 'session', id: entity.id }));
+      inspectorBody.append(follow);
+    }
     inspector.hidden = false;
     selectedRef = `${kind}:${entity.id}`;
     for (const button of doc.querySelectorAll('[data-entity-kind]')) {
@@ -182,6 +285,12 @@ export function createStudioDom(root, {
   }
 
   function select(kind, id, { focus = true, sourceElement = null, notify = false } = {}) {
+    if (kind === 'room') {
+      trigger = sourceElement ?? trigger;
+      if (!renderRoomInspector(id, focus)) return false;
+      if (notify) onSelect({ kind, id });
+      return true;
+    }
     const entity = findEntity(kind, id);
     if (!entity) return false;
     trigger = sourceElement ?? trigger;
