@@ -615,6 +615,19 @@ button { cursor: pointer; }
 .rail-step.ready { border-color: #bfdbfe; background: #f8fbff; }
 .rail-step.fail { border-color: #fecdca; background: #fff7f7; }
 .rail-step.selected { outline: 2px solid rgba(180,83,9,.22); outline-offset: 2px; }
+/* #411: bottleneck severity gradient — a single ramp shared by the rail and
+   the stage cards, driven by the authoritative harness projection. */
+.sev-pass { border-color: #bbf7d0 !important; background: #f4fdf8 !important; }
+.sev-ready { border-color: #dbe3ec !important; background: #fafbfc !important; }
+.sev-active { border-color: #fed7aa !important; background: #fffaf2 !important; }
+.sev-retry { border-color: #fcd34d !important; background: #fffbeb !important; }
+.sev-blocked_approval { border-color: #c4b5fd !important; background: #f7f5ff !important; }
+.sev-validation_fail { border-color: #fca5a5 !important; background: #fff5f5 !important; }
+.sev-fail { border-color: #f87171 !important; background: #fff2f2 !important; }
+.sev-exhausted { border-color: #dc2626 !important; background: #fef2f2 !important; box-shadow: inset 0 0 0 1px rgba(220,38,38,.25); }
+.rail-lock { font-style: normal; font-size: .85em; }
+.workspace-stage-signals { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.inspector-run.authoritative { border-left: 2px solid rgba(180,83,9,.35); padding-left: 8px; }
 .workflow-stage-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(220px, 1fr));

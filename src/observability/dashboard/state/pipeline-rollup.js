@@ -70,6 +70,44 @@ export function compactPipelineRollup(state, events) {
     generated_at: generatedAt,
     stale: eventsBehind > 0,
     events_behind: eventsBehind,
+    // #411: the authoritative per-stage projection. buildPipelineState computes
+    // these on-disk-verified fields for every canonical stage, but the rollup
+    // used to drop the whole stages[] array (keeping only a checkpoint subset),
+    // so the UI rebuilt its stage view from bundled task records and never saw
+    // the harness's truth — retry_state, validation_status separate from build
+    // status, attempts, per-stage cost/tokens, and checkpoint restorability.
+    // Emitted here (bounded: 15 canonical stages, scalar fields only) so the
+    // Business Hub renders verified state instead of a reconstruction.
+    stages: (state.stages ?? []).map((stage) => ({
+      id: stage.id,
+      title: stage.title ?? null,
+      status: stage.status ?? 'PENDING',
+      validation_status: stage.validation_status ?? null,
+      attempts: stage.attempts ?? 0,
+      retry_state: stage.retry_state ?? null,
+      elapsed_ms: stage.elapsed_ms ?? null,
+      cost_usd: stage.cost_usd ?? null,
+      tokens: stage.tokens ?? null,
+      checkpoint_restorable: stage.checkpoint_restorable === true,
+      checkpoint_reason: stage.checkpoint_reason ?? null,
+      task_ids: Array.isArray(stage.task_ids) ? stage.task_ids : [],
+    })),
+    // #411: per-stage approval blockers keep their {artifact, stage_id, status}
+    // detail (not just the count below) so the UI can pin an "awaiting: X" chip
+    // on the exact stage that is blocked.
+    approval_blocker_items: (state.approval_blockers ?? []).map((blocker) => ({
+      artifact: blocker.artifact ?? null,
+      stage_id: blocker.stage_id ?? null,
+      status: blocker.status ?? null,
+    })),
+    // #411: per-stage context-pressure warnings, attributed to their stage_id
+    // (the aggregate total/by_source stays below for the global signal).
+    context_pressure_items: (state.context_pressure?.warnings ?? []).map((warning) => ({
+      stage_id: warning.stage_id ?? null,
+      task_id: warning.task_id ?? null,
+      source: warning.source ?? null,
+      metric: warning.metric ?? null,
+    })),
     next_action: { ...next, text: recommendPipelineAction(state) },
     approval_blockers: (state.approval_blockers ?? []).length,
     retries: {
