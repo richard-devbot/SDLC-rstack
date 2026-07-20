@@ -398,8 +398,8 @@ test('budgetEnvelopeForTask uses fallback when stage_artifacts present but no ma
   };
   const policy = budgetPolicyForProfile('business-flex'); // run_budget_usd = 10
   const envelope = budgetEnvelopeForTask(task, policy);
-  // stageBudget = 0, fallback = 10/8 = 1.25
-  assert.equal(envelope.estimated_ai_cost_usd, 1.25);
+  // stageBudget = 0, fallback = run_budget / 15 canonical stages = 10/15 = 0.67 (#404)
+  assert.equal(envelope.estimated_ai_cost_usd, 0.67);
 });
 
 test('budgetEnvelopeForTask uses default policy when no policy argument provided', () => {

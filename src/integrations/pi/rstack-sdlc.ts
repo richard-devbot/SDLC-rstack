@@ -11,7 +11,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { CANONICAL_SDLC_STAGES, getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
-import { MISSION_STAGE_IDS } from "../../core/harness/missions.js";
+import { MISSION_STAGE_IDS, RSTACK_MISSIONS } from "../../core/harness/missions.js";
 import { agentLifecycleEvent } from "../../core/harness/agent-lifecycle.js";
 import { validateBuilderContract, validateBuilderCompleteness } from "../../core/harness/contracts.js";
 import { validateStageGoalEvaluation } from "../../core/harness/goal-check.js";
@@ -242,101 +242,136 @@ type LifecycleStage = {
   acceptanceCriteria: string[];
   validationChecks: string[];
   stageIds: string[];
+  // #404: the canonical agent that owns this stage, and the mission that groups
+  // it. Missions are a HUMAN grouping only — planning/execution is per stage.
+  agent: string;
+  missionId: string;
+  missionTitle: string;
 };
 
-const lifecycleStages: LifecycleStage[] = [
-  {
-    id: "001-product-clarification",
-    title: "Product clarification",
+// #404: mission-level intent metadata. A mission (see missions.js) is the human
+// grouping of one-or-more canonical stages; each canonical stage inherits the
+// domains, description, acceptance criteria, and validation checks of the
+// mission that owns it. This authored content is preserved verbatim from the
+// former 8-entry lifecycle catalog — the only change is that stages are now
+// planned individually rather than bundled into their mission.
+type MissionMeta = {
+  domains: string[];
+  // The mission-level spec document (the human-facing brief/report scaffolded
+  // into the run specs dir and referenced by sdlc_spec / approvals). Distinct
+  // from a canonical STAGE artifact — a mission spec summarizes its whole group.
+  artifact: string;
+  description: string;
+  acceptanceCriteria: string[];
+  validationChecks: string[];
+};
+
+const MISSION_META: Record<string, MissionMeta> = {
+  "001-product-clarification": {
     domains: ["product", "docs"],
     artifact: "product-brief.md",
     description: "Confirm target users, business outcome, must-have behavior, non-goals, risks, and open decisions.",
     acceptanceCriteria: ["User goal is restated in concrete product terms", "Open questions are resolved or explicitly marked NEEDS_CONTEXT", "Non-goals and release boundaries are listed"],
     validationChecks: ["Product brief exists", "Ambiguities are not silently guessed", "Recommended option is provided for each unresolved decision"],
-    stageIds: [...MISSION_STAGE_IDS["001-product-clarification"]],
   },
-  {
-    id: "002-requirements",
-    title: "Requirements and acceptance criteria",
+  "002-requirements": {
     domains: ["product", "sdlc"],
     artifact: "requirements.json",
     description: "Convert the clarified goal into testable functional requirements, non-functional requirements, user stories, and out-of-scope items.",
     acceptanceCriteria: ["Every requirement has observable acceptance criteria", "NFRs use measurable targets where possible", "Out-of-scope items are explicit"],
     validationChecks: ["No vague requirements like fast/easy/secure without measurable criteria", "Acceptance criteria can be tested by QA", "Requirements map to the original goal"],
-    stageIds: [...MISSION_STAGE_IDS["002-requirements"]],
   },
-  {
-    id: "003-architecture",
-    title: "Architecture and technical design",
+  "003-architecture": {
     domains: ["backend", "frontend", "devops", "data", "security"],
     artifact: "architecture.md",
     description: "Design the system, data flow, interfaces, storage, security boundaries, deployment shape, and trade-offs.",
     acceptanceCriteria: ["Architecture maps to requirements", "Key trade-offs and failure modes are documented", "Security and data boundaries are identified"],
     validationChecks: ["No unexplained tech stack choices", "Interfaces and data models are clear enough to build", "Threat-sensitive areas are flagged"],
-    stageIds: [...MISSION_STAGE_IDS["003-architecture"]],
   },
-  {
-    id: "004-implementation",
-    title: "Implementation",
+  "004-implementation": {
     domains: ["backend", "frontend", "data"],
     artifact: "implementation-report.json",
     description: "Build scoped, working code that follows the architecture and existing project conventions.",
     acceptanceCriteria: ["Required behavior is implemented without placeholder TODO stubs", "Files changed stay within scope", "Relevant local verification command is run or blocked with reason"],
     validationChecks: ["Code starts or compiles when applicable", "Error handling exists for expected failure paths", "No unrelated refactors or broad rewrites"],
-    stageIds: [...MISSION_STAGE_IDS["004-implementation"]],
   },
-  {
-    id: "005-testing",
-    title: "Testing and QA",
+  "005-testing": {
     domains: ["qa"],
     artifact: "qa-report.json",
     description: "Create or run unit, integration, browser, and regression checks appropriate to the project.",
     acceptanceCriteria: ["Critical acceptance criteria have tests or manual verification steps", "Test command output is captured", "Known coverage gaps are listed"],
     validationChecks: ["Tests actually ran or blockers are explicit", "Failures include root-cause direction", "No false pass when tests were skipped"],
-    stageIds: [...MISSION_STAGE_IDS["005-testing"]],
   },
-  {
-    id: "006-security-review",
-    title: "Security review",
+  "006-security-review": {
     domains: ["security", "backend", "devops"],
     artifact: "security-review.md",
     description: "Review auth, secrets, input validation, permissions, PII, dependency, and deployment risks.",
     acceptanceCriteria: ["Security-sensitive surfaces are enumerated", "Critical and high risks have mitigation or block recommendation", "Secrets and destructive operations are checked"],
     validationChecks: ["OWASP-style risks considered", "No secrets are introduced", "Auth/payment/PII changes get conservative review"],
-    stageIds: [...MISSION_STAGE_IDS["006-security-review"]],
   },
-  {
-    id: "007-documentation",
-    title: "Documentation",
+  "007-documentation": {
     domains: ["docs", "product"],
     artifact: "handoff.md",
     description: "Update user, developer, release, and operations documentation needed to maintain the work.",
     acceptanceCriteria: ["Setup and run instructions are current", "Changed behavior is documented", "Known limitations and next steps are listed"],
     validationChecks: ["Docs match implemented behavior", "No stale commands are introduced", "Handoff is useful to a new maintainer"],
-    stageIds: [...MISSION_STAGE_IDS["007-documentation"]],
   },
-  {
-    id: "008-release-readiness",
-    title: "Release readiness",
+  "008-release-readiness": {
     domains: ["devops", "qa", "docs", "security"],
     artifact: "release-readiness.json",
     description: "Verify package boundaries, tests, docs, versioning, git status, and release blockers before shipping.",
     acceptanceCriteria: ["All previous required tasks are PASS or explicitly accepted with concerns", "Release blockers are listed", "Next release or PR action is clear"],
     validationChecks: ["Package excludes private files", "Tests pass", "No unreviewed destructive or deployment step is implied"],
-    stageIds: [...MISSION_STAGE_IDS["008-release-readiness"]],
   },
-];
-
-const pipelineAgentRoutes: Record<string, string[]> = {
-  "001-product-clarification": ["agent.00-environment", "agent.01-transcript"],
-  "002-requirements": ["agent.02-requirements", "agent.04-planning", "agent.05-jira"],
-  "003-architecture": ["agent.06-architecture", "agent.12-security-threat-model", "agent.14-cost-estimation"],
-  "004-implementation": ["agent.07-code"],
-  "005-testing": ["agent.08-testing"],
-  "006-security-review": ["agent.12-security-threat-model", "agent.13-compliance-checker"],
-  "007-documentation": ["agent.03-documentation", "agent.10-summary"],
-  "008-release-readiness": ["agent.09-deployment", "agent.10-summary", "agent.11-feedback-loop"],
 };
+
+// #404: mission-level spec documents (the 8 human-facing briefs/reports) are
+// scaffolded into the run specs dir and named by sdlc_spec / approvals — kept
+// distinct from the 15 per-stage TASK definitions below. Shaped like a
+// LifecycleStage so initialSpecContent can render them unchanged.
+const missionSpecStages: LifecycleStage[] = RSTACK_MISSIONS.map((mission) => {
+  const meta = MISSION_META[mission.id];
+  return {
+    id: mission.id,
+    title: mission.title,
+    domains: [...meta.domains],
+    artifact: meta.artifact,
+    description: meta.description,
+    acceptanceCriteria: [...meta.acceptanceCriteria],
+    validationChecks: [...meta.validationChecks],
+    stageIds: [...mission.stageIds],
+    agent: mission.id,
+    missionId: mission.id,
+    missionTitle: mission.title,
+  };
+});
+
+// #404: one lifecycle task per CANONICAL stage, in canonical order. Previously
+// this bundled the 15 stages into 8 missions, so a single builder/validator
+// pass covered several stages and one PASS marked them all complete. Now every
+// canonical stage is its own task: its own builder contract, its own validator
+// profile (resolveValidatorProfile now receives exactly one stage), its own
+// approval gate, checkpoint, and memory episode. The owning mission (the first
+// mission in missions.js that lists the stage) supplies grouping metadata only.
+const lifecycleStages: LifecycleStage[] = CANONICAL_SDLC_STAGES.map((stage) => {
+  const mission = RSTACK_MISSIONS.find((candidate) => candidate.stageIds.includes(stage.id));
+  if (!mission) throw new Error(`Canonical stage ${stage.id} is not owned by any mission in missions.js`);
+  const meta = MISSION_META[mission.id];
+  if (!meta) throw new Error(`Mission ${mission.id} has no intent metadata (MISSION_META)`);
+  return {
+    id: stage.id,
+    title: stage.title,
+    domains: [...meta.domains],
+    artifact: stage.artifact,
+    description: meta.description,
+    acceptanceCriteria: [...meta.acceptanceCriteria],
+    validationChecks: [...meta.validationChecks],
+    stageIds: [stage.id],
+    agent: stage.agent,
+    missionId: mission.id,
+    missionTitle: mission.title,
+  };
+});
 
 function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 64) || "sdlc-run";
@@ -724,9 +759,24 @@ function approvedArtifacts(approvals: ApprovalRecord[], expectedRunId?: string):
   return trustedApprovedArtifacts(approvals, { expectedRunId });
 }
 
+// #404: task ids are now canonical stage ids ("07-code"), not mission ids
+// ("004-implementation"), so the old lexicographic thresholds no longer bucket
+// correctly. Key off canonical stage ORDER instead: code-and-later needs
+// plan+requirements+architecture sign-off, architecture-through-pre-code needs
+// plan+requirements, and everything before architecture needs plan. Legacy
+// mission ids (and any non-canonical id from an external caller) fall back to
+// the original lexicographic behavior so they never regress.
 function requiredApprovalsForTask(taskId: string): string[] {
-  if (taskId >= "004-implementation") return ["plan.md", "requirements.json", "architecture.md"];
-  if (taskId >= "003-architecture") return ["plan.md", "requirements.json"];
+  const idx = CANONICAL_SDLC_STAGES.findIndex((stage) => stage.id === taskId);
+  if (idx === -1) {
+    if (taskId >= "004-implementation") return ["plan.md", "requirements.json", "architecture.md"];
+    if (taskId >= "003-architecture") return ["plan.md", "requirements.json"];
+    return ["plan.md"];
+  }
+  const codeIdx = CANONICAL_SDLC_STAGES.findIndex((stage) => stage.id === "07-code");
+  const archIdx = CANONICAL_SDLC_STAGES.findIndex((stage) => stage.id === "06-architecture");
+  if (idx >= codeIdx) return ["plan.md", "requirements.json", "architecture.md"];
+  if (idx >= archIdx) return ["plan.md", "requirements.json"];
   return ["plan.md"];
 }
 
@@ -1738,7 +1788,9 @@ export default function (pi: ExtensionAPI) {
       const chosenDomains = params.domains?.length ? params.domains : (activeProfile.enabled_domains || ["product", "frontend", "backend", "qa", "security", "docs", "devops"]);
       const tasks = lifecycleStages.map((stage) => {
         const outputDir = `.rstack/runs/${manifest.run_id}/tasks/${stage.id}`;
-        const pipelineAgents = pipelineAgentRoutes[stage.id] || [];
+        // #404: each task is a single canonical stage, so its one pipeline agent
+        // is that stage's canonical agent (from stages.js via lifecycleStages).
+        const pipelineAgents = [stage.agent];
         const routedSpecialists = selectRegistry(registry, [...stage.domains, ...chosenDomains], 5).map((item) => item.id);
         const stageArtifacts = stageArtifactTargets(manifest.run_id, stage.stageIds);
         const specialists = [...new Set([...pipelineAgents, ...routedSpecialists])];
@@ -1760,6 +1812,10 @@ export default function (pi: ExtensionAPI) {
           title: stage.title,
           status: "PENDING",
           domains: stage.domains,
+          // #404: mission is now display-only grouping metadata — consumers that
+          // want the old 8-mission view (dashboard swimlanes) group tasks by these.
+          mission_id: stage.missionId,
+          mission_title: stage.missionTitle,
           profile: activeProfile.profile,
           workflow: activeProfile.workflow,
           description: `${stage.description}\n\nGoal: ${manifest.goal}`,
@@ -1787,7 +1843,10 @@ export default function (pi: ExtensionAPI) {
       await writeJsonAtomic(join(runDir, "tasks.json"), { run_id: manifest.run_id, profile: activeProfile.profile, workflow: activeProfile.workflow, budget_policy: budgetPolicy, tasks });
       const sDir = specsDir(runDir);
       await mkdir(sDir, { recursive: true });
-      for (const stage of lifecycleStages) {
+      // #404: spec documents remain the 8 mission-level briefs (sdlc_spec and
+      // approvals name them); the 15 per-stage tasks above are the execution
+      // units. The two are intentionally decoupled.
+      for (const stage of missionSpecStages) {
         const specPath = join(sDir, stage.artifact);
         if (!existsSync(specPath)) {
           await writeFile(specPath, initialSpecContent(stage, manifest));

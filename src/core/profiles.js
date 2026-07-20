@@ -156,7 +156,9 @@ export async function loadBudgetPolicy(projectRoot, profileName = 'business-flex
 export function budgetEnvelopeForTask(task, budgetPolicy = budgetPolicyForProfile()) {
   const stageIds = (task.stage_artifacts || []).map((artifact) => artifact.stage_id).filter(Boolean);
   const stageBudget = stageIds.reduce((sum, stageId) => sum + Number(budgetPolicy.stage_budgets?.[stageId] || 0), 0);
-  const fallback = Number(budgetPolicy.run_budget_usd || 0) / 8;
+  // #404: the run budget is now spread across the 15 canonical stage tasks
+  // (previously 8 bundled missions) when no per-stage budget is configured.
+  const fallback = Number(budgetPolicy.run_budget_usd || 0) / 15;
   return {
     currency: budgetPolicy.currency || 'USD',
     estimated_ai_cost_usd: Math.round((stageBudget || fallback) * 100) / 100,

@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { validateEnvironmentReport, environmentReportCheck, RUN_MODES } from '../src/core/harness/environment-report.js';
+import { claimTaskForTest } from './helpers/claim.js';
 import extension from '../extensions/rstack-sdlc.ts';
 
 const LEGACY_REPORT = {
@@ -132,12 +133,11 @@ test('sdlc_validate wiring: stage-00 task gets the shape check; a malformed repo
     await mockPi.tools.sdlc_plan.execute('2', { run_id: runId });
 
     const runDir = join(projectRoot, '.rstack', 'runs', runId);
-    const tasks = JSON.parse(readFileSync(join(runDir, 'tasks.json'), 'utf8')).tasks;
-    // 001-product-clarification targets 00-environment (+ 01-transcript).
-    const envTask = tasks.find((entry) => entry.id === '001-product-clarification');
-    assert.ok(envTask, 'plan should contain the 001-product-clarification task');
+    // #404/#405: 00-environment is its own task now; claim it so validation is
+    // bound to the granted attempt.
+    const envTask = claimTaskForTest(projectRoot, runId, '00-environment');
     const expectedStageIds = [...new Set(envTask.stage_artifacts.map((artifact) => artifact.stage_id))];
-    assert.ok(expectedStageIds.includes('00-environment'));
+    assert.deepEqual(expectedStageIds, ['00-environment']);
 
     // A v2 report with an INVALID run_mode: the shape check must WARN, and
     // validation must still PASS (non-fatal by contract).
