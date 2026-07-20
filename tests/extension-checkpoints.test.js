@@ -104,7 +104,9 @@ test('critical-stage checkpoint lifecycle: before → after → rollback round-t
       agent: 'builder',
       status: 'PASS',
       summary: 'Code stage artifacts produced for the checkpoint lifecycle fixture',
-      files_modified: [],
+      // #406: the code stage must modify a real, in-repo file — reference the
+      // stage artifact this fixture actually wrote (a project-relative path).
+      files_modified: [`.rstack/runs/${runId}/artifacts/stages/07-code/code_report.json`],
       tests_run: ['SKIPPED: checkpoint lifecycle fixture'],
       risks: [],
       next_steps: [],

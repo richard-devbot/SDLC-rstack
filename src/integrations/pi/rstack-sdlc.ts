@@ -2289,21 +2289,39 @@ export default function (pi: ExtensionAPI) {
               // validation.json bounded) — a per-file miss beyond the cap still
               // flips status to FAIL and is summarized honestly.
               const CHECK_ENTRY_CAP = 20;
+              const projectRootAbs = resolve(projectRoot);
               let emitted = 0;
               let uncheckedMisses = 0;
+              let uncheckedEscapes = 0;
               for (const file of builder.files_modified) {
                 if (typeof file !== "string") continue;
-                const exists = existsSync(resolve(projectRoot, file));
-                if (!exists) { status = "FAIL"; requiredSignals.filesModifiedOk = false; }
+                const abs = resolve(projectRoot, file);
+                // Containment (#406): a claimed path must resolve INSIDE the
+                // project. "existing" system files (e.g. /etc/hosts, or a
+                // ../ traversal) are not proof the builder modified project
+                // code — count them as a miss, never a PASS.
+                const contained = abs === projectRootAbs || abs.startsWith(projectRootAbs + sep);
+                const exists = contained && existsSync(abs);
+                if (!contained) { status = "FAIL"; requiredSignals.filesModifiedOk = false; }
+                else if (!exists) { status = "FAIL"; requiredSignals.filesModifiedOk = false; }
                 if (emitted < CHECK_ENTRY_CAP) {
-                  checks.push({ name: "modified_file_exists", status: exists ? "PASS" : "FAIL", evidence: file });
+                  checks.push({
+                    name: "modified_file_exists",
+                    status: exists ? "PASS" : "FAIL",
+                    evidence: contained ? file : `${file} — resolves outside the project root; a modified file must live in the repo`,
+                  });
                   emitted += 1;
+                } else if (!contained) {
+                  uncheckedEscapes += 1;
                 } else if (!exists) {
                   uncheckedMisses += 1;
                 }
               }
               if (uncheckedMisses > 0) {
                 checks.push({ name: "modified_file_exists_overflow", status: "FAIL", evidence: `${uncheckedMisses} additional modified file(s) beyond the first ${CHECK_ENTRY_CAP} do not exist on disk` });
+              }
+              if (uncheckedEscapes > 0) {
+                checks.push({ name: "modified_file_contained_overflow", status: "FAIL", evidence: `${uncheckedEscapes} additional modified file(s) beyond the first ${CHECK_ENTRY_CAP} resolve outside the project root` });
               }
             }
           } catch (error) {

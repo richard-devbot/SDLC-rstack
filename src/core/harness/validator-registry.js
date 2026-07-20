@@ -48,6 +48,9 @@ export const DEFAULT_VALIDATOR_REGISTRY = Object.freeze({
     required_checks: Object.freeze([
       'builder_contract_complete',
       'files_modified_exist',
+      // #406: the code stage must actually change a file — empty files_modified
+      // is a no-op that files_modified_exist would otherwise pass vacuously.
+      'files_modified_nonempty',
       'tests_run_evidence',
       'no_placeholder_stubs',
     ]),
