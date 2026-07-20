@@ -27,6 +27,7 @@ import {
   verifyStageCheckpoint,
 } from '../src/core/harness/checkpoints.js';
 import { validateRstackConfig } from '../src/core/harness/config-validation.js';
+import { CANONICAL_SDLC_STAGES } from '../src/core/harness/stages.js';
 import { resetStagesForRetry } from '../src/core/harness/goal-loop.js';
 import { buildPipelineState } from '../src/core/harness/pipeline-state.js';
 import { createStageCheckpoint } from '../src/core/harness/run-state.js';
@@ -70,14 +71,13 @@ test('checkpoint event contract is pinned', async (t) => {
 });
 
 test('critical-stage set resolution', async (t) => {
-  await t.test('defaults to the five issue-#132 stages', () => {
-    assert.deepEqual([...DEFAULT_CRITICAL_STAGE_IDS], [
-      '06-architecture',
-      '07-code',
-      '08-testing',
-      '09-deployment',
-      '12-security-threat-model',
-    ]);
+  await t.test('defaults to ALL 15 canonical stages (#425 — was the five #132 stages)', () => {
+    assert.deepEqual(
+      [...DEFAULT_CRITICAL_STAGE_IDS],
+      CANONICAL_SDLC_STAGES.map((stage) => stage.id),
+      'every canonical stage gets a pre-build restore point by default',
+    );
+    assert.equal(DEFAULT_CRITICAL_STAGE_IDS.length, 15);
     assert.deepEqual(resolveCriticalStages(undefined), [...DEFAULT_CRITICAL_STAGE_IDS]);
   });
 
@@ -93,8 +93,12 @@ test('critical-stage set resolution', async (t) => {
   });
 
   await t.test('isCriticalStage answers against the resolved set', () => {
+    // #425: all canonical stages are critical by default.
     assert.equal(isCriticalStage('07-code'), true);
-    assert.equal(isCriticalStage('02-requirements'), false);
+    assert.equal(isCriticalStage('02-requirements'), true);
+    assert.equal(isCriticalStage('not-a-stage'), false);
+    // A narrowed project override still excludes everything not listed.
+    assert.equal(isCriticalStage('07-code', ['02-requirements']), false);
     assert.equal(isCriticalStage('02-requirements', ['02-requirements']), true);
   });
 
