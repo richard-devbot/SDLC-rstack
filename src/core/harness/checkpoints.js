@@ -25,18 +25,22 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { getCanonicalStage } from './stages.js';
+import { CANONICAL_SDLC_STAGES, getCanonicalStage } from './stages.js';
 import { createStageCheckpoint, rollbackStage } from './run-state.js';
 import { rstackStateDir } from './runs.js';
 import { withFileLock, writeJsonAtomic } from './safe-write.js';
 
-export const DEFAULT_CRITICAL_STAGE_IDS = Object.freeze([
-  '06-architecture',
-  '07-code',
-  '08-testing',
-  '09-deployment',
-  '12-security-threat-model',
-]);
+// #425: every canonical stage is checkpoint-critical by default. Previously
+// only five stages (06/07/08/09/12) earned a pre-build restore point, so a
+// failed retry on requirements, planning, jira, summary, compliance, or cost
+// had nothing to roll back to. Since #404 each stage is its own claim-bound
+// task, "checkpoint every claim" is exactly one small stage-artifact dir per
+// checkpoint — the invariant is now Claim → Execute → Validate → Gate →
+// Checkpoint at ALL 15 stages. Projects that want fewer can still narrow the
+// set via .rstack config `checkpoints.critical_stages` (unchanged).
+export const DEFAULT_CRITICAL_STAGE_IDS = Object.freeze(
+  CANONICAL_SDLC_STAGES.map((stage) => stage.id),
+);
 
 export const CHECKPOINT_EVENT_TYPES = Object.freeze([
   'stage_checkpoint_before_saved',

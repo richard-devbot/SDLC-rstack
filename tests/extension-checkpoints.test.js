@@ -184,12 +184,15 @@ test('critical-stage checkpoint lifecycle: before → after → rollback round-t
     rmSync(join(runDir, 'checkpoints', '07-code', 'smuggled.json'));
   });
 
-  await t.test('non-critical stages never emit the critical checkpoint events', () => {
+  await t.test('pinned checkpoint events only fire for stages that were actually claimed/validated', () => {
+    // #425: every canonical stage is checkpoint-critical by default now, but
+    // events must still attach only to stages the run actually exercised —
+    // this run only ever claimed and validated 07-code.
     const events = readEvents(runDir);
     const pinned = events.filter((event) =>
       event.type === 'stage_checkpoint_before_saved' || event.type === 'stage_checkpoint_after_saved');
     assert.ok(pinned.every((event) => event.stage_id === '07-code'),
-      `only the critical stage may carry pinned checkpoint events, got: ${JSON.stringify(pinned)}`);
+      `only the exercised stage may carry pinned checkpoint events, got: ${JSON.stringify(pinned)}`);
   });
 
   rmSync(projectRoot, { recursive: true, force: true });
