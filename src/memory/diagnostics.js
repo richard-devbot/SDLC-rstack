@@ -20,7 +20,7 @@ function daysSince(isoDate) {
   return Math.max(0, ms / 86400000);
 }
 
-import { readMemoryConfig, projectMemoryDir } from './index.js';
+import { readMemoryConfig, projectMemoryDir, verifyEpisodeSignature } from './index.js';
 
 export async function runMemoryDiagnostics(projectRoot, _runId) {
   let memoryDir = projectRoot;
@@ -53,6 +53,13 @@ export async function runMemoryDiagnostics(projectRoot, _runId) {
   const rawLines = existsSync(episodesPath)
     ? (await readFile(episodesPath, 'utf8').catch(() => '')).split(/\r?\n/).filter(Boolean)
     : [];
+  // #408: verify signature VALIDITY, not just presence. A present-but-invalid
+  // signature is the fingerprint of key drift (RSTACK_SIGNING_KEY changed, or
+  // the slug-derived fallback secret changed) — readEpisodes silently filters
+  // those out of recall, so without this check "memory not loading" is
+  // invisible. We surface a distinct invalid_signature diagnostic and count
+  // how many episodes recall would silently drop.
+  let invalidSignatureCount = 0;
   for (const line of rawLines) {
     try {
       const ep = JSON.parse(line);
@@ -60,9 +67,15 @@ export async function runMemoryDiagnostics(projectRoot, _runId) {
       if (!ep.signature) {
         signatureFailures.push(ep.episode_id);
         diagnostics.push({ type: 'signature_failure', severity: 'warning', message: `Episode ${ep.episode_id} has no signature`, episode_id: ep.episode_id });
+      } else if (!verifyEpisodeSignature(ep)) {
+        invalidSignatureCount += 1;
+        signatureFailures.push(ep.episode_id);
+        diagnostics.push({ type: 'invalid_signature', severity: 'warning', message: `Episode ${ep.episode_id} signature does not verify under the active key — likely RSTACK_SIGNING_KEY drift or a project-slug change; recall silently excludes it`, episode_id: ep.episode_id });
       }
-      // Note: full crypto verify requires the project slug secret — we check presence only here
     } catch { /* skip malformed episode memory line */ }
+  }
+  if (invalidSignatureCount > 0) {
+    diagnostics.push({ type: 'signing_key_drift', severity: 'error', message: `${invalidSignatureCount} episode(s) fail signature verification under the active key and are silently excluded from recall. If the signing key or project folder changed, prior memory is orphaned. Re-sign or restore the original RSTACK_SIGNING_KEY.`, episode_id: 'store' });
   }
 
   // Duplicate episode_ids

@@ -4,15 +4,23 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runMemoryDiagnostics } from '../src/memory/diagnostics.js';
+import { calculateEpisodeSignature } from '../src/memory/index.js';
 
 // owner: RStack developed by Richardson Gunde
+
+// #408: diagnostics now verify signature VALIDITY, so fixtures that should be
+// "healthy" must carry real HMACs (a bogus signature is correctly flagged as
+// key drift). signed() stamps the signature the active key expects.
+function signed(episode) {
+  return { ...episode, signature: calculateEpisodeSignature(episode) };
+}
 
 test('runMemoryDiagnostics counts episodes and flags missing signatures', async () => {
   const memoryDir = mkdtempSync(join(tmpdir(), 'rstack-memdiag-'));
   try {
     const episodes = [
-      { episode_id: 'ep-1', signature: 'sig-1', created_at: new Date().toISOString(), access_count: 3 },
-      { episode_id: 'ep-2', signature: 'sig-2', created_at: new Date().toISOString(), access_count: 1 },
+      signed({ episode_id: 'ep-1', created_at: new Date().toISOString(), access_count: 3 }),
+      signed({ episode_id: 'ep-2', created_at: new Date().toISOString(), access_count: 1 }),
       { episode_id: 'ep-3', created_at: new Date().toISOString(), access_count: 1 },
     ];
     writeFileSync(join(memoryDir, 'episodes.jsonl'), episodes.map((e) => JSON.stringify(e)).join('\n') + '\n');
@@ -44,9 +52,9 @@ test('runMemoryDiagnostics flags stale, duplicate, and oversized stores', async 
   try {
     const createdStale = new Date(Date.now() - 100 * 86400000).toISOString();
     const episodes = [
-      { episode_id: 'ep-dup', signature: 'sig-dup', created_at: new Date().toISOString(), access_count: 1 },
-      { episode_id: 'ep-dup', signature: 'sig-dup', created_at: new Date().toISOString(), access_count: 1 },
-      { episode_id: 'ep-stale', signature: 'sig-stale', created_at: createdStale, access_count: 0 },
+      signed({ episode_id: 'ep-dup', created_at: new Date().toISOString(), access_count: 1 }),
+      signed({ episode_id: 'ep-dup', created_at: new Date().toISOString(), access_count: 1 }),
+      signed({ episode_id: 'ep-stale', created_at: createdStale, access_count: 0 }),
     ];
     writeFileSync(join(memoryDir, 'episodes.jsonl'), episodes.map((e) => JSON.stringify(e)).join('\n') + '\n');
 
