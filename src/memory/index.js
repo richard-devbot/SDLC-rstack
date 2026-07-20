@@ -1,9 +1,10 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { appendFile, copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import crypto from 'node:crypto';
 import { withFileLock, writeFileAtomic } from '../core/harness/safe-write.js';
+import { rstackStateDir } from '../core/harness/runs.js';
 
 export const DEFAULT_MEMORY_CONFIG = Object.freeze({
   backend: 'jsonl',
@@ -72,6 +73,23 @@ export function projectSlug(projectRoot) {
   return slugifyProject(basename(resolve(projectRoot || process.cwd())));
 }
 
+// #418: stable project identity for the memory namespace. The store used to
+// be keyed on the folder BASENAME, so renaming the project orphaned all
+// accumulated memory (the runtime looked in a new, empty namespace) and two
+// checkouts named `api` silently shared one store. A project that carries
+// .rstack/project-id (minted by ensureStableMemoryNamespace at run start)
+// gets a rename-proof namespace; projects without one keep the legacy slug —
+// nothing moves until the id exists and the store has been migrated.
+const PROJECT_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
+
+export function projectMemoryKey(projectRoot) {
+  try {
+    const raw = readFileSync(join(rstackStateDir(projectRoot || process.cwd()), 'project-id'), 'utf8').trim();
+    if (PROJECT_ID_PATTERN.test(raw)) return raw;
+  } catch { /* no project-id yet — legacy slug namespace */ }
+  return projectSlug(projectRoot);
+}
+
 export function mergeMemoryConfig(config = {}) {
   const merged = { ...DEFAULT_MEMORY_CONFIG, ...(config || {}) };
   merged.topK = Number.isFinite(Number(merged.topK)) ? Math.max(1, Math.min(10, Number(merged.topK))) : DEFAULT_MEMORY_CONFIG.topK;
@@ -134,9 +152,69 @@ export async function readMemoryConfig(projectRoot) {
 
 export function projectMemoryDir(projectRoot, config = {}) {
   if (config.memoryDir) return resolve(config.memoryDir);
-  if (process.env.RSTACK_MEMORY_DIR) return resolve(process.env.RSTACK_MEMORY_DIR, projectSlug(projectRoot), 'memory');
+  // #418: rename-proof key (project-id when minted, legacy slug otherwise).
+  if (process.env.RSTACK_MEMORY_DIR) return resolve(process.env.RSTACK_MEMORY_DIR, projectMemoryKey(projectRoot), 'memory');
   const root = process.env.RSTACK_HOME || join(homedir(), '.rstack');
-  return join(root, 'projects', projectSlug(projectRoot), 'memory');
+  return join(root, 'projects', projectMemoryKey(projectRoot), 'memory');
+}
+
+// #418: mint the stable project-id and migrate the legacy slug-keyed store
+// into the id-keyed namespace, COPY-NOT-DELETE. Idempotent and best-effort by
+// contract (callers log, never fail a run over it):
+//   1. No .rstack/project-id → mint one (uuid) atomically.
+//   2. If the legacy slug store has files and the id store is missing/empty →
+//      copy every top-level file across (a crash between id-mint and copy is
+//      healed on the next call; the legacy dir is NEVER deleted, so the old
+//      namespace remains a manual recovery point).
+//   3. Signatures are copied byte-for-byte, never re-signed: episode HMACs
+//      key off each record's own stored project_slug, so a namespace move
+//      cannot invalidate them — and re-signing would launder tampered rows.
+// Returns { key, migrated, copied } for the caller's notice/event.
+export async function ensureStableMemoryNamespace(projectRoot, config = {}) {
+  if (config.memoryDir) return { key: null, migrated: false, copied: 0 }; // pinned dir: namespace not in play
+  const stateDir = rstackStateDir(projectRoot || process.cwd());
+  const idPath = join(stateDir, 'project-id');
+  let minted = false;
+  let key = null;
+  try {
+    const raw = readFileSync(idPath, 'utf8').trim();
+    if (PROJECT_ID_PATTERN.test(raw)) key = raw;
+  } catch { /* not minted yet */ }
+  if (!key) {
+    key = crypto.randomUUID();
+    await mkdir(stateDir, { recursive: true });
+    await writeFileAtomic(idPath, `${key}\n`);
+    minted = true;
+  }
+
+  // Compute both namespaces with the SAME base logic projectMemoryDir uses.
+  const base = process.env.RSTACK_MEMORY_DIR
+    ? (slug) => resolve(process.env.RSTACK_MEMORY_DIR, slug, 'memory')
+    : (slug) => join(process.env.RSTACK_HOME || join(homedir(), '.rstack'), 'projects', slug, 'memory');
+  const legacyDir = base(projectSlug(projectRoot));
+  const idDir = base(key);
+  if (legacyDir === idDir) return { key, migrated: false, copied: 0 };
+
+  let legacyFiles = [];
+  try {
+    legacyFiles = (await readdir(legacyDir, { withFileTypes: true })).filter((entry) => entry.isFile()).map((entry) => entry.name);
+  } catch { /* no legacy store */ }
+  if (!legacyFiles.length) return { key, migrated: minted, copied: 0 };
+
+  let idFiles = [];
+  try {
+    idFiles = (await readdir(idDir, { withFileTypes: true })).filter((entry) => entry.isFile()).map((entry) => entry.name);
+  } catch { /* id store not created yet */ }
+  if (idFiles.length) return { key, migrated: false, copied: 0 }; // already migrated — never overwrite
+
+  await mkdir(idDir, { recursive: true });
+  let copied = 0;
+  for (const name of legacyFiles) {
+    await copyFile(join(legacyDir, name), join(idDir, name));
+    copied += 1;
+  }
+  console.error(`[rstack] Memory namespace migrated: copied ${copied} file(s) from ${legacyDir} to ${idDir} (stable project-id ${key}). The legacy directory was left in place as a recovery point.`);
+  return { key, migrated: true, copied };
 }
 
 export function sanitizeMemoryText(value, maxLength = 500) {

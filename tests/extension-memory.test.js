@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import extension from '../extensions/rstack-sdlc.ts';
-import { projectSlug } from '../src/memory/index.js';
+import { projectMemoryDir } from '../src/memory/index.js';
 
 function createMockPi() {
   return {
@@ -75,7 +75,9 @@ test('sdlc_validate writes validator-approved agent episode memory', async () =>
 
     await pi.tools.sdlc_validate.execute('validate', { run_id: runId, task_id: '00-environment' });
 
-    const episodePath = join(memoryRoot, projectSlug(projectRoot), 'memory', 'episodes.jsonl');
+    // #418: resolve through projectMemoryDir — sdlc_start mints a stable
+    // project-id, so the namespace is no longer the folder-basename slug.
+    const episodePath = join(projectMemoryDir(projectRoot), 'episodes.jsonl');
     assert.ok(existsSync(episodePath), 'episodes.jsonl should be written under configured memory root');
     const episode = JSON.parse(readFileSync(episodePath, 'utf8').trim());
     assert.equal(episode.run_id, runId);
