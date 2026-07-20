@@ -35,6 +35,7 @@ export function studio3dHtml() {
         <output id="studio-connection" class="studio-connection" aria-live="polite">Connecting</output>
         <span id="studio-freshness" class="studio-freshness">Snapshot unavailable</span>
         <button id="studio-semantic-toggle" class="studio-icon-button" type="button" aria-pressed="false">Semantic view</button>
+        <button id="studio-theme" class="studio-icon-button" type="button">Classic look</button>
         <button id="studio-motion" class="studio-icon-button" type="button" aria-pressed="false">Reduce motion</button>
       </div>
     </header>

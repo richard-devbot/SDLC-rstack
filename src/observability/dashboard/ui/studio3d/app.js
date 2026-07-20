@@ -13,12 +13,19 @@ const canvas = document.getElementById('studio-canvas');
 const fallback = document.getElementById('studio-fallback');
 const banner = document.getElementById('studio-renderer-banner');
 const motionButton = document.getElementById('studio-motion');
+const themeButton = document.getElementById('studio-theme');
 const overviewButton = document.getElementById('studio-overview');
 const semanticButton = document.getElementById('studio-semantic-toggle');
 const systemMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let explicitMotion = null;
 try { explicitMotion = localStorage.getItem('rstack.studio.motion'); } catch { /* storage is optional */ }
 let currentMotion = motionMode(explicitMotion, systemMotion.matches);
+// Studio look: 'twin' (Digital Twin, default) or 'classic' (authored light).
+let currentTheme = 'twin';
+try {
+  const savedTheme = localStorage.getItem('rstack.studio.theme');
+  if (savedTheme === 'twin' || savedTheme === 'classic') currentTheme = savedTheme;
+} catch { /* storage is optional */ }
 let currentSnapshot = null;
 let scene = null;
 
@@ -44,6 +51,17 @@ function applyMotion(mode) {
   scene?.setMotion(mode);
 }
 
+// The theme drives both the 3D palette (via scene rebuild) and the 2D chrome
+// (via the data attribute the stylesheet keys on). Guard the optional button so
+// the studio still works if the markup ever omits it. The label names the NEXT
+// action, so this is a plain action button — no aria-pressed toggle state
+// (CodeRabbit, PR #436).
+function applyThemeChrome(theme) {
+  app.dataset.studioTheme = theme;
+  if (!themeButton) return;
+  themeButton.textContent = theme === 'twin' ? 'Classic look' : 'Studio look';
+}
+
 async function ensureScene(studio) {
   if (scene || app.dataset.renderer === 'semantic-only') {
     scene?.reconcile(studio);
@@ -58,6 +76,7 @@ async function ensureScene(studio) {
     const { createStudioScene } = await import('./scene.js');
     scene = createStudioScene(canvas, {
       motion: currentMotion,
+      theme: currentTheme,
       onSelect: (ref) => dom.select(ref, { focus: false }),
       onDiagnostics: (stats) => {
         app.dataset.studioQualityTier = stats.qualityTier;
@@ -128,6 +147,21 @@ motionButton.addEventListener('click', () => {
 systemMotion.addEventListener('change', () => {
   if (!explicitMotion) applyMotion(motionMode(null, systemMotion.matches));
 });
+themeButton?.addEventListener('click', () => {
+  currentTheme = currentTheme === 'twin' ? 'classic' : 'twin';
+  try { localStorage.setItem('rstack.studio.theme', currentTheme); } catch { /* storage is optional */ }
+  applyThemeChrome(currentTheme);
+  // Rebuild the 3D scene with the new palette. Cheap and rare; avoids keeping a
+  // live material-restore path in sync. Semantic-only view has no scene to swap.
+  if (scene) {
+    scene.destroy();
+    scene = null;
+    if (currentSnapshot && app.dataset.renderer !== 'semantic-only') {
+      const validated = validateStudioSnapshot(currentSnapshot);
+      if (validated.ok) ensureScene(validated.studio);
+    }
+  }
+});
 overviewButton.addEventListener('click', () => scene?.select({ kind: 'orchestrator', id: currentSnapshot?.studio?.orchestrator?.id }, { overview: true }));
 semanticButton.addEventListener('click', () => {
   const semanticOnly = app.dataset.renderer !== 'semantic-only';
@@ -148,4 +182,5 @@ window.addEventListener('pagehide', () => {
 }, { once: true });
 
 applyMotion(currentMotion);
+applyThemeChrome(currentTheme);
 transport.start();
