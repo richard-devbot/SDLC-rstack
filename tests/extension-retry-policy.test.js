@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, rmSync, mkdtempSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { claimTaskForTest } from './helpers/claim.js';
 import extension from '../extensions/rstack-sdlc.ts';
 
 // Mock Pi Extension API
@@ -84,6 +85,9 @@ test('sdlc_validate drives post-validation transitions through the retry policy'
   await t.test('an exhausted validation stamps BLOCKED and emits task_retry_exhausted + guardrail_triggered', async () => {
     // A second recorded attempt puts the task at the default budget (2).
     appendFileSync(join(runDir, 'events.jsonl'), JSON.stringify({ ts: new Date().toISOString(), type: 'task_started', task_id: firstTaskId }) + '\n');
+    // #405: the prior FAIL consumed the claim; a retry re-claims before
+    // re-validating (sdlc_build_next does this in the real loop).
+    claimTaskForTest(projectRoot, runId, firstTaskId, { attempt: 2 });
 
     const res = await mockPi.tools.sdlc_validate.execute('6', { run_id: runId, task_id: firstTaskId });
     assert.equal(res.details.status, 'FAIL');

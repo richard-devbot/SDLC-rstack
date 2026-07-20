@@ -1,8 +1,10 @@
 /**
- * Validator registry wiring (#120): sdlc_validate must record which validator
- * profile owns each task in validation.json, selected from the task's
- * canonical stage targets — the highest-priority registered stage wins,
- * unregistered stages fall back to the generic profile.
+ * Validator registry wiring (#120 + #404): sdlc_validate records which
+ * validator profile owns each task in validation.json. Since #404, each task
+ * targets exactly ONE canonical stage, so a registered stage receives ITS OWN
+ * validator instead of being shadowed by a higher-priority stage bundled into
+ * the same mission (architecture 06 used to lose to security 12; it no longer
+ * does). Unregistered stages fall back to the generic profile.
  *
  * owner: RStack developed by Richardson Gunde
  */
@@ -13,6 +15,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_VALIDATOR_REGISTRY } from '../src/core/harness/validator-registry.js';
+import { claimTaskForTest } from './helpers/claim.js';
 import extension from '../extensions/rstack-sdlc.ts';
 
 const mockPi = {
@@ -36,39 +39,38 @@ test('sdlc_validate records the selected validator profile in validation.json', 
   const runId = start.details.run_id;
   await mockPi.tools.sdlc_plan.execute('2', { run_id: runId });
 
-  const tasksPath = join(projectRoot, '.rstack', 'runs', runId, 'tasks.json');
-  const tasks = JSON.parse(readFileSync(tasksPath, 'utf8')).tasks;
-
-  // 003-architecture targets 06-architecture + 12-security-threat-model +
-  // 14-cost-estimation — the security profile must win the selection.
-  const archTask = tasks.find((entry) => entry.id === '003-architecture');
-  assert.ok(archTask, 'plan should contain the 003-architecture task');
+  // #404: the 06-architecture task now targets ONLY 06-architecture, so it must
+  // receive the architecture validator — no longer shadowed by the security
+  // stage that used to share its mission bundle.
+  const archTask = claimTaskForTest(projectRoot, runId, '06-architecture');
   const expectedStageIds = [...new Set(archTask.stage_artifacts.map((artifact) => artifact.stage_id))];
-  assert.ok(expectedStageIds.includes('12-security-threat-model'), 'fixture should target the security stage');
+  assert.deepEqual(expectedStageIds, ['06-architecture'], 'architecture task targets only its own stage');
 
   const outputDir = join(projectRoot, archTask.output_dir);
   mkdirSync(outputDir, { recursive: true });
-  // #222: required_checks are ENFORCED now — the security profile's checks
-  // read the canonical stage artifact, so the fixture must actually produce
-  // it (this test predates enforcement and used to pass artifact-free).
-  const threatDir = join(projectRoot, '.rstack', 'runs', runId, 'artifacts', 'stages', '12-security-threat-model');
-  mkdirSync(threatDir, { recursive: true });
-  writeFileSync(join(threatDir, 'threat_model.json'), JSON.stringify({
-    threats: [{ category: 'Spoofing', risk: 'high', mitigation: 'mTLS between services' }],
-    mitigations: ['mTLS between services'],
-    risk_ratings: ['high'],
+  // #222: the architecture profile's required_checks read the canonical stage
+  // artifact (system_design.json), so the fixture must produce it with the
+  // required fields.
+  const archDir = join(projectRoot, '.rstack', 'runs', runId, 'artifacts', 'stages', '06-architecture');
+  mkdirSync(archDir, { recursive: true });
+  writeFileSync(join(archDir, 'system_design.json'), JSON.stringify({
+    components: [{ name: 'api', responsibility: 'request handling' }],
+    interfaces: [{ name: 'REST', contract: 'OpenAPI 3' }],
+    data_model: { entities: ['user'] },
+    tradeoffs: ['monolith-first for delivery speed'],
+    security_boundaries: ['authenticated API gateway in front of services'],
   }, null, 2));
   writeFileSync(join(outputDir, 'builder.json'), JSON.stringify({
     task_id: archTask.id,
     agent: 'builder',
     status: 'PASS',
-    summary: 'Architecture and threat model documented for regression test',
+    summary: 'Architecture and system design documented for regression test',
     files_modified: [],
     tests_run: ['SKIPPED: regression fixture'],
     risks: [],
     next_steps: [],
     memory_summary: {
-      work_done: 'Designed the system and threat model for the regression scenario',
+      work_done: 'Designed the system architecture for the regression scenario',
       evidence: ['tasks.json'],
     },
     stage_summaries: expectedStageIds.map((stageId) => ({
@@ -84,22 +86,21 @@ test('sdlc_validate records the selected validator profile in validation.json', 
   const validation = JSON.parse(readFileSync(join(outputDir, 'validation.json'), 'utf8'));
   assert.equal(validation.validator, 'rstack-pi-extension', 'existing validator field is untouched');
   assert.ok(validation.validator_profile, 'validation.json must carry the selected profile');
-  assert.equal(validation.validator_profile.stage_id, '12-security-threat-model', 'highest-priority registered stage wins');
-  assert.equal(validation.validator_profile.validator, 'validator.12-security-threat-model');
+  assert.equal(validation.validator_profile.stage_id, '06-architecture', 'the stage now gets its own validator, not a shadowing one');
+  assert.equal(validation.validator_profile.validator, 'validator.06-architecture');
   assert.equal(typeof validation.validator_profile.model_hint, 'string');
   assert.deepEqual(
     [...validation.validator_profile.required_checks],
-    [...DEFAULT_VALIDATOR_REGISTRY['12-security-threat-model'].required_checks],
+    [...DEFAULT_VALIDATOR_REGISTRY['06-architecture'].required_checks],
   );
   assert.ok(
     validation.checks.some((check) => check.name === 'validator_profile_selected' && check.status === 'PASS'),
     'profile selection is recorded as an informational check',
   );
 
-  // 001-product-clarification targets only unregistered stages (00, 01) —
-  // the generic profile applies, even when the builder contract is missing.
-  const genericTask = tasks.find((entry) => entry.id === '001-product-clarification');
-  assert.ok(genericTask, 'plan should contain the 001-product-clarification task');
+  // 00-environment is an unregistered stage — the generic profile applies, even
+  // when the builder contract is missing (claimed but never built).
+  const genericTask = claimTaskForTest(projectRoot, runId, '00-environment');
   const genericResult = await mockPi.tools.sdlc_validate.execute('4', { run_id: runId, task_id: genericTask.id });
   assert.equal(genericResult.details.status, 'FAIL', 'missing builder contract still fails validation');
   const genericValidation = JSON.parse(readFileSync(join(projectRoot, genericTask.output_dir, 'validation.json'), 'utf8'));

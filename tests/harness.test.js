@@ -74,15 +74,19 @@ test('SDLC-rstack E2E Harness Simulation', async (t) => {
     assert.equal(tasksFile.workflow, 'production-business-sdlc');
     assert.ok(tasksFile.budget_policy.run_budget_usd > 0);
     const tasks = tasksFile.tasks;
-    const requirementsTask = tasks.find(t => t.id === '002-requirements');
+    // #404: one task per canonical stage. The requirements task IS 02-requirements
+    // and routes to exactly its own canonical agent (planning/jira are their own tasks).
+    assert.equal(tasks.length, 15, 'plan should contain one task per canonical stage');
+    const requirementsTask = tasks.find(t => t.id === '02-requirements');
     assert.ok(requirementsTask.pipeline_agents.includes('agent.02-requirements'), 'Requirements stage should route to sdlc/02-requirements');
-    assert.ok(requirementsTask.pipeline_agents.includes('agent.04-planning'), 'Requirements stage should route to sdlc/04-planning');
+    assert.ok(tasks.some(t => t.id === '04-planning'), 'planning is now its own canonical-stage task');
     assert.ok(requirementsTask.stage_artifacts.some(a => a.stage_id === '02-requirements' && a.artifact_path.endsWith('/artifacts/stages/02-requirements/requirements.json')), 'Requirements task should expose canonical stage artifact path');
     assert.equal(requirementsTask.profile, 'business-flex');
+    assert.equal(requirementsTask.mission_id, '002-requirements', 'the task carries its mission grouping metadata');
     assert.ok(requirementsTask.routing.explanation.some(item => item.includes('profile:business-flex')));
     assert.ok(requirementsTask.budget_envelope.estimated_ai_cost_usd > 0);
 
-    const architectureTask = tasks.find(t => t.id === '003-architecture');
+    const architectureTask = tasks.find(t => t.id === '06-architecture');
     assert.ok(architectureTask.stage_artifacts.some(a => a.stage_id === '06-architecture'), 'Architecture task should route canonical architecture stage output');
 
     const registryDir = join(projectRoot, '.rstack', 'registry');

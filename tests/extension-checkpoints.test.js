@@ -54,14 +54,15 @@ test('critical-stage checkpoint lifecycle: before → after → rollback round-t
   const runDir = join(projectRoot, '.rstack', 'runs', runId);
   await mockPi.tools.sdlc_plan.execute('2', { run_id: runId });
 
-  // The code task targets the critical canonical stage 07-code while its plan
-  // task id differs — exactly the id pair rollback must keep apart.
+  // #404: the code task now IS the canonical stage 07-code (one task per
+  // canonical stage). rollback still only accepts canonical stage ids — the
+  // INVALID_STAGE subtest below proves a non-canonical id is rejected.
   const tasksPath = join(runDir, 'tasks.json');
   const taskState = readJson(tasksPath);
   const task = taskState.tasks.find((entry) =>
     (entry.stage_artifacts || []).some((artifact) => artifact.stage_id === '07-code'));
   assert.ok(task, 'plan should contain a task targeting 07-code');
-  assert.notEqual(task.id, '07-code', 'plan task id must differ from the canonical stage id for this regression to bite');
+  assert.equal(task.id, '07-code', 'the task id is now the canonical stage id');
 
   // Park every other task as PASS so the claim picks the 07-code task.
   for (const entry of taskState.tasks) {
@@ -145,8 +146,10 @@ test('critical-stage checkpoint lifecycle: before → after → rollback round-t
     assert.equal(revertedEvents[0].stage_id, '07-code');
   });
 
-  await t.test('sdlc_rollback rejects plan task ids (INVALID_STAGE)', async () => {
-    const res = await mockPi.tools.sdlc_rollback.execute('7', { run_id: runId, stage_id: task.id });
+  await t.test('sdlc_rollback rejects non-canonical stage ids (INVALID_STAGE)', async () => {
+    // A legacy plan task id ("004-code") is not a canonical stage id and must
+    // be rejected — rollback only operates on canonical stage ids.
+    const res = await mockPi.tools.sdlc_rollback.execute('7', { run_id: runId, stage_id: '004-code' });
     assert.equal(res.details.status, 'INVALID_STAGE');
     assert.match(res.content[0].text, /canonical/);
   });

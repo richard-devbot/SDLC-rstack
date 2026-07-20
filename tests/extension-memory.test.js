@@ -36,9 +36,12 @@ test('sdlc_validate writes validator-approved agent episode memory', async () =>
     await pi.tools.sdlc_plan.execute('plan', { run_id: runId });
     await pi.tools.sdlc_build_next.execute('build', { run_id: runId });
 
-    const builderPath = join(projectRoot, '.rstack', 'runs', runId, 'tasks', '001-product-clarification', 'builder.json');
+    // #404/#405: sdlc_build_next claims the first canonical stage (00-environment)
+    // and stamps it IN_PROGRESS with a claim nonce; validation is bound to that
+    // claimed task.
+    const builderPath = join(projectRoot, '.rstack', 'runs', runId, 'tasks', '00-environment', 'builder.json');
     writeFileSync(builderPath, JSON.stringify({
-      task_id: '001-product-clarification',
+      task_id: '00-environment',
       agent: 'builder',
       status: 'PASS',
       summary: 'Created product brief and captured memory smoke test context.',
@@ -63,24 +66,16 @@ test('sdlc_validate writes validator-approved agent episode memory', async () =>
           context_to_keep: ['environment supports extension tests'],
           context_to_drop: [],
         },
-        {
-          stage_id: '01-transcript',
-          agent_id: 'agent.01-transcript',
-          work_done: 'Captured smoke-test task context.',
-          evidence: ['builder.json'],
-          context_to_keep: ['goal is Build memory smoke test'],
-          context_to_drop: [],
-        },
       ],
     }, null, 2));
 
-    await pi.tools.sdlc_validate.execute('validate', { run_id: runId, task_id: '001-product-clarification' });
+    await pi.tools.sdlc_validate.execute('validate', { run_id: runId, task_id: '00-environment' });
 
     const episodePath = join(memoryRoot, projectSlug(projectRoot), 'memory', 'episodes.jsonl');
     assert.ok(existsSync(episodePath), 'episodes.jsonl should be written under configured memory root');
     const episode = JSON.parse(readFileSync(episodePath, 'utf8').trim());
     assert.equal(episode.run_id, runId);
-    assert.equal(episode.task_id, '001-product-clarification');
+    assert.equal(episode.task_id, '00-environment');
     assert.equal(episode.validator_status, 'PASS');
     assert.equal(episode.trusted, true);
     assert.ok(episode.agent_ids.includes('agent.00-environment'));
@@ -111,9 +106,9 @@ test('sdlc_validate fails PASS builders without memory summary evidence', async 
     await pi.tools.sdlc_plan.execute('plan', { run_id: runId });
     await pi.tools.sdlc_build_next.execute('build', { run_id: runId });
 
-    const taskDir = join(projectRoot, '.rstack', 'runs', runId, 'tasks', '001-product-clarification');
+    const taskDir = join(projectRoot, '.rstack', 'runs', runId, 'tasks', '00-environment');
     writeFileSync(join(taskDir, 'builder.json'), JSON.stringify({
-      task_id: '001-product-clarification',
+      task_id: '00-environment',
       agent: 'builder',
       status: 'PASS',
       summary: 'This builder intentionally omits memory summary evidence.',
@@ -123,7 +118,7 @@ test('sdlc_validate fails PASS builders without memory summary evidence', async 
       next_steps: [],
     }, null, 2));
 
-    const result = await pi.tools.sdlc_validate.execute('validate', { run_id: runId, task_id: '001-product-clarification' });
+    const result = await pi.tools.sdlc_validate.execute('validate', { run_id: runId, task_id: '00-environment' });
     assert.ok(result.content[0].text.includes('Validation FAIL'));
     const validation = JSON.parse(readFileSync(join(taskDir, 'validation.json'), 'utf8'));
     assert.ok(validation.checks.some((check) => check.name === 'builder_memory_summary_exists' && check.status === 'FAIL'));

@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { claimTaskForTest } from './helpers/claim.js';
 import extension from '../extensions/rstack-sdlc.ts';
 
 const mockPi = {
@@ -38,13 +39,14 @@ test('sdlc_validate enforces the goal_evaluation contract on goal-driven runs', 
   await mockPi.tools.sdlc_plan.execute('2', { run_id: runId });
 
   const runDir = join(projectRoot, '.rstack', 'runs', runId);
-  const tasks = JSON.parse(readFileSync(join(runDir, 'tasks.json'), 'utf8')).tasks;
 
-  // 008-release-readiness is the plan task that targets 11-feedback-loop.
-  const releaseTask = tasks.find((entry) => entry.id === '008-release-readiness');
-  assert.ok(releaseTask, 'plan should contain the 008-release-readiness task');
+  // #404: 11-feedback-loop is now its own task (it carries the goal_evaluation
+  // contract). #405: each validate consumes the claim, so every re-validation
+  // below re-claims first — exactly the real retry path.
+  const reclaim = () => claimTaskForTest(projectRoot, runId, '11-feedback-loop');
+  const releaseTask = reclaim();
   const expectedStageIds = [...new Set(releaseTask.stage_artifacts.map((artifact) => artifact.stage_id))];
-  assert.ok(expectedStageIds.includes('11-feedback-loop'), 'fixture should target the feedback stage');
+  assert.deepEqual(expectedStageIds, ['11-feedback-loop'], 'feedback task targets only its own stage');
 
   const outputDir = join(projectRoot, releaseTask.output_dir);
   mkdirSync(outputDir, { recursive: true });
@@ -72,6 +74,7 @@ test('sdlc_validate enforces the goal_evaluation contract on goal-driven runs', 
   //    gate records why it did not enforce.
   const noGoal = await mockPi.tools.sdlc_validate.execute('3', { run_id: runId, task_id: releaseTask.id });
   assert.equal(noGoal.details.status, 'PASS', `goal-less run should pass: ${JSON.stringify(noGoal.details.issues)}`);
+  reclaim();
   const noGoalValidation = JSON.parse(readFileSync(join(outputDir, 'validation.json'), 'utf8'));
   assert.ok(
     noGoalValidation.checks.some((check) => check.name === 'goal_evaluation_not_required' && check.status === 'PASS'),
@@ -86,6 +89,7 @@ test('sdlc_validate enforces the goal_evaluation contract on goal-driven runs', 
   }, null, 2));
   const missing = await mockPi.tools.sdlc_validate.execute('4', { run_id: runId, task_id: releaseTask.id });
   assert.equal(missing.details.status, 'FAIL', 'goal-driven run without feedback.json must fail validation');
+  reclaim();
   const missingValidation = JSON.parse(readFileSync(join(outputDir, 'validation.json'), 'utf8'));
   assert.ok(
     missingValidation.issues.some((check) => check.name === 'goal_evaluation_feedback_artifact'),
@@ -103,6 +107,7 @@ test('sdlc_validate enforces the goal_evaluation contract on goal-driven runs', 
   }, null, 2));
   const malformed = await mockPi.tools.sdlc_validate.execute('5', { run_id: runId, task_id: releaseTask.id });
   assert.equal(malformed.details.status, 'FAIL', 'malformed goal_evaluation must fail validation');
+  reclaim();
   const malformedValidation = JSON.parse(readFileSync(join(outputDir, 'validation.json'), 'utf8'));
   const malformedNames = malformedValidation.issues.map((check) => check.name);
   assert.ok(malformedNames.includes('goal_evaluation_status_allowed'));
@@ -133,9 +138,8 @@ test('sdlc_validate enforces the goal_evaluation contract on goal-driven runs', 
   );
 
   // 5. Tasks that never target stage 11 see no goal checks even with an
-  //    active goal.
-  const codeTask = tasks.find((entry) => entry.id === '004-implementation');
-  assert.ok(codeTask, 'plan should contain the 004-implementation task');
+  //    active goal. 07-code is claimed and validated on its own.
+  const codeTask = claimTaskForTest(projectRoot, runId, '07-code');
   await mockPi.tools.sdlc_validate.execute('7', { run_id: runId, task_id: codeTask.id });
   const codeValidation = JSON.parse(readFileSync(join(projectRoot, codeTask.output_dir, 'validation.json'), 'utf8'));
   assert.ok(

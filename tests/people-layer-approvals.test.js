@@ -78,7 +78,8 @@ test('people layer + policy enforcement E2E', async (t) => {
     mkdirSync(join(projectRoot, '.rstack'), { recursive: true });
     writeFileSync(join(projectRoot, '.rstack', 'policy.json'), JSON.stringify({
       managers: ['Lead Lena'],
-      required_approvals: { '001-product-clarification': ['release-readiness.json'] },
+      // #404: the first task is now the canonical stage 00-environment.
+      required_approvals: { '00-environment': ['release-readiness.json'] },
     }));
 
     const res = await mockPi.tools.sdlc_build_next.execute('6', { run_id: runId });
