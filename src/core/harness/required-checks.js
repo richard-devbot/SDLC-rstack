@@ -139,6 +139,17 @@ const MECHANICAL_EVALUATORS = {
   files_modified_exist: (ctx) => signalCheck('files_modified_exist', ctx, 'filesModifiedOk',
     'every claimed modified file exists on disk',
     'one or more claimed modified files do not exist (see modified_file_exists checks above)'),
+  // #406: a stage that declares this check (the code stage) must actually
+  // change at least one file — an empty files_modified is not "done", it is a
+  // no-op that files_modified_exist vacuously passes.
+  files_modified_nonempty: (ctx) => {
+    const files = Array.isArray(ctx.builder?.files_modified)
+      ? ctx.builder.files_modified.filter((file) => typeof file === 'string' && file.trim())
+      : [];
+    return files.length > 0
+      ? pass('files_modified_nonempty', `${files.length} file(s) modified`)
+      : fail('files_modified_nonempty', 'this stage must modify at least one file; files_modified is empty');
+  },
   tests_run_evidence: (ctx) => signalCheck('tests_run_evidence', ctx, 'testsRunOk',
     'builder contract carries non-empty tests_run evidence',
     'builder contract has no tests_run evidence (commands run, or SKIPPED: reason)'),
