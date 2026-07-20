@@ -22,6 +22,8 @@ import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 
+import { RUN_MODES } from './environment-report.js';
+
 // Checks that require the delegated specialist validator's judgment. Never
 // fabricated as PASS, never false-FAILed — they remain visibly delegated.
 export const DELEGATED_SEMANTIC_CHECKS = Object.freeze(new Set([
@@ -187,6 +189,26 @@ const MECHANICAL_EVALUATORS = {
   // goals is an array of strings — nonEmpty (via artifactFields) requires the
   // field to be present and the array to be non-empty.
   transcript_has_goals: (ctx, artifact) => artifactFields('transcript_has_goals', artifact, ['goals']),
+
+  // #421: stage-00 environment validation. The environment report is the
+  // ground truth every downstream stage plans from — run_mode
+  // (greenfield/brownfield/feature) decides how agents treat the repo. The
+  // legacy shape check (environment-report.js) is deliberately WARN-only and
+  // stays; these two make the report's EXISTENCE and its load-bearing
+  // run_mode a real gate: an empty or mode-less environment report is not a
+  // completed environment stage.
+  environment_report_present: (ctx, artifact) => artifactPresent('environment_report_present', artifact),
+  environment_run_mode_valid: (ctx, artifact) => {
+    if (!artifact.exists || artifact.json === null) return fail('environment_run_mode_valid', artifact.reason ?? 'artifact missing — run_mode cannot be evaluated');
+    const runMode = artifact.json?.run_mode;
+    if (typeof runMode !== 'string' || !runMode.trim()) {
+      return fail('environment_run_mode_valid', `environment_report.json has no run_mode — one of ${RUN_MODES.join('|')} is required (it drives every downstream stage's brownfield/greenfield behavior)`);
+    }
+    if (!RUN_MODES.includes(runMode)) {
+      return fail('environment_run_mode_valid', `run_mode "${runMode}" is not one of ${RUN_MODES.join('|')}`);
+    }
+    return pass('environment_run_mode_valid', `run_mode: ${runMode}`);
+  },
 };
 
 /**
@@ -239,6 +261,7 @@ export async function evaluateRequiredChecks(ctx) {
 // module stays import-light; mirrors CANONICAL_SDLC_STAGES in stages.js and
 // is pinned against it by the tests.
 const STAGE_ARTIFACTS = Object.freeze({
+  '00-environment': 'environment_report.json',
   '01-transcript': 'transcript.json',
   '06-architecture': 'system_design.json',
   '07-code': 'code_report.json',
