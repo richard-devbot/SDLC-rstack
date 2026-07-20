@@ -48,7 +48,7 @@ import { withFileLock, writeJsonAtomic, writeFileAtomic } from "../../core/harne
 import { readSessionPin, writeSessionPin } from "../../core/harness/runs.js";
 import { resolveUserIdentity } from "../../core/harness/identity.js";
 import { appendApproval as appendApprovalRequest, approvalQueueId, assertManagerAllowed, configuredManagers, ensurePendingQueueApproval, readApprovalPolicy, resolveQueuedApprovalForArtifact } from "../../core/tracker/approvals.js";
-import { appendEpisode, appendLearning, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../../memory/index.js";
+import { appendEpisode, appendLearning, ensureStableMemoryNamespace, episodeFromValidation, formatEpisodesForPrompt, projectMemoryDir, readMemoryConfig, recallEpisodes, sanitizeMemoryText, searchLearnings, writeRetrievalEvent } from "../../memory/index.js";
 import { buildRunReport, formatRetryTraceLine, generateRunReport, renderDashboardHtml, renderTraceHtml } from "../../observability/collectors/reporter.js";
 import { notifyAll, hasConfiguredChannels, formatSlackStageMessage, formatSlackTaskReportMessage } from "../../notifications/index.js";
 
@@ -1793,6 +1793,14 @@ export default function (pi: ExtensionAPI) {
       // fell back to the newest directory.
       await writeSessionPin(projectRoot, id);
       await mkdir(memoryDir(projectRoot), { recursive: true });
+      // #418: mint the rename-proof memory namespace (stable project-id) and
+      // migrate any legacy slug-keyed store copy-not-delete. Best-effort — a
+      // namespace hiccup must never fail run start.
+      try {
+        await ensureStableMemoryNamespace(projectRoot, await readMemoryConfig(projectRoot));
+      } catch (err) {
+        console.error("Failed to ensure stable memory namespace:", err);
+      }
       const startedBy = resolveUserIdentity(projectRoot);
       const activeProfile = await loadProjectProfile(projectRoot);
       const budgetPolicy = await loadBudgetPolicy(projectRoot, activeProfile.profile);
