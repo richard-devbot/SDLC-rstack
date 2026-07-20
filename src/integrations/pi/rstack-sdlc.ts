@@ -2,12 +2,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { createConnection } from "node:net";
 import { existsSync, openSync, readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile, appendFile, rm, stat } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { CANONICAL_SDLC_STAGES, getCanonicalStage, stageArtifactRelativePath } from "../../core/harness/stages.js";
@@ -220,10 +220,14 @@ type RunManifest = {
 type ApprovalRecord = {
   id: string;
   artifact: string;
-  status: "APPROVED" | "REJECTED" | "PENDING" | "CONSUMED";
+  status: "APPROVED" | "REJECTED" | "PENDING" | "CONSUMED" | "STALE_ARTIFACT_CHANGED";
   approver: string;
   timestamp: string;
   comments?: string;
+  // Content binding (#407): SHA-256 of the approved artifact's bytes at
+  // sign-off. Present only for a file-backed APPROVED artifact; the claim gate
+  // re-hashes and demotes the record if the artifact later changes.
+  artifact_sha256?: string;
   // Run binding (#298): every writer stamps the run the approval belongs to,
   // activating the #133 cross-run replay check. Optional because legacy
   // records predate the stamp (the audit grandfathers them).
@@ -766,6 +770,56 @@ function approvedArtifacts(approvals: ApprovalRecord[], expectedRunId?: string):
 // plan+requirements, and everything before architecture needs plan. Legacy
 // mission ids (and any non-canonical id from an external caller) fall back to
 // the original lexicographic behavior so they never regress.
+// #407: resolve an approval artifact NAME to the file it approves, if any.
+// Approval artifacts are file/stage names (isSafeArtifactName guarantees no
+// path separators). A file-backed artifact lives either in the run specs dir
+// (the mission spec documents: plan.md, requirements.json, architecture.md, …)
+// or at the run root (plan.md). Stage-id / virtual (guardrail-override:…)
+// artifacts resolve to no file and simply carry no digest — unchanged behavior.
+function approvalArtifactFilePath(runDir: string, artifact: string): string | null {
+  if (!isSafeArtifactName(artifact)) return null;
+  const candidates = [join(specsDir(runDir), artifact), join(runDir, artifact)];
+  for (const candidate of candidates) {
+    // Containment: isSafeArtifactName already forbids separators and "..", so
+    // the join cannot escape runDir — this is belt-and-suspenders.
+    const resolved = resolve(candidate);
+    if (!resolved.startsWith(resolve(runDir) + sep)) continue;
+    if (existsSync(resolved)) return resolved;
+  }
+  return null;
+}
+
+// #407: SHA-256 of an approved artifact's bytes, so an approval can be bound to
+// the exact content that was signed off. Null when the artifact is not
+// file-backed (a stage/virtual approval) or unreadable.
+function computeArtifactDigest(filePath: string | null): string | null {
+  if (!filePath) return null;
+  try {
+    return createHash("sha256").update(readFileSync(filePath)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+// #407: drop APPROVED records whose bound artifact digest no longer matches the
+// current file — a spec approved and then edited must NOT stay green. Records
+// without a digest (legacy, or non-file-backed artifacts) are untouched, so
+// this only ever tightens, never loosens. Returns the approvals list with
+// stale-digest records demoted to a synthetic STALE status the trust audit
+// ignores, leaving every other record (and the audit's own tamper checks) intact.
+function invalidateApprovalsWithChangedArtifact(approvals: ApprovalRecord[], runDir: string): ApprovalRecord[] {
+  return approvals.map((record) => {
+    if (record?.status !== "APPROVED") return record;
+    const digest = (record as any).artifact_sha256;
+    if (typeof digest !== "string" || !digest) return record;
+    const current = computeArtifactDigest(approvalArtifactFilePath(runDir, record.artifact));
+    if (current && current === digest) return record;
+    // Content changed (or the approved file vanished): demote so the gate
+    // re-blocks and a fresh sign-off is required against the new content.
+    return { ...record, status: "STALE_ARTIFACT_CHANGED" } as ApprovalRecord;
+  });
+}
+
 function requiredApprovalsForTask(taskId: string): string[] {
   const idx = CANONICAL_SDLC_STAGES.findIndex((stage) => stage.id === taskId);
   if (idx === -1) {
@@ -1525,6 +1579,15 @@ export default function (pi: ExtensionAPI) {
             approvals = JSON.parse(await readFile(path, "utf8"));
           } catch {}
         }
+        // Content binding (#407): bind an APPROVED sign-off to the SHA-256 of
+        // the artifact bytes at approval time. If the artifact is later edited,
+        // the gate's digest re-check (invalidateApprovalsWithChangedArtifact)
+        // demotes this record so the approval no longer unblocks — "approved,
+        // then changed" can never stay green. Non-file-backed artifacts (stage
+        // ids, guardrail-override:…) carry no digest and are unaffected.
+        const artifactDigest = params.status === "APPROVED"
+          ? computeArtifactDigest(approvalArtifactFilePath(runDir, params.artifact))
+          : null;
         // Provenance (#369): sign the record so it satisfies the audit's
         // signature check when RSTACK_APPROVAL_SIGNING_KEY is set; a no-key
         // host gets the record unchanged (unsigned mode, legacy behavior).
@@ -1537,6 +1600,8 @@ export default function (pi: ExtensionAPI) {
           comments: params.comments,
           // Run binding (#298): the stamp the #133 replay audit compares.
           run_id: manifest.run_id,
+          // Content binding (#407): present only for a file-backed APPROVED artifact.
+          ...(artifactDigest ? { artifact_sha256: artifactDigest } : {}),
         });
         approvals.push(next);
         await writeJsonAtomic(path, approvals);
@@ -1904,7 +1969,11 @@ export default function (pi: ExtensionAPI) {
         // records are reported post-lock as approval_audit_failed events,
         // deduped against events already recorded.
         const approvalAudit = auditRunApprovals(rawApprovals, { runId: manifest.run_id, runDir });
-        const runApprovals = approvalAudit.ok ? rawApprovals : [];
+        // #407: after the tamper/replay audit, drop APPROVED records whose bound
+        // artifact digest no longer matches the current file — an artifact
+        // approved and then edited must re-block until re-approved. Non-file
+        // and legacy (no-digest) records pass through unchanged.
+        const runApprovals = invalidateApprovalsWithChangedArtifact(approvalAudit.ok ? rawApprovals : [], runDir);
         const reportedAuditKeys = new Set(
           runEvents
             .filter((event: any) => event?.type === "approval_audit_failed")
@@ -2809,7 +2878,9 @@ export default function (pi: ExtensionAPI) {
       const counts = tasks.reduce((acc: Record<string, number>, task: any) => { acc[task.status] = (acc[task.status] || 0) + 1; return acc; }, {});
       const next = tasks.find((t: any) => ["PENDING", "READY", "FAIL", "IN_PROGRESS", "BLOCKED"].includes(t.status));
       const runDir = join(runsDir(projectRoot), manifest.run_id);
-      const approvals = await readApprovals(runDir);
+      // #407: same content-binding re-check the claim gate applies — a release
+      // artifact approved and then edited must not count toward the release gate.
+      const approvals = invalidateApprovalsWithChangedArtifact(await readApprovals(runDir), runDir);
       const nextMissingApprovals = next && next.status !== "IN_PROGRESS" ? missingApprovals(approvals, await effectiveRequiredApprovals(projectRoot, manifest, next), manifest.run_id) : [];
       const releaseMissingApprovals = manifest.mode !== "express" ? missingApprovals(approvals, ["plan.md", "requirements.json", "architecture.md", "release-readiness.json"], manifest.run_id) : [];
       if (tasks.length > 0 && !next && tasks.every((t: any) => t.status === "PASS") && releaseMissingApprovals.length === 0) {
