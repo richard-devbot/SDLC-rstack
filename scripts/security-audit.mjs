@@ -14,16 +14,23 @@
 
 import { execFileSync } from 'node:child_process';
 
-// Packages that ship their own bundled node_modules (cannot be overridden).
+// Packages whose own subtree we cannot patch downstream: pi-coding-agent ships
+// an npm-shrinkwrap.json, which npm honors absolutely — root `overrides` are
+// ignored inside it exactly like a bundled tarball (verified empirically: a
+// fresh resolve with a matching override still installs the shrinkwrapped
+// version). Fixes there must come from an upstream pi release.
 const BUNDLED_ROOTS = [
   'node_modules/@earendil-works/pi-coding-agent/node_modules/',
 ];
 
 // An advisory is tolerated ONLY when it is one of these named packages AND its
-// every install path is bundled (below). The name allowlist is deliberate: a
-// brand-new high/critical in the bundled subtree for any other package still
-// fails the gate, forcing a conscious decision rather than silent acceptance.
-const TOLERATED_BUNDLED_ADVISORIES = new Set(['protobufjs', 'ws']);
+// every install path is bundled/shrinkwrapped (below). The name allowlist is
+// deliberate: a brand-new high/critical in that subtree for any other package
+// still fails the gate, forcing a conscious decision rather than silent
+// acceptance.
+// - brace-expansion (GHSA-3jxr-9vmj-r5cp, DoS): pinned 5.0.6 by pi's
+//   shrinkwrap; every non-shrinkwrapped path in our tree is on the fixed line.
+const TOLERATED_BUNDLED_ADVISORIES = new Set(['protobufjs', 'ws', 'brace-expansion']);
 
 const BLOCKING = new Set(['high', 'critical']);
 
