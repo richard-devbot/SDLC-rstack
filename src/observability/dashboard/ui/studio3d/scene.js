@@ -1037,6 +1037,9 @@ export function createStudioScene(canvas, {
       import('three/tsl'),
       import('three/addons/tsl/display/BloomNode.js'),
     ]);
+    // destroy() may have raced the dynamic imports — creating the pipeline
+    // after teardown would leak GPU resources nothing disposes.
+    if (destroyed) return;
     const scenePass = pass(scene, camera);
     scenePass.setMRT(mrt({ output, emissive }));
     const scenePassColor = scenePass.getTextureNode('output');
@@ -1056,6 +1059,7 @@ export function createStudioScene(canvas, {
   async function setupMotes() {
     if (!isNodeRenderer || moteState.mesh) return;
     const { float, vec3, time, hash, instanceIndex, sin, uniform, positionLocal } = await import('three/tsl');
+    if (destroyed) return; // same teardown race as the post pipeline
     const intensity = uniform(0);
     const hx = hash(instanceIndex);
     const hy = hash(instanceIndex.add(1));
