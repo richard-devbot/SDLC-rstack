@@ -892,20 +892,34 @@ export function createStudioScene(canvas, {
   let timelineMaterial = null;
 
   function paintGlobalTimeline() {
+    // Mission wall (#440): everything painted here is projection truth — the
+    // run goal, live session count, pending approvals, and the 15-stage strip.
     const departments = projection.departments ?? [];
-    const canvasEl = makeCanvas(512, 236);
+    const canvasEl = makeCanvas(768, 360);
     const context = canvasEl.getContext('2d');
     context.fillStyle = '#0b141c';
-    context.fillRect(0, 0, 512, 236);
+    context.fillRect(0, 0, 768, 360);
+    context.fillStyle = 'rgba(56, 225, 214, 0.85)';
+    context.font = '700 22px ui-monospace, Menlo, monospace';
+    const goal = (projection.goal ?? projection.orchestrator?.goal ?? 'No scoped run').slice(0, 52);
+    context.fillText(goal, 24, 40);
+    const liveSessions = (projection.sessions ?? [])
+      .filter((session) => ['active', 'starting'].includes(session.status)).length;
+    const pending = Number(projection.approval_summary?.pending_count) || 0;
+    context.font = '600 18px ui-monospace, Menlo, monospace';
+    context.fillStyle = 'rgba(230, 237, 242, 0.9)';
+    context.fillText(`live sessions · ${liveSessions}`, 24, 74);
+    context.fillStyle = pending > 0 ? 'rgba(251, 113, 133, 0.95)' : 'rgba(155, 167, 182, 0.8)';
+    context.fillText(pending > 0 ? `pending approvals · ${pending}` : 'no pending approvals', 280, 74);
     departments.slice(0, 15).forEach((department, index) => {
       const [statusColor] = STATUS_UI[department.status] ?? STATUS_UI.unknown;
-      const y = 12 + index * 14.6;
+      const y = 100 + index * 16.6;
       context.fillStyle = 'rgba(127, 220, 255, 0.12)';
-      context.fillRect(16, y, 480, 9);
-      const width = department.status === 'completed' ? 480
-        : ['active', 'starting', 'waiting', 'blocked', 'failed'].includes(department.status) ? 250 : 56;
+      context.fillRect(24, y, 720, 10);
+      const width = department.status === 'completed' ? 720
+        : ['active', 'starting', 'waiting', 'blocked', 'failed'].includes(department.status) ? 380 : 84;
       context.fillStyle = department.status === 'unknown' ? 'rgba(138, 144, 151, 0.35)' : statusColor;
-      context.fillRect(16 + index * 6, y, Math.min(width, 480 - index * 6), 9);
+      context.fillRect(24 + index * 9, y, Math.min(width, 720 - index * 9), 10);
     });
     const texture = new THREE.CanvasTexture(canvasEl);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -1137,6 +1151,7 @@ export function createStudioScene(canvas, {
     // Any explicit selection is manual intent — the cinema director yields.
     setDirectorMode('explore');
     hideRoomRing();
+    leaveInterior();
     if (options.overview) {
       selectedRef = null;
       return focus(null, 'company');
@@ -1194,11 +1209,64 @@ export function createStudioScene(canvas, {
     const anchor = roomAnchor(ref?.id);
     if (!anchor) return false;
     setDirectorMode('explore');
+    leaveInterior();
     selectedRef = ref;
     roomRing.position.set(anchor[0], 0.09, anchor[2]);
     roomRing.visible = true;
     const target = new THREE.Vector3(anchor[0], 1, anchor[2]);
     moveCameraTo(target.clone().add(new THREE.Vector3(6.5, 6, 8)), target);
+    return true;
+  }
+
+  // Step inside (#440): glide through the room's door to a human-height
+  // viewpoint framing its live contents — gate cards, evidence stacks, the
+  // mission wall — up close. OrbitControls' overview minDistance would shove
+  // the camera back out of a small room, so interiors relax it and every
+  // exit path (re-framing a room, Overview, a director cut) restores it.
+  const OVERVIEW_MIN_DISTANCE = 4;
+  let interiorMode = false;
+  // Rooms carry no ceiling fixtures; a visitor brings their own light so the
+  // interior reads. On only while inside — zero cost from the overview.
+  const interiorLight = new THREE.PointLight(0xcfe2ff, 0, 10);
+  scene.add(interiorLight);
+
+  function leaveInterior() {
+    if (!interiorMode) return;
+    interiorMode = false;
+    interiorLight.intensity = 0;
+    controls.minDistance = OVERVIEW_MIN_DISTANCE;
+  }
+
+  function roomDoor(id) {
+    const { doors, corridor, bounds } = STUDIO_TOPOLOGY;
+    if (id === 'library') return [doors.library, 0, corridor.north];
+    if (id === 'hq') return [doors.hq, 0, corridor.north];
+    if (id === 'governance') return [doors.governance, 0, corridor.north];
+    if (id === 'evidence') return [doors.vault, 0, corridor.north];
+    if (id === 'builder') return [doors.bullpen, 0, corridor.south];
+    if (id === 'validator') return [doors.lab, 0, corridor.south];
+    if (id === 'dispatch') return [bounds.west + 0.6, 0, 10.2];
+    return null;
+  }
+
+  function enterRoom(ref) {
+    const anchor = roomAnchor(ref?.id);
+    const door = roomDoor(ref?.id);
+    if (!anchor || !door) return false;
+    setDirectorMode('explore');
+    selectedRef = ref;
+    roomRing.position.set(anchor[0], 0.09, anchor[2]);
+    roomRing.visible = true;
+    interiorMode = true;
+    controls.minDistance = 1.2;
+    interiorLight.position.set(anchor[0], 3.1, anchor[2]);
+    interiorLight.intensity = 26;
+    // Stand just inside the doorway at eye height, looking into the room.
+    const doorway = new THREE.Vector3(door[0], 1.65, door[2]);
+    const target = new THREE.Vector3(anchor[0], 1.3, anchor[2]);
+    const inward = target.clone().sub(doorway).setY(0);
+    const eye = doorway.add(inward.normalize().multiplyScalar(1.4)).setY(1.65);
+    moveCameraTo(eye, target);
     return true;
   }
 
@@ -1290,6 +1358,7 @@ export function createStudioScene(canvas, {
       director.timer = null;
     }
     if (mode === 'cinema') {
+      leaveInterior();
       director.lastKey = null;
       directorCut();
       director.timer = setInterval(() => directorCut({ advance: true }), DIRECTOR_HOLD_MS);
@@ -1637,6 +1706,7 @@ export function createStudioScene(canvas, {
     reconcile,
     select,
     focus,
+    enterRoom,
     setMotion,
     setDirectorMode,
     diagnostics,

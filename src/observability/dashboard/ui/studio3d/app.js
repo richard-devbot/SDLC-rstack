@@ -40,6 +40,7 @@ const dom = createStudioDom(app, {
   onRunSelect: (runKey) => transport.selectRun(runKey).catch((error) => dom.setConnection({ state: 'error', detail: error.message })),
   onSelect: (ref) => scene?.select(ref),
   onFollow: (ref) => scene?.setDirectorMode('follow', ref),
+  onEnterRoom: (ref) => scene?.enterRoom(ref),
 });
 
 function supportsWebGL2() {

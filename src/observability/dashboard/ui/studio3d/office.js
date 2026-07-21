@@ -406,12 +406,15 @@ function createNamedFacilities(pool) {
   goalToken.scale.setScalar(0.28);
   goalToken.position.set(0, 1.22, -0.1);
   hq.add(goalToken);
-  // Global project timeline: a wall screen the scene paints with the REAL
-  // fifteen-stage rollup from the server projection.
+  // Mission wall (#440): the live-painted screen the scene repaints with the
+  // REAL run state every reconcile. Mounted on the HQ's east glass wall,
+  // facing the manager's seat (managerSeat looks toward +x), sized as a
+  // proper control-room board — the orchestrator visibly watches the company.
   const timelineScreen = new THREE.Mesh(pool.geometries.slab, pool.materials.monitor);
   timelineScreen.name = 'Global project timeline screen';
-  timelineScreen.scale.set(3.4, 1.6, 0.08);
-  timelineScreen.position.set(0, 1.85, -2.6);
+  timelineScreen.scale.set(4.4, 2.05, 0.08);
+  timelineScreen.position.set(4.86, 1.95, -0.6);
+  timelineScreen.rotation.y = -Math.PI / 2;
   hq.add(timelineScreen);
   facilities.push(hq);
 
@@ -425,6 +428,30 @@ function createNamedFacilities(pool) {
   governanceBeacon.position.set(0, 2.05, -2.5);
   governanceBeacon.visible = false;
   governance.add(governanceBeacon);
+  // Gate cards (#440): one floating card per OBSERVED governance item —
+  // pending approvals radiate rose, blocked gates hold solid red. Painted by
+  // assignOfficeProjection from governance_items; an empty room stays empty.
+  const GATE_CARD_LIMIT = 12;
+  const gateCardMaterials = {
+    pending: new THREE.MeshStandardMaterial({
+      color: 0xfb7185, metalness: 0.25, roughness: 0.35,
+      emissive: 0xd64560, emissiveIntensity: 0.95,
+    }),
+    blocked: new THREE.MeshStandardMaterial({
+      color: 0xef4444, metalness: 0.3, roughness: 0.4,
+      emissive: 0x7f1d1d, emissiveIntensity: 0.8,
+    }),
+  };
+  const gateCards = {
+    pending: new THREE.InstancedMesh(pool.geometries.slab, gateCardMaterials.pending, GATE_CARD_LIMIT),
+    blocked: new THREE.InstancedMesh(pool.geometries.slab, gateCardMaterials.blocked, GATE_CARD_LIMIT),
+    limit: GATE_CARD_LIMIT,
+  };
+  gateCards.pending.name = 'Governance gate cards · pending approvals';
+  gateCards.blocked.name = 'Governance gate cards · blocked gates';
+  gateCards.pending.count = 0;
+  gateCards.blocked.count = 0;
+  governance.add(gateCards.pending, gateCards.blocked);
   facilities.push(governance);
 
   facilities.push(facility('Dispatch', STUDIO_TOPOLOGY.dispatch));
@@ -436,6 +463,36 @@ function createNamedFacilities(pool) {
   vaultLight.position.set(0, 1.35, -1);
   vaultLight.visible = false;
   evidence.add(vaultLight);
+  // Evidence stacks (#440): sealed record blocks that fill the vault as the
+  // run produces proof — green for passing evidence, red for failures, amber
+  // for everything merely observed. Painted from evidence_items.
+  const EVIDENCE_BLOCK_LIMIT = 24;
+  const evidenceMaterials = {
+    pass: new THREE.MeshStandardMaterial({
+      color: 0x4ade80, metalness: 0.3, roughness: 0.4,
+      emissive: 0x1f9d57, emissiveIntensity: 0.7,
+    }),
+    fail: new THREE.MeshStandardMaterial({
+      color: 0xf87171, metalness: 0.3, roughness: 0.4,
+      emissive: 0x991b1b, emissiveIntensity: 0.7,
+    }),
+    observed: new THREE.MeshStandardMaterial({
+      color: 0xfbbf24, metalness: 0.3, roughness: 0.45,
+      emissive: 0x92600e, emissiveIntensity: 0.5,
+    }),
+  };
+  const evidenceStacks = {
+    pass: new THREE.InstancedMesh(pool.geometries.slab, evidenceMaterials.pass, EVIDENCE_BLOCK_LIMIT),
+    fail: new THREE.InstancedMesh(pool.geometries.slab, evidenceMaterials.fail, EVIDENCE_BLOCK_LIMIT),
+    observed: new THREE.InstancedMesh(pool.geometries.slab, evidenceMaterials.observed, EVIDENCE_BLOCK_LIMIT),
+    limit: EVIDENCE_BLOCK_LIMIT,
+  };
+  for (const [kind, mesh] of Object.entries(evidenceStacks)) {
+    if (typeof mesh === 'number') continue;
+    mesh.name = `Evidence stacks · ${kind}`;
+    mesh.count = 0;
+    evidence.add(mesh);
+  }
   facilities.push(evidence);
 
   // Click-a-room (Move C · #434): facility props resolve to their room via
@@ -454,7 +511,70 @@ function createNamedFacilities(pool) {
     if (room) group.userData.roomRef = { kind: 'room', id: room };
   }
 
-  return { facilities, goalToken, governanceBeacon, vaultLight, timelineScreen };
+  return { facilities, goalToken, governanceBeacon, vaultLight, timelineScreen, gateCards, evidenceStacks };
+}
+
+// Paint the governance gate cards from governance_items: cards hover in two
+// rows above the meeting table, pending approvals separated from blocked
+// gates so their glow reads at a glance. Counts clamp honestly to the mesh
+// limit; the room panel remains the source of truth for exact totals.
+function paintGateCards(gateCards, items) {
+  const transform = new THREE.Object3D();
+  const buckets = { pending: [], blocked: [] };
+  for (const item of items ?? []) {
+    const bucket = item.kind === 'approval' ? 'pending' : 'blocked';
+    if (buckets[bucket].length < gateCards.limit) buckets[bucket].push(item);
+  }
+  for (const [bucket, list] of Object.entries(buckets)) {
+    const mesh = gateCards[bucket];
+    list.forEach((item, index) => {
+      const column = index % 4;
+      const row = Math.floor(index / 4);
+      transform.position.set(
+        -1.35 + column * 0.9,
+        1.5 + row * 0.62,
+        -2.2 + (bucket === 'pending' ? 0 : 0.5),
+      );
+      transform.rotation.set(0, 0, 0);
+      transform.scale.set(0.62, 0.42, 0.07);
+      transform.updateMatrix();
+      mesh.setMatrixAt(index, transform.matrix);
+    });
+    mesh.count = list.length;
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
+// Paint the evidence stacks from evidence_items: blocks pile up in a grid
+// beside the vault safe, newest last, colored by outcome.
+function paintEvidenceStacks(evidenceStacks, items) {
+  const transform = new THREE.Object3D();
+  const buckets = { pass: [], fail: [], observed: [] };
+  for (const item of items ?? []) {
+    const status = String(item.status ?? '').toLowerCase();
+    const bucket = /pass|approved|verified/.test(status) ? 'pass'
+      : /fail|corrupt|error|blocked/.test(status) ? 'fail' : 'observed';
+    if (buckets[bucket].length < evidenceStacks.limit) buckets[bucket].push(item);
+  }
+  const laneX = { pass: -1.6, observed: 0, fail: 1.6 };
+  for (const [bucket, list] of Object.entries(buckets)) {
+    const mesh = evidenceStacks[bucket];
+    list.forEach((item, index) => {
+      const column = index % 3;
+      const layer = Math.floor(index / 3);
+      transform.position.set(
+        laneX[bucket] + (column - 1) * 0.5,
+        0.24 + layer * 0.46,
+        1.6,
+      );
+      transform.rotation.set(0, (index % 2) * 0.12, 0);
+      transform.scale.set(0.44, 0.42, 0.44);
+      transform.updateMatrix();
+      mesh.setMatrixAt(index, transform.matrix);
+    });
+    mesh.count = list.length;
+    mesh.instanceMatrix.needsUpdate = true;
+  }
 }
 
 export function createOfficeEnvironment(pool) {
@@ -497,6 +617,8 @@ export function createOfficeEnvironment(pool) {
     governanceBeacon: named.governanceBeacon,
     vaultLight: named.vaultLight,
     timelineScreen: named.timelineScreen,
+    gateCards: named.gateCards,
+    evidenceStacks: named.evidenceStacks,
     refreshScreenGlow: furniture.refreshScreenGlow,
     setPodMode: furniture.setPodMode,
     dispose() {
@@ -524,6 +646,16 @@ export function assignOfficeProjection(office, projection, pool, maxDetailedSess
   // The goal token illuminates only from the projected orchestrator state,
   // and desk screens light only for their occupying session.
   office.goalToken.material = pool.statusMaterial(projection.orchestrator?.status);
+
+  // Room interiors (#440), same honesty contract: the governance beacon burns
+  // only while approvals are pending, gate cards mirror governance_items, the
+  // vault light + evidence stacks mirror evidence_items. No records → dark,
+  // empty rooms.
+  office.governanceBeacon.visible = Number(projection.approval_summary?.pending_count) > 0;
+  paintGateCards(office.gateCards, projection.governance_items);
+  office.vaultLight.visible = (projection.evidence_items ?? []).length > 0;
+  paintEvidenceStacks(office.evidenceStacks, projection.evidence_items);
+
   office.refreshScreenGlow?.();
   return workstationBySession;
 }
