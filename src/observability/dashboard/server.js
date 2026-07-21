@@ -101,6 +101,12 @@ const STUDIO_STATIC = new Map([
   ['/studio3d/assets/models/human-approver.glb', { path: join(DASHBOARD_DIR, 'ui/studio3d/models/human-approver.glb'), type: 'model/gltf-binary', immutable: true }],
   ['/studio3d/vendor/three.module.js', { path: join(PACKAGE_ROOT, 'node_modules/three/build/three.module.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
   ['/studio3d/vendor/three.core.js', { path: join(PACKAGE_ROOT, 'node_modules/three/build/three.core.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
+  // WebGPU tier (Move D · #435): the node-based renderer build + TSL shim +
+  // the selective-bloom addon. Loaded only when the page's importmap picks
+  // the WebGPU graph — classic sessions never fetch them.
+  ['/studio3d/vendor/three.webgpu.js', { path: join(PACKAGE_ROOT, 'node_modules/three/build/three.webgpu.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
+  ['/studio3d/vendor/three.tsl.js', { path: join(PACKAGE_ROOT, 'node_modules/three/build/three.tsl.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
+  ['/studio3d/vendor/tsl/display/BloomNode.js', { path: join(PACKAGE_ROOT, 'node_modules/three/examples/jsm/tsl/display/BloomNode.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
   ['/studio3d/vendor/controls/OrbitControls.js', { path: join(PACKAGE_ROOT, 'node_modules/three/examples/jsm/controls/OrbitControls.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
   ['/studio3d/vendor/loaders/GLTFLoader.js', { path: join(PACKAGE_ROOT, 'node_modules/three/examples/jsm/loaders/GLTFLoader.js'), type: 'text/javascript; charset=utf-8', immutable: true }],
   ['/studio3d/vendor/utils/BufferGeometryUtils.js', { path: join(PACKAGE_ROOT, 'node_modules/three/examples/jsm/utils/BufferGeometryUtils.js'), type: 'text/javascript; charset=utf-8', immutable: true }],

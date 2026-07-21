@@ -65,12 +65,23 @@ export function createStudioScene(canvas, {
   onRendererState = () => {},
   onDirectorMode = () => {},
 } = {}) {
-  const renderer = new THREE.WebGLRenderer({
-    canvas,
-    antialias: true,
-    powerPreference: 'high-performance',
-    alpha: false,
-  });
+  // WebGPU tier (Move D · #435): which renderer exists is decided by the
+  // importmap — the node-based build exports WebGPURenderer, the classic
+  // build does not. The classic WebGLRenderer path is byte-identical to the
+  // Move A–C studio; the node renderer self-falls-back to a WebGL2 backend
+  // when the adapter is unavailable, so the TSL pipeline is testable anywhere.
+  const isNodeRenderer = typeof THREE.WebGPURenderer === 'function';
+  const renderer = isNodeRenderer
+    ? new THREE.WebGPURenderer({ canvas, antialias: true, alpha: false })
+    : new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: 'high-performance',
+      alpha: false,
+    });
+  // The node renderer throws on render() before init(); frames hold until the
+  // async init resolves (the classic path is ready immediately).
+  let rendererReady = !isNodeRenderer;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.06;
@@ -126,7 +137,9 @@ export function createStudioScene(canvas, {
   // Studio theme (Move A): 'twin' = Digital Twin palette (default), 'classic' =
   // the authored light look. Applied once at build; app.js toggles by rebuilding
   // the scene so there is no live-restore state to keep in sync.
-  applyStudioTheme(theme, { renderer, scene, ambient, key, rim, materials: pool.materials });
+  applyStudioTheme(theme, {
+    renderer, scene, ambient, key, rim, materials: pool.materials, gpu: isNodeRenderer,
+  });
 
   let cast = null;
   const reconciler = createEntityReconciler({
@@ -993,7 +1006,8 @@ export function createStudioScene(canvas, {
     updateCameraTween(now);
     const following = updateFollowCamera();
     controls.update();
-    renderer.render(scene, camera);
+    if (postState.pipeline && qualityTier === 'high') postState.pipeline.render();
+    else renderer.render(scene, camera);
     samplePerformance(now);
     enforceQualityCeilings(now);
     onDiagnostics(diagnostics());
@@ -1005,9 +1019,79 @@ export function createStudioScene(canvas, {
   }
 
   function startLoop() {
-    if (destroyed || pauseReasons.size) return;
+    if (destroyed || pauseReasons.size || !rendererReady) return;
     previousFrame = performance.now();
     renderer.setAnimationLoop(renderFrame);
+  }
+
+  // Selective bloom (Move D · #435): the scene pass renders color and emissive
+  // to separate targets (MRT), only the emissive layer blooms, and the two are
+  // recombined — so work lights, data streams, gate signals, and screen glow
+  // radiate without bleaching bright-but-inert surfaces. Node renderer only;
+  // built after init; the high quality tier renders through it each frame.
+  const postState = { pipeline: null };
+
+  async function setupPostPipeline() {
+    if (!isNodeRenderer || postState.pipeline) return;
+    const [{ pass, mrt, output, emissive }, { bloom }] = await Promise.all([
+      import('three/tsl'),
+      import('three/addons/tsl/display/BloomNode.js'),
+    ]);
+    const scenePass = pass(scene, camera);
+    scenePass.setMRT(mrt({ output, emissive }));
+    const scenePassColor = scenePass.getTextureNode('output');
+    const bloomPass = bloom(scenePass.getTextureNode('emissive'), 0.6, 0.35, 0);
+    const Pipeline = THREE.RenderPipeline ?? THREE.PostProcessing;
+    postState.pipeline = new Pipeline(renderer);
+    postState.pipeline.outputNode = scenePassColor.add(bloomPass);
+  }
+
+  // Telemetry motes (Move D · #435): a GPU-animated drift of tiny emissive
+  // particles over the floor — pure TSL vertex nodes (position is a function
+  // of time + per-instance hash; no compute pass, no per-frame JS). Density
+  // follows the OBSERVED live-session count through a uniform, so a quiet
+  // floor carries zero motes — set dressing that still obeys the iron rule.
+  const moteState = { mesh: null, intensity: null, sessions: 0 };
+
+  async function setupMotes() {
+    if (!isNodeRenderer || moteState.mesh) return;
+    const { float, vec3, time, hash, instanceIndex, sin, uniform, positionLocal } = await import('three/tsl');
+    const intensity = uniform(0);
+    const hx = hash(instanceIndex);
+    const hy = hash(instanceIndex.add(1));
+    const hz = hash(instanceIndex.add(2));
+    const hs = hash(instanceIndex.add(3));
+    const sway = sin(time.mul(hs.add(0.3)).add(hx.mul(6.28))).mul(0.4);
+    const rise = hy.mul(4.2).add(time.mul(hs.mul(0.12).add(0.04))).mod(4.2).add(0.4);
+    const material = new THREE.MeshStandardNodeMaterial();
+    material.colorNode = vec3(0.0, 0.0, 0.0);
+    material.emissiveNode = vec3(0.16, 0.66, 0.62).mul(intensity);
+    material.opacityNode = float(0.5).mul(intensity);
+    material.transparent = true;
+    material.depthWrite = false;
+    material.positionNode = positionLocal.add(vec3(
+      hx.mul(34).sub(17).add(sway),
+      rise,
+      hz.mul(24).sub(12),
+    ));
+    const mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.04, 6, 4), material, 420);
+    mesh.name = 'Telemetry motes';
+    mesh.frustumCulled = false;
+    mesh.visible = false;
+    scene.add(mesh);
+    moteState.mesh = mesh;
+    moteState.intensity = intensity;
+    syncMotes();
+  }
+
+  function syncMotes() {
+    if (!moteState.mesh) return;
+    const live = moteState.sessions;
+    const value = live > 0 && motionMode !== 'reduced'
+      ? Math.min(1, 0.35 + live * 0.15)
+      : 0;
+    moteState.intensity.value = value;
+    moteState.mesh.visible = value > 0;
   }
 
   function moveCameraTo(position, target) {
@@ -1318,6 +1402,9 @@ export function createStudioScene(canvas, {
     rebuildStreams();
     rebuildWorkLights();
     rebuildConveyor();
+    moteState.sessions = (projection.sessions ?? [])
+      .filter((session) => ['active', 'starting'].includes(session.status)).length;
+    syncMotes();
     directorCut();
     paintPipelineLegend();
     paintGlobalTimeline();
@@ -1337,6 +1424,7 @@ export function createStudioScene(canvas, {
     animator.setMotion(motionMode);
     reconcileManagerProjection();
     syncCaptionLayer();
+    syncMotes();
     setCastMotion(motionMode);
     if (motionMode === 'reduced') cameraTween = null;
     startLoop();
@@ -1377,6 +1465,8 @@ export function createStudioScene(canvas, {
       : null;
     return {
       qualityTier,
+      gpuTier: !isNodeRenderer ? 'webgl'
+        : renderer.backend?.isWebGPUBackend ? 'webgpu' : 'webgpu-node:webgl2',
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
       geometries: renderer.info.memory.geometries,
@@ -1465,6 +1555,14 @@ export function createStudioScene(canvas, {
     // Room selection ring: geometry is pooled, but the material is owned here.
     scene.remove(roomRing);
     roomRing.material.dispose();
+    postState.pipeline?.dispose?.();
+    postState.pipeline = null;
+    if (moteState.mesh) {
+      scene.remove(moteState.mesh);
+      moteState.mesh.geometry.dispose();
+      moteState.mesh.material.dispose();
+      moteState.mesh = null;
+    }
     roomLabelGroup.traverse((child) => {
       if (child.isSprite) {
         child.material.map?.dispose();
@@ -1500,8 +1598,36 @@ export function createStudioScene(canvas, {
   applyQuality('high');
   resize();
   controls.update();
-  startLoop();
-  onRendererState('ready');
+  if (isNodeRenderer) {
+    // Frames hold until the async backend init resolves; a refused adapter
+    // degrades to the semantic mirror instead of a broken canvas. WebGPU has
+    // no webglcontextlost event — device loss arrives via the lost promise
+    // (never awaited directly; it may never settle).
+    renderer.init().then(() => {
+      if (destroyed) return;
+      rendererReady = true;
+      renderer.backend?.device?.lost?.then((info) => {
+        if (destroyed || info?.reason === 'destroyed') return;
+        pause('context-lost');
+        onRendererState('context-lost');
+      });
+      return Promise.allSettled([
+        setupPostPipeline().catch(() => { postState.pipeline = null; }),
+        setupMotes().catch(() => { moteState.mesh = null; }),
+      ]);
+    }).then(() => {
+      if (destroyed) return;
+      startLoop();
+      onRendererState('ready');
+    }).catch(() => {
+      if (destroyed) return;
+      pause('context-lost');
+      onRendererState('semantic-fallback');
+    });
+  } else {
+    startLoop();
+    onRendererState('ready');
+  }
 
   return {
     reconcile,
@@ -1522,7 +1648,7 @@ export function createStudioScene(canvas, {
 // dark glassy surfaces, and telemetry-bright accents. 'classic' is a no-op so
 // the authored light look is preserved. Mutates shared lights + pooled
 // materials in place; app.js switches themes by rebuilding the scene.
-function applyStudioTheme(theme, { renderer, scene, ambient, key, rim, materials }) {
+function applyStudioTheme(theme, { renderer, scene, ambient, key, rim, materials, gpu = false }) {
   if (theme !== 'twin') return;
   const GROUND = 0x0a0e17;
   renderer.setClearColor(GROUND, 1);
@@ -1554,8 +1680,15 @@ function applyStudioTheme(theme, { renderer, scene, ambient, key, rim, materials
   set(materials.wall, 0x141d2e, { metalness: 0.4, roughness: 0.42 });
   set(materials.floorFinish, 0x33415c, { metalness: 0.3, roughness: 0.5 });
   set(materials.floorLight, 0x111a2c, { metalness: 0.3, roughness: 0.45 });
-  set(materials.glass, 0x8fd8ea, { opacity: 0.14 });
-  set(materials.governanceGlass, 0x9fdce8, { opacity: 0.16 });
+  if (gpu) {
+    // Node renderer: real physical transmission — refractive glass instead of
+    // simple transparency. Modest values keep the interiors readable.
+    set(materials.glass, 0xbfeef5, { opacity: 0.5, transmission: 0.55, thickness: 0.12, ior: 1.45, roughness: 0.08 });
+    set(materials.governanceGlass, 0xc8f0f2, { opacity: 0.5, transmission: 0.5, thickness: 0.12, ior: 1.45, roughness: 0.1 });
+  } else {
+    set(materials.glass, 0x8fd8ea, { opacity: 0.14 });
+    set(materials.governanceGlass, 0x9fdce8, { opacity: 0.16 });
+  }
   set(materials.casework, 0x1a2536, { metalness: 0.35, roughness: 0.5 });
   set(materials.workSurface, 0x1c2740, { metalness: 0.4, roughness: 0.45 });
   set(materials.library, 0x18324a);

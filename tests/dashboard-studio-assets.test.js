@@ -87,12 +87,32 @@ test('Studio serves pinned Three.js locally and rejects unlisted paths', async (
     const html = await htmlResponse.text();
     assert.equal(htmlResponse.status, 200);
     assert.doesNotMatch(html, /https?:\/\/(unpkg|cdn|jsdelivr)/);
-    assert.match(html, /"three":\s*"\/studio3d\/vendor\/three\.module\.js"/);
+    // Move D (#435): the importmap is written client-side so WebGPU-capable
+    // browsers get the node-based build while everything else keeps classic —
+    // both graphs must be local, and the chooser must be capability-driven
+    // with the ?gpu=off / ?gpu=force pins.
+    assert.match(html, /'\/studio3d\/vendor\/three\.module\.js'/);
+    assert.match(html, /'\/studio3d\/vendor\/three\.webgpu\.js'/);
+    assert.match(html, /'three\/tsl': '\/studio3d\/vendor\/three\.tsl\.js'/);
+    assert.match(html, /navigator\.gpu/);
+    assert.match(html, /'off'/);
+    assert.match(html, /'force'/);
 
     const three = await fetch(`${server.baseUrl}/studio3d/vendor/three.module.js`);
     assert.equal(three.status, 200);
     assert.match(three.headers.get('content-type'), /javascript/);
     assert.match(await three.text(), /WebGLRenderer/);
+
+    const threeGpu = await fetch(`${server.baseUrl}/studio3d/vendor/three.webgpu.js`);
+    assert.equal(threeGpu.status, 200);
+    assert.match(await threeGpu.text(), /WebGPURenderer/);
+
+    const threeTsl = await fetch(`${server.baseUrl}/studio3d/vendor/three.tsl.js`);
+    assert.equal(threeTsl.status, 200);
+
+    const bloomNode = await fetch(`${server.baseUrl}/studio3d/vendor/tsl/display/BloomNode.js`);
+    assert.equal(bloomNode.status, 200);
+    assert.match(await bloomNode.text(), /bloom/);
 
     const threeCore = await fetch(`${server.baseUrl}/studio3d/vendor/three.core.js`);
     assert.equal(threeCore.status, 200);

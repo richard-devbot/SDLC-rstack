@@ -15,7 +15,27 @@ export function studio3dHtml() {
   <meta name="color-scheme" content="light">
   <title>Agent Force Studio · RStack</title>
   <link rel="stylesheet" href="/studio3d/assets/styles.css">
-  <script type="importmap">{"imports":{"three":"/studio3d/vendor/three.module.js","three/addons/":"/studio3d/vendor/"}}</script>
+  <script>
+    // WebGPU tier (Move D · #435): the module graph is chosen BEFORE any module
+    // loads, because the WebGL and WebGPU builds of three cannot be mixed in one
+    // graph. WebGPU-capable browsers get the node-based build (whose renderer
+    // still self-falls-back to a WebGL2 backend if the adapter is refused);
+    // everything else keeps the exact classic build. ?gpu=off pins classic,
+    // ?gpu=force exercises the node pipeline on WebGL2 for verification.
+    (function () {
+      var force = new URLSearchParams(location.search).get('gpu');
+      var useGpu = force === 'force' ? true : force === 'off' ? false : Boolean(navigator.gpu);
+      var three = useGpu ? '/studio3d/vendor/three.webgpu.js' : '/studio3d/vendor/three.module.js';
+      document.write('<script type="importmap">' + JSON.stringify({
+        imports: {
+          three: three,
+          'three/webgpu': '/studio3d/vendor/three.webgpu.js',
+          'three/tsl': '/studio3d/vendor/three.tsl.js',
+          'three/addons/': '/studio3d/vendor/',
+        },
+      }) + '<' + '/script>');
+    })();
+  </script>
 </head>
 <body>
   <main id="studio-app" data-renderer="semantic" data-connection="connecting" data-motion="full">
