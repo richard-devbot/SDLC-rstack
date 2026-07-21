@@ -14,16 +14,34 @@
 
 import { execFileSync } from 'node:child_process';
 
-// Packages that ship their own bundled node_modules (cannot be overridden).
+// Packages whose own subtree we cannot patch downstream: pi-coding-agent ships
+// an npm-shrinkwrap.json, which npm honors absolutely — root `overrides` are
+// ignored inside it exactly like a bundled tarball (verified empirically: a
+// fresh resolve with a matching override still installs the shrinkwrapped
+// version). Fixes there must come from an upstream pi release.
 const BUNDLED_ROOTS = [
   'node_modules/@earendil-works/pi-coding-agent/node_modules/',
 ];
 
-// An advisory is tolerated ONLY when it is one of these named packages AND its
-// every install path is bundled (below). The name allowlist is deliberate: a
-// brand-new high/critical in the bundled subtree for any other package still
-// fails the gate, forcing a conscious decision rather than silent acceptance.
-const TOLERATED_BUNDLED_ADVISORIES = new Set(['protobufjs', 'ws']);
+// An advisory is tolerated ONLY when its package maps to a SPECIFIC advisory
+// id here AND its every install path is bundled/shrinkwrapped (below). The
+// per-advisory allowlist is deliberate: a brand-new high/critical for the
+// same package — let alone any other package — still fails the gate, forcing
+// a conscious decision rather than silent acceptance.
+// - brace-expansion GHSA-3jxr-9vmj-r5cp (DoS): pinned 5.0.6 by pi's
+//   shrinkwrap; every non-shrinkwrapped path in our tree is on the fixed line.
+// - protobufjs / ws: previously tolerated by name while their advisories were
+//   live in the bundled subtree; currently dormant, so no ids are listed — if
+//   one refires, the gate fails loudly and the specific GHSA gets re-added.
+const TOLERATED_BUNDLED_ADVISORIES = new Map([
+  ['brace-expansion', new Set(['GHSA-3jxr-9vmj-r5cp'])],
+]);
+
+function advisoryIds(info) {
+  return (info.via ?? [])
+    .filter((entry) => typeof entry === 'object' && entry?.url)
+    .map((entry) => String(entry.url).split('/').pop());
+}
 
 const BLOCKING = new Set(['high', 'critical']);
 
@@ -54,8 +72,13 @@ const tolerated = [];
 
 for (const [name, info] of Object.entries(vulns)) {
   if (!BLOCKING.has(info.severity)) continue;
-  if (TOLERATED_BUNDLED_ADVISORIES.has(name) && isFullyBundled(info.nodes)) {
-    tolerated.push({ name, severity: info.severity });
+  const allowedIds = TOLERATED_BUNDLED_ADVISORIES.get(name);
+  const ids = advisoryIds(info);
+  const everyIdTolerated = Boolean(allowedIds)
+    && ids.length > 0
+    && ids.every((id) => allowedIds.has(id));
+  if (everyIdTolerated && isFullyBundled(info.nodes)) {
+    tolerated.push({ name, severity: info.severity, ids });
   } else {
     blocking.push({ name, severity: info.severity, nodes: info.nodes });
   }
@@ -63,7 +86,7 @@ for (const [name, info] of Object.entries(vulns)) {
 
 if (tolerated.length) {
   console.log('Tolerated advisories (vendored/bundled, unpatchable downstream — track upstream):');
-  for (const t of tolerated) console.log(`  - ${t.name} (${t.severity})`);
+  for (const t of tolerated) console.log(`  - ${t.name} (${t.severity}) [${t.ids.join(', ')}]`);
 }
 
 if (blocking.length) {

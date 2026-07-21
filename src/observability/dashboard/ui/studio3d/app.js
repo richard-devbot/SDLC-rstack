@@ -105,6 +105,7 @@ async function ensureScene(studio) {
       onDirectorMode: applyCameraChrome,
       onDiagnostics: (stats) => {
         app.dataset.studioQualityTier = stats.qualityTier;
+        app.dataset.studioGpu = stats.gpuTier;
         app.dataset.studioDrawCalls = String(stats.drawCalls);
         app.dataset.studioTriangles = String(stats.triangles);
         app.dataset.studioActiveRigs = String(stats.activeRigs);
