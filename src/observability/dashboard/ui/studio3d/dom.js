@@ -93,6 +93,7 @@ export function createStudioDom(root, {
   onSelect = () => {},
   onRunSelect = () => {},
   onFollow = () => {},
+  onEnterRoom = () => {},
 } = {}) {
   const doc = root.ownerDocument ?? root;
   const byId = (id) => doc.getElementById(id);
@@ -223,6 +224,12 @@ export function createStudioDom(root, {
       if (line) list.append(element(doc, 'li', '', line));
     }
     inspectorBody.append(list);
+    // Step inside (#440): the label names the action — the camera walks
+    // through the door to the room's live contents.
+    const enter = element(doc, 'button', 'studio-icon-button studio-follow', 'Step inside');
+    enter.type = 'button';
+    enter.addEventListener('click', () => onEnterRoom({ kind: 'room', id }));
+    inspectorBody.append(enter);
     inspector.hidden = false;
     selectedRef = `room:${id}`;
     if (focus) inspectorTitle.focus({ preventScroll: true });

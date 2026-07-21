@@ -81,6 +81,27 @@ test('room inspector and follow mode surfaces exist and stay honest (Move C · #
   assert.match(app, /mode !== 'follow'/);
 });
 
+test('room interiors stay observation-honest (#440)', () => {
+  const dom = readFileSync(DOM_PATH, 'utf8');
+  const scene = readFileSync(join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'scene.js'), 'utf8');
+  const office = readFileSync(join(process.cwd(), 'src', 'observability', 'dashboard', 'ui', 'studio3d', 'office.js'), 'utf8');
+
+  // Gate cards + evidence stacks paint ONLY from projection collections, and
+  // the long-dead beacon/vault-light are finally observation-wired.
+  assert.match(office, /paintGateCards\(office\.gateCards, projection\.governance_items\)/);
+  assert.match(office, /paintEvidenceStacks\(office\.evidenceStacks, projection\.evidence_items\)/);
+  assert.match(office, /governanceBeacon\.visible = Number\(projection\.approval_summary\?\.pending_count\) > 0/);
+  assert.match(office, /vaultLight\.visible = \(projection\.evidence_items \?\? \[\]\)\.length > 0/);
+  // The mission wall paints projection truth in the manager's sightline.
+  assert.match(scene, /pending approvals/);
+  assert.match(scene, /live sessions/);
+  // Step inside: doorway entry, interior light off on exit, minDistance restored.
+  assert.match(dom, /Step inside/);
+  assert.match(scene, /function enterRoom/);
+  assert.match(scene, /function leaveInterior/);
+  assert.match(scene, /interiorLight\.intensity = 0/);
+});
+
 test('live announcements are limited to high-value operational changes', () => {
   const source = readFileSync(DOM_PATH, 'utf8');
 
