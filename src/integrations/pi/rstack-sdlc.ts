@@ -26,6 +26,10 @@ import { auditRunApprovals, approvalAuditEvent, isSafeArtifactName, trustedAppro
 import { classifyRetryDecision } from "../../core/harness/retry-policy.js";
 import { classifyDestructiveAction, requireApprovalForDestructiveAction, destructiveApprovalArtifact } from "../../core/harness/destructive-actions.js";
 import { extractBuilderTelemetry, builderTelemetryEvents, telemetryMetricsUpdate, builderContractKey } from "../../core/harness/telemetry.js";
+// #452 (The Scientist): run the authoritative test command in a transient,
+// locked-down container and author execution evidence from the REAL exit code,
+// replacing the builder's self-reported tests_run signal at the validate gate.
+import { runInSandbox, loadSandboxConfig, resolveSandboxCommand, executionCheck } from "../../core/harness/sandbox.js";
 // #136 (BLE-6.2): context-pressure classifier — detects oversized context at
 // validate time and appends non-blocking context_pressure_warning events.
 import { classifyContextPressure, loadProjectContextPressureThresholds } from "../../core/harness/context-pressure.js";
@@ -1082,23 +1086,80 @@ export async function priorCritiqueBlock(projectRoot: string, task: any): Promis
       : Array.isArray(prior.checks)
         ? prior.checks.filter((c: any) => String(c?.status ?? "").toUpperCase() === "FAIL")
         : [];
-    if (!failed.length && !prior.retry_recommendation) return "";
-    const notes = failed.slice(0, 12).map((c: any) => {
+    // #452 — THE SCIENTIST FEEDS THE CRITIC. If the previous attempt's sandboxed
+    // execution FAILED, surface the REAL captured output at the TOP of the
+    // critique (the container's actual stderr/stdout, not a paraphrase) so the
+    // retrying builder sees exactly what broke. Bounded here so a huge tail can't
+    // dominate the prompt; validation.json keeps the full tail. Rendered from the
+    // structured `execution` record, so the corresponding sandbox_execution
+    // bullet is dropped from the list below to avoid duplicating the log dump.
+    const exec = prior.execution;
+    let executionSection = "";
+    if (exec && String(exec.status ?? "").toUpperCase() === "FAIL") {
+      const logs = [exec.stderr_tail, exec.stdout_tail]
+        .map((section: any) => String(section ?? "").trim())
+        .filter(Boolean)
+        .join("\n");
+      const boundedLogs = logs.length > 2000 ? `…(${logs.length - 2000} earlier chars omitted)\n${logs.slice(-2000)}` : logs;
+      const failure = exec.exit_code === null || exec.exit_code === undefined ? "timed out" : `exit ${exec.exit_code}`;
+      executionSection = [
+        `### 🧪 Sandboxed execution FAILED (${exec.tier ?? "container"}, ${failure})`,
+        "The harness ran your code in an isolated container — this is the REAL result, not a self-report. Make this pass:",
+        boundedLogs ? "```\n" + boundedLogs + "\n```" : "(no output captured)",
+        "",
+      ].join("\n");
+    }
+    if (!failed.length && !prior.retry_recommendation && !executionSection) return "";
+    const failedForNotes = failed.filter((c: any) => c?.name !== "sandbox_execution");
+    const notes = failedForNotes.slice(0, 12).map((c: any) => {
       const name = c?.name ?? "check";
-      const why = c?.evidence ?? c?.root_cause ?? "failed";
+      const rawWhy = String(c?.evidence ?? c?.root_cause ?? "failed");
+      const why = rawWhy.length > 600 ? `${rawWhy.slice(0, 600)}…` : rawWhy;
       const fix = c?.remediation ? ` · fix: ${c.remediation}` : "";
       return `- **${name}** — ${why}${fix}`;
     });
-    const more = failed.length > 12 ? `\n- …and ${failed.length - 12} more (see validation.json).` : "";
+    const more = failedForNotes.length > 12 ? `\n- …and ${failedForNotes.length - 12} more (see validation.json).` : "";
     return [
       "## ⚠ Validator critique — your PREVIOUS attempt FAILED. Fix these FIRST.",
       `Verdict: ${status}. Recommended action: ${prior.retry_recommendation ?? "retry_builder"}.`,
+      executionSection,
       "Address every item below before re-attempting; do not repeat the prior approach:",
       notes.join("\n") + more,
-    ].join("\n");
+    ].filter(Boolean).join("\n");
   } catch {
     return "";
   }
+}
+
+// #452 PR2: run the AUTHORITATIVE test command in the transient sandbox and
+// return a validation check (+ the raw execution record for validation.json).
+// The command is trusted (task.test_command written by the planner, or the
+// project's sandbox config) — NEVER the builder's self-reported tests_run, or a
+// builder could declare `tests_run:["true"]` and mint its own green. Degrades to
+// a WARN (never a false PASS) when the sandbox is disabled, no command is
+// configured, or no container runtime is present. Exported so tests can inject a
+// fake spawn/runtime without a real daemon.
+export async function runValidationExecution(
+  { projectRoot, task, stageIds = [], config, deps = {} }:
+  { projectRoot: string; task: any; stageIds?: string[]; config?: any; deps?: any; },
+): Promise<{ record: any | null; check: any }> {
+  const sandboxCfg = config ?? await loadSandboxConfig(projectRoot);
+  if (!sandboxCfg.enabled) {
+    return { record: null, check: { name: "sandbox_execution", status: "WARN", evidence: "sandbox execution disabled in .rstack/rstack.config.json — tests are self-reported only, not verified" } };
+  }
+  const resolved = resolveSandboxCommand({ config: sandboxCfg, stageIds, task });
+  if (!resolved) {
+    return { record: null, check: { name: "sandbox_execution", status: "WARN", evidence: "no authoritative sandbox command configured (rstack.config.json sandbox.command / sandbox.per_stage, or task.test_command) — execution not verified; self-reported tests_run only" } };
+  }
+  const record = await runInSandbox(projectRoot, {
+    taskId: task.id,
+    command: resolved.command,
+    network: resolved.network,
+    timeoutMs: resolved.timeoutMs,
+    image: resolved.image,
+    limits: resolved.limits,
+  }, deps);
+  return { record, check: executionCheck(record, resolved.command) };
 }
 
 export async function builderPrompt(projectRoot: string, task: any, selected: RegistryItem[], runId?: string): Promise<string> {
@@ -2431,7 +2492,7 @@ export default function (pi: ExtensionAPI) {
       const tasksPath = join(runsDir(projectRoot), manifest.run_id, "tasks.json");
       // Locked read-modify-write: the verdict stamp must not race a concurrent
       // sdlc_build_next claim on another task (issue #81).
-      const { task, taskState, checks, status, builderContract, validation, telemetryViolations, retryDecision, claimError } = await withFileLock(tasksPath, async () => {
+      const { task, taskState, checks, status, builderContract, validation, telemetryViolations, retryDecision, claimError, executionRecord } = await withFileLock(tasksPath, async () => {
         const taskState = JSON.parse(await readFile(tasksPath, "utf8"));
         const task = params.task_id ? taskState.tasks.find((t: any) => t.id === params.task_id) : taskState.tasks.find((t: any) => t.status === "IN_PROGRESS");
         // #266: no selectable task is an ordinary run state — every FAIL
@@ -2461,6 +2522,7 @@ export default function (pi: ExtensionAPI) {
         let status = "PASS";
         let builderContract: any = undefined;
         let telemetryViolations: any[] = [];
+        let executionRecord: any = null; // #452: raw sandbox execution evidence
         // Signals for the mechanical required_checks evaluation (#222) —
         // captured from the gates below so the evaluator never re-derives
         // (and never drifts from) what this function already decided.
@@ -2530,6 +2592,31 @@ export default function (pi: ExtensionAPI) {
           } catch (error) {
             status = "FAIL";
             checks.push({ name: "builder_contract_json", status: "FAIL", evidence: String(error) });
+          }
+        }
+        // #452 PR2 — THE SCIENTIST. Run the authoritative test command in the
+        // transient container and fold the REAL exit code into the verdict,
+        // upgrading the builder's self-reported tests_run signal to observed
+        // truth. A FAIL fails validation and its evidence carries the actual
+        // captured logs — which priorCritiqueBlock (#451) then feeds to the next
+        // builder attempt. A missing runtime / unconfigured command degrades to
+        // a WARN (never a false PASS). NOTE: this runs INSIDE the tasks.json lock
+        // — validation is the attempt's serialization point, so a real test run
+        // holds the lock for its bounded timeout and concurrent claims on other
+        // tasks wait; the gate's correctness (one verdict per claimed attempt)
+        // outranks parallel-validate throughput. Only runs when a builder
+        // contract was actually parsed.
+        if (builderContract) {
+          try {
+            const exec = await runValidationExecution({ projectRoot, task, stageIds: taskStageIds(task) });
+            checks.push(exec.check);
+            if (exec.check.status === "FAIL") { status = "FAIL"; requiredSignals.testsRunOk = false; }
+            else if (exec.check.status === "PASS") { requiredSignals.testsRunOk = true; }
+            executionRecord = exec.record;
+          } catch (execError) {
+            // A sandbox wiring fault must never crash validation — record it as a
+            // WARN and fall back to the self-reported signal already computed.
+            checks.push({ name: "sandbox_execution", status: "WARN", evidence: `sandbox execution error: ${String((execError as any)?.message ?? execError)} — self-reported tests_run only` });
           }
         }
         // Select the stage-specific validator profile (#120). Task ids are plan
@@ -2642,6 +2729,10 @@ export default function (pi: ExtensionAPI) {
           status,
           checks,
           issues: checks.filter((c: any) => c.status === "FAIL"),
+          // #452: the raw execution record (real exit code + full captured log
+          // tail). Kept in the contract so priorCritiqueBlock can surface the
+          // actual output to the retry, and doctor/dashboard can read the tier.
+          execution: executionRecord,
           independence,
           // An independence-only failure is not the builder's fault — route it
           // to the policy's escalation (ask_user | block) instead of burning a
@@ -2673,7 +2764,7 @@ export default function (pi: ExtensionAPI) {
         // without going back through the gates.
         delete task._claim;
         await writeJsonAtomic(tasksPath, taskState);
-        return { task, taskState, checks, status, builderContract, validation, telemetryViolations, retryDecision };
+        return { task, taskState, checks, status, builderContract, validation, telemetryViolations, retryDecision, executionRecord };
       });
       if (claimError) {
         // #405: the requested task exists but is not the actively claimed
@@ -2720,6 +2811,19 @@ export default function (pi: ExtensionAPI) {
       if (canonicalStageIds.length === 0 && getCanonicalStage(task.id)) canonicalStageIds.push(task.id);
 
       await appendEvent(projectRoot, manifest.run_id, { type: "task_validated", task_id: task.id, status });
+      // #452: pin the real execution outcome (tier + exit code) so the ledger,
+      // dashboard, and doctor can distinguish a container-verified run from a
+      // contract-only (unverified) one. Only when the sandbox actually ran.
+      if (executionRecord) {
+        await appendEvent(projectRoot, manifest.run_id, {
+          type: "execution_recorded",
+          task_id: task.id,
+          tier: executionRecord.tier,
+          status: executionRecord.status,
+          exit_code: executionRecord.exit_code,
+          duration_ms: executionRecord.duration_ms,
+        });
+      }
       for (const violation of telemetryViolations) {
         await appendEvent(projectRoot, manifest.run_id, guardrailEvent(task.id, violation));
       }
