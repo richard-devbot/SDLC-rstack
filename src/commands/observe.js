@@ -25,10 +25,9 @@
 //   (e) No active run → silent no-op. We do NOT create runs; observing must
 //       never manufacture state.
 
-import { appendFile, mkdir } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
-import { withFileLock } from '../core/harness/safe-write.js';
+import { appendRunEvent } from '../core/harness/event-ledger.js';
 import { resolveRunId, runDirectory } from '../core/harness/runs.js';
 
 // Match Pi's truncateText budget (rstack-sdlc.ts:1161) so harness events and
@@ -301,21 +300,16 @@ function extractResponseText(response) {
 /**
  * Append a normalized observation to a run's events.jsonl, matching Pi's shape
  * EXACTLY ({ ts, type, tool, ... }) plus a `source` label. Locked + best-effort
- * (Pi uses a bare appendFile; we hold the same lock the evidence ledger uses so
- * a parallel writer can never interleave a line). Returns the event path on
+ * It shares the canonical ledger appender, so a parallel writer can never
+ * interleave a line. Returns the event path on
  * success, null if nothing was written.
  */
 export async function appendObservation(runDir, observation, source) {
   if (!observation) return null;
-  const eventPath = join(runDir, 'events.jsonl');
   // source is env/flag-controlled → constrain it like any structural label so
   // it can't inject markup/secret into the dashboard-rendered event. (#258 review)
   const event = { ts: new Date().toISOString(), source: safeLabel(source) || DEFAULT_SOURCE, ...observation };
-  await mkdir(dirname(eventPath), { recursive: true });
-  await withFileLock(eventPath, async () => {
-    await appendFile(eventPath, `${JSON.stringify(event)}\n`);
-  });
-  return eventPath;
+  return appendRunEvent(runDir, event);
 }
 
 /**

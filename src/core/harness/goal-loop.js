@@ -10,15 +10,16 @@
 // goal_evaluated, loop_iteration_retrying_stages, loop_completed,
 // loop_blocked) so trace/status/feed render the loop without reading source.
 
-import { appendFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 import { GOAL_STATUSES } from './goal-check.js';
 import { taskStageIds } from './pipeline-state.js';
 import { runDirectory, rstackStateDir } from './runs.js';
 import { updateRunMetrics } from './run-state.js';
 import { withFileLock, writeJsonAtomic } from './safe-write.js';
+import { appendRunEvent } from './event-ledger.js';
 
 export const LOOP_HARD_CAP = 20;
 
@@ -213,14 +214,7 @@ export async function appendLoopEvent(runDir, event) {
   if (!LOOP_EVENT_TYPES.includes(event?.type)) {
     throw new Error(`Unknown loop event type: ${event?.type} — expected ${LOOP_EVENT_TYPES.join(' | ')}`);
   }
-  const eventPath = join(runDir, 'events.jsonl');
-  await mkdir(dirname(eventPath), { recursive: true });
-  // Same lock discipline as the evidence ledger: parallel writers must never
-  // interleave a line in the audit surface.
-  await withFileLock(eventPath, async () => {
-    await appendFile(eventPath, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`);
-  });
-  return eventPath;
+  return appendRunEvent(runDir, { ts: new Date().toISOString(), ...event });
 }
 
 // Reset the tasks of the selected stages back to PENDING so the runner's
