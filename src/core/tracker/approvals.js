@@ -1,8 +1,8 @@
 import { readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { withFileLock, writeFileAtomic, writeJsonAtomic } from '../harness/safe-write.js';
-import { isSafeRunId, isSafeArtifactName, validateApprovalRecord, trustedApprovedArtifacts, signApprovalRecord } from '../harness/approval-audit.js';
+import { isSafeRunId, isSafeArtifactName, validateApprovalRecord, trustedApprovedArtifacts, signApprovalRecord, computeApprovalArtifactDigest } from '../harness/approval-audit.js';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -148,6 +148,10 @@ export async function appendRunApproval(projectRoot, runId, record) {
     approver: record.approver,
     timestamp: record.timestamp || new Date().toISOString(),
     comments: record.comments,
+    // SHA-256 content binding (#443): preserve the digest captured by the
+    // authenticated approval surface so signing and the claim gate bind the
+    // exact artifact bytes rather than only its name.
+    ...(record.artifact_sha256 ? { artifact_sha256: record.artifact_sha256 } : {}),
     // Run binding (#298): stamp the run this approval belongs to. Without the
     // stamp, the #133 cross-run replay check had nothing to compare and a
     // record copied between runs validated everywhere.
@@ -224,6 +228,17 @@ export async function resolveApproval(projectRoot, id, decision, resolvedBy, opt
   const { base, approver, queueStatus, resolvedAt, actor } = resolved;
   const runStatus = decision === 'approved' ? 'APPROVED' : 'REJECTED';
   if (!options.skipRunWrite && base.runId && base.artifact) {
+    // Content binding (#443): capture the SHA-256 of the exact artifact bytes
+    // at approve time — same resolver the bridge's sdlc_approve uses. Only an
+    // APPROVED record needs it, and only when the artifact is file-backed;
+    // the claim gate's invalidateApprovalsWithChangedArtifact then demotes the
+    // record if the bytes change before the work is claimed (closes the UI
+    // TOCTOU: approve-then-mutate no longer stays green). Until now only the
+    // bridge captured this — a dashboard approval was content-unbound.
+    const approvalsPath = runStatus === 'APPROVED' ? safeRunApprovalsPath(projectRoot, base.runId) : null;
+    const artifactSha256 = approvalsPath
+      ? computeApprovalArtifactDigest(dirname(approvalsPath), base.artifact)
+      : null;
     await appendRunApproval(projectRoot, base.runId, {
       id: `dash-${resolvedAt.replace(/[:.]/g, '-')}`,
       artifact: base.artifact,
@@ -232,6 +247,7 @@ export async function resolveApproval(projectRoot, id, decision, resolvedBy, opt
       timestamp: resolvedAt,
       comments: base.taskId ? `Dashboard ${queueStatus} for blocked task ${base.taskId}` : `Dashboard ${queueStatus}`,
       source: 'business-hub',
+      ...(artifactSha256 ? { artifact_sha256: artifactSha256 } : {}),
       // Thread the token-verified actor evidence into the run record — the
       // gate-side audit (#133) requires it before a dashboard-sourced
       // approval may unblock anything.

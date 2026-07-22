@@ -1,5 +1,5 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
 import { rstackStateDir } from './runs.js';
@@ -61,7 +61,7 @@ export const DASHBOARD_APPROVAL_SOURCES = Object.freeze(['dashboard', 'business-
 export const APPROVAL_SIGNING_KEY_ENV = 'RSTACK_APPROVAL_SIGNING_KEY';
 
 // Canonical payload over the fields a forger would need to control — binds the
-// artifact, status, run, id, timestamp, and approver together so a signed
+// artifact, status, run, id, timestamp, approver, and artifact digest together so a signed
 // APPROVED record cannot be moved to another artifact or run.
 function approvalSignaturePayload(record) {
   return JSON.stringify([
@@ -72,6 +72,7 @@ function approvalSignaturePayload(record) {
     String(record?.id ?? ''),
     String(record?.timestamp ?? ''),
     String(record?.approver ?? ''),
+    String(record?.artifact_sha256 ?? ''),
   ]);
 }
 
@@ -108,6 +109,37 @@ export function isSafeRunId(runId) {
 export function isSafeArtifactName(artifact) {
   return typeof artifact === 'string' && artifact.length > 0 && artifact.length < 256
     && !artifact.includes('/') && !artifact.includes('\\') && !artifact.includes('..');
+}
+
+// #443: resolve an approval artifact NAME to its backing file within the run,
+// mirroring the bridge's resolver (the mission spec docs live in the run's
+// specs dir; plan.md may also sit at the run root). isSafeArtifactName already
+// forbids separators/traversal, so the join cannot escape runDir — the
+// containment check is belt-and-suspenders. Virtual/stage artifacts
+// (guardrail-override:…, stage ids) resolve to null and carry no digest.
+export function approvalArtifactFilePath(runDir, artifact) {
+  if (!runDir || !isSafeArtifactName(artifact)) return null;
+  const base = resolve(runDir);
+  for (const candidate of [join(base, 'specs', artifact), join(base, artifact)]) {
+    const resolved = resolve(candidate);
+    if (resolved !== base && !resolved.startsWith(base + sep)) continue;
+    if (existsSync(resolved)) return resolved;
+  }
+  return null;
+}
+
+// #443: SHA-256 of an approved artifact's CURRENT bytes so an approval can be
+// bound to the exact content that was signed off. Null when the artifact is
+// not file-backed (a stage/virtual approval) or unreadable — callers then
+// simply store no digest (unchanged, name-only behavior).
+export function computeApprovalArtifactDigest(runDir, artifact) {
+  const filePath = approvalArtifactFilePath(runDir, artifact);
+  if (!filePath) return null;
+  try {
+    return createHash('sha256').update(readFileSync(filePath)).digest('hex');
+  } catch {
+    return null;
+  }
 }
 
 function isPlainObject(value) {

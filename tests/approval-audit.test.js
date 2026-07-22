@@ -223,3 +223,15 @@ test('isSafeArtifactName mirrors the write-path rules', () => {
   assert.equal(isSafeArtifactName('x'.repeat(256)), false);
   assert.equal(isSafeArtifactName(null), false);
 });
+
+test('approval signatures bind the approved artifact digest (#443)', async () => {
+  const { signApprovalRecord, verifyApprovalRecordSignature } = await import('../src/core/harness/approval-audit.js');
+  const key = 'approval-digest-test-key';
+  const signed = signApprovalRecord(record({ artifact_sha256: 'a'.repeat(64) }), key);
+  assert.equal(verifyApprovalRecordSignature(signed, key).verified, true);
+  assert.equal(
+    verifyApprovalRecordSignature({ ...signed, artifact_sha256: 'b'.repeat(64) }, key).verified,
+    false,
+    'changing only the content digest invalidates the signed approval',
+  );
+});
