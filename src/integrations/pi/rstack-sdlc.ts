@@ -45,6 +45,7 @@ import { assertReadyForStage, dorCheck, latestStageId } from "../../core/harness
 // merged into the claim gate's required list.
 import { requiredStageApprovalArtifacts } from "../../core/harness/stage-approvals.js";
 import { withFileLock, writeJsonAtomic, writeFileAtomic } from "../../core/harness/safe-write.js";
+import { appendRunEvent } from "../../core/harness/event-ledger.js";
 import { readSessionPin, writeSessionPin } from "../../core/harness/runs.js";
 import { resolveUserIdentity } from "../../core/harness/identity.js";
 import { appendApproval as appendApprovalRequest, approvalQueueId, assertManagerAllowed, configuredManagers, ensurePendingQueueApproval, readApprovalPolicy, resolveQueuedApprovalForArtifact } from "../../core/tracker/approvals.js";
@@ -722,7 +723,7 @@ async function addTrace(projectRoot: string, runId: string, mapping: any): Promi
 }
 
 async function appendEvent(projectRoot: string, id: string, event: Record<string, unknown>): Promise<void> {
-  await appendFile(join(runsDir(projectRoot), id, "events.jsonl"), JSON.stringify({ ts: timestamp(), ...event }) + "\n");
+  await appendRunEvent(join(runsDir(projectRoot), id), { ts: timestamp(), ...event });
 }
 
 async function currentBranch(projectRoot: string): Promise<string> {
