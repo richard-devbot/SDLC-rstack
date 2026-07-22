@@ -148,6 +148,10 @@ export async function appendRunApproval(projectRoot, runId, record) {
     approver: record.approver,
     timestamp: record.timestamp || new Date().toISOString(),
     comments: record.comments,
+    // SHA-256 content binding (#443): preserve the digest captured by the
+    // authenticated approval surface so signing and the claim gate bind the
+    // exact artifact bytes rather than only its name.
+    ...(record.artifact_sha256 ? { artifact_sha256: record.artifact_sha256 } : {}),
     // Run binding (#298): stamp the run this approval belongs to. Without the
     // stamp, the #133 cross-run replay check had nothing to compare and a
     // record copied between runs validated everywhere.

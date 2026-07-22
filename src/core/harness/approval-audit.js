@@ -61,7 +61,7 @@ export const DASHBOARD_APPROVAL_SOURCES = Object.freeze(['dashboard', 'business-
 export const APPROVAL_SIGNING_KEY_ENV = 'RSTACK_APPROVAL_SIGNING_KEY';
 
 // Canonical payload over the fields a forger would need to control — binds the
-// artifact, status, run, id, timestamp, and approver together so a signed
+// artifact, status, run, id, timestamp, approver, and artifact digest together so a signed
 // APPROVED record cannot be moved to another artifact or run.
 function approvalSignaturePayload(record) {
   return JSON.stringify([
@@ -72,6 +72,7 @@ function approvalSignaturePayload(record) {
     String(record?.id ?? ''),
     String(record?.timestamp ?? ''),
     String(record?.approver ?? ''),
+    String(record?.artifact_sha256 ?? ''),
   ]);
 }
 
