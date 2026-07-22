@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -142,4 +142,17 @@ test('CLI: pipeline run --dry-run --json emits the structured report and exits 0
   assert.equal(report.stopped_on, 'dry_run');
   assert.equal(report.steps[0].action, 'claim');
   assert.equal(report.steps[0].dry_run, true);
+});
+
+test('pipeline reclaims an aged orphaned claim but preserves a fresh claim', async () => {
+  const projectRoot = mkdtempSync(path.join(os.tmpdir(), 'rstack-reclaim-'));
+  const old = task('old', 'IN_PROGRESS', { _started_at: Date.now() - 11 * 60_000, _claim: { claimed_at: new Date(Date.now() - 11 * 60_000).toISOString() } });
+  const fresh = task('fresh', 'IN_PROGRESS', { _started_at: Date.now(), _claim: { claimed_at: new Date().toISOString() } });
+  const runDir = seedRun(projectRoot, 'run-a', { tasks: [old, fresh], events: [{ type: 'task_started', task_id: 'old' }] });
+  const report = await runPipeline(projectRoot, { runId: 'run-a', maxSteps: 1, invokeTool: async () => {} });
+  const saved = JSON.parse(readFileSync(path.join(runDir, 'tasks.json'), 'utf8')).tasks;
+  assert.equal(saved.find((item) => item.id === 'old').status, 'READY');
+  assert.equal(saved.find((item) => item.id === 'fresh').status, 'IN_PROGRESS');
+  assert.match(readFileSync(path.join(runDir, 'events.jsonl'), 'utf8'), /claim_reclaimed/);
+  assert.ok(report.steps.length);
 });
