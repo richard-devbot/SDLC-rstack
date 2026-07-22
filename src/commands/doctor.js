@@ -29,6 +29,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { validateProjectConfigs } from '../core/harness/config-validation.js';
+// #452 PR3: report the active sandbox execution tier + opt-in bounded auto-start.
+import { detectContainerRuntime, detectInstalledRuntime, loadSandboxConfig, startContainerRuntime } from '../core/harness/sandbox.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(__dirname, '..', '..');
@@ -188,6 +190,61 @@ function checkEmailNotifications(projectRoot, env = process.env) {
   return check('email approval notifications', WARN,
     `email is partially configured — approval emails will NOT send. Missing: ${missing.join('; ')}`,
     'Set RSTACK_ACS_CONNECTION_STRING in the environment and add channels.email.sender + recipients/routing to .rstack/notifications.json (see docs/mintlify/reference/approvals.mdx)');
+}
+
+// --- sandbox execution tier (#452 PR3) --------------------------------------
+
+// Pure decision: given what's detected + the config, what tier is active and
+// what does the operator need to know? Separated from the I/O below so the
+// verdict logic is unit-testable without a container daemon. `autostart` is the
+// startContainerRuntime result (or null when not requested).
+export function sandboxTierCheck({ readyRuntime, installedRuntime, config, autostart }) {
+  const note = autostart?.message ? ` (auto-start: ${autostart.message})` : '';
+  if (config && config.enabled === false) {
+    return check('sandbox execution tier', WARN,
+      `sandbox execution is DISABLED in config — sdlc_validate uses the self-reported tests_run only, never container-verified${note}`,
+      'Set sandbox.enabled=true in .rstack/rstack.config.json to run tests in a container');
+  }
+  if (readyRuntime) {
+    const hasCommand = Boolean(config?.command) || Object.keys(config?.perStage ?? {}).length > 0;
+    if (hasCommand) {
+      return check('sandbox execution tier', PASS,
+        `container-verified (${readyRuntime}) — sdlc_validate runs the authoritative command in a locked-down ${readyRuntime} container and authors execution evidence from the REAL exit code${note}`);
+    }
+    return check('sandbox execution tier', WARN,
+      `${readyRuntime} engine is ready, but NO authoritative test command is configured (sandbox.command / sandbox.per_stage) — execution stays UNVERIFIED until one is set or a task carries test_command${note}`,
+      'Add sandbox.command (e.g. "npm test") to .rstack/rstack.config.json to turn on container-verified execution');
+  }
+  if (installedRuntime) {
+    const fix = installedRuntime === 'podman'
+      ? 'Start the engine: podman machine start (or: rstack-agents doctor --start-runtime)'
+      : process.platform === 'darwin'
+        ? 'Start Docker Desktop (open -a Docker), or: rstack-agents doctor --start-runtime'
+        : `Start the ${installedRuntime} engine, or: rstack-agents doctor --start-runtime`;
+    return check('sandbox execution tier', WARN,
+      `${installedRuntime} is installed but its engine is not running — execution degrades to UNVERIFIED (contract validation only), never a false green${note}`,
+      fix);
+  }
+  return check('sandbox execution tier', WARN,
+    `no container runtime (docker/podman) available — execution is UNVERIFIED: sdlc_validate falls back to contract validation + self-reported tests_run, never a false green${note}`,
+    'Install Docker or Podman for container-verified execution (https://docs.docker.com/get-docker/ or https://podman.io)');
+}
+
+async function checkSandboxTier(projectRoot, { autostart = false } = {}) {
+  let config;
+  try {
+    config = await loadSandboxConfig(projectRoot);
+  } catch (error) {
+    return check('sandbox execution tier', WARN, `could not read sandbox config: ${error.message}`, null);
+  }
+  let readyRuntime = detectContainerRuntime({});
+  const installedRuntime = detectInstalledRuntime({});
+  let autostartResult = null;
+  if (autostart && !readyRuntime) {
+    autostartResult = await startContainerRuntime({});
+    if (autostartResult.ready) readyRuntime = autostartResult.runtime;
+  }
+  return sandboxTierCheck({ readyRuntime, installedRuntime, config, autostart: autostartResult });
 }
 
 // --- framework wiring -------------------------------------------------------
@@ -737,7 +794,7 @@ async function checkSelfDependency(cwd) {
 
 // --- orchestration ----------------------------------------------------------
 
-export async function runDoctor({ framework, project, cwd = process.cwd() } = {}) {
+export async function runDoctor({ framework, project, cwd = process.cwd(), autostart = false } = {}) {
   const projectRoot = resolve(project ?? cwd);
   const checks = [];
 
@@ -760,6 +817,11 @@ export async function runDoctor({ framework, project, cwd = process.cwd() } = {}
   // half is configured; a wholly-unconfigured opt-in feature is not a finding.
   const emailCheck = checkEmailNotifications(projectRoot);
   if (emailCheck) checks.push(emailCheck);
+
+  // Sandbox execution tier (#452): container-verified vs. unverified — the honest
+  // answer to "are my test results real or self-reported?". With autostart, tries
+  // an opt-in bounded engine start first (never a hidden launch otherwise).
+  checks.push(await checkSandboxTier(projectRoot, { autostart }));
 
   // Framework wiring (explicit --framework, else auto-detect; else all-generic)
   const detected = framework ?? await detectFrameworkLocal(projectRoot);
