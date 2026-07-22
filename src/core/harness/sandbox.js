@@ -13,11 +13,13 @@
 // Every container invocation is locked down: no network by default, no host
 // environment, all Linux capabilities dropped, non-root, memory/pids/cpu
 // capped, root filesystem read-only with a small writable tmpfs, and the run's
-// code mounted READ-ONLY. A hard wall-clock timeout kills the whole process
-// tree. Evidence is authored HERE from the child's exit code — never read from
-// anything the executed code writes.
+// code mounted READ-ONLY. A hard wall-clock timeout force-removes the (named)
+// container in the daemon AND kills the local client — killing the `docker run`
+// client alone would orphan the container. Evidence is authored HERE from the
+// child's exit code — never read from anything the executed code writes.
 
 import { spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -45,12 +47,16 @@ function defaultProbe(runtime) {
 
 // Build the locked-down `docker/podman run` argv for an untrusted command.
 // Exported so the security flags are testable without a daemon.
-export function buildSandboxArgv(runtime, { runDir, command, network = false, image = 'alpine:3.20', limits = {} }) {
+export function buildSandboxArgv(runtime, { runDir, command, network = false, image = 'alpine:3.20', limits = {}, containerName }) {
   const mem = limits.memory ?? '512m';
   const pids = String(limits.pids ?? 256);
   const cpus = String(limits.cpus ?? 1);
   return [
     runtime, 'run', '--rm',
+    // Named so the daemon-side container can be force-reaped on timeout — killing
+    // the `docker run` client alone leaves the container running (a documented
+    // docker/podman gotcha), so the timeout path also runs `rm -f <name>`.
+    ...(containerName ? ['--name', containerName] : []),
     '--network', network ? 'bridge' : 'none', // exfiltration + malicious-install guard
     '--memory', mem, '--memory-swap', mem,     // no swap escape hatch
     '--pids-limit', pids,
@@ -91,9 +97,21 @@ export function runInSandbox(runDir, { taskId, command, network = false, timeout
     });
   }
 
-  const argv = buildSandboxArgv(runtime, { runDir, command, network, image, limits });
+  const containerName = deps.containerName ?? `rstack-sbx-${randomUUID()}`;
+  const argv = buildSandboxArgv(runtime, { runDir, command, network, image, limits, containerName });
   const spawnImpl = deps.spawn ?? spawn;
   const start = deps.now ? deps.now() : Date.now();
+
+  // Force-remove the container in the daemon. Killing the `docker run` client
+  // does NOT stop the container, so on timeout we reap by name. Fire-and-forget,
+  // best-effort — an orphan is bad, but blocking the verdict on cleanup is worse.
+  const reapContainer = () => {
+    try {
+      const reaper = spawnImpl(runtime, ['rm', '-f', containerName], { stdio: 'ignore' });
+      reaper?.on?.('error', () => {});
+      reaper?.unref?.();
+    } catch { /* daemon gone / already reaped */ }
+  };
 
   return new Promise((resolvePromise) => {
     let child;
@@ -120,7 +138,8 @@ export function runInSandbox(runDir, { taskId, command, network = false, timeout
     // the process open longer than the bounded window.
     const timer = setTimeout(() => {
       timedOut = true;
-      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      reapContainer(); // stop the container in the daemon, not just the client…
+      try { child.kill('SIGKILL'); } catch { /* already gone */ } // …then the client
     }, bounded);
 
     const finish = (exitCode) => {

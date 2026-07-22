@@ -85,11 +85,18 @@ test('exit 0 → PASS with captured output; non-zero → FAIL', async () => {
   assert.match(fail.stderr_tail, /AssertionError/, 'stderr captured — feeds the #451 critique loop');
 });
 
-test('a hung command is killed at the timeout and reported FAIL', async () => {
+test('a hung command times out → container force-reaped in the daemon + client killed, reported FAIL', async () => {
+  const calls = [];
   const rec = await runInSandbox('/r', { taskId: 't', command: 'sleep 999', timeoutMs: 40 }, {
-    runtime: 'docker', spawn: () => fakeChild({ hang: true }),
+    runtime: 'docker',
+    containerName: 'rstack-sbx-test',
+    spawn: (bin, args) => { calls.push([bin, ...args]); return fakeChild({ hang: true }); },
   });
   assert.equal(rec.status, 'FAIL');
   assert.equal(rec.exit_code, null);
   assert.match(rec.evidence, /timed out/);
+  // The run was NAMED and the daemon-side container was force-removed on timeout —
+  // killing the `docker run` client alone would orphan the container.
+  assert.ok(calls.some((c) => c[0] === 'docker' && c[1] === 'run' && c.includes('rstack-sbx-test')), 'named run');
+  assert.ok(calls.some((c) => c.join(' ') === 'docker rm -f rstack-sbx-test'), 'container force-reaped on timeout');
 });
