@@ -14,6 +14,9 @@ import { DEFAULT_LOOP_BOUNDS, LOOP_HARD_CAP } from './goal-loop.js';
 import { DEFAULT_CRITICAL_STAGE_IDS } from './checkpoints.js';
 import { getCanonicalStage } from './stages.js';
 import { rstackStateDir } from './runs.js';
+// #452: the sandbox timeout hard cap lives with the executor it bounds, so the
+// config validator and the resolver clamp/name against ONE value.
+import { MAX_TIMEOUT_MS } from './sandbox.js';
 // #136 (BLE-6.2): context-pressure thresholds live in rstack.config.json under
 // `context_pressure`; validated field-by-field like every other block.
 import { validateContextPressureConfig } from './context-pressure.js';
@@ -118,6 +121,78 @@ export function validateRstackConfig(parsed) {
   // #78: governance packs — unknown names are named, never silently ignored.
   if (parsed.enabled_packs != null) {
     issues.push(...validateEnabledPacksConfig(parsed.enabled_packs));
+  }
+  // #452: transient-sandbox execution settings (The Scientist). A typo'd
+  // per_stage key or command is the silent-failure mode here — the command
+  // never runs and execution silently stays unverified — so each is named.
+  if (parsed.sandbox != null) {
+    issues.push(...validateSandboxConfig(parsed.sandbox));
+  }
+  return issues;
+}
+
+const SANDBOX_KNOWN_KEYS = ['enabled', 'image', 'command', 'network', 'timeout_ms', 'timeoutMs', 'per_stage', 'perStage', 'limits'];
+
+export function validateSandboxConfig(sandbox) {
+  const issues = [];
+  if (!isPlainObject(sandbox)) {
+    issues.push({ field: 'sandbox', problem: 'must be an object of sandbox execution settings (e.g. { "command": "npm test", "image": "node:20-alpine" })' });
+    return issues;
+  }
+  for (const key of Object.keys(sandbox)) {
+    if (!SANDBOX_KNOWN_KEYS.includes(key)) {
+      issues.push({ field: `sandbox.${key}`, problem: 'unknown sandbox key — this setting is ignored' });
+    }
+  }
+  if (sandbox.enabled != null && typeof sandbox.enabled !== 'boolean') {
+    issues.push({ field: 'sandbox.enabled', problem: `must be a boolean, got ${JSON.stringify(sandbox.enabled)} — the default (true) applies` });
+  }
+  if (sandbox.network != null && typeof sandbox.network !== 'boolean') {
+    issues.push({ field: 'sandbox.network', problem: `must be a boolean (default false = no network), got ${JSON.stringify(sandbox.network)}` });
+  }
+  if (sandbox.image != null && (typeof sandbox.image !== 'string' || !sandbox.image.trim())) {
+    issues.push({ field: 'sandbox.image', problem: 'must be a non-empty container image reference (e.g. "node:20-alpine") — the default (alpine:3.20) runs shell only' });
+  }
+  if (sandbox.command != null && (typeof sandbox.command !== 'string' || !sandbox.command.trim())) {
+    issues.push({ field: 'sandbox.command', problem: 'must be a non-empty shell command string (e.g. "npm test") — execution stays unverified without one' });
+  }
+  const timeout = sandbox.timeout_ms ?? sandbox.timeoutMs;
+  if (timeout != null && !isNonNegativeNumber(timeout)) {
+    issues.push({ field: 'sandbox.timeout_ms', problem: `must be a non-negative number of milliseconds, got ${JSON.stringify(timeout)} — the default applies` });
+  } else if (timeout != null && Number(timeout) > MAX_TIMEOUT_MS) {
+    issues.push({ field: 'sandbox.timeout_ms', problem: `exceeds the hard cap of ${MAX_TIMEOUT_MS}ms — it will be clamped to ${MAX_TIMEOUT_MS}ms` });
+  }
+  // limits sub-fields: resolveSandboxConfig silently drops bad-typed values, so
+  // name them here (the whole point of this validator) instead of leaving a
+  // typo like { pids: "many" } to pass clean and be ignored downstream.
+  if (sandbox.limits != null) {
+    if (!isPlainObject(sandbox.limits)) {
+      issues.push({ field: 'sandbox.limits', problem: 'must be an object of { memory, pids, cpus }' });
+    } else {
+      if (sandbox.limits.memory != null && (typeof sandbox.limits.memory !== 'string' || !sandbox.limits.memory.trim())) {
+        issues.push({ field: 'sandbox.limits.memory', problem: `must be a non-empty string (e.g. "512m"), got ${JSON.stringify(sandbox.limits.memory)} — the default applies` });
+      }
+      for (const key of ['pids', 'cpus']) {
+        if (sandbox.limits[key] != null && !isNonNegativeNumber(sandbox.limits[key])) {
+          issues.push({ field: `sandbox.limits.${key}`, problem: `must be a non-negative number, got ${JSON.stringify(sandbox.limits[key])} — the default applies` });
+        }
+      }
+    }
+  }
+  const perStage = sandbox.per_stage ?? sandbox.perStage;
+  if (perStage != null) {
+    if (!isPlainObject(perStage)) {
+      issues.push({ field: 'sandbox.per_stage', problem: 'must be an object of canonical-stage-id -> { command } (e.g. "07-code": { "command": "npm test" })' });
+    } else {
+      for (const [stageId, entry] of Object.entries(perStage)) {
+        if (!getCanonicalStage(stageId)) {
+          issues.push({ field: `sandbox.per_stage.${stageId}`, problem: 'unknown canonical stage id — this per-stage command will NEVER run; use a canonical 00-14 stage id like "07-code"' });
+        }
+        if (!isPlainObject(entry) || typeof entry.command !== 'string' || !entry.command.trim()) {
+          issues.push({ field: `sandbox.per_stage.${stageId}`, problem: 'must be an object with a non-empty "command" string' });
+        }
+      }
+    }
   }
   return issues;
 }

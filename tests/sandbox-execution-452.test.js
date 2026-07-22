@@ -23,11 +23,11 @@ function fakeChild({ code = 0, stdout = '', stderr = '', hang = false } = {}) {
   child.stderr = new EventEmitter();
   child.kill = () => { child.killed = true; child.emit('close', null); };
   if (!hang) {
-    setImmediate(() => {
+    setTimeout(() => {
       if (stdout) child.stdout.emit('data', Buffer.from(stdout));
       if (stderr) child.stderr.emit('data', Buffer.from(stderr));
       child.emit('close', code);
-    });
+    }, 0);
   }
   return child;
 }
