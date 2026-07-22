@@ -114,11 +114,14 @@ export function runInSandbox(runDir, { taskId, command, network = false, timeout
 
     let settled = false;
     let timedOut = false;
+    // NOT unref'd: a kill-timeout for a runaway container MUST be allowed to
+    // fire — unref would let the loop resolve with the timer pending (and a
+    // hung child unkilled). It is always cleared on close, so it never keeps
+    // the process open longer than the bounded window.
     const timer = setTimeout(() => {
       timedOut = true;
       try { child.kill('SIGKILL'); } catch { /* already gone */ }
     }, bounded);
-    timer.unref?.();
 
     const finish = (exitCode) => {
       if (settled) return;
