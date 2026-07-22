@@ -16,6 +16,7 @@ import { buildBusinessFlexState } from './business-flex.js';
 import { buildDecisionState } from './decisions.js';
 import { buildEnvironmentState } from './environment.js';
 import { buildReadinessProjection } from './readiness.js';
+import { buildQualityRiskProjection } from './quality-risk.js';
 import { buildOverviewProjection } from './overview.js';
 import { buildOperationsProjection } from './operations.js';
 import { buildRunWorkspaces } from './run-workspace.js';
@@ -220,9 +221,17 @@ export async function buildFullState(projectRoot, options = {}) {
     readiness: buildReadinessProjection(stateWithEvidence, { evaluatedAt: baseState.ts }),
   };
 
-  const stateWithActions = {
+  // #453: Quality & Risk Index — server-owned, computed from the focus run's
+  // real artifacts + events (reads coverage from the readiness projection
+  // above). BI only; never blocks a gate. Honest nulls when a source is absent.
+  const stateWithQualityRisk = {
     ...stateWithReadiness,
-    actions: buildActions(stateWithReadiness),
+    qualityRisk: buildQualityRiskProjection(stateWithReadiness, { evaluatedAt: baseState.ts }),
+  };
+
+  const stateWithActions = {
+    ...stateWithQualityRisk,
+    actions: buildActions(stateWithQualityRisk),
   };
 
   // #285: server-owned cockpit controls projection — the only declaration of

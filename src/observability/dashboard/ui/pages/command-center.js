@@ -28,6 +28,7 @@ function renderCommand(s) {
   ensureCommandWavePanels();
   renderCommandExecRollup(s);
   renderCommandNextAction(s);
+  renderQualityRiskCard(s);
 
   setText('kpi-projects', projects.length);
   setText('kpi-projects-s', (s.sourceRoots || []).length + ' source roots tracked');
@@ -367,6 +368,88 @@ function nextActionSourceHtml(rollup) {
   return '<div class="next-action-source">Same recommendation the rstack-agents pipeline status CLI computes.</div>';
 }
 // ── end [wave:command] ────────────────────────────────────────────
+
+// ── [wave:command] Quality & Risk Index (#453) ───────────────────────────
+// The qualitative counterpart to the cost/coverage KPIs: a computed Aggregated
+// Risk Score + Complexity Index (server-owned in state/quality-risk.js — no
+// second brain here), rendered with honest "—/unknown" when a source is absent.
+function ensureQualityRiskPanel() {
+  if (document.getElementById('quality-risk-panel')) return;
+  var page = document.getElementById('page-command');
+  if (!page) return;
+  var anchor = document.getElementById('command-exec-rollup-panel') || page.querySelector('.executive-grid');
+  if (!anchor) return;
+  anchor.insertAdjacentHTML('afterend',
+    '<div class="panel qr-panel" id="quality-risk-panel">' +
+      '<div class="panel-head"><span class="panel-title">Quality &amp; Risk</span><span class="panel-note mono" id="qr-note"></span></div>' +
+      '<div class="panel-body">' +
+        '<div class="qr-grid"><div id="qr-risk"></div><div id="qr-complexity"></div></div>' +
+        '<div class="qr-detail" id="qr-detail"></div>' +
+        '<div class="qr-c2v" id="qr-c2v"></div>' +
+      '</div>' +
+    '</div>');
+}
+
+function qrScoreHtml(label, score, band) {
+  var known = score !== null && score !== undefined;
+  var bandLabel = band ? String(band).replace(/_/g, ' ') : 'unknown';
+  return '<div class="qr-score ' + esc(band || 'unknown') + '">' +
+    '<div class="qr-score-v">' + esc(known ? score : '—') + (known ? '<span class="qr-score-max">/100</span>' : '') + '</div>' +
+    '<div class="qr-score-l">' + esc(label) + '</div>' +
+    '<div class="qr-score-b">' + esc(bandLabel) + '</div>' +
+  '</div>';
+}
+
+function qrChip(tone, text) {
+  return '<span class="qr-chip ' + esc(tone) + '">' + esc(text) + '</span>';
+}
+
+function renderQualityRiskCard(s) {
+  ensureQualityRiskPanel();
+  var qr = (s.overview && s.overview.qualityRisk) || s.qualityRisk || null;
+  var risk = (qr && qr.risk) || null;
+  var cx = (qr && qr.complexity) || null;
+
+  setText('qr-note', qr && qr.focusRunId ? String(qr.focusRunId).slice(-24) : 'no run evaluated');
+  setHTML('qr-risk', qrScoreHtml('Aggregated Risk', risk ? risk.score : null, risk ? risk.band : 'unknown'));
+  setHTML('qr-complexity', qrScoreHtml('Complexity Index', cx ? cx.score : null, cx ? cx.band : 'unknown'));
+
+  var chips = [];
+  if (risk && risk.score !== null && risk.score !== undefined) {
+    var sev = risk.by_severity || {};
+    if (sev.critical) chips.push(qrChip('danger', sev.critical + ' critical'));
+    if (sev.high) chips.push(qrChip('danger', sev.high + ' high'));
+    if (sev.medium) chips.push(qrChip('warn', sev.medium + ' medium'));
+    if (sev.low) chips.push(qrChip('info', sev.low + ' low'));
+    if (risk.mitigated) chips.push(qrChip('ok', risk.mitigated + ' mitigated'));
+    if (risk.accepted_overrides) chips.push(qrChip('warn', risk.accepted_overrides + ' accepted'));
+    if (risk.guardrail_blocks) chips.push(qrChip('danger', risk.guardrail_blocks + ' guardrail block' + (risk.guardrail_blocks === 1 ? '' : 's')));
+    if (risk.validator_blocks) chips.push(qrChip('danger', risk.validator_blocks + ' validator block' + (risk.validator_blocks === 1 ? '' : 's')));
+    if (!chips.length) chips.push(qrChip('ok', 'no risks flagged'));
+  } else {
+    chips.push(qrChip('info', 'risk unknown — no builder contract yet'));
+  }
+  if (cx && cx.score !== null && cx.score !== undefined) {
+    chips.push(qrChip('info', cx.files_touched + ' file' + (cx.files_touched === 1 ? '' : 's') + ' touched'));
+    chips.push(qrChip('info', cx.builder_tasks + ' builder task' + (cx.builder_tasks === 1 ? '' : 's')));
+    if (cx.executions) chips.push(qrChip('info', cx.executions + ' execution' + (cx.executions === 1 ? '' : 's')));
+  }
+  setHTML('qr-detail', chips.join(''));
+
+  var lines = [];
+  var ex = qr && qr.execution;
+  if (ex) {
+    lines.push('<span>' + esc(ex.verified + '/' + ex.total + ' container-verified · ' + ex.passed + ' passed · ' + ex.failed + ' failed' + (ex.unverified ? ' · ' + ex.unverified + ' unverified' : '')) + '</span>');
+  }
+  var c2v = qr && qr.cost_to_value;
+  if (c2v) {
+    var cov = (c2v.coverage_percent === null || c2v.coverage_percent === undefined) ? 'coverage unknown' : c2v.coverage_percent + '% coverage';
+    var per = (c2v.cost_per_coverage_point === null || c2v.cost_per_coverage_point === undefined) ? '' : ' · $' + c2v.cost_per_coverage_point + '/coverage pt';
+    lines.push('<span>Cost-to-value: $' + esc(c2v.cost_usd) + ' · ' + esc(cov) + esc(per) + '</span>');
+  }
+  setHTML('qr-c2v', lines.length ? lines.join('') : '');
+}
+// ── end [wave:command] Quality & Risk ─────────────────────────────────────
 
 function commandSummaryTitle(s, attentionItems, counts) {
   var activeRunCount = (s.activeRuns || []).length;
