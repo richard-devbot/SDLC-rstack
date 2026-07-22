@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { dirname, join, resolve, sep } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { appendFile, mkdir, readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dashboardHtml } from './ui.js';
 import { studio3dHtml } from './ui/studio3d.js';
@@ -48,7 +48,8 @@ import { runPipeline } from '../../commands/pipeline-run.js';
 import { rollbackToCheckpoint, verifyStageCheckpoint } from '../../core/harness/checkpoints.js';
 import { verifyRunAttestations } from '../../core/harness/attestations.js';
 import { scanRunDrift } from '../../core/harness/drift.js';
-import { withFileLock, writeJsonAtomic } from '../../core/harness/safe-write.js';
+import { writeJsonAtomic } from '../../core/harness/safe-write.js';
+import { appendRunEvent } from '../../core/harness/event-ledger.js';
 import { isSafeRunId, isSafeArtifactName } from '../../core/harness/approval-audit.js';
 import { validateEnvironmentReport } from '../../core/harness/environment-report.js';
 
@@ -450,10 +451,7 @@ function handleGuardedPost(req, res, { audit, onBody }) {
 async function appendEnvWriteEvent(projectRoot, event) {
   const runId = await latestRunId(projectRoot);
   if (!runId) return null;
-  const eventsPath = join(runDirectory(projectRoot, runId), 'events.jsonl');
-  await withFileLock(eventsPath, async () => {
-    await appendFile(eventsPath, JSON.stringify({ ts: new Date().toISOString(), ...event }) + '\n');
-  });
+  await appendRunEvent(runDirectory(projectRoot, runId), { ts: new Date().toISOString(), ...event });
   return runId;
 }
 
@@ -685,10 +683,7 @@ async function resolveRunRoot(runId) {
 // Append the immutable per-run audit event to the run timeline. Never carries
 // a token or secret. Best-effort: the action already succeeded.
 async function appendCockpitRunEvent(root, runId, event) {
-  const eventsPath = join(runDirectory(root, runId), 'events.jsonl');
-  await withFileLock(eventsPath, async () => {
-    await appendFile(eventsPath, JSON.stringify({ ts: new Date().toISOString(), ...event }) + '\n');
-  });
+  await appendRunEvent(runDirectory(root, runId), { ts: new Date().toISOString(), ...event });
 }
 
 // resume-run: advance the run via the model-free runner, bounded, stopping at
@@ -1149,16 +1144,13 @@ async function handleArtifactWrite(req, res) {
       await writeJsonAtomic(target, parsedContent);
       audit({ outcome: 'written', artifact: approvalArtifact, approvedBy: approval.resolvedBy ?? null, bytes: Buffer.byteLength(serialized, 'utf8') });
       try {
-        const eventsPath = join(runDir, 'events.jsonl');
-        await withFileLock(eventsPath, async () => {
-          await appendFile(eventsPath, JSON.stringify({
-            ts: new Date().toISOString(),
-            type: 'artifact_overridden',
-            stage_id: stageId,
-            artifact: artifactName,
-            actor: resolvedBy,
-            approved_by: approval.resolvedBy ?? null,
-          }) + '\n');
+        await appendRunEvent(runDir, {
+          ts: new Date().toISOString(),
+          type: 'artifact_overridden',
+          stage_id: stageId,
+          artifact: artifactName,
+          actor: resolvedBy,
+          approved_by: approval.resolvedBy ?? null,
         });
       } catch (err) {
         // The write succeeded; a run-event failure must not turn it into a 500.
