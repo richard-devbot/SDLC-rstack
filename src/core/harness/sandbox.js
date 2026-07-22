@@ -29,22 +29,105 @@ export const MAX_TIMEOUT_MS = 600_000;
 const OUTPUT_TAIL_BYTES = 8 * 1024; // bounded like goal-check's maxBuffer precedent
 const RUNTIMES = ['docker', 'podman'];
 
-// Detect an available container runtime. Injectable probe so tests never shell
-// out. Returns 'docker' | 'podman' | null.
-export function detectContainerRuntime({ probe = defaultProbe } = {}) {
+// Detect a USABLE container runtime — one whose engine daemon is actually
+// reachable, not merely installed. `docker info` / `podman info` exit 0 only
+// when the daemon is up; a present binary with a STOPPED daemon must NOT count,
+// or runInSandbox would spawn `docker run`, hit "Cannot connect to the Docker
+// daemon", and mis-record that connection error as a test FAILURE instead of an
+// honest 'unverified' degrade. Injectable probe so tests never shell out.
+// Returns 'docker' | 'podman' | null.
+export function detectContainerRuntime({ probe = defaultReadyProbe } = {}) {
   for (const runtime of RUNTIMES) {
     if (probe(runtime)) return runtime;
   }
   return null;
 }
 
-function defaultProbe(runtime) {
+function defaultReadyProbe(runtime) {
+  try {
+    const res = spawnSync(runtime, ['info'], { stdio: 'ignore', timeout: 10_000 });
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+// Detect an INSTALLED runtime binary (daemon may or may not be running). Used by
+// the auto-start path to tell "installed but stopped" (startable) apart from
+// "not installed at all" (nothing to start). `--version` succeeds even when the
+// daemon is down.
+export function detectInstalledRuntime({ probe = defaultInstalledProbe } = {}) {
+  for (const runtime of RUNTIMES) {
+    if (probe(runtime)) return runtime;
+  }
+  return null;
+}
+
+function defaultInstalledProbe(runtime) {
   try {
     const res = spawnSync(runtime, ['--version'], { stdio: 'ignore', timeout: 5_000 });
     return res.status === 0;
   } catch {
     return false;
   }
+}
+
+// The command that boots each runtime's engine, per platform. Docker Desktop is
+// a GUI app on mac/Windows (`open -a Docker` / launch "Docker Desktop"); its
+// daemon then takes ~10-30s to become ready. Podman is headless
+// (`podman machine start`). On Linux the docker daemon is a system service we
+// will not `sudo systemctl` for the user — returns null there (manual start).
+export function runtimeStartCommand(runtime, platform = process.platform) {
+  if (runtime === 'podman') return { cmd: 'podman', args: ['machine', 'start'] };
+  if (runtime === 'docker') {
+    if (platform === 'darwin') return { cmd: 'open', args: ['-a', 'Docker'] };
+    if (platform === 'win32') return { cmd: 'cmd', args: ['/c', 'start', '', 'Docker Desktop'] };
+    return null; // linux: `sudo systemctl start docker` — not ours to run
+  }
+  return null;
+}
+
+// OPT-IN, bounded auto-start. NEVER runs unless the caller explicitly asks
+// (doctor --start-runtime or RSTACK_SANDBOX_AUTOSTART=1) — a gate must never
+// silently launch a heavyweight GUI mid-validation. Launches the engine, then
+// polls readiness with a HARD timeout so nothing blocks indefinitely on a
+// booting daemon. Fully injectable for tests.
+export async function startContainerRuntime({
+  installedProbe = defaultInstalledProbe,
+  readyProbe = defaultReadyProbe,
+  spawnImpl = spawn,
+  platform = process.platform,
+  timeoutMs = 60_000,
+  pollMs = 2_000,
+  now = Date.now,
+  sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)),
+} = {}) {
+  const runtime = detectInstalledRuntime({ probe: installedProbe });
+  if (!runtime) {
+    return { runtime: null, started: false, ready: false, message: 'no docker/podman binary on PATH — install one first' };
+  }
+  if (readyProbe(runtime)) {
+    return { runtime, started: false, ready: true, message: `${runtime} engine already running` };
+  }
+  const startCmd = runtimeStartCommand(runtime, platform);
+  if (!startCmd) {
+    return { runtime, started: false, ready: false, message: `${runtime} engine is not running and RStack cannot auto-start it on ${platform} — start it manually` };
+  }
+  try {
+    const child = spawnImpl(startCmd.cmd, startCmd.args, { stdio: 'ignore' });
+    child?.on?.('error', () => {});
+    child?.unref?.();
+  } catch (err) {
+    return { runtime, started: false, ready: false, message: `failed to launch ${runtime}: ${err?.message ?? err}` };
+  }
+  const start = now();
+  while (now() - start < timeoutMs) {
+    await sleep(pollMs);
+    if (readyProbe(runtime)) {
+      return { runtime, started: true, ready: true, message: `${runtime} engine started and is ready` };
+    }
+  }
+  return { runtime, started: true, ready: false, message: `${runtime} launch initiated but the engine was not ready within ${timeoutMs}ms — try again shortly` };
 }
 
 // Build the locked-down `docker/podman run` argv for an untrusted command.

@@ -611,13 +611,15 @@ program
   .option('-f, --framework <framework>', `host framework to check wiring for: ${DOCTOR_FRAMEWORKS.join(' | ')} (auto-detected if omitted)`)
   .option('-p, --project <path>', 'project root (defaults to current directory)')
   .option('--json', 'print the structured report as JSON for CI')
+  .option('--start-runtime', 'opt-in: if the sandbox container engine (docker/podman) is installed but stopped, launch it and wait (bounded) for it to become ready — never launched otherwise')
   .action(async (opts) => {
     try {
       if (opts.framework && !DOCTOR_FRAMEWORKS.includes(opts.framework)) {
         log.error(`Unknown framework "${opts.framework}". Expected one of: ${DOCTOR_FRAMEWORKS.join(', ')}`);
         process.exit(1);
       }
-      const report = await runDoctor({ framework: opts.framework, project: opts.project });
+      const autostart = opts.startRuntime === true || process.env.RSTACK_SANDBOX_AUTOSTART === '1';
+      const report = await runDoctor({ framework: opts.framework, project: opts.project, autostart });
       if (opts.json) {
         process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
       } else {
