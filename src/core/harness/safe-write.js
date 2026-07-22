@@ -1,5 +1,5 @@
 import { mkdir, open, readdir, readFile, rename, rm, stat, utimes } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 // owner: RStack developed by Richardson Gunde
@@ -39,19 +39,20 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 // detected after the fact). Propagates across awaits; no caller changes.
 const lockContext = new AsyncLocalStorage();
 
+// Reads the current lock token. Throws on unreadable/corrupt lock state so the
+// fence can fail closed WITH the cause attached (a takeover and a corrupt lock
+// are different failures — callers must be able to tell them apart).
 async function readLockToken(lockPath) {
-  try {
-    return JSON.parse(await readFile(lockPath, 'utf8'))?.token ?? null;
-  } catch {
-    return null;
-  }
+  return JSON.parse(await readFile(lockPath, 'utf8'))?.token ?? null;
 }
 
-// Thrown when a fenced write is refused because the lock was taken over
-// mid-critical-section. Callers can treat it as "retry the whole locked op".
+// Thrown when a fenced write is refused because the lock was taken over (or its
+// state became unreadable) mid-critical-section. Carries the underlying cause
+// when the refusal was driven by an I/O/parse failure rather than a plain
+// token mismatch. Callers can treat it as "retry the whole locked op".
 export class LockFenceError extends Error {
-  constructor(file) {
-    super(`[rstack] write to ${file} refused: this process no longer holds the lock (taken over after a stale timeout). The successor's state is preserved; retry the locked operation.`);
+  constructor(file, options = {}) {
+    super(`[rstack] write to ${file} refused: this process no longer holds the lock (taken over after a stale timeout, or the lock became unreadable). The successor's state is preserved; retry the locked operation.`, options);
     this.name = 'LockFenceError';
     this.code = 'ELOCKFENCE';
   }
@@ -77,13 +78,26 @@ export async function writeFileAtomic(file, data) {
     await handle?.close();
   }
   // Generation fence (#448): if we are inside the withFileLock section that
-  // guards THIS file, confirm we still own the lock before committing. A
+  // guards THIS file, confirm we still own the lock right before committing. A
   // stalled owner whose lock was stolen aborts here instead of clobbering the
-  // successor. Only fires for a write to the locked file itself (the contended
-  // read-modify-write case); writes to other files are unaffected.
+  // successor. Fires only for a write to the locked file itself (the contended
+  // read-modify-write case); identity is compared on RESOLVED paths so an
+  // equivalent spelling (./, trailing slash, ..) can't slip past the fence.
+  // NOTE: the check and the rename are two syscalls, so a microsecond window
+  // remains where a takeover between them could still race — a fully atomic
+  // commit needs an OS-level lease/CAS, out of scope for an advisory-lock
+  // helper. This collapses the original seconds-wide window (the whole critical
+  // section) to that irreducible gap and fails closed on unreadable lock state.
   const ctx = lockContext.getStore();
-  if (ctx && ctx.lockPath === `${file}.lock`) {
-    if ((await readLockToken(ctx.lockPath)) !== ctx.token) {
+  if (ctx && ctx.guardedFile === resolve(file)) {
+    let currentToken;
+    try {
+      currentToken = await readLockToken(ctx.lockPath);
+    } catch (cause) {
+      await rm(tmp, { force: true }).catch(() => {});
+      throw new LockFenceError(file, { cause });
+    }
+    if (currentToken !== ctx.token) {
       await rm(tmp, { force: true }).catch(() => {});
       throw new LockFenceError(file);
     }
@@ -184,8 +198,9 @@ export async function withFileLock(file, fn, opts = {}) {
         heartbeat.unref?.();
       }
       // Run the critical section inside the fence context so an atomic write to
-      // this file re-verifies our token before committing (#448).
-      return await lockContext.run({ lockPath, token }, () => fn());
+      // this file re-verifies our token before committing (#448). guardedFile is
+      // the RESOLVED target so the fence can't be bypassed by an equivalent path.
+      return await lockContext.run({ lockPath, token, guardedFile: resolve(file) }, () => fn());
     } finally {
       if (heartbeat) clearInterval(heartbeat);
       try {
