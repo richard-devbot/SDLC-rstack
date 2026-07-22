@@ -392,8 +392,20 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
   const events = await readJsonlIfPresent(path.join(dir, 'events.jsonl'));
   const evidenceEvents = await readJsonlIfPresent(path.join(dir, 'evidence.jsonl'));
 
+  // #447: render this run through the taxonomy it was STARTED under (frozen in
+  // the manifest), so renaming/adding/removing a canonical stage later can't
+  // retro-hallucinate a past run. Pre-#447 runs (no snapshot) fall back to the
+  // current canonical list. Each entry must carry an id; missing title/agent/
+  // artifact backfill from canonical when the same id still exists.
+  const taxonomy = Array.isArray(manifest?.stage_taxonomy) && manifest.stage_taxonomy.length
+    ? manifest.stage_taxonomy.filter((entry) => entry && entry.id).map((entry) => {
+      const canonical = CANONICAL_SDLC_STAGES.find((stage) => stage.id === entry.id) ?? {};
+      return { id: entry.id, title: entry.title ?? canonical.title ?? entry.id, agent: entry.agent ?? canonical.agent ?? null, artifact: entry.artifact ?? canonical.artifact ?? null };
+    })
+    : CANONICAL_SDLC_STAGES;
+
   const stages = [];
-  for (const stage of CANONICAL_SDLC_STAGES) {
+  for (const stage of taxonomy) {
     const stageTasks = tasks.filter((task) => taskStageIds(task).includes(stage.id));
     const artifactPaths = await listStageEvidencePaths(dir, stage);
     const evidencePaths = evidenceEvents
@@ -430,7 +442,7 @@ export async function buildPipelineState(projectRoot, runId, { generatedAt = new
     });
   }
 
-  const current = findCurrentStage({ tasks, stages: CANONICAL_SDLC_STAGES, metrics, events });
+  const current = findCurrentStage({ tasks, stages: taxonomy, metrics, events });
   const pipeline = buildPipelineStatus(manifest, stages);
 
   return {

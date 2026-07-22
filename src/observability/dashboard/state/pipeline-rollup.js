@@ -42,6 +42,16 @@ export function classifyNextAction(state) {
   return none;
 }
 
+// #218/#449: how many observed events are newer than the persisted state was
+// computed. >0 means the state (and its next-action) lags the live stream.
+// Shared so the rollup's `stale` flag and the observer's reactive-refresh
+// decision (state/index.js) use ONE definition and can never disagree.
+export function pipelineStateEventsBehind(state, events) {
+  const generatedAt = state?.generated_at ?? null;
+  if (!generatedAt) return 0;
+  return (events ?? []).filter((event) => String(event?.ts ?? event?.timestamp ?? '') > String(generatedAt)).length;
+}
+
 export function compactPipelineRollup(state, events) {
   const next = classifyNextAction(state);
   const loop = state.goal_loop ?? {};
@@ -58,9 +68,7 @@ export function compactPipelineRollup(state, events) {
   // so the hero card can say so rather than present a stale recommendation as
   // live ("never let stale data look live").
   const generatedAt = state.generated_at ?? null;
-  const eventsBehind = generatedAt
-    ? (events ?? []).filter((event) => String(event?.ts ?? event?.timestamp ?? '') > String(generatedAt)).length
-    : 0;
+  const eventsBehind = pipelineStateEventsBehind(state, events);
   return {
     schema_version: state.schema_version ?? null,
     status: state.pipeline?.status ?? 'UNKNOWN',

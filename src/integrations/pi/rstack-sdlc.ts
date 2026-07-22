@@ -216,6 +216,11 @@ type RunManifest = {
   rstack_version: string;
   traceability_path?: string;
   started_by?: { name: string; email: string | null };
+  // #447: the canonical stage taxonomy frozen at run start. Past runs render
+  // through THEIR OWN taxonomy, not whatever stages.js says today — so a stage
+  // renamed/added/removed later can't retro-hallucinate old runs. Absent on
+  // pre-#447 runs, which fall back to the current canonical list.
+  stage_taxonomy?: Array<{ id: string; title: string; agent: string; artifact: string }>;
 };
 
 type ApprovalRecord = {
@@ -1874,6 +1879,8 @@ export default function (pi: ExtensionAPI) {
         project_root: projectRoot,
         rstack_version: RSTACK_VERSION,
         started_by: startedBy,
+        // #447: snapshot the stage taxonomy this run executes under.
+        stage_taxonomy: CANONICAL_SDLC_STAGES.map((stage) => ({ id: stage.id, title: stage.title, agent: stage.agent, artifact: stage.artifact })),
         profile: activeProfile.profile,
         workflow: activeProfile.workflow,
       } as RunManifest & { profile: string; workflow: string };

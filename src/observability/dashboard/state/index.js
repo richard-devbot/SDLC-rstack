@@ -36,7 +36,7 @@ import {
 import { validateProjectConfigs } from '../../../core/harness/config-validation.js';
 // [wave:command] imports — pipeline rollup enrichment (#94 / #156 / #215)
 import { readPipelineState, buildPipelineState } from '../../../core/harness/pipeline-state.js';
-import { compactPipelineRollup } from './pipeline-rollup.js';
+import { compactPipelineRollup, pipelineStateEventsBehind } from './pipeline-rollup.js';
 import { runDirectory } from '../../../core/harness/runs.js';
 import { readJson } from './files.js';
 export { toClientState } from './client-state.js';
@@ -324,6 +324,19 @@ async function attachPipelineRollups(runs) {
       try {
         let state = await readPipelineState(run.projectRoot, run.runId);
         if (!state && !run.fromIndex) state = await buildPipelineState(run.projectRoot, run.runId);
+        // #449: observer-safe reactive refresh. If the persisted rollup lags the
+        // live event stream for a locally-owned (freshly parsed) run, recompute
+        // it IN MEMORY — buildPipelineState never writes, so the read-only
+        // observer contract holds — instead of serving a stale-labeled
+        // next-action. Never for index-served/foreign runs (they stay labeled,
+        // no rebuild), and never a disk write. Makes the UI converge to live
+        // state without the observer touching a repo it merely watches.
+        if (state && !run.fromIndex && pipelineStateEventsBehind(state, run.events ?? []) > 0) {
+          try {
+            const fresh = await buildPipelineState(run.projectRoot, run.runId);
+            if (fresh) state = fresh;
+          } catch { /* keep the persisted state; it stays honestly labeled stale */ }
+        }
         run.pipelineRollup = state ? compactPipelineRollup(state, run.events ?? []) : null;
       } catch {
         run.pipelineRollup = null;
