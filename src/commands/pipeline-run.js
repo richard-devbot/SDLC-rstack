@@ -8,7 +8,7 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { appendFile, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,6 +17,7 @@ import { classifyRetryDecision } from '../core/harness/retry-policy.js';
 import { runDirectory, resolveRunId, rstackStateDir } from '../core/harness/runs.js';
 import { buildPipelineState, writePipelineState, taskStageIds } from '../core/harness/pipeline-state.js';
 import { checkDataIndependence } from '../core/harness/parallel-benchmark.js';
+import { withFileLock, writeJsonAtomic } from '../core/harness/safe-write.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -206,6 +207,35 @@ export function bridgeInvoker(projectRoot) {
   });
 }
 
+const ORPHAN_CLAIM_STALE_MS = 10 * 60_000;
+
+async function reclaimOrphanedClaims(projectRoot, runId) {
+  const dir = runDirectory(projectRoot, runId);
+  const tasksPath = join(dir, 'tasks.json');
+  const reclaimed = await withFileLock(tasksPath, async () => {
+    const state = await readJson(tasksPath, null);
+    const tasks = normalizeTasks(state);
+    const now = Date.now();
+    const task = tasks.find((item) => {
+      if (!RUNNING.has(String(item?.status ?? '').toUpperCase())) return false;
+      const claimedAt = Number(item?._started_at ?? Date.parse(item?._claim?.claimed_at ?? ''));
+      return Number.isFinite(claimedAt) && now - claimedAt >= ORPHAN_CLAIM_STALE_MS
+        && !existsSync(join(dir, 'tasks', item.id ?? '', 'builder.json'))
+        && !existsSync(join(dir, 'tasks', item.id ?? '', 'prompt.md'));
+    });
+    if (!task) return null;
+    task.status = 'READY';
+    delete task._claim;
+    await writeJsonAtomic(tasksPath, state);
+    return { task_id: task.id, claimed_at: task._started_at };
+  });
+  if (reclaimed) {
+    const eventsPath = join(dir, 'events.jsonl');
+    await withFileLock(eventsPath, async () => appendFile(eventsPath, `${JSON.stringify({ ts: new Date().toISOString(), type: 'claim_reclaimed', ...reclaimed })}\n`));
+  }
+  return reclaimed;
+}
+
 async function loadRunSnapshot(projectRoot, runId) {
   const dir = runDirectory(projectRoot, runId);
   const tasks = normalizeTasks(await readJson(join(dir, 'tasks.json'), []));
@@ -236,6 +266,7 @@ export async function runPipeline(projectRoot, { runId, maxSteps = 5, dryRun = f
     // Regenerate the rollup each step so decisions always reflect what the
     // previous step just changed. Dry-run builds the state in memory and
     // persists NOTHING — not even the rollup file.
+    if (!dryRun) await reclaimOrphanedClaims(projectRoot, selected);
     const state = dryRun
       ? await buildPipelineState(projectRoot, selected)
       : (await writePipelineState(projectRoot, selected)).state;
