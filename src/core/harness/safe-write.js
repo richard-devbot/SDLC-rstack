@@ -1,5 +1,6 @@
 import { mkdir, open, readdir, readFile, rename, rm, stat, utimes } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 // owner: RStack developed by Richardson Gunde
 
@@ -30,6 +31,32 @@ function lockStaleMs(env = process.env) {
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
+// Generation fence (#448): withFileLock runs its critical section inside this
+// context carrying the lock path + the acquisition token. An atomic write to
+// the very file that context guards re-verifies the on-disk token IMMEDIATELY
+// before the rename — so a stalled owner whose lock was stolen after a stale
+// takeover cannot clobber the successor's state (the write is refused, not just
+// detected after the fact). Propagates across awaits; no caller changes.
+const lockContext = new AsyncLocalStorage();
+
+async function readLockToken(lockPath) {
+  try {
+    return JSON.parse(await readFile(lockPath, 'utf8'))?.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Thrown when a fenced write is refused because the lock was taken over
+// mid-critical-section. Callers can treat it as "retry the whole locked op".
+export class LockFenceError extends Error {
+  constructor(file) {
+    super(`[rstack] write to ${file} refused: this process no longer holds the lock (taken over after a stale timeout). The successor's state is preserved; retry the locked operation.`);
+    this.name = 'LockFenceError';
+    this.code = 'ELOCKFENCE';
+  }
+}
+
 // Monotonic per-process sequence: two concurrent writers in the SAME process
 // share a pid, so pid alone would make them scribble over one tmp file.
 let tmpSeq = 0;
@@ -48,6 +75,18 @@ export async function writeFileAtomic(file, data) {
     await handle.sync();
   } finally {
     await handle?.close();
+  }
+  // Generation fence (#448): if we are inside the withFileLock section that
+  // guards THIS file, confirm we still own the lock before committing. A
+  // stalled owner whose lock was stolen aborts here instead of clobbering the
+  // successor. Only fires for a write to the locked file itself (the contended
+  // read-modify-write case); writes to other files are unaffected.
+  const ctx = lockContext.getStore();
+  if (ctx && ctx.lockPath === `${file}.lock`) {
+    if ((await readLockToken(ctx.lockPath)) !== ctx.token) {
+      await rm(tmp, { force: true }).catch(() => {});
+      throw new LockFenceError(file);
+    }
   }
   try {
     await rename(tmp, file);
@@ -144,7 +183,9 @@ export async function withFileLock(file, fn, opts = {}) {
         }, heartbeatMs);
         heartbeat.unref?.();
       }
-      return await fn();
+      // Run the critical section inside the fence context so an atomic write to
+      // this file re-verifies our token before committing (#448).
+      return await lockContext.run({ lockPath, token }, () => fn());
     } finally {
       if (heartbeat) clearInterval(heartbeat);
       try {
