@@ -1522,6 +1522,26 @@ tr.clickable:hover td { background: #f8fbff; }
 .exec-stat-l { margin-top: 2px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
 .exec-stat-s { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.35; }
 .exec-stat-v.schema-badge { font-size: 13px; padding-top: 5px; }
+/* [issue:453] Quality & Risk Index card */
+.qr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.qr-score { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #fff;
+  border-left-width: 4px; }
+.qr-score-v { font-size: 30px; font-weight: 800; line-height: 1.1; }
+.qr-score-max { font-size: 14px; font-weight: 600; color: var(--muted); margin-left: 2px; }
+.qr-score-l { margin-top: 4px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+.qr-score-b { margin-top: 3px; font-size: 12px; font-weight: 700; text-transform: capitalize; }
+.qr-score.unknown { border-left-color: var(--line); }
+.qr-score.low { border-left-color: #16a34a; }
+.qr-score.moderate, .qr-score.elevated { border-left-color: #d97706; }
+.qr-score.high { border-left-color: #dc2626; }
+.qr-score.critical, .qr-score.very_high { border-left-color: #b91c1c; }
+.qr-detail { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.qr-chip { font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line);
+  background: #f8fafc; color: var(--muted); }
+.qr-chip.ok { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+.qr-chip.warn { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+.qr-chip.danger { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+.qr-c2v { margin-top: 10px; color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .decision-log-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 12px; align-items: start;
   padding: 10px 0; border-bottom: 1px dashed var(--line); }
 .decision-log-row:last-child { border-bottom: none; }

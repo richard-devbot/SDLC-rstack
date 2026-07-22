@@ -150,5 +150,8 @@ export function buildOverviewProjection(state) {
     eventsBehind: stale ? Number(run.pipelineRollup?.events_behind ?? 0) : 0,
     evaluatedAt: readiness.evaluatedAt ?? state.ts ?? null,
     coverage: readiness.coverage ?? {},
+    // #453: the Quality & Risk BI card reads from the server-owned index — the
+    // qualitative counterpart to cost/coverage. Null when no run is evaluated.
+    qualityRisk: state.qualityRisk ?? null,
   };
 }
