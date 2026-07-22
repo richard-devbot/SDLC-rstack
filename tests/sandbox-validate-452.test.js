@@ -208,6 +208,17 @@ test('validateSandboxConfig flags unknown keys, bad types, and typo\'d stages', 
   assert.ok(fields.includes('sandbox.per_stage.07-code'), 'per-stage entry with no command is flagged');
 });
 
+test('validateSandboxConfig names bad limits sub-fields and an over-cap timeout (CodeRabbit #463)', () => {
+  const issues = validateSandboxConfig({ timeout_ms: 999_999_999, limits: { memory: '', pids: 'many', cpus: -1 } });
+  const fields = issues.map((i) => i.field);
+  assert.ok(fields.includes('sandbox.timeout_ms'), 'over-cap timeout is named, not silently clamped');
+  assert.ok(fields.includes('sandbox.limits.memory'));
+  assert.ok(fields.includes('sandbox.limits.pids'));
+  assert.ok(fields.includes('sandbox.limits.cpus'));
+  // non-object limits is a single clear error
+  assert.deepEqual(validateSandboxConfig({ limits: [] }).map((i) => i.field), ['sandbox.limits']);
+});
+
 test('validateSandboxConfig passes a well-formed block', () => {
   assert.deepEqual(
     validateSandboxConfig({ enabled: true, image: 'node:20-alpine', command: 'npm test', network: false, timeout_ms: 60000, per_stage: { '07-code': { command: 'npm test' } } }),

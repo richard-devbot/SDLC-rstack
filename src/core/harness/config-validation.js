@@ -14,6 +14,9 @@ import { DEFAULT_LOOP_BOUNDS, LOOP_HARD_CAP } from './goal-loop.js';
 import { DEFAULT_CRITICAL_STAGE_IDS } from './checkpoints.js';
 import { getCanonicalStage } from './stages.js';
 import { rstackStateDir } from './runs.js';
+// #452: the sandbox timeout hard cap lives with the executor it bounds, so the
+// config validator and the resolver clamp/name against ONE value.
+import { MAX_TIMEOUT_MS } from './sandbox.js';
 // #136 (BLE-6.2): context-pressure thresholds live in rstack.config.json under
 // `context_pressure`; validated field-by-field like every other block.
 import { validateContextPressureConfig } from './context-pressure.js';
@@ -156,6 +159,25 @@ export function validateSandboxConfig(sandbox) {
   const timeout = sandbox.timeout_ms ?? sandbox.timeoutMs;
   if (timeout != null && !isNonNegativeNumber(timeout)) {
     issues.push({ field: 'sandbox.timeout_ms', problem: `must be a non-negative number of milliseconds, got ${JSON.stringify(timeout)} — the default applies` });
+  } else if (timeout != null && Number(timeout) > MAX_TIMEOUT_MS) {
+    issues.push({ field: 'sandbox.timeout_ms', problem: `exceeds the hard cap of ${MAX_TIMEOUT_MS}ms — it will be clamped to ${MAX_TIMEOUT_MS}ms` });
+  }
+  // limits sub-fields: resolveSandboxConfig silently drops bad-typed values, so
+  // name them here (the whole point of this validator) instead of leaving a
+  // typo like { pids: "many" } to pass clean and be ignored downstream.
+  if (sandbox.limits != null) {
+    if (!isPlainObject(sandbox.limits)) {
+      issues.push({ field: 'sandbox.limits', problem: 'must be an object of { memory, pids, cpus }' });
+    } else {
+      if (sandbox.limits.memory != null && (typeof sandbox.limits.memory !== 'string' || !sandbox.limits.memory.trim())) {
+        issues.push({ field: 'sandbox.limits.memory', problem: `must be a non-empty string (e.g. "512m"), got ${JSON.stringify(sandbox.limits.memory)} — the default applies` });
+      }
+      for (const key of ['pids', 'cpus']) {
+        if (sandbox.limits[key] != null && !isNonNegativeNumber(sandbox.limits[key])) {
+          issues.push({ field: `sandbox.limits.${key}`, problem: `must be a non-negative number, got ${JSON.stringify(sandbox.limits[key])} — the default applies` });
+        }
+      }
+    }
   }
   const perStage = sandbox.per_stage ?? sandbox.perStage;
   if (perStage != null) {

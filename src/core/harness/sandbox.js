@@ -25,7 +25,7 @@ import { existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
-const MAX_TIMEOUT_MS = 600_000;
+export const MAX_TIMEOUT_MS = 600_000;
 const OUTPUT_TAIL_BYTES = 8 * 1024; // bounded like goal-check's maxBuffer precedent
 const RUNTIMES = ['docker', 'podman'];
 
