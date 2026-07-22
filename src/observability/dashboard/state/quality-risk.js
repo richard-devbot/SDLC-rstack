@@ -48,12 +48,14 @@ const COMPLEXITY_BANDS = [
   { max: 100, band: 'very_high' },
 ];
 
+// Map a 0-100 score to its labelled band; null score → 'unknown' (honest nulls).
 function bandFor(score, bands) {
   if (score == null) return 'unknown';
   for (const { max, band } of bands) if (score <= max) return band;
   return bands[bands.length - 1].band;
 }
 
+// Round and clamp a raw weighted sum into the reportable 0-100 range.
 function clampScore(value) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
@@ -81,6 +83,7 @@ export function isRiskMitigated(risk) {
   return typeof risk.mitigation === 'string' && risk.mitigation.trim().length > 0;
 }
 
+// Flatten every builder-reported risk across the run's tasks into one list.
 function collectRisks(tasks) {
   const risks = [];
   for (const task of tasks ?? []) {
@@ -196,6 +199,8 @@ export function computeQualityRisk(run, { coveragePercent = null, costUsd = null
 
 // --- run selection + coverage/cost extraction -------------------------------
 
+// Pick the run the Overview card is about: the active run, else the newest with
+// a pipeline rollup, else the newest run (matches the Overview projection).
 function focusRun(runs) {
   const candidates = runs ?? [];
   return candidates.find((run) => run.derivedStatus === 'active')
