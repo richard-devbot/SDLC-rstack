@@ -11,6 +11,60 @@ what you can now do that you couldn't before.
 
 ---
 
+## [2.2.0] - 2026-07-23
+
+The "execute-and-observe" release. The governed loop stops trusting self-reports:
+it now **runs your code in a sandbox and grades the result from the real exit code**,
+feeds real failure logs back to the next attempt, and reports **risk and complexity**,
+not just cost. Plus a hardened integrity core and the packaging fix so `npm install`
+ships a lean tree.
+
+### The loop now runs and observes your code (epic #450)
+- **Transient Sandbox execution — "The Scientist."** `sdlc_validate` runs your
+  authoritative test command inside a locked-down, disposable container (no network,
+  dropped capabilities, non-root, read-only mount, resource caps) and folds the **real
+  exit code** into the verdict — replacing the builder's self-reported `tests_run`.
+  A failing run fails validation; a passing run is container-verified; no runtime (or
+  no configured command) degrades honestly to "unverified", never a false green. The
+  executed command is trusted (project/plan config), never the untrusted builder's.
+- **The Scientist feeds the Critic.** On a retry, the previous attempt's **real
+  stderr/stdout** is surfaced at the top of the builder's prompt, so it fixes exactly
+  what broke instead of guessing (structured critique loop-back).
+- **`doctor` reports the sandbox tier.** `rstack-agents doctor` now tells you whether
+  execution is *container-verified* or *unverified*, and `doctor --start-runtime` opts
+  into a bounded auto-start of Docker/Podman (never a hidden launch otherwise).
+- **Quality & Risk Index.** The Business Hub Overview gains a dedicated card: an
+  **Aggregated Risk Score** (severity-weighted, discounted when mitigated) and a
+  **Complexity Index** (files touched, task breadth, executed commands), plus
+  cost-to-value — so the Hub can say "green, but complexity spiked and two high-severity
+  risks were accepted", not just "green, cost $X". Honest nulls when a source is absent;
+  BI only, never blocks a gate.
+
+### The Agent Force Studio comes alive (epic #431)
+- The 3D Studio is now a **living digital twin**: glass rooms you can click into, a
+  cinema camera that follows real activity, walking agents driven only by observed
+  events, governance/evidence rooms that fill from real records, a manager mission
+  wall, and a WebGPU rendering tier (with automatic WebGL fallback).
+
+### Hardened integrity core (epic #442)
+- **Approvals bind to artifact bytes, not just names** — editing an approved artifact
+  re-blocks the gate (closes a UI approve-then-edit TOCTOU).
+- **Concurrency-safe event + lock handling** — the run event log is written under a
+  single lock (no torn/lost records undercounting attempts or cost); the file lock now
+  fences a stalled owner's late write after a takeover; a mid-claim crash is recovered
+  by an orphaned-claim reaper.
+- **History can't be retro-rewritten** — each run renders through the stage taxonomy
+  snapshotted at its start, so renaming/adding stages later can't rewrite past runs.
+
+### Fixed
+- **`npm install` is lean again.** The published package no longer ships ~125MB of
+  unreferenced 3D-asset files — the tarball drops from ~164MB to ~33MB unpacked (#402).
+- **Destructive-action guard false positives + a traversal bypass.** A benign heredoc
+  no longer trips the git-force rule, and a path-traversal hole in the `.rstack/` config
+  carve-out that could bypass write-protection is closed (#400/#401).
+
+---
+
 ## [2.1.0] - 2026-07-17
 
 The "governed on every harness, and you can trust it" release. RStack now runs the
