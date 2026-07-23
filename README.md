@@ -12,9 +12,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.0-brightgreen" alt="v2.1.0"/>
+  <img src="https://img.shields.io/badge/version-2.2.0-brightgreen" alt="v2.2.0"/>
   <img src="https://img.shields.io/badge/agents-196%20validated-brightgreen" alt="196 agents"/>
-  <img src="https://img.shields.io/badge/tests-1454%20pass-brightgreen" alt="1454 tests"/>
+  <img src="https://img.shields.io/badge/tests-1607%20pass-brightgreen" alt="1607 tests"/>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"/>
 </p>
 
