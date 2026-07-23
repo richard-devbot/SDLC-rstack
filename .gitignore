@@ -47,3 +47,15 @@ outputs/team_state
 # Python bytecode cache (src/integrations/{tau,operator}/ adapters)
 __pycache__/
 *.pyc
+
+# Internal working docs — not shipped, not referenced by CI/tests. Kept local
+# only, out of the tracked repo (Richardson, 2026-07-23). NOTE: deliberately
+# excludes docs/github-issues, docs/AUDIT-CURRENT-STATE.md and
+# docs/LOOP-ENGINEERING-UPGRADE-PLAN.md — those are pinned by
+# tests/validate-loop-engineering-docs.test.js and must stay tracked.
+docs/audits/
+docs/design/
+docs/evidence/
+docs/internal-specs/
+docs/superpowers/
+docs/STATE-OF-RSTACK-2026-07-05.md
